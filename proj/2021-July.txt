@@ -1,0 +1,1206 @@
+From kilian.demeulemeester at yellowscan-lidar.com  Fri Jul  2 06:44:27 2021
+From: kilian.demeulemeester at yellowscan-lidar.com (Kilian Demeulemeester)
+Date: Fri, 2 Jul 2021 15:44:27 +0200
+Subject: [PROJ] Question about performances of proj_trans or
+ proj_trans_generic when using a grid shift file
+Message-ID: <21b0915a-3bd3-065d-ec93-c8246ffe4326@yellowscan-lidar.com>
+
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210702/032d3d7b/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: x-disclaimer-534644925-0.png
+Type: image/png
+Size: 1125 bytes
+Desc: x-disclaimer-534644925-0.png
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210702/032d3d7b/attachment.png>
+
+From even.rouault at spatialys.com  Fri Jul  2 08:13:34 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 2 Jul 2021 17:13:34 +0200
+Subject: [PROJ] Question about performances of proj_trans or
+ proj_trans_generic when using a grid shift file
+In-Reply-To: <21b0915a-3bd3-065d-ec93-c8246ffe4326@yellowscan-lidar.com>
+References: <21b0915a-3bd3-065d-ec93-c8246ffe4326@yellowscan-lidar.com>
+Message-ID: <29379cb3-dd83-cb28-6a72-c7c77ada3f0c@spatialys.com>
+
+Kilian,
+
+looking at the NTv2 file reader, I see it will do a seek + read for each 
+points to transform (actually 4 seek + read, given the bilinear 
+interpolation). I suspect that might be costly.
+
+The GTiff grid file reader keeps in memory the last used strip or tile, 
+so if transformating locations that are sufficiently close from each 
+other, the amont of file read is reduced. You could try to use the 
+https://github.com/OSGeo/PROJ-data/blob/master/fr_ign/fr_ign_ntf_r93.tif 
+GeoTIFF grid (also available at http://cdn.proj.org/fr_ign_ntf_r93.tif), 
+which is a conversion from the NTv2 ntf_r93.gsb (and in that instance, 
+it is a single block grid, so it will be just read once)
+
+And your analysis is write: proj_trans_generic() will not give you 
+speed-up (at least with current implementation) compared to repeated 
+calls to proj_trans()
+
+Even
+
+Le 02/07/2021 ? 15:44, Kilian Demeulemeester a ?crit?:
+> Hi,
+>
+> I've added the support of grid shift in the software suite we are 
+> developing here at YellowScan.
+>
+> Now that the grid shift files are found, the coordinates are projected 
+> correctly and our customer is happy.
+>
+> However, the projection time completly exploded: for instance, on our 
+> customer dataset, our LAS creation algorithm exports our data in 
+> approx 5s without using a grid shift, and it now takes up to 2min20s 
+> when using it.
+>
+> The projection pipeline used is:
+>
+> +proj=pipeline
+>
+> +step +proj=push +v_3
+>
+> +step +proj=cart +ellps=WGS84
+>
+> +step +proj=helmert +x=168 +y=60 +z=-320
+>
+> +step +inv +proj=cart +ellps=clrk80ign
+>
+> +step +proj=pop +v_3
+>
+> +step +proj=lcc +lat_1=44.1 +lat_0=44.1 +lon_0=0 +k_0=0.999877499 
+> +x_0=600000 +y_0=3200000 +ellps=clrk80ign +pm=paris
+>
+> +step +inv +proj=lcc +lat_1=44.1 +lat_0=44.1 +lon_0=0 +k_0=0.999877499 
+> +x_0=600000 +y_0=3200000 +ellps=clrk80ign +pm=paris
+>
+> +step +proj=hgridshift +grids=ntf_r93.gsb
+>
+> +step +proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 
+> +y_0=6600000 +ellps=GRS80
+>
+>
+> The grid shift file used is ntf_r93.gsb
+>
+>
+> Is this time normal? Is there a way to speed things up? I've tried to 
+> use proj_trans_generic with no success, and exploring the source code 
+> on github, I realized that it is using a for-loop approach, using 
+> proj_trans (so no optimization to expect - but I might be wrong).
+>
+>
+> Any help is appreciated!
+>
+> Cheers !
+>
+> *Kilian Demeulemeester//*
+> Software Project Lead - R&D
+>
+> logo_Yellowscan <https://yellowscan-lidar.com>
+>
+> 	
+>
+> 525 Avenue Saint Sauveur du Pin
+> 34980 Saint-Cl?ment-De-Rivi?re - France
+> Tel: +33 (0)4 11 93 14 06
+> yellowscan-lidar.com <https://yellowscan-lidar.com>
+>
+> <https://www.yellowscan-lidar.com/events/category/demo-days/?utm_source=email_signature&utm_medium=email&utm_campaign=demodays_banner> 
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210702/17ac978e/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: x-disclaimer-534644925-0.png
+Type: image/png
+Size: 1125 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210702/17ac978e/attachment.png>
+
+From urschrei at gmail.com  Fri Jul  2 08:32:04 2021
+From: urschrei at gmail.com (=?utf-8?Q?Stephan_H=C3=BCgel?=)
+Date: Fri, 2 Jul 2021 16:32:04 +0100
+Subject: [PROJ] Question about performances of proj_trans or
+ proj_trans_generic when using a grid shift file
+In-Reply-To: <29379cb3-dd83-cb28-6a72-c7c77ada3f0c@spatialys.com>
+References: <29379cb3-dd83-cb28-6a72-c7c77ada3f0c@spatialys.com>
+Message-ID: <DB0D1613-8095-45F3-AB82-3579C92427C6@gmail.com>
+
+Depending on your use case, it might be worthwhile to convert the grid shift file in question into a key-value structure such as a hashmap (you can use a perfect hash function for this, since all the values are known ahead of time), and serialise that to disk. Your conversion routine then has two steps: convert using PROJ without the grid shift step to obtain the uncorrected new coordinates, then look up the shift values for those coordinates in the hash map, and perform the bilinear interpolation manually to obtain the corrected coordinates.
+
+There are drawbacks: the serialised hashmap will be quite large on disk (less than 100 MB, I would imagine), and you?re adding complexity to your conversion pipeline, but it may be worth it for you if you have a need to convert coordinates at scale on a regular basis, such that a 30x slowdown is too large. I?ve found it to be a worthwhile approach for very fast conversion from WGS84 to OSGB36, using the OSTN15 transform: https://github.com/urschrei/lonlat_bng, but in retrospect it?s difficult to judge whether it was worthwhile from a cost / benefit perspective.
+
+-- 
+steph
+
+> On 2 Jul 2021, at 16:13, Even Rouault <even.rouault at spatialys.com> wrote:
+> ?
+> Kilian,
+> 
+> looking at the NTv2 file reader, I see it will do a seek + read for each points to transform (actually 4 seek + read, given the bilinear interpolation). I suspect that might be costly.
+> 
+> The GTiff grid file reader keeps in memory the last used strip or tile, so if transformating locations that are sufficiently close from each other, the amont of file read is reduced. You could try to use the https://github.com/OSGeo/PROJ-data/blob/master/fr_ign/fr_ign_ntf_r93.tif GeoTIFF grid (also available at http://cdn.proj.org/fr_ign_ntf_r93.tif), which is a conversion from the NTv2 ntf_r93.gsb (and in that instance, it is a single block grid, so it will be just read once)
+> 
+> And your analysis is write: proj_trans_generic() will not give you speed-up (at least with current implementation) compared to repeated calls to proj_trans()
+> 
+> Even
+> 
+> Le 02/07/2021 ? 15:44, Kilian Demeulemeester a ?crit :
+>> Hi, 
+>> 
+>> I've added the support of grid shift in the software suite we are developing here at YellowScan. 
+>> 
+>> Now that the grid shift files are found, the coordinates are projected correctly and our customer is happy. 
+>> 
+>> However, the projection time completly exploded: for instance, on our customer dataset, our LAS creation algorithm exports our data in approx 5s without using a grid shift, and it now takes up to 2min20s when using it. 
+>> 
+>> The projection pipeline used is: 
+>> 
+>> +proj=pipeline
+>> +step +proj=push +v_3
+>> 
+>> +step +proj=cart +ellps=WGS84
+>> 
+>> +step +proj=helmert +x=168 +y=60 +z=-320
+>> 
+>> +step +inv +proj=cart +ellps=clrk80ign
+>> 
+>> +step +proj=pop +v_3
+>> 
+>> +step +proj=lcc +lat_1=44.1 +lat_0=44.1 +lon_0=0 +k_0=0.999877499 +x_0=600000 +y_0=3200000 +ellps=clrk80ign +pm=paris
+>> 
+>> +step +inv +proj=lcc +lat_1=44.1 +lat_0=44.1 +lon_0=0 +k_0=0.999877499 +x_0=600000 +y_0=3200000 +ellps=clrk80ign +pm=paris
+>> 
+>> +step +proj=hgridshift +grids=ntf_r93.gsb
+>> 
+>> +step +proj=lcc +lat_0=46.5 +lon_0=3 +lat_1=49 +lat_2=44 +x_0=700000 +y_0=6600000 +ellps=GRS80
+>> 
+>> 
+>> 
+>> The grid shift file used is ntf_r93.gsb
+>> 
+>> 
+>> 
+>> Is this time normal? Is there a way to speed things up? I've tried to use proj_trans_generic with no success, and exploring the source code on github, I realized that it is using a for-loop approach, using proj_trans (so no optimization to expect - but I might be wrong).
+>> 
+>> 
+>> Any help is appreciated! 
+>> 
+>> Cheers ! 
+>> 
+>> Kilian Demeulemeester
+>> Software Project Lead - R&D
+>> 
+>> <x-disclaimer-534644925-0.png>
+>> 525 Avenue Saint Sauveur du Pin
+>> 34980 Saint-Cl?ment-De-Rivi?re - France
+>> Tel: +33 (0)4 11 93 14 06
+>> yellowscan-lidar.com
+>> 
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210702/23c596d1/attachment-0001.html>
+
+From j1 at jimenezshaw.com  Tue Jul 13 08:49:25 2021
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 13 Jul 2021 17:49:25 +0200
+Subject: [PROJ] Is there Doxygen documentation?
+In-Reply-To: <ce319705-1513-61a0-18a7-4617369d5157@spatialys.com>
+References: <CADRrdKtP51vh0TpJ6kZ=jYT74WEUyqCLnx-nnRqYuhaGkYN6_g@mail.gmail.com>
+ <ce319705-1513-61a0-18a7-4617369d5157@spatialys.com>
+Message-ID: <CADRrdKudjxLN6vYmV3=BjXUgi3nCh7=KO4Tbx_aOZH7hjCTQRg@mail.gmail.com>
+
+Hi
+
+I remember I mentioned some time ago that the sphinx formatting for C++ was
+strange, missing spaces.
+Looks like it was finally fixed:
+https://github.com/readthedocs/sphinx_rtd_theme/issues/694#issuecomment-870351210
+
+Just FYI.
+
+Javier.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Wed, 21 Apr 2021 at 12:41, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Javier,
+>
+> GDAL publishes Doxygen because it used to do it before we switched to
+> Sphinx.
+>
+> PROJ Doxygen doc isn't pushed on proj.org, but you can consult it locally
+>
+> Run ./scripts/doxygen.sh
+>
+> and open generated files in docs/build/doxygen_html/index.html
+>
+> Even
+> Le 21/04/2021 ? 12:21, Javier Jimenez Shaw a ?crit :
+>
+> Hi
+>
+> In GDAL you can use two different C++ documentations:
+>  - Sphinx : https://gdal.org/api/index.html#id3
+>  - Doxygen : https://gdal.org/doxygen/index.html
+>
+> However in PROJ I could only find it in Sphinx format
+>  - https://proj.org/development/reference/cpp/index.html#
+>
+> Am I missing something? Is there doxygen style doc for PROJ somewhere?
+>
+> Thanks.
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210713/bf1bb6d8/attachment.html>
+
+From j1 at jimenezshaw.com  Wed Jul 14 03:33:22 2021
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 14 Jul 2021 12:33:22 +0200
+Subject: [PROJ] unresolved external symbol EARTH (windows)
+Message-ID: <CADRrdKtvzDg13i8ALyp4wQUM2r5UDTdKXSmmR2_peiMoBQxRaw@mail.gmail.com>
+
+Hi all
+
+I am using PROJ 8.1.0 in C++ in a library. While linking the unit test in
+Windows (no problem in Ubuntu or macOS), I get this error message:
+
+psrs.lib(SrsCatalog.cpp.obj) : error LNK2019: unresolved external symbol
+"public: static class std::basic_string<char,struct
+std::char_traits<char>,class std::allocator<char> > const
+osgeo::proj::datum::Ellipsoid::EARTH" (?EARTH at Ellipsoid@datum at proj@osgeo@
+@2V?$basic_string at DU?$char_traits at D@std@@V?$allocator at D@2@@std@@B)
+referenced in function "public: void __cdecl
+pd::srs::SrsCatalog::Impl::populate(void)" (?populate at Impl@SrsCatalog at srs
+@pd@@QEAAXXZ)
+
+In the same function I am using proj methods like getCRSInfoList or
+createCoordinateReferenceSystem, but not another constant.
+
+Do I have to do anything special to use/link that? Or is it a problem in
+PROJ?
+This happens in the CI machine. I do not have a Windows local computer to
+reproduce it.
+
+I solved it easily not using the variable
+osgeo::proj::datum::Ellipsoid::EARTH, but the string "Earth". However, it
+could be interesting if there is any problem in proj code.
+
+Thanks,
+Javier
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210714/77ef7ced/attachment.html>
+
+From even.rouault at spatialys.com  Wed Jul 14 03:56:17 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 14 Jul 2021 12:56:17 +0200
+Subject: [PROJ] unresolved external symbol EARTH (windows)
+In-Reply-To: <CADRrdKtvzDg13i8ALyp4wQUM2r5UDTdKXSmmR2_peiMoBQxRaw@mail.gmail.com>
+References: <CADRrdKtvzDg13i8ALyp4wQUM2r5UDTdKXSmmR2_peiMoBQxRaw@mail.gmail.com>
+Message-ID: <11e9865e-9242-7edd-cb6e-30112f13ee83@spatialys.com>
+
+Javier,
+
+the symbol is CPL_DLL exported and defined in static.cpp. You don't 
+mention which type of linking you use: dynamic / static.
+
+You may perhaps need to define PROJ_MSVC_DLL_IMPORT.
+
+See the following in proj.h
+
+#ifndef PROJ_DLL
+#ifdef PROJ_MSVC_DLL_EXPORT
+#define PROJ_DLL __declspec(dllexport)
+#elif defined(PROJ_MSVC_DLL_IMPORT)
+#define PROJ_DLL __declspec(dllimport)
+#elif defined(__GNUC__)
+#define PROJ_DLL __attribute__ ((visibility("default")))
+#else
+#define PROJ_DLL
+#endif
+#endif
+
+Even
+
+
+Le 14/07/2021 ? 12:33, Javier Jimenez Shaw a ?crit?:
+> Hi all
+>
+> I am using PROJ 8.1.0 in C++ in a library. While linking the unit test 
+> in Windows (no problem in Ubuntu or macOS), I get this error message:
+>
+> psrs.lib(SrsCatalog.cpp.obj) : error LNK2019: unresolved external 
+> symbol "public: static class std::basic_string<char,struct 
+> std::char_traits<char>,class std::allocator<char> > const 
+> osgeo::proj::datum::Ellipsoid::EARTH" 
+> (?EARTH at Ellipsoid@datum at proj@osgeo@@2V?$basic_string at DU?$char_traits at D@std@@V?$allocator at D@2@@std@@B) 
+> referenced in function "public: void __cdecl 
+> pd::srs::SrsCatalog::Impl::populate(void)" 
+> (?populate at Impl@SrsCatalog at srs@pd@@QEAAXXZ)
+>
+> In the same function I am using proj methods like getCRSInfoList or 
+> createCoordinateReferenceSystem, but not another constant.
+>
+> Do I have to do anything special to use/link that? Or is it a problem 
+> in PROJ?
+> This happens in the CI machine. I do not have a Windows local computer 
+> to reproduce it.
+>
+> I solved it easily not using the variable 
+> osgeo::proj::datum::Ellipsoid::EARTH, but the string "Earth". However, 
+> it could be interesting if there is any problem in proj code.
+>
+> Thanks,
+> Javier
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210714/93bff302/attachment.html>
+
+From j1 at jimenezshaw.com  Wed Jul 14 09:02:46 2021
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 14 Jul 2021 18:02:46 +0200
+Subject: [PROJ] unresolved external symbol EARTH (windows)
+In-Reply-To: <11e9865e-9242-7edd-cb6e-30112f13ee83@spatialys.com>
+References: <CADRrdKtvzDg13i8ALyp4wQUM2r5UDTdKXSmmR2_peiMoBQxRaw@mail.gmail.com>
+ <11e9865e-9242-7edd-cb6e-30112f13ee83@spatialys.com>
+Message-ID: <CADRrdKuynr_Emk6cWGER33yceJFfqYUoOTE9j3BsDWW-3TBC=A@mail.gmail.com>
+
+This issue is about the same topic:
+https://github.com/OSGeo/PROJ/issues/1821
+that "stale" closed after 2 months of inactivity.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Wed, 14 Jul 2021 at 12:56, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Javier,
+>
+> the symbol is CPL_DLL exported and defined in static.cpp. You don't
+> mention which type of linking you use: dynamic / static.
+>
+> You may perhaps need to define PROJ_MSVC_DLL_IMPORT.
+>
+> See the following in proj.h
+>
+> #ifndef PROJ_DLL
+> #ifdef PROJ_MSVC_DLL_EXPORT
+> #define PROJ_DLL __declspec(dllexport)
+> #elif defined(PROJ_MSVC_DLL_IMPORT)
+> #define PROJ_DLL __declspec(dllimport)
+> #elif defined(__GNUC__)
+> #define PROJ_DLL __attribute__ ((visibility("default")))
+> #else
+> #define PROJ_DLL
+> #endif
+> #endif
+>
+> Even
+>
+>
+> Le 14/07/2021 ? 12:33, Javier Jimenez Shaw a ?crit :
+>
+> Hi all
+>
+> I am using PROJ 8.1.0 in C++ in a library. While linking the unit test in
+> Windows (no problem in Ubuntu or macOS), I get this error message:
+>
+> psrs.lib(SrsCatalog.cpp.obj) : error LNK2019: unresolved external symbol
+> "public: static class std::basic_string<char,struct
+> std::char_traits<char>,class std::allocator<char> > const
+> osgeo::proj::datum::Ellipsoid::EARTH" (?EARTH at Ellipsoid@datum at proj@osgeo@
+> @2V?$basic_string at DU?$char_traits at D@std@@V?$allocator at D@2@@std@@B)
+> referenced in function "public: void __cdecl
+> pd::srs::SrsCatalog::Impl::populate(void)" (?populate at Impl@SrsCatalog at srs
+> @pd@@QEAAXXZ)
+>
+> In the same function I am using proj methods like getCRSInfoList or
+> createCoordinateReferenceSystem, but not another constant.
+>
+> Do I have to do anything special to use/link that? Or is it a problem in
+> PROJ?
+> This happens in the CI machine. I do not have a Windows local computer to
+> reproduce it.
+>
+> I solved it easily not using the variable
+> osgeo::proj::datum::Ellipsoid::EARTH, but the string "Earth". However, it
+> could be interesting if there is any problem in proj code.
+>
+> Thanks,
+> Javier
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210714/a1b806e0/attachment.html>
+
+From even.rouault at spatialys.com  Wed Jul 14 09:10:52 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 14 Jul 2021 18:10:52 +0200
+Subject: [PROJ] unresolved external symbol EARTH (windows)
+In-Reply-To: <CADRrdKuynr_Emk6cWGER33yceJFfqYUoOTE9j3BsDWW-3TBC=A@mail.gmail.com>
+References: <CADRrdKtvzDg13i8ALyp4wQUM2r5UDTdKXSmmR2_peiMoBQxRaw@mail.gmail.com>
+ <11e9865e-9242-7edd-cb6e-30112f13ee83@spatialys.com>
+ <CADRrdKuynr_Emk6cWGER33yceJFfqYUoOTE9j3BsDWW-3TBC=A@mail.gmail.com>
+Message-ID: <22c48cf9-5fc4-ede3-ac5b-b5883059e59c@spatialys.com>
+
+I guess there must be a way, at least for projects using PROJ CMake 
+file, to have the PROJ target define PROJ_MSVC_DLL_IMPORT for dynamic 
+builds. That would be welcome as a PR
+
+Le 14/07/2021 ? 18:02, Javier Jimenez Shaw a ?crit?:
+> This issue is about the same topic: 
+> https://github.com/OSGeo/PROJ/issues/1821 
+> <https://github.com/OSGeo/PROJ/issues/1821>
+> that "stale" closed after 2 months of inactivity.
+>
+> .___ ._ ..._ .. . ._. .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+>
+> On Wed, 14 Jul 2021 at 12:56, Even Rouault <even.rouault at spatialys.com 
+> <mailto:even.rouault at spatialys.com>> wrote:
+>
+>     Javier,
+>
+>     the symbol is CPL_DLL exported and defined in static.cpp. You
+>     don't mention which type of linking you use: dynamic / static.
+>
+>     You may perhaps need to define PROJ_MSVC_DLL_IMPORT.
+>
+>     See the following in proj.h
+>
+>     #ifndef PROJ_DLL
+>     #ifdef PROJ_MSVC_DLL_EXPORT
+>     #define PROJ_DLL __declspec(dllexport)
+>     #elif defined(PROJ_MSVC_DLL_IMPORT)
+>     #define PROJ_DLL __declspec(dllimport)
+>     #elif defined(__GNUC__)
+>     #define PROJ_DLL __attribute__ ((visibility("default")))
+>     #else
+>     #define PROJ_DLL
+>     #endif
+>     #endif
+>
+>     Even
+>
+>
+>     Le 14/07/2021 ? 12:33, Javier Jimenez Shaw a ?crit?:
+>>     Hi all
+>>
+>>     I am using PROJ 8.1.0 in C++ in a library. While linking the unit
+>>     test in Windows (no problem in Ubuntu or macOS), I get this error
+>>     message:
+>>
+>>     psrs.lib(SrsCatalog.cpp.obj) : error LNK2019: unresolved external
+>>     symbol "public: static class std::basic_string<char,struct
+>>     std::char_traits<char>,class std::allocator<char> > const
+>>     osgeo::proj::datum::Ellipsoid::EARTH"
+>>     (?EARTH at Ellipsoid@datum at proj@osgeo@@2V?$basic_string at DU?$char_traits at D@std@@V?$allocator at D@2@@std@@B)
+>>     referenced in function "public: void __cdecl
+>>     pd::srs::SrsCatalog::Impl::populate(void)"
+>>     (?populate at Impl@SrsCatalog at srs@pd@@QEAAXXZ)
+>>
+>>     In the same function I am using proj methods like getCRSInfoList
+>>     or createCoordinateReferenceSystem, but not another constant.
+>>
+>>     Do I have to do anything special to use/link that? Or is it a
+>>     problem in PROJ?
+>>     This happens in the CI machine. I do not have a Windows local
+>>     computer to reproduce it.
+>>
+>>     I solved it easily not using the variable
+>>     osgeo::proj::datum::Ellipsoid::EARTH, but the string "Earth".
+>>     However, it could be interesting if there is any problem in proj
+>>     code.
+>>
+>>     Thanks,
+>>     Javier
+>>     .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>>     Entre dos pensamientos racionales
+>>     hay infinitos pensamientos irracionales.
+>>
+>>
+>>     _______________________________________________
+>>     PROJ mailing list
+>>     PROJ at lists.osgeo.org  <mailto:PROJ at lists.osgeo.org>
+>>     https://lists.osgeo.org/mailman/listinfo/proj  <https://lists.osgeo.org/mailman/listinfo/proj>
+>
+>     -- 
+>     http://www.spatialys.com  <http://www.spatialys.com>
+>     My software is free, but my time generally not.
+>
+>     _______________________________________________
+>     PROJ mailing list
+>     PROJ at lists.osgeo.org <mailto:PROJ at lists.osgeo.org>
+>     https://lists.osgeo.org/mailman/listinfo/proj
+>     <https://lists.osgeo.org/mailman/listinfo/proj>
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210714/c6a27d87/attachment-0001.html>
+
+From j1 at jimenezshaw.com  Mon Jul 19 01:43:13 2021
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Mon, 19 Jul 2021 10:43:13 +0200
+Subject: [PROJ] About Mexican Geoid
+Message-ID: <CADRrdKt+8QbufwO6vbMUEi9SkXyMSTSYLGaLXeXuOJO_BJEBeA@mail.gmail.com>
+
+Hi
+
+Recently I found that Mexico has a geoid model, used with vcrs NAVD88:
+GGM10 - Geoide gravim?trico mexicano 2010
+http://en.www.inegi.org.mx/temas/geoide/#Downloads
+The file is a text format, lat, long, undulation. It should be easy to
+import.
+The reference is ITRF2008 epoch 2010 (it sounds strange to me not using
+NAD83x, but it is fine, right?... well, epoch 2010 instead of 2005 may be a
+problem)
+Unfortunately I didn't find any transformation in EPSG from ITRF2008 (epoch
+2010) to NAVD88. We should do a PROJ one for the database (or ask them to
+do in EPSG, but without much hope).
+
+The main problem, as usual, is the "home made" license (for everything in
+their webpage). It seems to be very open, but it is not a "standard" one:
+http://en.www.inegi.org.mx/contenidos/inegi/doc/terminos_info_t.pdf
+
+What should we do?
+Maybe somebody already researched this geoid previously.
+
+Cheers,
+Javier.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210719/0a57c2f5/attachment.html>
+
+From cjmce at lsu.edu  Mon Jul 19 07:26:22 2021
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Mon, 19 Jul 2021 14:26:22 +0000
+Subject: [PROJ] About Mexican Geoid
+In-Reply-To: <CADRrdKt+8QbufwO6vbMUEi9SkXyMSTSYLGaLXeXuOJO_BJEBeA@mail.gmail.com>
+References: <CADRrdKt+8QbufwO6vbMUEi9SkXyMSTSYLGaLXeXuOJO_BJEBeA@mail.gmail.com>
+Message-ID: <DM6PR06MB50027DDCA065F2963747F105A8E19@DM6PR06MB5002.namprd06.prod.outlook.com>
+
+If my memory serves me correctly, the U.S. National Geodetic Survey (NGS) computed the Mexican geoid.  Dr. Tomas Soler was involved as I recall who is/was the Senior Geodesist at NGS.  I think it's public domain.
+
+
+Clifford J. Mugnier, c.p., c.m.s.
+
+Chief of Geodesy
+
+LSU Center for GeoInformatics (ERAD 266)
+
+Dept. of Civil Engineering (P.F. Taylor 3240H)
+
+LOUISIANA STATE UNIVERSITY
+
+Baton Rouge, LA  70803
+
+Academic: (225) 578-8536
+
+Research:   (225) 578-4578
+
+Cell:           (225) 328-8975
+
+honorary lifetime member, lsps
+
+fellow emeritus, asprs
+
+member, apsg
+
+________________________________
+From: PROJ <proj-bounces at lists.osgeo.org> on behalf of Javier Jimenez Shaw <j1 at jimenezshaw.com>
+Sent: Monday, July 19, 2021 3:43 AM
+To: proj <PROJ at lists.osgeo.org>
+Subject: [PROJ] About Mexican Geoid
+
+Hi
+
+Recently I found that Mexico has a geoid model, used with vcrs NAVD88: GGM10 - Geoide gravim?trico mexicano 2010
+http://en.www.inegi.org.mx/temas/geoide/#Downloads<https://nam04.safelinks.protection.outlook.com/?url=http%3A%2F%2Fen.www.inegi.org.mx%2Ftemas%2Fgeoide%2F%23Downloads&data=04%7C01%7Ccjmce%40lsu.edu%7C21f6ad5c27544f9d08ac08d94a914bf1%7C2d4dad3f50ae47d983a09ae2b1f466f8%7C0%7C0%7C637622810781009658%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C2000&sdata=dl22Hz7HsFb81wsjH0RLnIpDfjfXf7xMIz98nVxwoGQ%3D&reserved=0>
+The file is a text format, lat, long, undulation. It should be easy to import.
+The reference is ITRF2008 epoch 2010 (it sounds strange to me not using NAD83x, but it is fine, right?... well, epoch 2010 instead of 2005 may be a problem)
+Unfortunately I didn't find any transformation in EPSG from ITRF2008 (epoch 2010) to NAVD88. We should do a PROJ one for the database (or ask them to do in EPSG, but without much hope).
+
+The main problem, as usual, is the "home made" license (for everything in their webpage). It seems to be very open, but it is not a "standard" one:
+http://en.www.inegi.org.mx/contenidos/inegi/doc/terminos_info_t.pdf<https://nam04.safelinks.protection.outlook.com/?url=http%3A%2F%2Fen.www.inegi.org.mx%2Fcontenidos%2Finegi%2Fdoc%2Fterminos_info_t.pdf&data=04%7C01%7Ccjmce%40lsu.edu%7C21f6ad5c27544f9d08ac08d94a914bf1%7C2d4dad3f50ae47d983a09ae2b1f466f8%7C0%7C0%7C637622810781019648%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C2000&sdata=f115p6f4ROTS8fr8IKTaV17gjrVCBph8bYGIIAQhHw0%3D&reserved=0>
+
+What should we do?
+Maybe somebody already researched this geoid previously.
+
+Cheers,
+Javier.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210719/b02cfa2e/attachment.html>
+
+From gdt at lexort.com  Mon Jul 19 11:02:55 2021
+From: gdt at lexort.com (Greg Troxel)
+Date: Mon, 19 Jul 2021 14:02:55 -0400
+Subject: [PROJ] About Mexican Geoid
+In-Reply-To: <CADRrdKt+8QbufwO6vbMUEi9SkXyMSTSYLGaLXeXuOJO_BJEBeA@mail.gmail.com>
+ (Javier Jimenez Shaw's message of "Mon, 19 Jul 2021 10:43:13 +0200")
+References: <CADRrdKt+8QbufwO6vbMUEi9SkXyMSTSYLGaLXeXuOJO_BJEBeA@mail.gmail.com>
+Message-ID: <rmik0lm89m8.fsf@s1.lexort.com>
+
+
+Javier Jimenez Shaw <j1 at jimenezshaw.com> writes:
+
+> Recently I found that Mexico has a geoid model, used with vcrs NAVD88:
+> GGM10 - Geoide gravim?trico mexicano 2010
+> http://en.www.inegi.org.mx/temas/geoide/#Downloads
+> The file is a text format, lat, long, undulation. It should be easy to
+> import.
+> The reference is ITRF2008 epoch 2010 (it sounds strange to me not using
+> NAD83x, but it is fine, right?... well, epoch 2010 instead of 2005 may be a
+> problem)
+> Unfortunately I didn't find any transformation in EPSG from ITRF2008 (epoch
+> 2010) to NAVD88. We should do a PROJ one for the database (or ask them to
+> do in EPSG, but without much hope).
+
+In the US, geoid models are split into three camps, with the first two
+defined only in the US (or North America) and the last world-wide:
+
+  NGS (current NSRS): hybrid geoid model that converts from NAD83 HAE to
+  NAVD88
+
+  NGS (forthcoming NSRS): gravimetric geoid model that (I think)
+  converts from NATRF2022 HAE to heights above the NAPGD2022 level
+  surface.
+
+  NGA: gravimetric geoid model that converts from WGGS84 HAE to WGS84
+  orthometric height.  Not part of the NSRS, and not used by Federal and
+  State governments.
+
+Canada is different; it seems they moved from CGVD28 to CGVD2013 which
+uses a gravimetric geoid model that relates NAD83(CSRS) HAE to CGVD2013
+heights.  So it seems very much like NAPGD2022 (and I wouldn't be at all
+surprised if there is a harmonized W_0).  I am not familiar with Mexican
+geodetic practice but wouldn't want to make assumptions based on US/CA.
+
+So I would wonder
+
+  Is the Mexican vertical NSRS (meaning the official legal height system
+  used by the government, surely a different acronym) NAVD88?
+
+  Is the Mexican horizontal NSRS NAD83?
+
+  Do they really mean that this geoid model converts ITRF2008 HAE to
+  NAVD88?  Or is that just how the lat/lon of the model is expressed?
+  If it's really about ITRF2008 HAE, that sounds very unusual, but it's
+  just a set of coefficients to convert between two things, so it's
+  entirely possible and well defined.  In other words, I wonder if your
+  interpretation is due to imprecise language in the downloads page, or
+  if you really are correct.
+
+  (Agreed that using ITRF2008 with a different epoch is surprising.)
+
+
+As for transformation ITRF2008 to NAVD88, it seems obvious at first
+glance (dangerous) that the right approach is to transform ITFF2008 to
+NAD83(2011) and then to use GEOID18 (NGS) to get NAVD88, but I may be
+missing something.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210719/11ff8c2d/attachment.sig>
+
+From even.rouault at spatialys.com  Mon Jul 19 11:21:46 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 19 Jul 2021 20:21:46 +0200
+Subject: [PROJ] About Mexican Geoid
+In-Reply-To: <DM6PR06MB50027DDCA065F2963747F105A8E19@DM6PR06MB5002.namprd06.prod.outlook.com>
+References: <CADRrdKt+8QbufwO6vbMUEi9SkXyMSTSYLGaLXeXuOJO_BJEBeA@mail.gmail.com>
+ <DM6PR06MB50027DDCA065F2963747F105A8E19@DM6PR06MB5002.namprd06.prod.outlook.com>
+Message-ID: <fecbb1db-ec05-57ef-ea36-e6dd4d5f8b59@spatialys.com>
+
+The public domain nature is indeed probably at least true for the 
+Mexico97 geoid as it's available from 
+https://geodesy.noaa.gov/GEOID/MEXICO97/
+
+And the xGEOID20 (although it doesn't seem the data available for 
+download includes yet Mexico) also mentions Mexico (and has a contact 
+information): https://geodesy.noaa.gov/web/news/xgeoid20-model.shtml
+
+Some mentions of GGM10 in 
+https://www.ngs.noaa.gov/web/science_edu/presentations_library/files/2011_07_04_progress_toward_unified_north_american_vertical_datum_-_iugg.pptx
+
+Le 19/07/2021 ? 16:26, Clifford J Mugnier a ?crit?:
+> If my memory?serves?me correctly, the U.S. National Geodetic Survey 
+> (NGS) computed the Mexican geoid.? Dr. Tomas Soler was involved as I 
+> recall who is/was the Senior Geodesist at NGS.? I think it's public 
+> domain.
+>
+> Clifford J. Mugnier, c.p., c.m.s.
+>
+> Chief of Geodesy
+>
+> LSU Center for GeoInformatics (ERAD 266)
+>
+> Dept. of Civil Engineering (P.F. Taylor 3240H)
+>
+> *LOUISIANA STATE UNIVERSITY*
+>
+> Baton Rouge, LA? 70803
+>
+> Academic: (225) 578-8536
+>
+> Research:? ?(225) 578-4578
+>
+> Cell:? ? ? ? ? ?(225) 328-8975
+>
+> honorary lifetime member, lsps
+>
+> fellow emeritus, asprs
+>
+> member, apsg
+>
+>
+> ------------------------------------------------------------------------
+> *From:* PROJ <proj-bounces at lists.osgeo.org> on behalf of Javier 
+> Jimenez Shaw <j1 at jimenezshaw.com>
+> *Sent:* Monday, July 19, 2021 3:43 AM
+> *To:* proj <PROJ at lists.osgeo.org>
+> *Subject:* [PROJ] About Mexican Geoid
+> Hi
+>
+> Recently I found that Mexico has a geoid model, used with vcrs NAVD88: 
+> GGM10 - Geoide gravim?trico mexicano 2010
+> http://en.www.inegi.org.mx/temas/geoide/#Downloads 
+> <https://nam04.safelinks.protection.outlook.com/?url=http%3A%2F%2Fen.www.inegi.org.mx%2Ftemas%2Fgeoide%2F%23Downloads&data=04%7C01%7Ccjmce%40lsu.edu%7C21f6ad5c27544f9d08ac08d94a914bf1%7C2d4dad3f50ae47d983a09ae2b1f466f8%7C0%7C0%7C637622810781009658%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C2000&sdata=dl22Hz7HsFb81wsjH0RLnIpDfjfXf7xMIz98nVxwoGQ%3D&reserved=0>
+> The file is a text format, lat, long, undulation. It should be easy to 
+> import.
+> The reference is ITRF2008 epoch 2010 (it sounds strange to me not 
+> using NAD83x, but it is fine, right?... well, epoch 2010 instead of 
+> 2005 may be a problem)
+> Unfortunately I didn't find any transformation in EPSG from ITRF2008 
+> (epoch 2010) to NAVD88. We should do a PROJ one for the database (or 
+> ask them to do in EPSG, but without much hope).
+>
+> The main problem, as usual, is the "home made" license (for everything 
+> in their webpage). It seems to be very open, but it is not a 
+> "standard" one:
+> http://en.www.inegi.org.mx/contenidos/inegi/doc/terminos_info_t.pdf 
+> <https://nam04.safelinks.protection.outlook.com/?url=http%3A%2F%2Fen.www.inegi.org.mx%2Fcontenidos%2Finegi%2Fdoc%2Fterminos_info_t.pdf&data=04%7C01%7Ccjmce%40lsu.edu%7C21f6ad5c27544f9d08ac08d94a914bf1%7C2d4dad3f50ae47d983a09ae2b1f466f8%7C0%7C0%7C637622810781019648%7CUnknown%7CTWFpbGZsb3d8eyJWIjoiMC4wLjAwMDAiLCJQIjoiV2luMzIiLCJBTiI6Ik1haWwiLCJXVCI6Mn0%3D%7C2000&sdata=f115p6f4ROTS8fr8IKTaV17gjrVCBph8bYGIIAQhHw0%3D&reserved=0>
+>
+> What should we do?
+> Maybe somebody already researched this geoid previously.
+>
+> Cheers,
+> Javier.
+>
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210719/836b4250/attachment-0001.html>
+
+From peter.townsend at maplarge.com  Mon Jul 19 15:02:38 2021
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Mon, 19 Jul 2021 17:02:38 -0500
+Subject: [PROJ] Forcing Specific Transformation
+Message-ID: <CAMQBGmVuBLkgM1fERdgNY3trcBdOPfe+G+hmRdtxY5cBHDaJXQ@mail.gmail.com>
+
+I have a question about constructing specific transform operations between
+two CRS's. If you pop over to EPSG.org and search "ED50 to WGS 84", you get
+37 transforms back. I'd like to focus on one of them in particular, ED50 to
+WGS84 (42) aka EPSG:15964.
+
+I know the PROJ team has no control over epsg.io, but it lists 15964 as a
+possible transform for epsg:23031 (https://epsg.io/23031-15964).
+
+If I dump out the proj operations between 23031 and 4326, I don't see a
+concat transform that uses (42).
+projinfo.exe -k operation -s epsg:23031 -t epsg:4326 --spatial-test
+intersects -o PROJ
+
+As far as I know, I can't build a PJ object using the operation context
+functions to get a pipeline string in order to build this transform. I
+tried specifying the bbox for it to get more specific, but it still doesn't
+show up.
+projinfo.exe -k operation -s epsg:23031 -t epsg:4326 --spatial-test
+intersects --bbox -13.87,34.91,-7.24,41.88 -o PROJ
+(I get back (1), (13), (28), (17), (41), and ballpark.)
+
+My problem is this. Suppose I get a request from someone who *really*
+believes in the contents of epsg.io. And they want to do a transform that
+appears on there but for some reason it doesn't appear in the proj
+operation list. Maybe it's the cold hard truth that the transform isn't
+technically possible, or there's a lookup bug or quirk. Doesn't really
+matter in the end.
+
+I did try proj_crs_create_bound_crs with 23031/4326/15964 as the
+base/hub/transform accordingly and it did succeed in this case, but I'm not
+sure if this is the best solution in general. I got back the PROJ.4
+definition on the epsg.io page: "+proj=utm +zone=31 +ellps=intl
++towgs84=-86.277,-108.879,-120.181,0,0,0,0 +units=m +no_defs +type=crs".
+
+Is there some way to force this transform through the operation context
+methods/pipelines?
+
+-- 
+Peter Townsend
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210719/c3689a33/attachment.html>
+
+From martin.desruisseaux at geomatys.com  Mon Jul 19 15:55:10 2021
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Tue, 20 Jul 2021 00:55:10 +0200
+Subject: [PROJ] Forcing Specific Transformation
+In-Reply-To: <CAMQBGmVuBLkgM1fERdgNY3trcBdOPfe+G+hmRdtxY5cBHDaJXQ@mail.gmail.com>
+References: <CAMQBGmVuBLkgM1fERdgNY3trcBdOPfe+G+hmRdtxY5cBHDaJXQ@mail.gmail.com>
+Message-ID: <4387977b-030a-865b-115a-fbb8fc4dce13@geomatys.com>
+
+Hello
+
+Le 20/07/2021 ? 00:02, Peter Townsend a ?crit?:
+
+> I know the PROJ team has no control over epsg.io <http://epsg.io>, 
+> (?snip?)
+>
+As a side note just for clarification (It does not really address the 
+main question), despite its name the "epsg.io" web site is unrelated to 
+the EPSG organisation. The official and only authoritative source of 
+EPSG definitions is https://epsg.org. Some definitions on epsg.io are in 
+disagreement with epsg.org (e.g. regarding units of measurement or axis 
+order), so I would suggest to take that web site with caution, e.g. only 
+for definitions that are known to be correct.
+
+ ??? Regards,
+
+ ??? ??? Martin
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210720/710561f0/attachment.html>
+
+From even.rouault at spatialys.com  Mon Jul 19 19:42:09 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 20 Jul 2021 04:42:09 +0200
+Subject: [PROJ] Forcing Specific Transformation
+In-Reply-To: <CAMQBGmVuBLkgM1fERdgNY3trcBdOPfe+G+hmRdtxY5cBHDaJXQ@mail.gmail.com>
+References: <CAMQBGmVuBLkgM1fERdgNY3trcBdOPfe+G+hmRdtxY5cBHDaJXQ@mail.gmail.com>
+Message-ID: <504e266e-3b04-26a3-f8e6-fb85ef5e0a03@spatialys.com>
+
+Peter,
+
+PROJ doesn't propose ED50 to WGS84 (42) aka EPSG:15964 for EPSG:23031 to 
+EPSG:4326 since the area of use for EPSG:15964 is AREA["Portugal - 
+mainland - offshore."], BBOX[34.91,-13.87,41.88,-7.24]] whereas the area 
+of use of EPSG:23031 is AREA["Europe - between 0?E and 6?E - Andorra; 
+Denmark (North Sea); Germany offshore; Netherlands offshore; Norway 
+including Svalbard - onshore and offshore; Spain - onshore (mainland and 
+Balearic Islands); United Kingdom (UKCS) offshore."], 
+BBOX[38.56,0,82.45,6.01]] .
+
+You can notice that the areas of use of the CRS and the transformation 
+don't intersect, hence the transformation isn't proposed by default.
+
+Normally the "--crs-extent-use none" is what you would need in that 
+situation to specify that you don't want the official extent of the 
+source and target CRS to be taken into account when filtering 
+transformation results, but unfortunately it is broken in currently 
+released versions. I've issued https://github.com/OSGeo/PROJ/pull/2782 
+to fix that.
+
+A workaround is to use a modified WKT for EPSG:23031 with the BBOX of 
+interest (or at least intersecting the area of use of the transformation 
+you're interested in), like
+
+PROJCRS["ED50 / UTM zone 31N",
+ ??? BASEGEOGCRS["ED50",
+ ??????? DATUM["European Datum 1950",
+ ??????????? ELLIPSOID["International 1924",6378388,297,
+ ??????????????? LENGTHUNIT["metre",1]]],
+ ??????? PRIMEM["Greenwich",0,
+ ??????????? ANGLEUNIT["degree",0.0174532925199433]],
+ ??????? ID["EPSG",4230]],
+ ??? CONVERSION["UTM zone 31N",
+ ??????? METHOD["Transverse Mercator",
+ ??????????? ID["EPSG",9807]],
+ ??????? PARAMETER["Latitude of natural origin",0,
+ ??????????? ANGLEUNIT["degree",0.0174532925199433],
+ ??????????? ID["EPSG",8801]],
+ ??????? PARAMETER["Longitude of natural origin",3,
+ ??????????? ANGLEUNIT["degree",0.0174532925199433],
+ ??????????? ID["EPSG",8802]],
+ ??????? PARAMETER["Scale factor at natural origin",0.9996,
+ ??????????? SCALEUNIT["unity",1],
+ ??????????? ID["EPSG",8805]],
+ ??????? PARAMETER["False easting",500000,
+ ??????????? LENGTHUNIT["metre",1],
+ ??????????? ID["EPSG",8806]],
+ ??????? PARAMETER["False northing",0,
+ ??????????? LENGTHUNIT["metre",1],
+ ??????????? ID["EPSG",8807]]],
+ ??? CS[Cartesian,2],
+ ??????? AXIS["(E)",east,
+ ??????????? ORDER[1],
+ ??????????? LENGTHUNIT["metre",1]],
+ ??????? AXIS["(N)",north,
+ ??????????? ORDER[2],
+ ??????????? LENGTHUNIT["metre",1]],
+ ??? USAGE[
+ ??????? SCOPE["unknown"],
+ ??????? BBOX[34.91,-13.87,41.88,-7.24]]]
+
+>
+>
+> I did try proj_crs_create_bound_crs with 23031/4326/15964 as the 
+> base/hub/transform accordingly and it did succeed in this case, but 
+> I'm not sure if this is the best solution in general. I got back the 
+> PROJ.4 definition on the epsg.io <http://epsg.io> page: "+proj=utm 
+> +zone=31 +ellps=intl +towgs84=-86.277,-108.879,-120.181,0,0,0,0 
+> +units=m +no_defs +type=crs".
+>
+> Is there some way to force this transform through the operation 
+> context methods/pipelines?
+>
+If you remove the "+type=crs" in the above PROJ.4 CRS string, you can 
+use the resulting string as a valid input for a pipeline with 
+proj_create() + proj_trans(). But be aware that in that situation, input 
+coordinates will be in radian, and in longitude/latitude order.
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210720/0e340199/attachment.html>
+
+From peter.townsend at maplarge.com  Mon Jul 19 21:22:21 2021
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Mon, 19 Jul 2021 23:22:21 -0500
+Subject: [PROJ] Forcing Specific Transformation
+In-Reply-To: <504e266e-3b04-26a3-f8e6-fb85ef5e0a03@spatialys.com>
+References: <CAMQBGmVuBLkgM1fERdgNY3trcBdOPfe+G+hmRdtxY5cBHDaJXQ@mail.gmail.com>
+ <504e266e-3b04-26a3-f8e6-fb85ef5e0a03@spatialys.com>
+Message-ID: <CAMQBGmX4RqKQTNVdPBWm3m3BoNWjtkM-X-PaFv-PO+9-p0yG2A@mail.gmail.com>
+
+Great, thanks for looking into it. I kinda had a feeling it was related to
+it being outside of the traditional zone 31 box. I tried a few neighboring
+zones to see if (42) might pop up, and looks like it does for 29
+(EPSG:23029). Coincidentally where Portugal is!
+
+I brought up the epsg.io listing because I was watching a screenshare with
+a user, and they were using it as their reference. In an effort to be
+accommodating and foresightful, I'm trying to pick up on any edge cases
+that might pop up as a result of anyone using that site as their EPSG
+reference instead of epsg.org. Even if it isn't up to date or entirely
+correct.
+
+On Mon, Jul 19, 2021 at 9:42 PM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Peter,
+>
+> PROJ doesn't propose ED50 to WGS84 (42) aka EPSG:15964 for EPSG:23031 to
+> EPSG:4326 since the area of use for EPSG:15964 is AREA["Portugal - mainland
+> - offshore."],  BBOX[34.91,-13.87,41.88,-7.24]] whereas the area of use of
+> EPSG:23031 is AREA["Europe - between 0?E and 6?E - Andorra; Denmark (North
+> Sea); Germany offshore; Netherlands offshore; Norway including Svalbard -
+> onshore and offshore; Spain - onshore (mainland and Balearic Islands);
+> United Kingdom (UKCS) offshore."], BBOX[38.56,0,82.45,6.01]] .
+>
+> You can notice that the areas of use of the CRS and the transformation
+> don't intersect, hence the transformation isn't proposed by default.
+>
+> Normally the "--crs-extent-use none" is what you would need in that
+> situation to specify that you don't want the official extent of the source
+> and target CRS to be taken into account when filtering transformation
+> results, but unfortunately it is broken in currently released versions.
+> I've issued https://github.com/OSGeo/PROJ/pull/2782 to fix that.
+>
+> A workaround is to use a modified WKT for EPSG:23031 with the BBOX of
+> interest (or at least intersecting the area of use of the transformation
+> you're interested in), like
+>
+> PROJCRS["ED50 / UTM zone 31N",
+>     BASEGEOGCRS["ED50",
+>         DATUM["European Datum 1950",
+>             ELLIPSOID["International 1924",6378388,297,
+>                 LENGTHUNIT["metre",1]]],
+>         PRIMEM["Greenwich",0,
+>             ANGLEUNIT["degree",0.0174532925199433]],
+>         ID["EPSG",4230]],
+>     CONVERSION["UTM zone 31N",
+>         METHOD["Transverse Mercator",
+>             ID["EPSG",9807]],
+>         PARAMETER["Latitude of natural origin",0,
+>             ANGLEUNIT["degree",0.0174532925199433],
+>             ID["EPSG",8801]],
+>         PARAMETER["Longitude of natural origin",3,
+>             ANGLEUNIT["degree",0.0174532925199433],
+>             ID["EPSG",8802]],
+>         PARAMETER["Scale factor at natural origin",0.9996,
+>             SCALEUNIT["unity",1],
+>             ID["EPSG",8805]],
+>         PARAMETER["False easting",500000,
+>             LENGTHUNIT["metre",1],
+>             ID["EPSG",8806]],
+>         PARAMETER["False northing",0,
+>             LENGTHUNIT["metre",1],
+>             ID["EPSG",8807]]],
+>     CS[Cartesian,2],
+>         AXIS["(E)",east,
+>             ORDER[1],
+>             LENGTHUNIT["metre",1]],
+>         AXIS["(N)",north,
+>             ORDER[2],
+>             LENGTHUNIT["metre",1]],
+>     USAGE[
+>         SCOPE["unknown"],
+>         BBOX[34.91,-13.87,41.88,-7.24]]]
+>
+>
+>
+> I did try proj_crs_create_bound_crs with 23031/4326/15964 as the
+> base/hub/transform accordingly and it did succeed in this case, but I'm not
+> sure if this is the best solution in general. I got back the PROJ.4
+> definition on the epsg.io page: "+proj=utm +zone=31 +ellps=intl
+> +towgs84=-86.277,-108.879,-120.181,0,0,0,0 +units=m +no_defs +type=crs".
+>
+> Is there some way to force this transform through the operation context
+> methods/pipelines?
+>
+> If you remove the "+type=crs" in the above PROJ.4 CRS string, you can use
+> the resulting string as a valid input for a pipeline with proj_create() +
+> proj_trans(). But be aware that in that situation, input coordinates will
+> be in radian, and in longitude/latitude order.
+>
+> Even
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210719/cb5dc869/attachment-0001.html>
+

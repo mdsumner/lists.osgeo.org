@@ -1,0 +1,725 @@
+From j1 at jimenezshaw.com  Tue Oct 10 03:14:54 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 10 Oct 2023 12:14:54 +0200
+Subject: [PROJ] CRS Explorer
+Message-ID: <CADRrdKvYW8Whs4Cqz8dpHT=_NOTZxU8cHex4iZPQ9YvByHDsmQ@mail.gmail.com>
+
+Hi PROJ people.
+
+Two years later, let me update about the CRS Explorer.
+
+The first thing is that it is under the PROJ ecosystem in
+https://crs-explorer.proj.org/
+We moved the repo to the "OSGeo" entity in GitHub. Thanks Kristian for
+suggesting it and Even for the help during the process.
+If you still have an old link, it should be redirected to the new URL.
+
+The latest improvement (merged this week) is the ability to use an older
+version of PROJ (since 8.2.1). It uses the feature that "old" data is in
+GitHub, and access it via a git tag. For instance South Korea changed the
+names of their systems in PROJ 9.3.0, but not the numbers. You can check it
+with EPSG:4737 or EPSG:5193
+
+The search box now works with numbers, assuming they could be also EPSG or
+ESRI codes. And allows "|" as an "or" operator. For example
+https://crs-explorer.proj.org/?searchText=5193%20%7C%204737&authorities=EPSG&activeTypes=GEOGRAPHIC_2D_CRS,VERTICAL_CRS
+
+You can select a different provider for the map tiles. OpenStreetMap
+default uses the "native" language to name the countries and cities... and
+I had problems to read them in non-latin alphabets. Now you have it also in
+German and English.
+
+I tried to make the page load faster. It adds to the DOM only what has been
+selected (more or less).
+
+I hope it is useful to some of you. Dealing with users from several
+countries I am using it in a daily basis.
+
+Bonus Track: Did you know the differences among these 4 CRSs?
+https://crs-explorer.proj.org/?searchText=ETRS89%20UTM%2032N%20-dref91&authorities=EPSG&activeTypes=PROJECTED_CRS
+(Hint: 32 thousand kilometres is not a short distance ;) A user selected
+the wrong one (but "similar" name)... and the data was faaaar away.
+
+Cheers,
+Javier.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231010/6afabe8f/attachment.htm>
+
+From j1 at jimenezshaw.com  Thu Oct 12 07:16:15 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Thu, 12 Oct 2023 16:16:15 +0200
+Subject: [PROJ] Axis in LOCAL_CS
+Message-ID: <CADRrdKthL+7fF_g-n5XLNthp4CxQ4WSAh5tcpOq94R4kApx1zQ@mail.gmail.com>
+
+This is just a question, not necessarily a bug.
+I'm just playing with arbitrary CRS, in this case with 3 dimensions.
+Producing the WKT1 output from WKT2 works
+
+projinfo 'ENGCRS["Engineering SRS",
+  EDATUM["datum",ANCHOR["anchor"]],
+  CS[Cartesian,3],
+    AXIS["easting (X)",east, ORDER[1], LENGTHUNIT["US survey
+foot",0.304800609601219]],
+    AXIS["northing (Y)",north, ORDER[2], LENGTHUNIT["US survey
+foot",0.304800609601219]],
+    AXIS["elevation (z)",up, ORDER[3], LENGTHUNIT["US survey
+foot",0.304800609601219]]]' -o wkt1_gdal
+
+WKT1:GDAL string:
+LOCAL_CS["Engineering SRS",
+    LOCAL_DATUM["datum",32767],
+    UNIT["US survey foot",0.304800609601219],
+    AXIS["Easting",EAST],
+    AXIS["Northing",NORTH],
+    AXIS["Elevation",UP]]
+
+But later using that WKT1 string fails:
+projinfo 'LOCAL_CS["Engineering SRS",
+    LOCAL_DATUM["datum",32767],
+    UNIT["US survey foot",0.304800609601219],
+    AXIS["Easting",EAST],
+    AXIS["Northing",NORTH],
+    AXIS["Northing",UP]]'
+input string: parsing of user string failed: buildCS: unexpected AXIS count
+for LOCAL_CS
+
+The code is this (src/iso19111/io.cpp):
+
+        } else if (ci_equal(parentNodeName, WKTConstants::LOCAL_CS)) {
+            if (axisCount == 0) {
+                auto unit =
+                    buildUnitInSubNode(parentNode,
+UnitOfMeasure::Type::LINEAR);
+                if (unit == UnitOfMeasure::NONE) {
+                    unit = UnitOfMeasure::METRE;
+                }
+                return CartesianCS::createEastingNorthing(unit);
+            } else if (axisCount == 1) {
+                csTypeCStr = "vertical";
+            } else if (axisCount == 2) {
+                csTypeCStr = "Cartesian";
+            } else {
+                throw ParsingException(
+                    "buildCS: unexpected AXIS count for LOCAL_CS");
+            }
+
+Is that limited in purpose? I was not able to find anything explicit in the
+standard about the number of axis in WKT1 LOCAL_CS
+
+Thanks.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231012/89bd1a9e/attachment.htm>
+
+From even.rouault at spatialys.com  Thu Oct 12 07:27:33 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 12 Oct 2023 16:27:33 +0200
+Subject: [PROJ] Axis in LOCAL_CS
+In-Reply-To: <CADRrdKthL+7fF_g-n5XLNthp4CxQ4WSAh5tcpOq94R4kApx1zQ@mail.gmail.com>
+References: <CADRrdKthL+7fF_g-n5XLNthp4CxQ4WSAh5tcpOq94R4kApx1zQ@mail.gmail.com>
+Message-ID: <66650f31-7f5f-436e-9470-425ca25032b6@spatialys.com>
+
+Hi Javier,
+
+I guess it would make sense to allow axisCount == 3 as well.
+
+OGC 01-009 mentions:
+
+"""7.3.10 LOCAL_CS
+This indicates a local, ungeoreferenced coordinate system. Such 
+coordinate systems are often
+used in CAD systems. They can also be used for local surveys, where the 
+relationship between
+the surveyed site and the rest of the world is not important.
+The number of AXIS clauses indicates the dimension of the local 
+coordinate system."""
+
+and the BNF "<local cs> = LOCAL_CS["<name>", <local datum>, <unit>, <axis>,
+{,<axis>}* {,<authority>}]"
+
+doesn't forbid 3 axis.
+
+Even
+
+Le 12/10/2023 ? 16:16, Javier Jimenez Shaw via PROJ a ?crit?:
+> This is just a question, not necessarily a bug.
+> I'm just playing with arbitrary CRS, in this case with 3 dimensions. 
+> Producing the WKT1 output from WKT2 works
+>
+> projinfo 'ENGCRS["Engineering SRS",
+> ? EDATUM["datum",ANCHOR["anchor"]],
+> ? CS[Cartesian,3],
+> ? ? AXIS["easting (X)",east, ORDER[1], LENGTHUNIT["US survey 
+> foot",0.304800609601219]],
+> ? ? AXIS["northing (Y)",north, ORDER[2], LENGTHUNIT["US survey 
+> foot",0.304800609601219]],
+> ??? AXIS["elevation (z)",up, ORDER[3], LENGTHUNIT["US survey 
+> foot",0.304800609601219]]]' -o wkt1_gdal
+>
+> WKT1:GDAL string:
+> LOCAL_CS["Engineering SRS",
+> ? ? LOCAL_DATUM["datum",32767],
+> ? ? UNIT["US survey foot",0.304800609601219],
+> ? ? AXIS["Easting",EAST],
+> ? ? AXIS["Northing",NORTH],
+> ? ? AXIS["Elevation",UP]]
+>
+> But later using that WKT1 string fails:
+> projinfo 'LOCAL_CS["Engineering SRS",
+> ? ? LOCAL_DATUM["datum",32767],
+> ? ? UNIT["US survey foot",0.304800609601219],
+> ? ? AXIS["Easting",EAST],
+> ? ? AXIS["Northing",NORTH],
+> ? ? AXIS["Northing",UP]]'
+> input string: parsing of user string failed: buildCS: unexpected AXIS 
+> count for LOCAL_CS
+>
+> The code is this (src/iso19111/io.cpp):
+>
+> ? ? ? ? } else if (ci_equal(parentNodeName, WKTConstants::LOCAL_CS)) {
+> ? ? ? ? ? ? if (axisCount == 0) {
+> ? ? ? ? ? ? ? ? auto unit =
+> ? ? ? ? ? ? ? ? ? ? buildUnitInSubNode(parentNode, 
+> UnitOfMeasure::Type::LINEAR);
+> ? ? ? ? ? ? ? ? if (unit == UnitOfMeasure::NONE) {
+> ? ? ? ? ? ? ? ? ? ? unit = UnitOfMeasure::METRE;
+> ? ? ? ? ? ? ? ? }
+> ? ? ? ? ? ? ? ? return CartesianCS::createEastingNorthing(unit);
+> ? ? ? ? ? ? } else if (axisCount == 1) {
+> ? ? ? ? ? ? ? ? csTypeCStr = "vertical";
+> ? ? ? ? ? ? } else if (axisCount == 2) {
+> ? ? ? ? ? ? ? ? csTypeCStr = "Cartesian";
+> ? ? ? ? ? ? } else {
+> ? ? ? ? ? ? ? ? throw ParsingException(
+> ? ? ? ? ? ? ? ? ? ? "buildCS: unexpected AXIS count for LOCAL_CS");
+> ? ? ? ? ? ? }
+>
+> Is that limited in purpose? I was not able to find anything explicit 
+> in the standard about the number of axis in WKT1 LOCAL_CS
+>
+> Thanks.
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231012/2c02a090/attachment.htm>
+
+From floris.vanderhaeghe at inbo.be  Fri Oct 13 05:52:39 2023
+From: floris.vanderhaeghe at inbo.be (Floris Vanderhaeghe)
+Date: Fri, 13 Oct 2023 14:52:39 +0200
+Subject: [PROJ] CRS Explorer
+In-Reply-To: <CADRrdKvYW8Whs4Cqz8dpHT=_NOTZxU8cHex4iZPQ9YvByHDsmQ@mail.gmail.com>
+References: <CADRrdKvYW8Whs4Cqz8dpHT=_NOTZxU8cHex4iZPQ9YvByHDsmQ@mail.gmail.com>
+Message-ID: <ef5be2c6-d3d2-49dd-99f5-057c1a6fc2a0@inbo.be>
+
+Hi Javier,
+
+Regarding:
+
+ > I hope it is useful to some of you. Dealing with users from several 
+countries I am using it in a daily basis.
+
+Absolutely, the CRS explorer is so helpful, thanks a lot!
+
+Regards
+
+Floris
+
+
+
+From erixen_cruz at earthbrain.com  Wed Oct 18 07:23:05 2023
+From: erixen_cruz at earthbrain.com (Erixen Cruz)
+Date: Wed, 18 Oct 2023 14:23:05 +0000
+Subject: [PROJ] Topocentric WKT representation
+Message-ID: <TYCP286MB2051A1D946B252B323CCA965E5D5A@TYCP286MB2051.JPNP286.PROD.OUTLOOK.COM>
+
+Hello,
+
+I think there may be a bug with topocentric WKT representation in PROJ, but I want to confirm before making an issue in the repo.
+
+We have data in a east-north-up coordinate system with origin on the surface of WGS84 ellipsoid. I believe the way to represent that in WKT is with a topocentric conversion, which is codified in EPSG:9836 https://epsg.org/coord-operation-method_9836/Geocentric-topocentric-conversions.html. PROJ implements this since version 8 https://proj.org/en/9.3/operations/conversions/topocentric.html.
+
+I build latest PROJ master locally and use projinfo to get WKT for a CRS defined by topocentric conversion at origin -3982059.42, 3331314.88, 3692463.58 (EPSG:4978).
+
+$ PROJ_DATA=~/Documents/OSGeo/PROJ/build/data/ ~/Documents/OSGeo/PROJ/build/bin/projinfo -o WKT2:2019 "+proj=topocentric +ellps=WGS84 +X_0=-3982059.42 +Y_0=3331314.88 +Z_0=3692463.58 +no_defs +type=crs"
+PROJCRS["unknown",
+    BASEGEOGCRS["unknown",
+        DATUM["Unknown based on WGS 84 ellipsoid",
+            ELLIPSOID["WGS 84",6378137,298.257223563,
+                LENGTHUNIT["metre",1],
+                ID["EPSG",7030]]],
+        PRIMEM["Greenwich",0,
+            ANGLEUNIT["degree",0.0174532925199433],
+            ID["EPSG",8901]]],
+    CONVERSION["unknown",
+        METHOD["Geocentric/topocentric conversions",
+            ID["EPSG",9836]],
+        PARAMETER["Geocentric X of topocentric origin",-3982059.42,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8837]],
+        PARAMETER["Geocentric Y of topocentric origin",3331314.88,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8838]],
+        PARAMETER["Geocentric Z of topocentric origin",3692463.58,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8839]]],
+    CS[Cartesian,2],
+        AXIS["(E)",east,
+            ORDER[1],
+            LENGTHUNIT["metre",1,
+                ID["EPSG",9001]]],
+        AXIS["(N)",north,
+            ORDER[2],
+            LENGTHUNIT["metre",1,
+                ID["EPSG",9001]]]]
+
+This is peculiar because the base CRS is geographic (4979?) instead of geodetic 4978. I feed this to cs2cs to see if I can go back from the origin 0, 0, 0 to 4978.
+
+$ echo 0 0 0 | PROJ_DATA=~/Documents/OSGeo/PROJ/build/data/ ~/Documents/OSGeo/PROJ/build/bin/cs2cs "PROJCRS[\"unknown\",BASEGEOGCRS[\"unknown\",DATUM[\"Unknown based on WGS 84 ellipsoid\",ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",7030]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8901]]],CONVERSION[\"unknown\",METHOD[\"Geocentric/topocentric conversions\",ID[\"EPSG\",9836]],PARAMETER[\"Geocentric X of topocentric origin\",-3982059.42,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8837]],PARAMETER[\"Geocentric Y of topocentric origin\",3331314.88,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8838]],PARAMETER[\"Geocentric Z of topocentric origin\",3692463.58,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8839]]],CS[Cartesian,2],AXIS[\"(E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],AXIS[\"(N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]" +to EPSG:4978
+pipeline: Pipeline: Mismatched units between step 1 and 2
+*?????* inf
+
+And the peculiarity reveals itself: the topocentric conversion goes to cartesian (geodetic), not geographic. So there is units mismatch meters and degrees/radians. When I replace the BASEGEOGCRS with BASEGEODCRS with 4978 definition, it works as expected:
+
+$ echo 0 0 0 | PROJ_DATA=~/Documents/OSGeo/PROJ/build/data/ ~/Documents/OSGeo/PROJ/build/bin/cs2cs "PROJCRS[\"unknown\",BASEGEODCRS[\"WGS 84\",ENSEMBLE[\"World Geodetic System 1984 ensemble\",MEMBER[\"World Geodetic System 1984 (Transit)\"],MEMBER[\"World Geodetic System 1984 (G730)\"],MEMBER[\"World Geodetic System 1984 (G873)\"],MEMBER[\"World Geodetic System 1984 (G1150)\"],MEMBER[\"World Geodetic System 1984 (G1674)\"],MEMBER[\"World Geodetic System 1984 (G1762)\"],MEMBER[\"World Geodetic System 1984 (G2139)\"],ELLIPSOID[\"WGS 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]],ENSEMBLEACCURACY[2.0]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],CS[Cartesian,3],AXIS[\"(X)\",geocentricX,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"(Y)\",geocentricY,ORDER[2],LENGTHUNIT[\"metre\",1]],AXIS[\"(Z)\",geocentricZ,ORDER[3],LENGTHUNIT[\"metre\",1]],USAGE[SCOPE[\"Geodesy. Navigation and positioning using GPS satellite system.\"],AREA[\"World.\"],BBOX[-90,-180,90,180]],ID[\"EPSG\",4978]],CONVERSION[\"unknown\",METHOD[\"Geocentric/topocentric conversions\",ID[\"EPSG\",9836]],PARAMETER[\"Geocentric X of topocentric origin\",-3982059.42,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8837]],PARAMETER[\"Geocentric Y of topocentric origin\",3331314.88,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8838]],PARAMETER[\"Geocentric Z of topocentric origin\",3692463.58,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8839]]],CS[Cartesian,2],AXIS[\"(E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],AXIS[\"(N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]" +to EPSG:4978
+-3982059.42?3331314.88 3692463.58
+
+Am I misusing projinfo and/or the topocentric conversion? Or should PROJ be returning a BASEGEODCRS instead of BASEGEOGCRS in this case? Thanks.
+
+Sincerely, Erixen
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231018/32b95fd6/attachment-0001.htm>
+
+From rhea.moubarak at gmail.com  Wed Oct 18 07:27:00 2023
+From: rhea.moubarak at gmail.com (Rhea)
+Date: Wed, 18 Oct 2023 16:27:00 +0200
+Subject: [PROJ] Installing the projection package
+In-Reply-To: <20230915134557.ajmiw5y4m6jvas5q@norbit.de>
+References: <6EEFBAF0-DF48-48AD-9D3E-FBABDD79A27D@gmail.com>
+ <20230915134557.ajmiw5y4m6jvas5q@norbit.de>
+Message-ID: <F03CD7F7-EFAA-4B1D-B4C8-83FBF7418FDC@gmail.com>
+
+hello again,
+
+is there a way to do the download for centOS ? 
+
+i cant seem to find it in the documentation.
+
+Thank you for your help.
+
+Regards,
+Rhea
+
+> On 15 Sep 2023, at 3:45?PM, J?rgen E. Fischer <jef at norbit.de> wrote:
+> 
+> Hi Rhea,
+> 
+> On Fri, 15. Sep 2023 at 15:34:16 +0200, Rhea wrote:
+>> We noticed that we are missing the file: https://github.com/OSGeo/proj-datumgrid/blob/master/ntf_r93.gsb in the proj folder. 
+>> For installing the file if there is a projection package ? Before on proj 4, we had a projection package with this file: dnf install *proj* does this still exist for proj 8?
+> 
+> proj-datumgrid it archived: "NOTE: This repository is only to be used with PROJ < 7. For PROJ 7 or later, use the PROJ-data repository."
+> ie. https://github.com/OSGeo/PROJ-data
+> 
+> See also https://proj.org/en/9.3/download.html
+> 
+> 
+> J?rgen
+> 
+> -- 
+> J?rgen E. Fischer           norBIT GmbH             Tel. +49-4931-918175-31
+> Dipl.-Inf. (FH)             Rheinstra?e 13          Fax. +49-4931-918175-50
+> Software Engineer           D-26506 Norden            https://www.norbit.de
+> QGIS release manager (PSC)  Germany                 IRC: jef on Libera|OFTC
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+From j1 at jimenezshaw.com  Wed Oct 18 08:57:23 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 18 Oct 2023 17:57:23 +0200
+Subject: [PROJ] Geodetic vs Geocentric
+Message-ID: <CADRrdKt0u=Vd4uzmOGDmk5rRbo6zh5vE9S2D-N+s43W0QXGvig@mail.gmail.com>
+
+Hi
+
+What is the difference between PJ_TYPE_GEODETIC_CRS and
+PJ_TYPE_GEOCENTRIC_CRS?
+In crs-explorer.proj.org you can easily see how there are no Geodetic
+systems in EPSG and there are no Geocentric systems in IAU_2015...
+and neither one in ESRI
+
+Cheers,
+Javier
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231018/c2d53efc/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Oct 18 09:14:46 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 18 Oct 2023 18:14:46 +0200
+Subject: [PROJ] Geodetic vs Geocentric
+In-Reply-To: <CADRrdKt0u=Vd4uzmOGDmk5rRbo6zh5vE9S2D-N+s43W0QXGvig@mail.gmail.com>
+References: <CADRrdKt0u=Vd4uzmOGDmk5rRbo6zh5vE9S2D-N+s43W0QXGvig@mail.gmail.com>
+Message-ID: <7a25eaab-9864-48a5-8672-83f21c2a4086@spatialys.com>
+
+
+Le 18/10/2023 ? 17:57, Javier Jimenez Shaw via PROJ a ?crit?:
+> Hi
+>
+> What is the difference between PJ_TYPE_GEODETIC_CRS and 
+> PJ_TYPE_GEOCENTRIC_CRS?
+
+Geocentric is a specialization of Geodetic (not in the standard, but so 
+common that we have a subtype for it)
+
+
+> In crs-explorer.proj.org <http://crs-explorer.proj.org> you can easily 
+> see how there are no Geodetic systems in EPSG and there are no 
+> Geocentric systems in IAU_2015...
+
+Geodetic CRS in EPSG are geographic 2D, geographic 3D or geocentric. No 
+weird/unusual geodetic ones
+
+
+In IAU_2015, there's indeed no geocentric CRS definition. You may get 
+PJ_TYPE_GEODETIC_CRS for CRS like IAU:19902 "Mercury (2015) / Ocentric" 
+whose coordinate system is spherical with planetocentric latitude and 
+longitude. This is close to a geographic CRS, except that you use 
+-ocentric latitude (angle between the equatorial plane and the point on 
+the ellipsoid) instead of a -ographic latitude (the angle between the 
+equatorial plane and the normal to the ellipsoid at the point of interest).
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231018/c270b4cc/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Oct 18 09:25:41 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 18 Oct 2023 18:25:41 +0200
+Subject: [PROJ] Geodetic vs Geocentric
+In-Reply-To: <7a25eaab-9864-48a5-8672-83f21c2a4086@spatialys.com>
+References: <CADRrdKt0u=Vd4uzmOGDmk5rRbo6zh5vE9S2D-N+s43W0QXGvig@mail.gmail.com>
+ <7a25eaab-9864-48a5-8672-83f21c2a4086@spatialys.com>
+Message-ID: <9b58b1e5-ff85-4608-b844-e7d5e14fdd33@spatialys.com>
+
+| -ocentric latitude (angle between the equatorial plane and the point 
+on the ellipsoid)
+
+Actually: angle between the equatorial plane and the vector from the 
+center of the ellipsoid to the point of interest
+
+And we have actually a nice schema at 
+https://proj.org/en/9.3/operations/conversions/geoc.html :-)
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From even.rouault at spatialys.com  Wed Oct 18 09:43:13 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 18 Oct 2023 18:43:13 +0200
+Subject: [PROJ] Topocentric WKT representation
+In-Reply-To: <TYCP286MB2051A1D946B252B323CCA965E5D5A@TYCP286MB2051.JPNP286.PROD.OUTLOOK.COM>
+References: <TYCP286MB2051A1D946B252B323CCA965E5D5A@TYCP286MB2051.JPNP286.PROD.OUTLOOK.COM>
+Message-ID: <9a818732-0e37-4175-b0f0-12e9e8849542@spatialys.com>
+
+Good analysis. Fixed per https://github.com/OSGeo/PROJ/pull/3924
+
+
+Le 18/10/2023 ? 16:23, Erixen Cruz via PROJ a ?crit?:
+> Hello,
+>
+> I think there may be a bug with topocentric WKT representation in 
+> PROJ, but I want to confirm before making an issue in the repo.
+>
+> We have data in a east-north-up coordinate system with origin on the 
+> surface of WGS84 ellipsoid. I believe the way to represent that in WKT 
+> is with a topocentric conversion, which is codified in EPSG:9836 
+> https://epsg.org/coord-operation-method_9836/Geocentric-topocentric-conversions.html. 
+> PROJ implements this since version 8 
+> https://proj.org/en/9.3/operations/conversions/topocentric.html.
+>
+> I build latest PROJ master locally and use projinfo to get WKT for a 
+> CRS defined by topocentric conversion at origin -3982059.42, 
+> 3331314.88, 3692463.58 (EPSG:4978).
+>
+> $ PROJ_DATA=~/Documents/OSGeo/PROJ/build/data/ 
+> ~/Documents/OSGeo/PROJ/build/bin/projinfo -o WKT2:2019 
+> "+proj=topocentric +ellps=WGS84 +X_0=-3982059.42 +Y_0=3331314.88 
+> +Z_0=3692463.58 +no_defs +type=crs"
+> PROJCRS["unknown",
+> ? BASEGEOGCRS["unknown",
+> ? ? ? DATUM["Unknown based on WGS 84 ellipsoid",
+> ? ? ? ? ? ELLIPSOID["WGS 84",6378137,298.257223563,
+> ? ? ? ? ? ? ? LENGTHUNIT["metre",1],
+> ? ? ? ? ? ? ? ID["EPSG",7030]]],
+> ? ? ? PRIMEM["Greenwich",0,
+> ? ? ? ? ? ANGLEUNIT["degree",0.0174532925199433],
+> ? ? ? ? ? ID["EPSG",8901]]],
+> ? CONVERSION["unknown",
+> ? ? ? METHOD["Geocentric/topocentric conversions",
+> ? ? ? ? ? ID["EPSG",9836]],
+> ? ? ? PARAMETER["Geocentric X of topocentric origin",-3982059.42,
+> ? ? ? ? ? LENGTHUNIT["metre",1],
+> ? ? ? ? ? ID["EPSG",8837]],
+> ? ? ? PARAMETER["Geocentric Y of topocentric origin",3331314.88,
+> ? ? ? ? ? LENGTHUNIT["metre",1],
+> ? ? ? ? ? ID["EPSG",8838]],
+> ? ? ? PARAMETER["Geocentric Z of topocentric origin",3692463.58,
+> ? ? ? ? ? LENGTHUNIT["metre",1],
+> ? ? ? ? ? ID["EPSG",8839]]],
+> ? CS[Cartesian,2],
+> ? ? ? AXIS["(E)",east,
+> ? ? ? ? ? ORDER[1],
+> ? ? ? ? ? LENGTHUNIT["metre",1,
+> ? ? ? ? ? ? ? ID["EPSG",9001]]],
+> ? ? ? AXIS["(N)",north,
+> ? ? ? ? ? ORDER[2],
+> ? ? ? ? ? LENGTHUNIT["metre",1,
+> ? ? ? ? ? ? ? ID["EPSG",9001]]]]
+>
+> This is peculiar because the base CRS is geographic (4979?) instead of 
+> geodetic 4978. I feed this to cs2cs to see if I can go back from the 
+> origin 0, 0, 0 to 4978.
+>
+> $ echo 0 0 0 | PROJ_DATA=~/Documents/OSGeo/PROJ/build/data/ 
+> ~/Documents/OSGeo/PROJ/build/bin/cs2cs 
+> "PROJCRS[\"unknown\",BASEGEOGCRS[\"unknown\",DATUM[\"Unknown based on 
+> WGS 84 ellipsoid\",ELLIPSOID[\"WGS 
+> 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",7030]]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433],ID[\"EPSG\",8901]]],CONVERSION[\"unknown\",METHOD[\"Geocentric/topocentric 
+> conversions\",ID[\"EPSG\",9836]],PARAMETER[\"Geocentric X of 
+> topocentric 
+> origin\",-3982059.42,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8837]],PARAMETER[\"Geocentric 
+> Y of topocentric 
+> origin\",3331314.88,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8838]],PARAMETER[\"Geocentric 
+> Z of topocentric 
+> origin\",3692463.58,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8839]]],CS[Cartesian,2],AXIS[\"(E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],AXIS[\"(N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]" 
+> +to EPSG:4978
+> pipeline: Pipeline: Mismatched units between step 1 and 2
+> *?????* inf
+>
+> And the peculiarity reveals itself: the topocentric conversion goes to 
+> cartesian (geodetic), not geographic. So there is units mismatch 
+> meters and degrees/radians. When I replace the BASEGEOGCRS with 
+> BASEGEODCRS with 4978 definition, it works as expected:
+>
+> $ echo 0 0 0 | PROJ_DATA=~/Documents/OSGeo/PROJ/build/data/ 
+> ~/Documents/OSGeo/PROJ/build/bin/cs2cs 
+> "PROJCRS[\"unknown\",BASEGEODCRS[\"WGS 84\",ENSEMBLE[\"World Geodetic 
+> System 1984 ensemble\",MEMBER[\"World Geodetic System 1984 
+> (Transit)\"],MEMBER[\"World Geodetic System 1984 
+> (G730)\"],MEMBER[\"World Geodetic System 1984 (G873)\"],MEMBER[\"World 
+> Geodetic System 1984 (G1150)\"],MEMBER[\"World Geodetic System 1984 
+> (G1674)\"],MEMBER[\"World Geodetic System 1984 
+> (G1762)\"],MEMBER[\"World Geodetic System 1984 
+> (G2139)\"],ELLIPSOID[\"WGS 
+> 84\",6378137,298.257223563,LENGTHUNIT[\"metre\",1]],ENSEMBLEACCURACY[2.0]],PRIMEM[\"Greenwich\",0,ANGLEUNIT[\"degree\",0.0174532925199433]],CS[Cartesian,3],AXIS[\"(X)\",geocentricX,ORDER[1],LENGTHUNIT[\"metre\",1]],AXIS[\"(Y)\",geocentricY,ORDER[2],LENGTHUNIT[\"metre\",1]],AXIS[\"(Z)\",geocentricZ,ORDER[3],LENGTHUNIT[\"metre\",1]],USAGE[SCOPE[\"Geodesy. 
+> Navigation and positioning using GPS satellite 
+> system.\"],AREA[\"World.\"],BBOX[-90,-180,90,180]],ID[\"EPSG\",4978]],CONVERSION[\"unknown\",METHOD[\"Geocentric/topocentric 
+> conversions\",ID[\"EPSG\",9836]],PARAMETER[\"Geocentric X of 
+> topocentric 
+> origin\",-3982059.42,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8837]],PARAMETER[\"Geocentric 
+> Y of topocentric 
+> origin\",3331314.88,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8838]],PARAMETER[\"Geocentric 
+> Z of topocentric 
+> origin\",3692463.58,LENGTHUNIT[\"metre\",1],ID[\"EPSG\",8839]]],CS[Cartesian,2],AXIS[\"(E)\",east,ORDER[1],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]],AXIS[\"(N)\",north,ORDER[2],LENGTHUNIT[\"metre\",1,ID[\"EPSG\",9001]]]]" 
+> +to EPSG:4978
+> -3982059.42?3331314.88 3692463.58
+>
+> Am I misusing projinfo and/or the topocentric conversion? Or should 
+> PROJ be returning a BASEGEODCRS instead of BASEGEOGCRS in this case? 
+> Thanks.
+>
+> Sincerely, Erixen
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231018/35e19240/attachment-0001.htm>
+
+From j1 at jimenezshaw.com  Wed Oct 18 11:46:06 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 18 Oct 2023 20:46:06 +0200
+Subject: [PROJ] Geodetic vs Geocentric
+In-Reply-To: <9b58b1e5-ff85-4608-b844-e7d5e14fdd33@spatialys.com>
+References: <CADRrdKt0u=Vd4uzmOGDmk5rRbo6zh5vE9S2D-N+s43W0QXGvig@mail.gmail.com>
+ <7a25eaab-9864-48a5-8672-83f21c2a4086@spatialys.com>
+ <9b58b1e5-ff85-4608-b844-e7d5e14fdd33@spatialys.com>
+Message-ID: <CADRrdKvg+eq8WjbXOUFS9BwxkrKzH=shpfaLK3ic5TT=7=NLGQ@mail.gmail.com>
+
+Do you mean that a geocentric system is using the geodetic latitude and the
+geodetic system is using a geocentric latitude? Interesting
+
+On Wed, 18 Oct 2023, 18:25 Even Rouault via PROJ, <proj at lists.osgeo.org>
+wrote:
+
+> | -ocentric latitude (angle between the equatorial plane and the point
+> on the ellipsoid)
+>
+> Actually: angle between the equatorial plane and the vector from the
+> center of the ellipsoid to the point of interest
+>
+> And we have actually a nice schema at
+> https://proj.org/en/9.3/operations/conversions/geoc.html :-)
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231018/9bad2ddc/attachment.htm>
+
+From martin.desruisseaux at geomatys.com  Wed Oct 18 12:00:25 2023
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Wed, 18 Oct 2023 21:00:25 +0200
+Subject: [PROJ] Geodetic vs Geocentric
+In-Reply-To: <CADRrdKvg+eq8WjbXOUFS9BwxkrKzH=shpfaLK3ic5TT=7=NLGQ@mail.gmail.com>
+References: <CADRrdKt0u=Vd4uzmOGDmk5rRbo6zh5vE9S2D-N+s43W0QXGvig@mail.gmail.com>
+ <7a25eaab-9864-48a5-8672-83f21c2a4086@spatialys.com>
+ <9b58b1e5-ff85-4608-b844-e7d5e14fdd33@spatialys.com>
+ <CADRrdKvg+eq8WjbXOUFS9BwxkrKzH=shpfaLK3ic5TT=7=NLGQ@mail.gmail.com>
+Message-ID: <b660b144-a937-40e5-912d-9d9ce8d573ac@geomatys.com>
+
+Le 2023-10-18 ? 20 h 46, Javier Jimenez Shaw via PROJ a ?crit?:
+
+> Do you mean that a geocentric system is using the geodetic latitude 
+> and the geodetic system is using a geocentric latitude? Interesting
+>
+No. There is no explicit GeocentricCRS type in ISO 19111. The addition 
+of a GeocentricCRS type has been debated during OGC meetings and 
+excluded for reasons that I do not fully understood, but my remembrance 
+is that it was indeed related to semantic issues. There is an explicit 
+GeocentricCRS type in GeoAPI, but it is inherited from OGC 01-009 (a 
+specification that predates ISO 19111), and PROJ 5 took inspiration from 
+that as well.
+
+In ISO 19111, GeodeticCRS is a base type which can have either geodetic 
+or geocentric latitude, depending on their coordinate system:
+
+ 1. GeodeticCRS associated to SphericaCS use geocentric latitudes. ISO
+    19111 rather call that "spherical latitudes".
+ 2. GeodeticCRS associated to EllipsoidalCS use geodetic latitudes.
+
+GeographicCRS is a specialization of GeodeticCRS restricted to case 2 
+above. As said above, the introduction of a GeocentricCRS as a 
+specialization of GeodeticCRS for case 1 has been debated but rejected 
+at OGC, so for now we have to use the generic GeodeticCRS base class. 
+However it does not mean that ISO 19111 will not revisit this issue in 
+some future version.
+
+ ??? Martin
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231018/d50fe81f/attachment.htm>
+
+From peter.townsend at maplarge.com  Tue Oct 31 07:04:58 2023
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Tue, 31 Oct 2023 09:04:58 -0500
+Subject: [PROJ] "CRS84" not recognized in 9.2+?
+Message-ID: <CAMQBGmVxB996SoGe_EankfN+0akObOno0QAT_iZPhumZvnMsgg@mail.gmail.com>
+
+Back in 9.1, you could send proj the CRS name of "CRS84" and get a result:
+
+.\projinfo.exe
+Rel. 9.1.1, December 1st, 2022
+
+.\projinfo.exe crs84
+PROJ.4 string:
++proj=longlat +datum=WGS84 +no_defs +type=crs
+
+WKT2:2019 string:
+GEOGCRS["WGS 84 (CRS84)",
+    ENSEMBLE["World Geodetic System 1984 ensemble",
+        MEMBER["World Geodetic System 1984 (Transit)"],
+        MEMBER["World Geodetic System 1984 (G730)"],
+        MEMBER["World Geodetic System 1984 (G873)"],
+...
+
+But in 9.2 and 9.3, it's unrecognized:
+.\projinfo.exe
+Rel. 9.2.1, June 1st, 2023
+
+.\projinfo.exe crs84
+input string: parsing of user string failed: unrecognized format / unknown
+name
+
+This one does work:
+.\projinfo.exe ogc:CRS84
+PROJ.4 string:
++proj=longlat +datum=WGS84 +no_defs +type=crs
+
+WKT2:2019 string:
+GEOGCRS["WGS 84 (CRS84)",
+    ENSEMBLE["World Geodetic System 1984 ensemble",...
+
+Was this caused by this item in the release notes perhaps?
+https://github.com/OSGeo/PROJ/pull/3487
+
+I'm fine personally if this is intentional since "crs84" is kinda vague on
+its own. I have a test that assumes this would work and need to adjust the
+expectations.
+
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231031/d65677de/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Oct 31 07:22:21 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 31 Oct 2023 15:22:21 +0100
+Subject: [PROJ] "CRS84" not recognized in 9.2+?
+In-Reply-To: <CAMQBGmVxB996SoGe_EankfN+0akObOno0QAT_iZPhumZvnMsgg@mail.gmail.com>
+References: <CAMQBGmVxB996SoGe_EankfN+0akObOno0QAT_iZPhumZvnMsgg@mail.gmail.com>
+Message-ID: <478e3a27-2783-47e7-9005-4d683b6e799c@spatialys.com>
+
+
+>
+> Was this caused by this item in the release notes perhaps?
+> https://github.com/OSGeo/PROJ/pull/3487
+
+Yes, exactly. Identification by name is much more restrictive now to 
+avoid false positives
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20231031/794e7e44/attachment.htm>
+

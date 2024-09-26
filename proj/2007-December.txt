@@ -1,0 +1,1937 @@
+From webtmc at telusplanet.net  Sat Dec  1 20:22:30 2007
+From: webtmc at telusplanet.net (peter)
+Date: Sun, 2 Dec 2007 04:22:30 +0000
+Subject: [Proj] 3TM projection string
+Message-ID: <200712020422.30245.webtmc@telusplanet.net>
+
+Greetings all,
+
+I'm working with map data from Lethbridge, Alberta, Cananda that's in NAD83 
+3TM projection. I'm having trouble locating details about the projection 
+other than it's a 3 degree projection with -114 as the cental meridian. I'm 
+working with qgis and I tried copying one of the other MTM projections and 
+changing it to: 
+
++proj=tmerc +lat_0=0 +lon_0=-114 +k=0.999900 +x_0=304800 +y_0=0 +ellps=GRS80 
++datum=NAD83 +units=m +no_defs
+
+Would this work? Thanks so much.
+
+-- 
+Peter Pankonin, digitalcrucible
+
+There are 10 kinds of people in the world,
+those who understand binary, and those who don't.
+
+
+From uwe.schmitz at lverma.nrw.de  Mon Dec  3 03:56:02 2007
+From: uwe.schmitz at lverma.nrw.de (uwe.schmitz at lverma.nrw.de)
+Date: Mon, 3 Dec 2007 12:56:02 +0100
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+Message-ID: <C900396522B3C142AA9A7F5AFEE11CB3013803D3@slva01lvnt23.lverma.nrw.de>
+
+Frank,
+
+> uwe.schmitz at lverma.nrw.de wrote:
+> > Frank,
+> > 
+> > I am using the example from ticket 1531 with a local
+> > (may be this is the problem?) grid file (attached
+> > to the ticket).
+> > 
+> > The shell script:
+> > export PROJ_DEBUG=1
+> > cs2cs \
+> >       -f "%.12f" \
+> >       +proj=latlong \
+> >       +ellps=bessel \
+> >       +nadgrids=./tstgrid.gsb \
+> >    +to \
+> >       +proj=latlong \
+> >       +ellps=GRS80 \
+> >       <<EOF
+> > 7.483333333333E 53.500000000000N
+> > EOF
+> 
+> Uwe,
+> 
+> But in this case the output coordinate system only has an ellipse, and
+> no datum definition, so pj_transform() deliberately makes no 
+> attempt to
+> do a datum shift.  This is exactly the sort of case in which 
+> the behavior
+> is intended to change.
+> 
+
+oh yes, my fault! It shows me that I didn't really understand
+what I'm doing with PROJ.4 :-)
+
+OK, if I add "+datum=WGS84" to the "+to" part I get the same
+result as with V4.5.0 (still wrong in respect of ticket 1531).
+Despite that, isn't it true that the grid file contains 
+datum definition for both (from and to) system? So isn't
+it better to assume datum definition for both systems, if
+a grid is specified? What also confuses is that the destination
+datum isn't really WGS84 in this case, but the slightly 
+different ETRS89.
+
+Anyhow, I think the change breaks backward compatibility and this
+has to be documented very well. All of my old scripts have to 
+be patched to give the right results.
+
+Another question: When an how do these changes affect GDAL/OGR?
+
+Thanks in advance and best regards
+Uwe
+---------------------------------------------------------
+... Uwe Schmitz  Landesvermessungsamt Nordrhein-Westfalen
+... Muffendorfer Str. 19 - 21              D - 53177 Bonn
+... E-mail:       uwe.schmitzNO at SPAMlverma.nrw.de
+... Internet:     http://www.lverma.nrw.de
+
+
+
+
+From warmerdam at pobox.com  Mon Dec  3 07:57:23 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 03 Dec 2007 10:57:23 -0500
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <C900396522B3C142AA9A7F5AFEE11CB3013803D3@slva01lvnt23.lverma.nrw.de>
+References: <C900396522B3C142AA9A7F5AFEE11CB3013803D3@slva01lvnt23.lverma.nrw.de>
+Message-ID: <47542763.8060308@pobox.com>
+
+uwe.schmitz at lverma.nrw.de wrote:
+> oh yes, my fault! It shows me that I didn't really understand
+> what I'm doing with PROJ.4 :-)
+> 
+> OK, if I add "+datum=WGS84" to the "+to" part I get the same
+> result as with V4.5.0 (still wrong in respect of ticket 1531).
+> Despite that, isn't it true that the grid file contains 
+> datum definition for both (from and to) system?  So isn't
+> it better to assume datum definition for both systems, if
+> a grid is specified? 
+
+Uwe,
+
+PROJ.4 implicitly assumes that datum grids map from the
+local datum to WGS84 but the output coordinate system can
+be other than WGS84 so I don't agree that the nadgrids
+implies the whole transformation.
+
+ > What also confuses is that the destination
+> datum isn't really WGS84 in this case, but the slightly 
+> different ETRS89.
+
+Because the PROJ nadgrids directive does not understand that
+there can exist grids going to coordinate systems other than
+WGS84 it is necessary to fool it. So you declare your output
+coordinate system as +datum=WGS84 but *you* know that you want
+to inteprete the output coordinates as ETRS89.
+
+> Anyhow, I think the change breaks backward compatibility and this
+> has to be documented very well. All of my old scripts have to 
+> be patched to give the right results.
+
+Getting to your core problem, I stepped through the code and found
+that PROJ is not attempting to apply a bessel to WGS84 ellipsoid
+change in your case.   After the gridshift file is applied it
+internally updates it's concept of source ellipsoid to be WGS84.
+
+Unfortunately, it uses a WGS84 "es" value that is slightly different
+than the one that results from +datum=WGS84 so it thinks the
+input and output coordinate system still have different ellipsoids
+and it goes through geocentric space to correct this.  I have modified
+pj_transform.c to use the same WGS84 es value that is used with
++datum=WGS84 and now this processing is avoided, and your exact expected
+output value is produced again.  This change will appear in beta2.
+
+Thanks for highlighting the bug 1531 issue.
+
+> Another question: When an how do these changes affect GDAL/OGR?
+
+GDAL/OGR uses PROJ.4 for transformations and so the change also
+applies to GDAL/OGR (and MapServer, GRASS, etc).  For the most
+part it should mean people no longer need to be hyper-aware of
+the interals of PROJ as things will start to work the way folks
+expect.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From richard.greenwood at gmail.com  Mon Dec  3 20:10:47 2007
+From: richard.greenwood at gmail.com (Richard Greenwood)
+Date: Mon, 3 Dec 2007 21:10:47 -0700
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <475020EF.20804@pobox.com>
+References: <31947837.97701196429844322.JavaMail.support.mn@elisanet.fi>
+	<475020EF.20804@pobox.com>
+Message-ID: <ae9185aa0712032010o4a049f09k69939e96aeb4e9b@mail.gmail.com>
+
+On Nov 30, 2007 7:40 AM, Frank Warmerdam <warmerdam at pobox.com> wrote:
+
+> If either coordinate system passed to pj_transform() lacks a datum
+> definition then it will be assumed that it's datum effectively
+> matches the other.
+
+For what it's worth, MapInfo does that same thing. This behavior has
+caught me off guard a few times, but it's really pretty logical.
+
+Rich
+
+-- 
+Richard Greenwood
+richard.greenwood at gmail.com
+www.greenwoodmap.com
+
+
+From roger at opq.se  Fri Dec  7 07:26:09 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Fri, 07 Dec 2007 16:26:09 +0100
+Subject: [Proj] Re: Proj Digest, Vol 42, Issue 8
+In-Reply-To: <6d26117e0711300247s69a56f07sb5729b5618f723eb@mail.gmail.com>
+References: <200711291704.lATH4bEf018926@duke.maptools.org>
+	<6d26117e0711300247s69a56f07sb5729b5618f723eb@mail.gmail.com>
+Message-ID: <1197041169.10076.84.camel@acme.pacific>
+
+On Fri, 2007-11-30 at 11:47 +0100, Jordi Gilabert Vall wrote:
+> I use these 7 coefficients with cartography in Catalonia (Spain), with
+> right results:
+> 
+> cs2cs +proj=latlong +datum=WGS84 +ellps=WGS84 +to +init=epsg:23031
+> +proj=utm +ellps=intl +zone=31 +units=m +towgs84=-
+> 131.0320,-100.2510,-163.3540,1.2438,0.0195,1.1436,9.3900
+
+I have finally had a chance to check this. Sorry it took so long. I do
+not get much difference. Could you give me a few sample lat/longs and
+the northings/eastings you get with this command? I did have to change
+the zone to 30 for Madrid for my tests, os the derived values were very
+far off.
+
+> 
+> 
+> More information:
+> 
+> http://www.euref-iag.net/symposia/book2003/4-6.pdf
+> 
+> http://www.fomento.es/NR/rdonlyres/8B4D8323-5706-4F8F-84F7-C89774DCC2A1/29826/hercam.pdf
+> 
+> 
+> Jordi Gilabert Vall
+> 
+>         ---------------------------------------------------------------------- 
+>         
+>         Message: 1
+>         Date: Thu, 29 Nov 2007 14:55:17 +0100
+>         From: Roger Oberholtzer <roger at opq.se>
+>         Subject: RE: [Proj] WGS84 to ED50
+>         To: "PROJ.4 and general Projections Discussions" 
+>                 <proj at lists.maptools.org>
+>         Message-ID: <1196344518.25474.84.camel at acme.pacific>
+>         Content-Type: text/plain; charset=UTF-8 
+>         
+>         I have a bit more information on the problem with WGS84
+>         lat/longs ->
+>         ED50(Spain) northings and eastings.
+>         
+>         The software that is being used does not have a 'Spanish'
+>         setting. So
+>         they have defined an ED50 7 parameter transform, with these 
+>         coefficients:
+>         
+>         
+>         > International Ellipsoid 1924 definition
+>         > Mayor semiaxle: 6378388
+>         > Minor semiaxle:6356911,9461
+>         > 1/f:297
+>         > Excentricity: 0.0819910890032286
+>         >
+>         > About the 7 parameters transformation 
+>         > Translation X (m): 125.098545
+>         > Translation Y (m): 76.000054
+>         > Translation Z (m): 156.198703
+>         > X Rotation(seconds): 0
+>         > Y Rotation(seconds): 0
+>         > Z Rotation(seconds): -1.129
+>         > Scale factor (ppm): - 8.30463103
+>         >
+>         > This correspond with applanix header file saying
+>         > Mapping frame datum: ED50_ESPAÑA ; a = 6378388.000000; 1/f =
+>         297.000000;
+>         >  Coordinate transformation from WGS84 to mapping frame
+>         datum 
+>         >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+>         0.999991695369;
+>         >     R1 = 0.000000000000; R2 = 0.000000000000; R3 =
+>         -0.000005473550;
+>         >  sequence of the rotations: x,y,z,1
+>         >  Mapping frame projection : TM; 
+>         >  central meridian = -3.000000 deg;
+>         >  latitude of the grid origin = 0.000000 deg; grid scale
+>         factor = 0.999600:
+>         >  false easting = 500000.000000 m; false northing = 0.000000
+>         m;
+>         >
+>         >
+>         > Where Rotations are in radians 
+>         
+>         I have tried setting proj to use this, as reported earlier in
+>         this thread, with no luck. I tried using the 7 parameters as
+>         +towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103, but that made things worse. 
+>         
+>         fromProj = pj_init_plus(
+>                                 "+proj=latlong "
+>                                 "+ellps=WGS84 "
+>                                 "+no_defs");
+>         
+>         toProj = pj_init_plus(
+>                                 "+proj=utm "
+>                                 "+ellps=intl "
+>                                 "+k=0.999600 "
+>                                 "+x_0=500000.0 "
+>                                 "+y_0= 0.0 "
+>                                 "+zone=30 "
+>                                 "+units=m"
+>         
+>         "+towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103"
+>                                 "+no_defs"); 
+>         
+>         So I am guessing I cannot simply use the 7 parameters as
+>         given. Correct?
+>         
+>         
+>         
+>         --
+>         Roger Oberholtzer
+>         
+>         OPQ Systems / Ramböll RST
+>         
+>         Ramböll Sverige AB
+>         Kapellgränd 7
+>         P.O. Box 4205
+>         SE-102 65 Stockholm, Sweden 
+>         
+>         Office: Int +46 8-615 60 20
+>         Mobile: Int +46 70-815 1696
+>         
+>         
+>         
+>         ------------------------------
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Office: Int +46 8-615 60 20
+Mobile: Int +46 70-815 1696
+
+
+
+From gfarcieri at gmail.com  Fri Dec  7 08:54:54 2007
+From: gfarcieri at gmail.com (Gianfranco Arcieri)
+Date: Fri, 7 Dec 2007 17:54:54 +0100
+Subject: [Proj] Proj4 on Windows Vista
+Message-ID: <caa256570712070854n6909d9beu12afd82f1390a202@mail.gmail.com>
+
+I am not able to run Proj4 on Vista with Visual Studio 2005. The same dll
+with the same code runs great on Windows Xp.
+Any help is appreciated
+
+Gianfranco
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071207/dccdcfe1/attachment.html>
+
+From mateusz at loskot.net  Fri Dec  7 11:27:54 2007
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri, 07 Dec 2007 20:27:54 +0100
+Subject: [Proj] Proj4 on Windows Vista
+In-Reply-To: <caa256570712070854n6909d9beu12afd82f1390a202@mail.gmail.com>
+References: <caa256570712070854n6909d9beu12afd82f1390a202@mail.gmail.com>
+Message-ID: <47599EBA.5030104@loskot.net>
+
+Gianfranco Arcieri wrote:
+> I am not able to run Proj4 on Vista with Visual Studio 2005. The same dll
+> with the same code runs great on Windows Xp.
+> Any help is appreciated
+
+Do you build PROJ.4 yourself?
+Have you installed Service Pack 1 for Visual Studio 2005?
+What error/message/... you are getting?
+
+Cheers
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+
+From gfarcieri at gmail.com  Mon Dec 10 01:19:23 2007
+From: gfarcieri at gmail.com (Gianfranco Arcieri)
+Date: Mon, 10 Dec 2007 10:19:23 +0100
+Subject: [Proj] Proj4 on Windows Vista
+In-Reply-To: <47599EBA.5030104@loskot.net>
+References: <caa256570712070854n6909d9beu12afd82f1390a202@mail.gmail.com>
+	<47599EBA.5030104@loskot.net>
+Message-ID: <caa256570712100119v7c818660ua4bf8dcbf7b5bfd6@mail.gmail.com>
+
+Thanks for your suggestions.
+I had sp1 for VS2005. I both used the 446 proj version already built for
+windows and also I compiled on Vista the new 4.5 version. In both cases it
+did not work. The message I get is Access Violation every time I try to call
+something like prj.ToString()
+or pj_init or pj_get_errno_ref()
+
+Regards
+Gianfranco
+
+On Dec 7, 2007 8:27 PM, Mateusz Loskot <mateusz at loskot.net> wrote:
+
+> Gianfranco Arcieri wrote:
+> > I am not able to run Proj4 on Vista with Visual Studio 2005. The same
+> dll
+> > with the same code runs great on Windows Xp.
+> > Any help is appreciated
+>
+> Do you build PROJ.4 yourself?
+> Have you installed Service Pack 1 for Visual Studio 2005?
+> What error/message/... you are getting?
+>
+> Cheers
+> --
+> Mateusz Loskot
+> http://mateusz.loskot.net
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071210/4f285bfd/attachment.html>
+
+From Toan.Tran at ontario.ca  Mon Dec 10 08:32:00 2007
+From: Toan.Tran at ontario.ca (Tran, Toan (MCYS))
+Date: Mon, 10 Dec 2007 11:32:00 -0500
+Subject: [Proj] Data Plotted at Wrong Location
+Message-ID: <EBA3C3D70768E2429815A6F6593AB9875F09BD@CTSPITDCEMMVX12.cihs.ad.gov.on.ca>
+
+Hi,
+
+I wish to plot several points in Canada, but the problem is that the
+points are plotted at the wrong location. My data are in decimal degree
+stored in a CSV file. I am guessing that Map Server plots the points  in
+meters instead of degree.
+
+I used this in my map layer:
+PROJECTION
+   "init=epsg:42304"
+END
+
+I added this for epsg:
+<42304> +proj=lcc +lat_1=49 +lat_2=77 +lat_0=49 +lon_0=-95 +x_0=0 +y_0=0
++ellps=GRS80 +datum=NAD83 +units=m +no_defs  no_defs <>
+
+I try changing:
+ - <42304> +proj=lcc +lat_1=49 +lat_2=77 +lat_0=49 +lon_0=-95 +x_0=0
++y_0=0 +ellps=GRS80 +datum=NAD83 +units=dd +no_defs  no_defs <> ....
+this causes a msProcessProjection(): Projection library error. unknown
+unit conversion id error
+ - UNITS METERS to UNITS DD in my map file, but that doesn't help.
+
+Sample DATA:
+ <<img.GIF>> 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa19",0,200000
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa20",0,220000
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa21",0,240000
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa30",0,300000
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa31",10000,300000
+
+
+Any help is much appreciated
+Thanks
+Toan 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071210/0bd7aeb1/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: img.GIF
+Type: image/gif
+Size: 7516 bytes
+Desc: img.GIF
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071210/0bd7aeb1/attachment.gif>
+
+From ed at topozone.com  Mon Dec 10 08:57:51 2007
+From: ed at topozone.com (Ed McNierney)
+Date: Mon, 10 Dec 2007 11:57:51 -0500
+Subject: [Proj] Data Plotted at Wrong Location
+In-Reply-To: <EBA3C3D70768E2429815A6F6593AB9875F09BD@CTSPITDCEMMVX12.cihs.ad.gov.on.ca>
+References: <EBA3C3D70768E2429815A6F6593AB9875F09BD@CTSPITDCEMMVX12.cihs.ad.gov.on.ca>
+Message-ID: <4BF377919225F449BB097CB76FFE9BC80198868F@ptolemy.topozone.com>
+
+Toan -
+
+ 
+
+This is probably a better question for the MapServer list, but you're on
+the wrong path.  Put the 42304 definition back the way it was - that's
+correct.
+
+ 
+
+The EPSG:42304 projection is a Lambert Conformal Conic projection, and I
+assume that's what you want to use for your OUTPUT map image.  Its units
+are not in decimal degrees, nor can they be.  You have an INPUT data
+layer in decimal degrees, and you'd like MapServer to reproject that
+data to your output projection.
+
+ 
+
+Your top-level MAP file needs the PROJECTION definition you describe
+below, and then you also need to have an appropriate PROJECTION block
+inside the LAYER definition for the layer in decimal degrees.  That
+tells MapServer that your input and output data are in different
+projections, and the data need to be reprojected.
+
+ 
+
+The correct EPSG definition for your input data in decimal degrees will
+depend on what datum those coordinates use.
+
+ 
+
+-          Ed     
+
+ 
+
+Ed McNierney
+
+Chief Mapmaker
+
+Demand Media / TopoZone.com
+
+73 Princeton Street, Suite 305
+
+North Chelmsford, MA  01863
+
+ed at topozone.com <mailto:ed at topozone.com> 
+
+Phone: +1 (978) 251-4242
+
+Fax: +1 (978) 251-1396
+
+ 
+
+From: proj-bounces at lists.maptools.org
+[mailto:proj-bounces at lists.maptools.org] On Behalf Of Tran, Toan (MCYS)
+Sent: Monday, December 10, 2007 11:32 AM
+To: proj at lists.maptools.org
+Subject: [Proj] Data Plotted at Wrong Location
+
+ 
+
+Hi, 
+
+I wish to plot several points in Canada, but the problem is that the
+points are plotted at the wrong location. My data are in decimal degree
+stored in a CSV file. I am guessing that Map Server plots the points  in
+meters instead of degree.
+
+I used this in my map layer: 
+PROJECTION 
+   "init=epsg:42304" 
+END 
+
+I added this for epsg: 
+<42304> +proj=lcc +lat_1=49 +lat_2=77 +lat_0=49 +lon_0=-95 +x_0=0 +y_0=0
++ellps=GRS80 +datum=NAD83 +units=m +no_defs  no_defs <>
+
+I try changing: 
+ - <42304> +proj=lcc +lat_1=49 +lat_2=77 +lat_0=49 +lon_0=-95 +x_0=0
++y_0=0 +ellps=GRS80 +datum=NAD83 +units=dd +no_defs  no_defs <> ....
+this causes a msProcessProjection(): Projection library error. unknown
+unit conversion id error
+
+ - UNITS METERS to UNITS DD in my map file, but that doesn't help. 
+
+Sample DATA: 
+<<img.GIF>> 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa19",0,200000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa20",0,220000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa21",0,240000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa30",0,300000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa31",10000,300000 
+
+ 
+
+Any help is much appreciated 
+Thanks 
+Toan 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071210/58532031/attachment.html>
+
+From Toan.Tran at ontario.ca  Mon Dec 10 09:29:45 2007
+From: Toan.Tran at ontario.ca (Tran, Toan (MCYS))
+Date: Mon, 10 Dec 2007 12:29:45 -0500
+Subject: [Proj] Data Plotted at Wrong Location
+In-Reply-To: <4BF377919225F449BB097CB76FFE9BC80198868F@ptolemy.topozone.com>
+Message-ID: <EBA3C3D70768E2429815A6F6593AB9875F09BE@CTSPITDCEMMVX12.cihs.ad.gov.on.ca>
+
+Ed, thank you for your quick reply.
+ 
+Initially, I have: 
+PROJECTION 
+   "init=epsg:42304" 
+END 
+specified in both my top-level MAP and proper layer, with UNITS METERS.
+ 
+But when the map was draw, all the points are plotted very closed
+togeather. 
+I suspect that for some reason, the map-server is plotting the data as
+meter instead of degree decimal.
+ 
+The points/data I used from the previous post was for investigation
+purpose... to test why the points/data was so closed together.
+They are:
+Desc,,X,Y
+"5",79.725833,43.715361
+"6",81.000107,43.368512
+"7",-78.347276,44.301459
+"8",,81.332038,48.47381
+"9",79.68955,43.4662
+...
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa19",0,200000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa20",0,220000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa21",0,240000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa30",0,300000 
+"AAAAAAAAAAAAAAAAAAAAAAaaaaaa31",10000,300000 
+
+Sorry about the confusion.
+ 
+I will try posting this in the MapServer list
+ 
+Thank you for the hint.
+Toan
+
+	-----Original Message-----
+	From: proj-bounces at lists.maptools.org
+[mailto:proj-bounces at lists.maptools.org] On Behalf Of Ed McNierney
+	Sent: December 10, 2007 11:58 AM
+	To: PROJ.4 and general Projections Discussions
+	Subject: RE: [Proj] Data Plotted at Wrong Location
+	
+	
+
+	Toan -
+
+	 
+
+	This is probably a better question for the MapServer list, but
+you're on the wrong path.  Put the 42304 definition back the way it was
+- that's correct.
+
+	 
+
+	The EPSG:42304 projection is a Lambert Conformal Conic
+projection, and I assume that's what you want to use for your OUTPUT map
+image.  Its units are not in decimal degrees, nor can they be.  You have
+an INPUT data layer in decimal degrees, and you'd like MapServer to
+reproject that data to your output projection.
+
+	 
+
+	Your top-level MAP file needs the PROJECTION definition you
+describe below, and then you also need to have an appropriate PROJECTION
+block inside the LAYER definition for the layer in decimal degrees.
+That tells MapServer that your input and output data are in different
+projections, and the data need to be reprojected.
+
+	 
+
+	The correct EPSG definition for your input data in decimal
+degrees will depend on what datum those coordinates use.
+
+	 
+
+	-          Ed     
+
+	 
+
+	Ed McNierney
+
+	Chief Mapmaker
+
+	Demand Media / TopoZone.com
+
+	73 Princeton Street, Suite 305
+
+	North Chelmsford, MA  01863
+
+	ed at topozone.com <mailto:ed at topozone.com> 
+
+	Phone: +1 (978) 251-4242
+
+	Fax: +1 (978) 251-1396
+
+	 
+
+	From: proj-bounces at lists.maptools.org
+[mailto:proj-bounces at lists.maptools.org] On Behalf Of Tran, Toan (MCYS)
+	Sent: Monday, December 10, 2007 11:32 AM
+	To: proj at lists.maptools.org
+	Subject: [Proj] Data Plotted at Wrong Location
+
+	 
+
+	Hi, 
+
+	I wish to plot several points in Canada, but the problem is that
+the points are plotted at the wrong location. My data are in decimal
+degree stored in a CSV file. I am guessing that Map Server plots the
+points  in meters instead of degree.
+
+	I used this in my map layer: 
+	PROJECTION 
+	   "init=epsg:42304" 
+	END 
+
+	I added this for epsg: 
+	<42304> +proj=lcc +lat_1=49 +lat_2=77 +lat_0=49 +lon_0=-95
++x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs  no_defs <>
+
+	I try changing: 
+	 - <42304> +proj=lcc +lat_1=49 +lat_2=77 +lat_0=49 +lon_0=-95
++x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=dd +no_defs  no_defs <>
+.... this causes a msProcessProjection(): Projection library error.
+unknown unit conversion id error
+
+	 - UNITS METERS to UNITS DD in my map file, but that doesn't
+help. 
+
+	Sample DATA: 
+	<<img.GIF>> 
+	"AAAAAAAAAAAAAAAAAAAAAAaaaaaa19",0,200000 
+	"AAAAAAAAAAAAAAAAAAAAAAaaaaaa20",0,220000 
+	"AAAAAAAAAAAAAAAAAAAAAAaaaaaa21",0,240000 
+	"AAAAAAAAAAAAAAAAAAAAAAaaaaaa30",0,300000 
+	"AAAAAAAAAAAAAAAAAAAAAAaaaaaa31",10000,300000 
+
+	 
+
+	Any help is much appreciated 
+	Thanks 
+	Toan 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071210/900dc5c6/attachment.html>
+
+From ivan at theory.asu.ru  Tue Dec 11 12:09:48 2007
+From: ivan at theory.asu.ru (Ivan Shmakov)
+Date: Wed, 12 Dec 2007 02:09:48 +0600
+Subject: [Proj] Re: PROJ 4.6.0 beta1 Release
+In-Reply-To: <475020EF.20804@pobox.com> (Frank Warmerdam's message of "Fri, 30
+	Nov 2007 09:40:47 -0500")
+References: <31947837.97701196429844322.JavaMail.support.mn@elisanet.fi>
+	<475020EF.20804@pobox.com>
+Message-ID: <m28x41ro1f.fsf@cherry.siamics.int>
+
+	[Apparently this message didn't reached the list, so I'm
+	resending it.]
+
+>>>>> Frank Warmerdam <warmerdam at pobox.com> writes:
+
+[...]
+
+ >> What happens with the spherical projections? Robinson and similar?
+
+ > The same.
+
+ > Though the other aspect that I did was to decouple the the
+ > datum/ellipsoid logic for datum shifting from the ellipsoid
+ > parameters used for internal projection calculations.
+
+[...]
+
+ > Actually, a better demonstration of the above would be:
+
+ > cs2cs +proj=robin +datum=GGRS87 +to +proj=latlong +datum=WGS84
+
+ > The important distinction is that GGRS87 expands to
+ > "+towgs84=-199.87,74.79,246.62 +ellps=GRS80".  The towgs84 shift is
+ > applied in geocentric space, but it is very important which ellipsoid
+ > is used to get to geocentric space.  In the "old" approach the sphere
+ > used for robinson would have been used for the conversion to
+ > geocentric.  Now, GRS80 would be used for the calculation avoiding a
+ > huge unexpected sphere related shift in latitude.
+
+	I guess, the command I've suggested half a year ago in [1]:
+
+$ gdalwarp -of HFA \
+      -s_srs '+proj=sinu +R=6371007.181 +nadgrids=@null +wktext' \
+      -t_srs TARGET-SRS \
+      'HDF4_EOS:EOS_GRID:"fpar8.hdf":MOD_Grid_MOD15A2:Fpar_1km' \
+      fpar8.hfa
+
+	could now be rewritten as:
+
+$ gdalwarp -of HFA \
+      -s_srs '+proj=sinu +R=6371007.181 +datum=WGS84' \
+      -t_srs TARGET-SRS \
+      'HDF4_EOS:EOS_GRID:"fpar8.hdf":MOD_Grid_MOD15A2:Fpar_1km' \
+      fpar8.hfa
+
+	(i. e., the source projection is spherical, but the coordinates
+	used are the WGS84 ones)?  If yes, that's good!  May I suggest
+	updating [2] then as well?
+
+	Or do I miss something?
+
+[1] http://trac.osgeo.org/gdal/ticket/1239
+[2] http://proj.maptools.org/faq.html
+
+
+
+From gok at aerometric-ak.com  Tue Dec 11 14:40:44 2007
+From: gok at aerometric-ak.com (Gennady Khokhorin)
+Date: Tue, 11 Dec 2007 13:40:44 -0900
+Subject: [Proj] prj to xml
+Message-ID: <3054411AF4728548AD6D7137190D56B302B57DDC@admin1.aeromap.com>
+
+Hello, all.
+Wonder if somebody was trying to convert WKT .prj files to fgdc.xml
+format and back.
+Not sure if this list is a right place to ask about metadata.
+Thanks.
+gok
+
+
+
+From warmerdam at pobox.com  Tue Dec 11 18:51:16 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 11 Dec 2007 21:51:16 -0500
+Subject: [Proj] prj to xml
+In-Reply-To: <3054411AF4728548AD6D7137190D56B302B57DDC@admin1.aeromap.com>
+References: <3054411AF4728548AD6D7137190D56B302B57DDC@admin1.aeromap.com>
+Message-ID: <475F4CA4.6050807@pobox.com>
+
+Gennady Khokhorin wrote:
+> Hello, all.
+> Wonder if somebody was trying to convert WKT .prj files to fgdc.xml
+> format and back.
+> Not sure if this list is a right place to ask about metadata.
+
+Gok,
+
+I am not aware of a WKT to FGDC XML translator though I do maintain
+a half assed WKT to GML translator.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From gok at aerometric-ak.com  Tue Dec 11 19:45:30 2007
+From: gok at aerometric-ak.com (Gennady Khokhorin)
+Date: Tue, 11 Dec 2007 18:45:30 -0900
+Subject: [Proj] prj to xml
+Message-ID: <3054411AF4728548AD6D7137190D56B302B57DDF@admin1.aeromap.com>
+
+Hello, Frank.
+If you building gml tree what api I can use to translate it to xml?
+What routine/class can handle gml<-->prj conversion?
+Happy programming!
+gok
+
+-----Original Message-----
+From: Frank Warmerdam [mailto:warmerdam at pobox.com] 
+Sent: Tuesday, December 11, 2007 5:51 PM
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] prj to xml
+
+Gennady Khokhorin wrote:
+> Hello, all.
+> Wonder if somebody was trying to convert WKT .prj files to fgdc.xml 
+> format and back.
+> Not sure if this list is a right place to ask about metadata.
+
+Gok,
+
+I am not aware of a WKT to FGDC XML translator though I do maintain a
+half assed WKT to GML translator.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------
+---------------------------------------+------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo,
+http://osgeo.org
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+From warmerdam at pobox.com  Tue Dec 11 20:09:11 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 11 Dec 2007 23:09:11 -0500
+Subject: [Proj] prj to xml
+In-Reply-To: <3054411AF4728548AD6D7137190D56B302B57DDF@admin1.aeromap.com>
+References: <3054411AF4728548AD6D7137190D56B302B57DDF@admin1.aeromap.com>
+Message-ID: <475F5EE7.9050405@pobox.com>
+
+Gennady Khokhorin wrote:
+> Hello, Frank.
+> If you building gml tree what api I can use to translate it to xml?
+> What routine/class can handle gml<-->prj conversion?
+> Happy programming!
+
+Gennady,
+
+The C++ class used for this is OGRSpatialReference and it is part of
+my GDAL/OGR library (http://www.gdal.org).  The OGRSpatialReference
+class supports translating between a variety of coordinate system
+formats, including WKT (it's internal representaton), PROJ.4, GML
+(weak really), and a few other esoteric options.  A reasonable primer
+on the services is available at:
+
+   http://www.gdal.org/ogr/osr_tutorial.html
+
+Incidentally, this is the class uses to generate the PROJ.4 "epsg" init
+file.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From gok at aerometric-ak.com  Tue Dec 18 13:41:29 2007
+From: gok at aerometric-ak.com (Gennady Khokhorin)
+Date: Tue, 18 Dec 2007 12:41:29 -0900
+Subject: [Proj] prj to xml
+Message-ID: <3054411AF4728548AD6D7137190D56B30C472A@admin1.aeromap.com>
+
+Frank,
+Did search a bit for prj<-->xml conversion tools and wonder if OGR
+supports OpenGIS GeospatialXML standard:
+http://www.opengeospatial.org/standards/ct 
+Any plans to adopt it?
+Thank you.
+Gennady
+
+-----Original Message-----
+From: Frank Warmerdam [mailto:warmerdam at pobox.com] 
+Sent: Tuesday, December 11, 2007 7:09 PM
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] prj to xml
+
+Gennady Khokhorin wrote:
+> Hello, Frank.
+> If you building gml tree what api I can use to translate it to xml?
+> What routine/class can handle gml<-->prj conversion?
+> Happy programming!
+
+Gennady,
+
+The C++ class used for this is OGRSpatialReference and it is part of my
+GDAL/OGR library (http://www.gdal.org).  The OGRSpatialReference class
+supports translating between a variety of coordinate system formats,
+including WKT (it's internal representaton), PROJ.4, GML (weak really),
+and a few other esoteric options.  A reasonable primer on the services
+is available at:
+
+   http://www.gdal.org/ogr/osr_tutorial.html
+
+Incidentally, this is the class uses to generate the PROJ.4 "epsg" init
+file.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------
+---------------------------------------+------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo,
+http://osgeo.org
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+From warmerdam at pobox.com  Tue Dec 18 14:25:34 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 18 Dec 2007 17:25:34 -0500
+Subject: [Proj] prj to xml
+In-Reply-To: <3054411AF4728548AD6D7137190D56B30C472A@admin1.aeromap.com>
+References: <3054411AF4728548AD6D7137190D56B30C472A@admin1.aeromap.com>
+Message-ID: <476848DE.7030804@pobox.com>
+
+Gennady Khokhorin wrote:
+> Frank,
+> Did search a bit for prj<-->xml conversion tools and wonder if OGR
+> supports OpenGIS GeospatialXML standard:
+> http://www.opengeospatial.org/standards/ct 
+> Any plans to adopt it?
+
+Gennady,
+
+The OGC 01-009 specification includes definitions of WKT and XML encodings
+for coordinate systems.  The WKT encoding is the basis of the WKT in GDAL/OGR
+though I only implement some portions of it.
+
+I did some early work to support the XML encoding but that has been discarded
+in favor of the GML coordinate system encoding.  I am not aware of any real
+world use of the 01-009 XML encoding.  It is effectively superceded by GML
+encoding.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From RCharbonneau at 4poyntzdezign.com  Fri Dec 21 00:49:31 2007
+From: RCharbonneau at 4poyntzdezign.com (Robert Charbonneau)
+Date: Fri, 21 Dec 2007 03:49:31 -0500
+Subject: [Proj] Good Morning
+Message-ID: <C5E5B2546EF808498149169747BE928001316B7C@its-srv01.ITS2.local>
+
+Hello,
+
+I am a little new to programming with maps but I've been trying to solve a particular problem and so far I'm having a hard time sorting out how it would work.  I have a Lambert Conformal Conic map.  I know the False Northing, the False Easting, the Long/Lat pairs for the four corners, the Central Meridian and the Origin of Latitude.  I also know that the Datum is D_Clarke_1866.
+
+So what I'm trying to do (and not succeeding at) is finding a formula or a method of converting my Longitude and Latitude pair that I input and performing the mathematics required to convert that into an (x,y) pair to dynamically place a dot on the map.  The map could be of any size so the formula has to allow for the dimensions of the map to be dynamic.  So the image could be 200 x 200 pixels in size (same map all the time, just in different sizes) and the location of Edmonton, Alberta would be at about (14,156).  Increase the image size to 300 x 300 and the pixels should shift to match the size of the map given all of the data we know about it.
+
+Is this something that proj would be able to asist me with?  Will it perform that kind of transformation?  Any help would be appreciated, my math is a little rusty and so far I've had to relearn trigonometry in a very short time period.  I kind of feel dazed.  :)
+
+--
+Robert Charbonneau
+rcharbonneau at 4poyntzdezign.com
+--
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071221/ea803c8a/attachment.html>
+
+From warmerdam at pobox.com  Fri Dec 21 11:25:14 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 21 Dec 2007 14:25:14 -0500
+Subject: [Proj] PROJ 4.6.0 Released
+Message-ID: <476C131A.6050000@pobox.com>
+
+Folks,
+
+There haven't been any major problems with the PROJ 4.6.0 beta1 though there
+have been a few changes so I've packaged up a 4.6.0 final release:
+
+   http://download.osgeo.org/proj/proj-4.6.0.tar.gz
+   http://download.osgeo.org/proj/proj-4.6.0.zip
+
+The changes since beta1 are:
+
+2007-12-21  Andrey Kiselv  <dron at ak4719.spb.edu>
+
+	* PJ_wag3.c: Added missed "lat_ts" parameter to projection description
+	string.
+
+2007-12-20  Frank Warmerdam  <warmerdam at pobox.com>
+
+	* pj_list.h, Makefile.am, PJ_mpoly.c: Removed mpoly projection.  It
+	was just a dummy (no actual transformation).
+
+2007-12-06  Frank Warmerdam  <warmerdam at pobox.com>
+
+	* pj_factors.c: in the case of phi=90, the derived should be calculated
+	at [90-delta,90] instead of at [90,90+delta] (the same is true for -90)
+	http://bugzilla.remotesensing.org/show_bug.cgi?id=1605
+	
+2007-12-03  Frank Warmerdam  <warmerdam at pobox.com>
+
+	* pj_transform.c: Small improvement in WGS84_ES precision to avoid
+	an unnecessary trip through geocentric space (eg bug 1531).
+
+2007-11-30  Frank Warmerdam  <warmerdam at pobox.com>
+
+	* add latlon and lonlat as aliases.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From psg at debian.org  Fri Dec 21 18:12:32 2007
+From: psg at debian.org (Peter S Galbraith)
+Date: Fri, 21 Dec 2007 21:12:32 -0500
+Subject: [Proj] PROJ 4.6.0 Released
+In-Reply-To: <476C131A.6050000@pobox.com>
+References: <476C131A.6050000@pobox.com>
+Message-ID: <13015.1198289552@mixed.dyndns.org>
+
+Frank Warmerdam <warmerdam at pobox.com> wrote:
+
+> Folks,
+> 
+> There haven't been any major problems with the PROJ 4.6.0 beta1 though there
+> have been a few changes so I've packaged up a 4.6.0 final release:
+> 
+>   http://download.osgeo.org/proj/proj-4.6.0.tar.gz
+>   http://download.osgeo.org/proj/proj-4.6.0.zip
+
+Thanks!
+
+Sorry, I should have mentionned a few typos in the man pages before.
+See the minor bugs at:
+
+ http://bugs.debian.org/proj
+
+Peter
+-- 
+Peter S. Galbraith, Debian Developer          <psg at debian.org>
+                                 http://people.debian.org/~psg
+GPG key 1024/D2A913A1 - 97CE 866F F579 96EE  6E68 8170 35FF 799E
+
+
+From gerald at geolabs.fr  Sun Dec 23 07:50:49 2007
+From: gerald at geolabs.fr (=?WINDOWS-1252?Q?G=E9rald_Fenoy?=)
+Date: Sun, 23 Dec 2007 16:50:49 +0100
+Subject: [Proj] PROJ 4.6.0 Released
+In-Reply-To: <476C131A.6050000@pobox.com>
+References: <476C131A.6050000@pobox.com>
+Message-ID: <DFE54CEB-4DEA-4B05-AFEF-32B0B739E393@geolabs.fr>
+
+Hi,
+great to hear that there is a new version of the PROJ library.
+
+I would like to know if there is any news concerning the "well known  
+old issue“ regarding the translation of differents angular unites (as  
+I've allready mentioned some time ago) ?
+
+And ... I wish PROJ users and devs a merry christmas :)
+
+Le 21 déc. 07 à 20:25, Frank Warmerdam a écrit :
+
+> Folks,
+>
+> There haven't been any major problems with the PROJ 4.6.0 beta1  
+> though there
+> have been a few changes so I've packaged up a 4.6.0 final release:
+>
+> http://download.osgeo.org/proj/proj-4.6.0.tar.gz
+> http://download.osgeo.org/proj/proj-4.6.0.zip
+>
+> The changes since beta1 are:
+>
+> 2007-12-21  Andrey Kiselv  <dron at ak4719.spb.edu>
+>
+> 	* PJ_wag3.c: Added missed "lat_ts" parameter to projection  
+> description
+> 	string.
+>
+> 2007-12-20  Frank Warmerdam  <warmerdam at pobox.com>
+>
+> 	* pj_list.h, Makefile.am, PJ_mpoly.c: Removed mpoly projection.  It
+> 	was just a dummy (no actual transformation).
+>
+> 2007-12-06  Frank Warmerdam  <warmerdam at pobox.com>
+>
+> 	* pj_factors.c: in the case of phi=90, the derived should be  
+> calculated
+> 	at [90-delta,90] instead of at [90,90+delta] (the same is true for  
+> -90)
+> 	http://bugzilla.remotesensing.org/show_bug.cgi?id=1605
+> 	
+> 2007-12-03  Frank Warmerdam  <warmerdam at pobox.com>
+>
+> 	* pj_transform.c: Small improvement in WGS84_ES precision to avoid
+> 	an unnecessary trip through geocentric space (eg bug 1531).
+>
+> 2007-11-30  Frank Warmerdam  <warmerdam at pobox.com>
+>
+> 	* add latlon and lonlat as aliases.
+>
+> Best regards,
+> -- 
+> --------------------------------------- 
+> +--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+
+
+From warmerdam at pobox.com  Sun Dec 23 10:41:52 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Sun, 23 Dec 2007 13:41:52 -0500
+Subject: [Proj] PROJ 4.6.0 Released
+In-Reply-To: <DFE54CEB-4DEA-4B05-AFEF-32B0B739E393@geolabs.fr>
+References: <476C131A.6050000@pobox.com>
+	<DFE54CEB-4DEA-4B05-AFEF-32B0B739E393@geolabs.fr>
+Message-ID: <476EABF0.7090909@pobox.com>
+
+Gérald Fenoy wrote:
+> Hi,
+> great to hear that there is a new version of the PROJ library.
+> 
+> I would like to know if there is any news concerning the "well known old 
+> issue“ regarding the translation of differents angular unites (as I've 
+> allready mentioned some time ago) ?
+
+Gérald,
+
+Is this the issue where some geographic coordinate systems should
+be using angular values other than degrees (ie. Gradians)?
+
+There has been no progress on this front, and I must confess it isn't
+high on my personal list of priorities.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From gerald at geolabs.fr  Sun Dec 23 11:35:24 2007
+From: gerald at geolabs.fr (=?WINDOWS-1252?Q?G=E9rald_Fenoy?=)
+Date: Sun, 23 Dec 2007 20:35:24 +0100
+Subject: [Proj] PROJ 4.6.0 Released
+In-Reply-To: <476EABF0.7090909@pobox.com>
+References: <476C131A.6050000@pobox.com>
+	<DFE54CEB-4DEA-4B05-AFEF-32B0B739E393@geolabs.fr>
+	<476EABF0.7090909@pobox.com>
+Message-ID: <BA9EBBF7-845F-4E0F-9CE1-5B80E6E9D2AC@geolabs.fr>
+
+Hi Frank,
+thank for this so quick answer.
+
+Le 23 déc. 07 à 19:41, Frank Warmerdam a écrit :
+
+> Gérald Fenoy wrote:
+>> Hi,
+>> great to hear that there is a new version of the PROJ library.
+>> I would like to know if there is any news concerning the "well  
+>> known old issue“ regarding the translation of differents angular  
+>> unites (as I've allready mentioned some time ago) ?
+>
+> Gérald,
+>
+> Is this the issue where some geographic coordinate systems should
+> be using angular values other than degrees (ie. Gradians)?
+
+It's exactly what I spoke about.
+
+>
+>
+> There has been no progress on this front, and I must confess it isn't
+> high on my personal list of priorities.
+
+I understand, you've allready told me that it's not on the priorities  
+list, which I could understand.
+My appologies for bothering, I just want to be sure that the new  
+version don't allready include this fix :]
+
+
+Cheers,
+
+>
+>
+> Best regards,
+> -- 
+> --------------------------------------- 
+> +--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+Gérald Fenoy
+
+
+
+From massimo at studiodemarchi.net  Mon Dec 24 01:43:16 2007
+From: massimo at studiodemarchi.net (Massimo De Marchi)
+Date: Mon, 24 Dec 2007 10:43:16 +0100
+Subject: [Proj] Question about Italian conversion
+Message-ID: <476F7F34.4050403@studiodemarchi.net>
+
+Hi,
+I am a new user, and was performing image conversion with gdalwarp 
+between old Italian c.s. (Gauss Boaga) and WGS 84.
+
+I found there is a shift (around 100m)in the conversion. I tested with 
+cs2cs and I have the same issue.
+The coordinate conversion is the same using both EPSG 3003 or 26591, or 
+using the proj4 string taken form spatialreference.org
+
+Starting with 1641163 East and 4997349 North I get
+10d47'40.422"E  45d6'52.824"
+in place of:
+10d47'39.5"E    45d6'55.2"
+
+What am I doing wrong?
+
+Thanks in advance,
+Massimo
+
+
+
+From ovv at hetnet.nl  Wed Dec 26 05:38:43 2007
+From: ovv at hetnet.nl (Oscar van Vlijmen)
+Date: Wed, 26 Dec 2007 14:38:43 +0100
+Subject: [Proj] Question about Italian conversion
+In-Reply-To: <476F7F34.4050403@studiodemarchi.net>
+Message-ID: <C39817F3.FA88%ovv@hetnet.nl>
+
+> From: Massimo De Marchi
+> Date: Mon, 24 Dec 2007 10:43:16 +0100
+> Subject: [Proj] Question about Italian conversion
+> 
+> Hi,
+> I am a new user, and was performing image conversion with gdalwarp
+> between old Italian c.s. (Gauss Boaga) and WGS 84.
+> 
+> I found there is a shift (around 100m)in the conversion. I tested with
+> cs2cs and I have the same issue.
+> The coordinate conversion is the same using both EPSG 3003 or 26591, or
+> using the proj4 string taken form spatialreference.org
+> 
+> Starting with 1641163 East and 4997349 North I get
+> 10d47'40.422"E  45d6'52.824"
+> in place of:
+> 10d47'39.5"E    45d6'55.2"
+> 
+> What am I doing wrong?
+
+Trying to follow the procedure with independent software, I get the
+impression that you didn't transform the datum from Hayford to WGS84.
+You simply inverse projected from x,y to lon,lat with the proper transverse
+mercator projection.
+With the Roma40 transform parameters found at <http://crs.bkg.bund.de>
+I arrive at lat,lon:
+45d 06m 55.252s,  10d 47m 39.415s
+assuming a position vector rotation model (ISO) and an initial height of 0.
+The proj/epsg definitions you mention don't contain any datum transform
+instructions.
+
+
+
+
+From ovv at hetnet.nl  Wed Dec 26 05:39:00 2007
+From: ovv at hetnet.nl (Oscar van Vlijmen)
+Date: Wed, 26 Dec 2007 14:39:00 +0100
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <1195483817.8911.54.camel@acme.pacific>
+Message-ID: <C3981804.FA88%ovv@hetnet.nl>
+
+A bit late reply, but might be still of some use....
+
+> From: Roger Oberholtzer
+> Date: Mon, 19 Nov 2007 15:50:17 +0100
+> Subject: [Proj] WGS84 to ED50
+> 
+> Is anyone using proj to convert WGS84 latitudes and longitudes into ED50
+> (Spain and Portugal) northings and eastings?
+> 
+> My attempts get me to within a couple of meters of values calculated by
+> Trimble and Applanix (which are within a mm of each other). I did ask a
+> question about this a while back and got some answers that improved my
+> values by some 100 meters. But I never did get the values I need. So I
+> am trying again.
+> 
+.....
+
+> When I transform:
+> 
+> lat=42.87645687 lng=-4.88298199 alt=0.00000000
+> 
+> I get Easting=346318.770 Northing=4749022.461
+> 
+> but I need Easting=346319.686 Northing=4749023.634
+> 
+.....
+> 
+> As Applanix and Trimble provide the same values for Spain (the ones I am
+> trying to get from proj), they must be using an existing and agreed upon
+> method. I would be surprised if proj couldn't do the same, if I could
+> just figure out how to tell it to do so!
+> 
+> The Applanix provides this information on their calculations:
+> 
+> Mapping frame datum: ED50_ESPA?A ; a = 6378388.000000; 1/f =
+> 297.000000;
+> Coordinate transformation from WGS84 to mapping frame datum
+> dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> 0.999991695369;
+> R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+> sequence of the rotations: x,y,z,1
+> Mapping frame projection : TM;
+> central meridian = -3.000000 deg;
+> latitude of the grid origin = 0.000000 deg; grid scale factor =
+> 0.999600:
+> false easting = 500000.000000 m; false northing = 0.000000 m;
+> 
+
+With these parameters - in the proper units - I get for x,y:
+346319.6988, 4749023.4599 m
+Differences with the 'needed' values:
+dx = 0.013; dy = 0.174 m
+I assumed an 'exact' first-order coordinate frame rotation model, order XYZ,
+then scale.
+I think the given rotation angles are in radians, so I converted them to arc
+seconds.
+Note that PROJ uses a position vector rotation model and a simple transform
+method.
+
+
+
+
+From volpicelli at oato.inaf.it  Wed Dec 26 13:27:45 2007
+From: volpicelli at oato.inaf.it (Antonio Volpicelli)
+Date: Wed, 26 Dec 2007 22:27:45 +0100
+Subject: [Proj] Problem with merc projection
+Message-ID: <4772C751.5040101@oato.inaf.it>
+
+Hi guys,
+I am not sure that this is a right mailing list but probably someone can 
+addressing me in the right place.
+I am using the Mike Adair proj4js and merc.js code .
+The trasformation using cs2cs gives me different result if I use the 
+Mike code.
+When I transform lon/lat to X/Y the Mike code give me a latitude lower 
+then the cs2cs of about 0.200 degrees.
+>cs2cs +proj=latlong +to +proj=merc
+10.6846908 41.26904150
+1189414.34      5023915.99 0.00
+
+with the Mike code
+
+1189414.34   5052106.58
+
+Is there someone that has the same problem?
+Help will be welcome and appreciated
+
+Antonio
+
+
+From massimo at studiodemarchi.net  Wed Dec 26 13:35:36 2007
+From: massimo at studiodemarchi.net (massimo at studiodemarchi.net)
+Date: Wed, 26 Dec 2007 22:35:36 +0100
+Subject: [Proj] Question about Italian conversion
+In-Reply-To: <C39817F3.FA88%ovv@hetnet.nl>
+References: <C39817F3.FA88%ovv@hetnet.nl>
+Message-ID: <1198704936.4772c9283ab8a@webmail.eutelia.it>
+
+Scrive Oscar van Vlijmen <ovv at hetnet.nl>:
+
+> > From: Massimo De Marchi
+> > Date: Mon, 24 Dec 2007 10:43:16 +0100
+> > Subject: [Proj] Question about Italian conversion
+> >
+> > Hi,
+> > I am a new user, and was performing image conversion with gdalwarp
+> > between old Italian c.s. (Gauss Boaga) and WGS 84.
+> >
+> > I found there is a shift (around 100m)in the conversion. I tested with
+> > cs2cs and I have the same issue.
+> > The coordinate conversion is the same using both EPSG 3003 or 26591, or
+> > using the proj4 string taken form spatialreference.org
+> >
+> > Starting with 1641163 East and 4997349 North I get
+> > 10d47'40.422"E  45d6'52.824"
+> > in place of:
+> > 10d47'39.5"E    45d6'55.2"
+> >
+> > What am I doing wrong?
+>
+> Trying to follow the procedure with independent software, I get the
+> impression that you didn't transform the datum from Hayford to WGS84.
+> You simply inverse projected from x,y to lon,lat with the proper transverse
+> mercator projection.
+> With the Roma40 transform parameters found at <http://crs.bkg.bund.de>
+> I arrive at lat,lon:
+> 45d 06m 55.252s,  10d 47m 39.415s
+> assuming a position vector rotation model (ISO) and an initial height of 0.
+> The proj/epsg definitions you mention don't contain any datum transform
+> instructions.
+>
+>
+
+Thanks for your answer. I tried to do a coordinate transform using the -s_srs
+EPSG:3003 (or 26591) and -t_srs EPSG:4326 parameters. How can I add the
+necessary datum transform? I checked the documentation amd the forum, but
+didn't find a clue.
+
+Regards,
+Massimo
+
+
+
+From roger at opq.se  Fri Dec 28 10:44:18 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Fri, 28 Dec 2007 19:44:18 +0100
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <C3981804.FA88%ovv@hetnet.nl>
+References: <C3981804.FA88%ovv@hetnet.nl>
+Message-ID: <1198867458.3750.104.camel@shark.ramboll.se>
+
+
+On Wed, 2007-12-26 at 14:39 +0100, Oscar van Vlijmen wrote:
+> A bit late reply, but might be still of some use....
+> 
+> > From: Roger Oberholtzer
+> > Date: Mon, 19 Nov 2007 15:50:17 +0100
+> > Subject: [Proj] WGS84 to ED50
+> > 
+> > Is anyone using proj to convert WGS84 latitudes and longitudes into ED50
+> > (Spain and Portugal) northings and eastings?
+> > 
+> > My attempts get me to within a couple of meters of values calculated by
+> > Trimble and Applanix (which are within a mm of each other). I did ask a
+> > question about this a while back and got some answers that improved my
+> > values by some 100 meters. But I never did get the values I need. So I
+> > am trying again.
+> > 
+> .....
+> 
+> > When I transform:
+> > 
+> > lat=42.87645687 lng=-4.88298199 alt=0.00000000
+> > 
+> > I get Easting=346318.770 Northing=4749022.461
+> > 
+> > but I need Easting=346319.686 Northing=4749023.634
+> > 
+> .....
+> > 
+> > As Applanix and Trimble provide the same values for Spain (the ones I am
+> > trying to get from proj), they must be using an existing and agreed upon
+> > method. I would be surprised if proj couldn't do the same, if I could
+> > just figure out how to tell it to do so!
+> > 
+> > The Applanix provides this information on their calculations:
+> > 
+> > Mapping frame datum: ED50_ESPA?A ; a = 6378388.000000; 1/f =
+> > 297.000000;
+> > Coordinate transformation from WGS84 to mapping frame datum
+> > dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> > 0.999991695369;
+> > R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+> > sequence of the rotations: x,y,z,1
+> > Mapping frame projection : TM;
+> > central meridian = -3.000000 deg;
+> > latitude of the grid origin = 0.000000 deg; grid scale factor =
+> > 0.999600:
+> > false easting = 500000.000000 m; false northing = 0.000000 m;
+> > 
+> 
+> With these parameters - in the proper units - I get for x,y:
+> 346319.6988, 4749023.4599 m
+> Differences with the 'needed' values:
+> dx = 0.013; dy = 0.174 m
+> I assumed an 'exact' first-order coordinate frame rotation model, order XYZ,
+> then scale.
+> I think the given rotation angles are in radians, so I converted them to arc
+> seconds.
+> Note that PROJ uses a position vector rotation model and a simple transform
+> method.
+
+Your answer is not too late. I have not sorted this issue. What exactly
+did you change to obtain your results? Which angles were in radians
+instead of arc seconds? Was there anything else?
+
+You've hooked me...
+
+> 
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Tel: Int +46 8-615 60 20
+Fax: Int +46 8-31 42 23
+
+
+
+From mateusz at loskot.net  Sat Dec 29 03:25:05 2007
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Sat, 29 Dec 2007 12:25:05 +0100
+Subject: [Proj] Re: [gdal-dev] Proj4 makefile.vc
+In-Reply-To: <008e01c848fa$47b5cda0$d72168e0$@com>
+References: <008e01c848fa$47b5cda0$d72168e0$@com>
+Message-ID: <47762E91.2080301@loskot.net>
+
+Martin Chapman wrote:
+> Frank / Anyone,
+> 
+> I don't know if this correct but I was having trouble getting the proj.dll
+> to load in my MFC exe application in VS2005 in debug mode MDd.  I went into
+> the makefile.vc for proj and changed the following to match your nmake.opt
+> compiler settings for debug and now everything works great.  I would imagine
+> that is ok to do?  This is what I changed it to be:
+> 
+> #OPTFLAGS=  /nologo /Zi /MD /Fdproj.pdb
+> 
+> OPTFLAGS=   /nologo /MDd /EHsc /Zi /D_CRT_SECURE_NO_DEPRECATE
+> /D_CRT_NONSTDC_NO_DEPRECATE /DDEBUG /D_DEBUG /Fd$(PROJ_LIB_DIR)\Fdproj.pdb
+
+Martin,
+
+These debug flags is a kind of minimal required set of flags and
+do not include all necessary flags between Visual C++ versions.
+AFAIU, it's intentional to leave customization of OPTFLAGS to a user.
+Your version of flags looks correct to me, for Visual C++ 8.0 (2005).
+
+
+BTW, I believe this post belongs to proj list than gdal-dev,
+so I've added it to CC.
+
+http://lists.maptools.org/mailman/listinfo/proj
+
+Cheers
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+
+From mateusz at loskot.net  Sat Dec 29 07:15:04 2007
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Sat, 29 Dec 2007 16:15:04 +0100
+Subject: [Proj] Re: [gdal-dev] Proj4 makefile.vc
+In-Reply-To: <1074934298-1198939268-cardhu_decombobulator_blackberry.rim.net-1228279832-@bxe022.bisx.prod.on.blackberry>
+References: <008e01c848fa$47b5cda0$d72168e0$@com><47762E91.2080301@loskot.net>
+	<1074934298-1198939268-cardhu_decombobulator_blackberry.rim.net-1228279832-@bxe022.bisx.prod.on.blackberry>
+Message-ID: <47766478.9010501@loskot.net>
+
+mchapman at texelinc.com wrote:
+> Mateusz,
+> 
+> Thank you for validating that.  I was hoping that was case. By the
+> way, I'm really liking 1.5.0.  There are a ton of great new features
+> and things have been working really solid. Great job.
+
+That's great to hear that. Thanks on behalf the team.
+
+Cheers
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+
+From warmerdam at pobox.com  Sat Dec 29 11:54:04 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Sat, 29 Dec 2007 14:54:04 -0500
+Subject: [Proj] Question about Italian conversion
+In-Reply-To: <1198704936.4772c9283ab8a@webmail.eutelia.it>
+References: <C39817F3.FA88%ovv@hetnet.nl>
+	<1198704936.4772c9283ab8a@webmail.eutelia.it>
+Message-ID: <4776A5DC.9080303@pobox.com>
+
+massimo at studiodemarchi.net wrote:
+>
+>>> What am I doing wrong?
+>> Trying to follow the procedure with independent software, I get the
+>> impression that you didn't transform the datum from Hayford to WGS84.
+>> You simply inverse projected from x,y to lon,lat with the proper transverse
+>> mercator projection.
+>> With the Roma40 transform parameters found at <http://crs.bkg.bund.de>
+>> I arrive at lat,lon:
+>> 45d 06m 55.252s,  10d 47m 39.415s
+>> assuming a position vector rotation model (ISO) and an initial height of 0.
+>> The proj/epsg definitions you mention don't contain any datum transform
+>> instructions.
+>>
+
+> Thanks for your answer. I tried to do a coordinate transform using the -s_srs
+> EPSG:3003 (or 26591) and -t_srs EPSG:4326 parameters. How can I add the
+> necessary datum transform? I checked the documentation amd the forum, but
+> didn't find a clue.
+
+Massimo,
+
+I followed Oscar's link to http://crs.bkg.bund.de but did not see any easily
+identifiable datum transformation parameters for the Monte Mario datum.
+However, if you can find some appropriate ones they can be specified in the
+PROJ.4 string.  EPSG:3003 expands to:
+
++proj=tmerc +lat_0=0 +lon_0=9 +k=0.9996 +x_0=1500000 +y_0=0 +ellps=intl
++units=m +no_defs
+
+To add datum shift parameters you might use a string like:
+
++proj=tmerc +lat_0=0 +lon_0=9 +k=0.9996 +x_0=1500000 +y_0=0 +ellps=intl
++units=m +towgs84=100,50,25 +no_defs
+
+Insert whatever towgs84 parameter you find are appropriate to the datum.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+
+
+From neteler at osgeo.org  Sat Dec 29 12:09:14 2007
+From: neteler at osgeo.org (Markus Neteler)
+Date: Sat, 29 Dec 2007 21:09:14 +0100
+Subject: [Proj] Question about Italian conversion
+In-Reply-To: <4776A5DC.9080303@pobox.com>
+References: <C39817F3.FA88%ovv@hetnet.nl>
+	<1198704936.4772c9283ab8a@webmail.eutelia.it>
+	<4776A5DC.9080303@pobox.com>
+Message-ID: <86782b610712291209g44e0c0c0k62bbee67bc88d10b@mail.gmail.com>
+
+On Dec 29, 2007 8:54 PM, Frank Warmerdam <warmerdam at pobox.com> wrote:
+> massimo at studiodemarchi.net wrote:
+> >
+> >>> What am I doing wrong?
+> >> Trying to follow the procedure with independent software, I get the
+> >> impression that you didn't transform the datum from Hayford to WGS84.
+> >> You simply inverse projected from x,y to lon,lat with the proper transverse
+> >> mercator projection.
+> >> With the Roma40 transform parameters found at <http://crs.bkg.bund.de>
+> >> I arrive at lat,lon:
+> >> 45d 06m 55.252s,  10d 47m 39.415s
+> >> assuming a position vector rotation model (ISO) and an initial height of 0.
+> >> The proj/epsg definitions you mention don't contain any datum transform
+> >> instructions.
+> >>
+>
+> > Thanks for your answer. I tried to do a coordinate transform using the -s_srs
+> > EPSG:3003 (or 26591) and -t_srs EPSG:4326 parameters. How can I add the
+> > necessary datum transform? I checked the documentation amd the forum, but
+> > didn't find a clue.
+>
+> Massimo,
+>
+> I followed Oscar's link to http://crs.bkg.bund.de but did not see any easily
+> identifiable datum transformation parameters for the Monte Mario datum.
+
+Here they are (extracted from GRASS GIS source code):
+
+datum.table:rome40      "Monte_Mario"
+international dx=-225     dy=-65      dz=9
+datumtransform.table:rome40
+"towgs84=-104.1,-49.1,-9.9,0.971,-2.917,0.714,-11.68" "Italy
+(Peninsular Part)" "Accuracy 3-4m"
+datumtransform.table:rome40
+"towgs84=-168.6,-34.0,38.6,-0.374,-0.679,-1.379,-9.48" "Italy
+(Sardinia)" "Accuracy 3-4m"
+datumtransform.table:rome40
+"towgs84=-50.2,-50.4,84.8,-0.690,-2.012,0.459,-28.08" "Italy (Sicily)"
+"Accuracy 3-4m"
+
+They were taken from http://crs.bkg.bund.de.
+
+See also:
+http://it.wikipedia.org/wiki/Proiezione_di_Gauss-Boaga
+
+Hope this helps,
+Markus
+
+
+From ovv at hetnet.nl  Sat Dec 29 13:08:59 2007
+From: ovv at hetnet.nl (Oscar van Vlijmen)
+Date: Sat, 29 Dec 2007 22:08:59 +0100
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <1198867458.3750.104.camel@shark.ramboll.se>
+Message-ID: <C39C75FB.FB62%ovv@hetnet.nl>
+
+> From: Roger Oberholtzer
+> Date: Fri, 28 Dec 2007 19:44:18 +0100
+> Subject: Re: [Proj] WGS84 to ED50
+
+>>> Is anyone using proj to convert WGS84 latitudes and longitudes into ED50
+>>> (Spain and Portugal) northings and eastings?
+
+>>> When I transform:
+>>> lat=42.87645687 lng=-4.88298199 alt=0.00000000
+>>> I get Easting=346318.770 Northing=4749022.461
+>>> but I need Easting=346319.686 Northing=4749023.634
+
+>>> The Applanix provides this information on their calculations:
+>>> Mapping frame datum: ED50_ESPA?A ; a = 6378388.000000; 1/f =
+>>> 297.000000;
+>>> Coordinate transformation from WGS84 to mapping frame datum
+>>> dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+>>> 0.999991695369;
+>>> R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+>>> sequence of the rotations: x,y,z,1
+>>> Mapping frame projection : TM;
+>>> central meridian = -3.000000 deg;
+>>> latitude of the grid origin = 0.000000 deg; grid scale factor =
+>>> 0.999600:
+>>> false easting = 500000.000000 m; false northing = 0.000000 m;
+
+> Your answer is not too late. I have not sorted this issue. What exactly
+> did you change to obtain your results? Which angles were in radians
+> instead of arc seconds? Was there anything else?
+
+The rotation angles, so in effect only R3.
+If you compare simple transforms (sines/cosines in the rotation matrix are
+the same as the angles in rad), then coordinate frame has negated angles
+compared to position vector.
+If you want to do exact (but still first-order Helmert) transforms, then
+you'll have to use a specialized datum transformation tool. In the case at
+hand differences will emerge starting from the 5th decimal in
+easting/northing. So you might as well use PROJ's simple transform.
+ 
+
+
+
+From ovv at hetnet.nl  Sun Dec 30 01:37:48 2007
+From: ovv at hetnet.nl (Oscar van Vlijmen)
+Date: Sun, 30 Dec 2007 10:37:48 +0100
+Subject: [Proj] Problem with merc projection
+In-Reply-To: <4772C751.5040101@oato.inaf.it>
+Message-ID: <C39D257C.FB7F%ovv@hetnet.nl>
+
+> From: Antonio Volpicelli
+> Date: Wed, 26 Dec 2007 22:27:45 +0100
+> Subject: [Proj] Problem with merc projection
+
+> I am using the Mike Adair proj4js and merc.js code .
+> The trasformation using cs2cs gives me different result if I use the
+> Mike code.
+> When I transform lon/lat to X/Y the Mike code give me a latitude lower
+> then the cs2cs of about 0.200 degrees.
+>> cs2cs +proj=latlong +to +proj=merc
+> 10.6846908 41.26904150
+> 1189414.34      5023915.99 0.00
+> with the Mike code
+> 1189414.34   5052106.58
+
+PROJ (and CS2CS) works as expected.
+PROJ does an ellipsoidal Mercator projection with in this case default
+parameters:
+lon0=0; x0=0; y0=0; k0=1.0; WGS84 ellipsoid.
+Apparently the 'Mike' code does a spherical Mercator, taking the semi-major
+WGS84 axis as the radius.
+
+
+
+
+From volpicelli at oato.inaf.it  Sun Dec 30 07:14:52 2007
+From: volpicelli at oato.inaf.it (Antonio Volpicelli)
+Date: Sun, 30 Dec 2007 16:14:52 +0100
+Subject: [Proj] Problem with merc projection
+In-Reply-To: <C39D257C.FB7F%ovv@hetnet.nl>
+References: <C39D257C.FB7F%ovv@hetnet.nl>
+Message-ID: <4777B5EC.1080003@oato.inaf.it>
+
+Yes Thanks Oscar.
+PROJ and cs2cs works fine.
+I am mapping my images ( on mapserver) using it as WMS on Google Sky and 
+the images match exactly.
+
+I am trying to modify the merc.js code.
+
+Thanks again
+
+Antonio
+
+Oscar van Vlijmen ha scritto:
+>> From: Antonio Volpicelli
+>> Date: Wed, 26 Dec 2007 22:27:45 +0100
+>> Subject: [Proj] Problem with merc projection
+>>     
+>
+>   
+>> I am using the Mike Adair proj4js and merc.js code .
+>> The trasformation using cs2cs gives me different result if I use the
+>> Mike code.
+>> When I transform lon/lat to X/Y the Mike code give me a latitude lower
+>> then the cs2cs of about 0.200 degrees.
+>>     
+>>> cs2cs +proj=latlong +to +proj=merc
+>>>       
+>> 10.6846908 41.26904150
+>> 1189414.34      5023915.99 0.00
+>> with the Mike code
+>> 1189414.34   5052106.58
+>>     
+>
+> PROJ (and CS2CS) works as expected.
+> PROJ does an ellipsoidal Mercator projection with in this case default
+> parameters:
+> lon0=0; x0=0; y0=0; k0=1.0; WGS84 ellipsoid.
+> Apparently the 'Mike' code does a spherical Mercator, taking the semi-major
+> WGS84 axis as the radius.
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>   
+
+
+

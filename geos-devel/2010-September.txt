@@ -1,0 +1,2079 @@
+From strk at keybit.net  Wed Sep  1 03:37:49 2010
+From: strk at keybit.net (strk)
+Date: Wed Sep  1 03:37:51 2010
+Subject: [geos-devel] SIGABRT in GEOS using the C-API
+In-Reply-To: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+Message-ID: <20100901073749.GE69182@keybit.net>
+
+On Tue, Aug 31, 2010 at 08:26:29PM -0400, Alex Trofast wrote:
+> Greetings all, I'm getting a SIGABRT in GEOS, but not on all Linux distros. The following is a partial backtrace from Ingres:
+
+> #2  0x00000030e4a2b7b5 in __assert_fail () from /lib64/libc.so.6
+> #3  0x00007fa6f3ea2623 in geos::geom::GeometryComponentFilter::filter_ro (this=<value optimized out>, geom=<value optimized out>) at GeometryComponentFilter.cpp:35
+> #4  0x00007fa6f3eab47c in geos::geom::Polygon::apply_ro (this=0x7fa6cc03b0d0, filter=0x7fa6e09ae900) at Polygon.cpp:402
+> #5  0x00007fa6f3f038c5 in getLines (this=0x7fa6e09ae9b0) at ../../../include/geos/geom/util/LinearComponentExtracter.h:57
+
+Sounds like a compiler bug.
+GeometryComponentFilter::filter_ro is a virtual function.
+LinearComponentExtracter is the actual implementation for
+this case (see last step in trace).
+You would _always_ receive a SIGABRT if
+GeometryComponentFilter::filter_ro is entered rather than
+LinearComponentExtracter::filter_ro.
+
+Indeed GeometryComponentFilter::filter_ro and ::filter_rw could
+be made pure abstract methods.
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From bontepaarden at gmail.com  Sat Sep 18 04:25:59 2010
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Sat Sep 18 04:26:21 2010
+Subject: [geos-devel] GetIntersection
+Message-ID: <AANLkTi=++r6CNquY24wwMOyt8yCQv2q21q7z0yTvoyEg@mail.gmail.com>
+
+Hi list,
+
+We use the GDAL library with GEOS in our ActiveX control: MapWinGIS.ocx.
+This ocx is used by MapWindow GIS as the mapping part.
+
+We recently implemented the GetIntersection method from GEOS in our ocx and
+I'm running some tests.
+When I call the GetIntersection method on several small shapefiles it takes
+16 minutes to process 9 shapefiles.
+In our ocx we convert from shapefile to the GEOS geometry.
+
+But when I call it with two large shapefiles it is processing a long time
+(>5 hours) and then it crashes.
+We haven't find out if our ocx is crashing or GEOS, but for now I want to
+know if we can set some additional params to improve the performance.
+
+I run the test on a 4core 8GB RAM WinVista and it is only using 650MB of RAM
+and only 23-26% of my processor.
+I want to let it use more of my resources so it will perform faster. After
+that we can look deeper in the crash.
+
+Thanks,
+
+Paul
+
+--
+Paul Meems
+Release manager, configuration manager
+and forum moderator of MapWindow GIS.
+www.mapwindow.org
+
+Owner of MapWindow.nl - Support for
+Dutch speaking users.
+www.mapwindow.nl
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20100918/0abfef3d/attachment.html
+From hromain at rcsmobility.com  Sun Sep 19 09:48:18 2010
+From: hromain at rcsmobility.com (Hugues Romain (RCSmobility))
+Date: Sun Sep 19 10:00:58 2010
+Subject: [geos-devel] Bug in WKBReader
+In-Reply-To: <20100901073749.GE69182@keybit.net>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net>
+Message-ID: <DBA5A3CA70C9411A8F2DA72E6D9D03A4@zurix2>
+
+
+Hi,
+
+I think there is a bug in io/WKBReader.cpp in the C++ port.
+
+At the line 312, the SRID of the geometry recentrly created by the factory
+is overwritten by the SRID coming from the WKB data.
+But if the WKB data does not contains the SRID, its value will be 0 even if
+the factory defines an other SRID.
+
+I propose to patch this with a new condition before overwriting the SRID :
+the SRID of the factory is keeped if the WKB does not provide a SRID value.
+
+Do you agree with this ? If yes, is somebody able to commit the patch ?
+
+Hugues Romain
+RCSmobility - Software for public transport
+http://www.rcsmobility.com/
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: WKBReader.patch
+Type: application/octet-stream
+Size: 305 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20100919/64fc9802/WKBReader.obj
+From strk at keybit.net  Sun Sep 19 16:01:48 2010
+From: strk at keybit.net (strk)
+Date: Sun Sep 19 16:01:52 2010
+Subject: [geos-devel] Bug in WKBReader
+In-Reply-To: <DBA5A3CA70C9411A8F2DA72E6D9D03A4@zurix2>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net>
+	<DBA5A3CA70C9411A8F2DA72E6D9D03A4@zurix2>
+Message-ID: <20100919200148.GA80470@keybit.net>
+
+On Sun, Sep 19, 2010 at 03:48:18PM +0200, Hugues Romain (RCSmobility) wrote:
+
+> I propose to patch this with a new condition before overwriting the SRID :
+> the SRID of the factory is keeped if the WKB does not provide a SRID value.
+> 
+> Do you agree with this ? If yes, is somebody able to commit the patch ?
+
+I agree with the patch and can commit it.
+Only, would you be so kind to also add a testcase
+for it in tests/unit/io/WKBReaderTest.cpp ?
+
+Thanks !
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From strk at keybit.net  Sun Sep 19 16:14:30 2010
+From: strk at keybit.net (strk)
+Date: Sun Sep 19 16:14:33 2010
+Subject: [geos-devel] GetIntersection
+In-Reply-To: <AANLkTi=++r6CNquY24wwMOyt8yCQv2q21q7z0yTvoyEg@mail.gmail.com>
+References: <AANLkTi=++r6CNquY24wwMOyt8yCQv2q21q7z0yTvoyEg@mail.gmail.com>
+Message-ID: <20100919201430.GB80470@keybit.net>
+
+On Sat, Sep 18, 2010 at 10:25:59AM +0200, Paul Meems wrote:
+
+> I want to let it use more of my resources so it will perform faster. After
+> that we can look deeper in the crash.
+
+No parameters exist to improve performances, I'm afraid.
+Sometimes you can improve your process by thinking better
+about the geometrical problem, and approach it differently.
+Some other times all you can do is profile and see if
+anything dumb is happening.
+
+Looking at the crash might reveal something too.
+Which version of GEOS ? Tried with SVN ?
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From bontepaarden at gmail.com  Sun Sep 19 16:29:18 2010
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Sun Sep 19 16:29:39 2010
+Subject: [geos-devel] GetIntersection
+In-Reply-To: <20100919201430.GB80470@keybit.net>
+References: <AANLkTi=++r6CNquY24wwMOyt8yCQv2q21q7z0yTvoyEg@mail.gmail.com>
+	<20100919201430.GB80470@keybit.net>
+Message-ID: <AANLkTi=FCffo_==AxkNjSSOFZOz9YxY5fua65j86_Rak@mail.gmail.com>
+
+Thanks for the info.
+The crash is about too little disk space, but I have 130GB free.
+We're going to profile to source code to see where the trouble is.
+We use version 3.2.2 from 18 April 2010. I believe that is the most recent
+stable version.
+We're also consider looking at a different library: Clipper, that seems to
+be a bit faster (3-5 times).
+
+Thanks,
+
+Paul
+
+--
+Paul Meems
+Release manager, configuration manager
+and forum moderator of MapWindow GIS.
+www.mapwindow.org
+
+Owner of MapWindow.nl - Support for
+Dutch speaking users.
+www.mapwindow.nl
+
+
+
+2010/9/19 strk <strk@keybit.net>
+
+> On Sat, Sep 18, 2010 at 10:25:59AM +0200, Paul Meems wrote:
+>
+> > I want to let it use more of my resources so it will perform faster.
+> After
+> > that we can look deeper in the crash.
+>
+> No parameters exist to improve performances, I'm afraid.
+> Sometimes you can improve your process by thinking better
+> about the geometrical problem, and approach it differently.
+> Some other times all you can do is profile and see if
+> anything dumb is happening.
+>
+> Looking at the crash might reveal something too.
+> Which version of GEOS ? Tried with SVN ?
+>
+> --strk;
+>
+>  ()   Free GIS & Flash consultant/developer
+>  /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20100919/2d709c01/attachment.html
+From hromain at rcsmobility.com  Mon Sep 20 21:51:30 2010
+From: hromain at rcsmobility.com (Hugues Romain (RCSmobility))
+Date: Mon Sep 20 21:51:38 2010
+Subject: [geos-devel] Bug in WKBReader
+In-Reply-To: <20100919200148.GA80470@keybit.net>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net>
+	<DBA5A3CA70C9411A8F2DA72E6D9D03A4@zurix2>
+	<20100919200148.GA80470@keybit.net>
+Message-ID: <204AE9280D2C4CE590E04A95124EDD31@zurix2>
+
+
+> I agree with the patch and can commit it.
+> Only, would you be so kind to also add a testcase for it in
+tests/unit/io/WKBReaderTest.cpp ?
+
+In that file, the cases do not concern the SRID attribute, so it is
+necessary to write a new test function for that, taking GeometryFactory as a
+parameter and not a constant.
+So it will take a little time...
+OK to do that but not before a week or two.
+
+-- 
+Hugues Romain
+RCSmobility - Free software for public transport
+http://www.rcsmobility.com/
+
+From hromain at rcsmobility.com  Mon Sep 20 22:01:17 2010
+From: hromain at rcsmobility.com (Hugues Romain (RCSmobility))
+Date: Mon Sep 20 22:01:25 2010
+Subject: [geos-devel] Visual Studio visualizer
+Message-ID: <C87B5A36F88A4AE499F6B2A52D3149F2@zurix2>
+
+Hi,
+ 
+For Visual Studio users : I have posted in the wiki a visualizer for
+debugging Point objects :
+http://trac.osgeo.org/geos/wiki/MSVSAutoexp
+ 
+I will put a LineString version in a few days...
+
+I can do some other classes if needed.
+
+-- 
+Hugues Romain
+RCSmobility - Free software for public transport
+http://www.rcsmobility.com/
+
+From strk at keybit.net  Tue Sep 21 06:54:30 2010
+From: strk at keybit.net ('strk')
+Date: Tue Sep 21 06:54:38 2010
+Subject: [geos-devel] Bug in WKBReader
+In-Reply-To: <204AE9280D2C4CE590E04A95124EDD31@zurix2>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net>
+	<DBA5A3CA70C9411A8F2DA72E6D9D03A4@zurix2>
+	<20100919200148.GA80470@keybit.net>
+	<204AE9280D2C4CE590E04A95124EDD31@zurix2>
+Message-ID: <20100921105430.GA15420@keybit.net>
+
+On Tue, Sep 21, 2010 at 03:51:30AM +0200, Hugues Romain (RCSmobility) wrote:
+> 
+> > I agree with the patch and can commit it.
+> > Only, would you be so kind to also add a testcase for it in
+> tests/unit/io/WKBReaderTest.cpp ?
+> 
+> In that file, the cases do not concern the SRID attribute, so it is
+> necessary to write a new test function for that, taking GeometryFactory as a
+> parameter and not a constant.
+
+No need to overgeneralize, a couple of new tests:
+one for checking default factory SRID and one for 
+checking override would be good enough.
+
+Thanks for your time.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From alex.trofast at ingres.com  Wed Sep 22 08:12:39 2010
+From: alex.trofast at ingres.com (Alex Trofast)
+Date: Wed Sep 22 08:12:42 2010
+Subject: [geos-devel] SIGABRT in GEOS using the C-API
+In-Reply-To: <20100901073749.GE69182@keybit.net>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net>
+Message-ID: <4C99F2B7.6090009@ingres.com>
+
+  Hi strk
+
+I think you are right, after testing I noticed that GEOS compiles with 
+-O2 by default. If you change CFLAGS/CXXFLAGS to be -O1 instead this 
+SIGABRT does not seem to happen. Is this a bug that can or should be 
+filed with the gcc project?
+
+Thanks!
+
+On 09/01/2010 03:37 AM, strk wrote:
+> On Tue, Aug 31, 2010 at 08:26:29PM -0400, Alex Trofast wrote:
+>> Greetings all, I'm getting a SIGABRT in GEOS, but not on all Linux distros. The following is a partial backtrace from Ingres:
+>> #2  0x00000030e4a2b7b5 in __assert_fail () from /lib64/libc.so.6
+>> #3  0x00007fa6f3ea2623 in geos::geom::GeometryComponentFilter::filter_ro (this=<value optimized out>, geom=<value optimized out>) at GeometryComponentFilter.cpp:35
+>> #4  0x00007fa6f3eab47c in geos::geom::Polygon::apply_ro (this=0x7fa6cc03b0d0, filter=0x7fa6e09ae900) at Polygon.cpp:402
+>> #5  0x00007fa6f3f038c5 in getLines (this=0x7fa6e09ae9b0) at ../../../include/geos/geom/util/LinearComponentExtracter.h:57
+> Sounds like a compiler bug.
+> GeometryComponentFilter::filter_ro is a virtual function.
+> LinearComponentExtracter is the actual implementation for
+> this case (see last step in trace).
+> You would _always_ receive a SIGABRT if
+> GeometryComponentFilter::filter_ro is entered rather than
+> LinearComponentExtracter::filter_ro.
+>
+> Indeed GeometryComponentFilter::filter_ro and ::filter_rw could
+> be made pure abstract methods.
+>
+> --strk;
+>
+>    ()   Free GIS&  Flash consultant/developer
+>    /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+-- 
+Alex
+http://bit.ly/geodb
+
+From strk at keybit.net  Wed Sep 22 08:35:56 2010
+From: strk at keybit.net (strk)
+Date: Wed Sep 22 08:36:01 2010
+Subject: [geos-devel] SIGABRT in GEOS using the C-API
+In-Reply-To: <4C99F2B7.6090009@ingres.com>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net> <4C99F2B7.6090009@ingres.com>
+Message-ID: <20100922123556.GA40478@keybit.net>
+
+On Wed, Sep 22, 2010 at 08:12:39AM -0400, Alex Trofast wrote:
+>  Hi strk
+> 
+> I think you are right, after testing I noticed that GEOS compiles with 
+> -O2 by default. If you change CFLAGS/CXXFLAGS to be -O1 instead this 
+> SIGABRT does not seem to happen. Is this a bug that can or should be 
+> filed with the gcc project?
+
+I guess so, assuming you're using latest stable release.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From alex.trofast at ingres.com  Wed Sep 22 12:13:51 2010
+From: alex.trofast at ingres.com (Alex Trofast)
+Date: Wed Sep 22 12:13:54 2010
+Subject: [geos-devel] SIGABRT in GEOS using the C-API
+In-Reply-To: <20100922123556.GA40478@keybit.net>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>	<20100901073749.GE69182@keybit.net>
+	<4C99F2B7.6090009@ingres.com> <20100922123556.GA40478@keybit.net>
+Message-ID: <4C9A2B3F.4020801@ingres.com>
+
+  Hi,
+
+No I'm using SVN trunk. But going back a 100 revisions or so the problem 
+is the same. I haven't tried it with the stable release but I imagine 
+the problem is the same.
+
+On 09/22/2010 08:35 AM, strk wrote:
+> On Wed, Sep 22, 2010 at 08:12:39AM -0400, Alex Trofast wrote:
+>>   Hi strk
+>>
+>> I think you are right, after testing I noticed that GEOS compiles with
+>> -O2 by default. If you change CFLAGS/CXXFLAGS to be -O1 instead this
+>> SIGABRT does not seem to happen. Is this a bug that can or should be
+>> filed with the gcc project?
+> I guess so, assuming you're using latest stable release.
+>
+> --strk;
+>
+>    ()   Free GIS&  Flash consultant/developer
+>    /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+-- 
+Alex
+http://bit.ly/geodb
+
+From strk at keybit.net  Wed Sep 22 13:57:21 2010
+From: strk at keybit.net (strk)
+Date: Wed Sep 22 13:57:25 2010
+Subject: [geos-devel] SIGABRT in GEOS using the C-API
+In-Reply-To: <4C9A2B3F.4020801@ingres.com>
+References: <953F55DC30E4F841B6D444CE7A822E9A02164B@USINVMAILB01.ingres.prv>
+	<20100901073749.GE69182@keybit.net> <4C99F2B7.6090009@ingres.com>
+	<20100922123556.GA40478@keybit.net> <4C9A2B3F.4020801@ingres.com>
+Message-ID: <20100922175721.GB40478@keybit.net>
+
+On Wed, Sep 22, 2010 at 12:13:51PM -0400, Alex Trofast wrote:
+> On 09/22/2010 08:35 AM, strk wrote:
+> > On Wed, Sep 22, 2010 at 08:12:39AM -0400, Alex Trofast wrote:
+> >
+> > > I think you are right, after testing I noticed that GEOS compiles with
+> > > -O2 by default. If you change CFLAGS/CXXFLAGS to be -O1 instead this
+> > > SIGABRT does not seem to happen. Is this a bug that can or should be
+> > > filed with the gcc project?
+> >
+> > I guess so, assuming you're using latest stable release.
+>
+> No I'm using SVN trunk. But going back a 100 revisions or so the problem 
+> is the same. I haven't tried it with the stable release but I imagine 
+> the problem is the same.
+
+Even better for filing a bug.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From pramsey at cleverelephant.ca  Sun Sep 26 15:19:26 2010
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Sun Sep 26 15:19:30 2010
+Subject: [geos-devel] Re: Nightly snapshot link also broken
+In-Reply-To: <20100827110029.GG4155@keybit.net>
+References: <20100827110029.GG4155@keybit.net>
+Message-ID: <AANLkTinruH8BuuC=ES3pV6_jqec6j=fT8=0hQzJgPcLb@mail.gmail.com>
+
+API and snapshots are now building again, at a new location
+geos.osgeo.org/doxygen
+geos.osgeo.org/snapshots
+might take a little while for DNS propagation to make those visible
+P
+
+On Fri, Aug 27, 2010 at 4:00 AM, strk <strk@keybit.net> wrote:
+> As with the doxygen part...
+> Really looks like download.osgeo.org/geos
+> needs some love.
+>
+> Is there a PSC cheatsheet containing informations
+> about the processes and who's in charge of what ?
+>
+> TIA
+>
+> --strk;
+>
+> ?() ? Free GIS & Flash consultant/developer
+> ?/\ ? http://strk.keybit.net/services.html
+>
+From giohappy at gmail.com  Wed Sep 29 09:31:55 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 09:32:18 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult to
+ employ in my production environments...
+Message-ID: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+
+Sorry for this strong title, but I would like to open a discussion on
+this topic. There are already several tickets about TopologyException
+happening in various contexts, and I now it is not an easy to solve
+problem. We, in my company, have struggled to circumvent this frequent
+error, and we put some (few) money to let Sandro (strk) analyze it.
+The only solutions, at now, have been various workarounds that (not
+deterministically) work for some cases/datasets, but fail with others.
+Our first "meet" with this exception was due to GeomUnion operations.
+Today we face it for ST_Difference op in PostGIS, and this time no
+workaround is working.
+
+I anticipate the critics: put the money on the table and someone could
+invest time to solve it. Holy words, this is how foss should work. But
+I'm not the boss of my company, and I've suggested to employ
+PostGIS->GEOS in a big job... and now I have to solve this issue, with
+no extra-money.
+ If this problem cannot be solved I have to abandon PostGIS for one of
+our production environments, and that would be a pity.
+
+So, my reflection is: in a few weeks we have fighted, almost daily,
+with this error. Are we the only ones to get stuck in it? Have others
+found consistent,deterministic solutions?
+
+I would be gratefull if you can share your experience and thoughts...
+Giovanni
+From giohappy at gmail.com  Wed Sep 29 10:15:38 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 10:15:49 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult to
+ employ in my production environments...
+In-Reply-To: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+Message-ID: <AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+
+Here are the WKB representations of a polygon and a multipolygon which
+cause a TopologyException for ST_Difference:
+
+Polygon: http://pastebin.com/rWAGMmME
+Multipolygon: http://pastebin.com/sik9jZk2
+
+
+
+2010/9/29 G. Allegri <giohappy@gmail.com>:
+> Sorry for this strong title, but I would like to open a discussion on
+> this topic. There are already several tickets about TopologyException
+> happening in various contexts, and I now it is not an easy to solve
+> problem. We, in my company, have struggled to circumvent this frequent
+> error, and we put some (few) money to let Sandro (strk) analyze it.
+> The only solutions, at now, have been various workarounds that (not
+> deterministically) work for some cases/datasets, but fail with others.
+> Our first "meet" with this exception was due to GeomUnion operations.
+> Today we face it for ST_Difference op in PostGIS, and this time no
+> workaround is working.
+>
+> I anticipate the critics: put the money on the table and someone could
+> invest time to solve it. Holy words, this is how foss should work. But
+> I'm not the boss of my company, and I've suggested to employ
+> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+> no extra-money.
+> ?If this problem cannot be solved I have to abandon PostGIS for one of
+> our production environments, and that would be a pity.
+>
+> So, my reflection is: in a few weeks we have fighted, almost daily,
+> with this error. Are we the only ones to get stuck in it? Have others
+> found consistent,deterministic solutions?
+>
+> I would be gratefull if you can share your experience and thoughts...
+> Giovanni
+>
+From hobu.inc at gmail.com  Wed Sep 29 10:44:28 2010
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed Sep 29 10:44:32 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult to
+	employ in my production environments...
+In-Reply-To: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+Message-ID: <3E730C71-70C3-4A30-97CC-EBDAF1C8DEA9@gmail.com>
+
+
+On Sep 29, 2010, at 8:31 AM, G. Allegri wrote:
+> I anticipate the critics: put the money on the table and someone could
+> invest time to solve it. Holy words, this is how foss should work. But
+> I'm not the boss of my company, and I've suggested to employ
+> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+> no extra-money.
+> If this problem cannot be solved I have to abandon PostGIS for one of
+> our production environments, and that would be a pity.
+
+Your choices are:
+
+- Put the time in and fix the bugs yourself
+- Put the money in and attract experts to fix the bugs
+- Find an alternative and implement it
+
+Saying that it's a pity you can't use software XX because the bugs *you* need fixed are not being fixed by someone else at no cost is not an option.  First, no one cares.  Second, the social contract of open source software requires that you put the time and money into getting what you need out of it.  Emails like this are not helpful to your cause, and in fact they will act to paint you as someone not being worthy of helping.
+
+What if putting the amount of money you would have to pay for the commercial solution toward the bug fixes you need solved the problem?  I don't know that it would be enough to actually solve your issues, but if you did that, I think you would still be further ahead than if you used the commercial solution.  You need to express the issue(s) to your boss in these terms.  
+
+> 
+> So, my reflection is: in a few weeks we have fighted, almost daily,
+> with this error. Are we the only ones to get stuck in it? Have others
+> found consistent,deterministic solutions?
+
+One way to eliminate a number of the topology issues might be to re-implement PostGIS with a computational geometry library that uses math that doesn't have floating point precision issues.  LEDA and CGAL come to mind.  Neither of these libraries directly map very well to the specific problems of geographic geometry problems, however, and implementing either would bring significant licensing challenges (you're going to have to pay).  The cost to do this work would be huge as well.
+
+If the vast majority of PostGIS/GEOS users frequently had these problems, they would either be fixed or no one would use PostGIS/GEOS...
+
+Howard
+From pramsey at opengeo.org  Wed Sep 29 10:44:31 2010
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Wed Sep 29 10:45:35 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+Message-ID: <AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+
+Pre-empting Martin: your multipolygon is invalid.
+
+However: yes, there are lots of people who do big geoprocessing with
+PostGIS who inevitably, in sieving millions of features through the
+hopper, find pairs that cause topology exceptions. Would I like that
+not to happen: oh yes. Do I have the time and money to fund the
+development to conclusively remove those cases? I do not. Let's
+randomly say it would take 100,000 euros to put a stake through the
+heart of this one and fro all and see if anyone's pain rises to that
+level.
+
+Paul
+
+On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri <giohappy@gmail.com> wrote:
+> Here are the WKB representations of a polygon and a multipolygon which
+> cause a TopologyException for ST_Difference:
+>
+> Polygon: http://pastebin.com/rWAGMmME
+> Multipolygon: http://pastebin.com/sik9jZk2
+>
+>
+>
+> 2010/9/29 G. Allegri <giohappy@gmail.com>:
+>> Sorry for this strong title, but I would like to open a discussion on
+>> this topic. There are already several tickets about TopologyException
+>> happening in various contexts, and I now it is not an easy to solve
+>> problem. We, in my company, have struggled to circumvent this frequent
+>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>> The only solutions, at now, have been various workarounds that (not
+>> deterministically) work for some cases/datasets, but fail with others.
+>> Our first "meet" with this exception was due to GeomUnion operations.
+>> Today we face it for ST_Difference op in PostGIS, and this time no
+>> workaround is working.
+>>
+>> I anticipate the critics: put the money on the table and someone could
+>> invest time to solve it. Holy words, this is how foss should work. But
+>> I'm not the boss of my company, and I've suggested to employ
+>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>> no extra-money.
+>> ?If this problem cannot be solved I have to abandon PostGIS for one of
+>> our production environments, and that would be a pity.
+>>
+>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>> with this error. Are we the only ones to get stuck in it? Have others
+>> found consistent,deterministic solutions?
+>>
+>> I would be gratefull if you can share your experience and thoughts...
+>> Giovanni
+>>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From pramsey at opengeo.org  Wed Sep 29 10:44:31 2010
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Wed Sep 29 10:52:31 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+Message-ID: <AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+
+Pre-empting Martin: your multipolygon is invalid.
+
+However: yes, there are lots of people who do big geoprocessing with
+PostGIS who inevitably, in sieving millions of features through the
+hopper, find pairs that cause topology exceptions. Would I like that
+not to happen: oh yes. Do I have the time and money to fund the
+development to conclusively remove those cases? I do not. Let's
+randomly say it would take 100,000 euros to put a stake through the
+heart of this one and fro all and see if anyone's pain rises to that
+level.
+
+Paul
+
+On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri <giohappy@gmail.com> wrote:
+> Here are the WKB representations of a polygon and a multipolygon which
+> cause a TopologyException for ST_Difference:
+>
+> Polygon: http://pastebin.com/rWAGMmME
+> Multipolygon: http://pastebin.com/sik9jZk2
+>
+>
+>
+> 2010/9/29 G. Allegri <giohappy@gmail.com>:
+>> Sorry for this strong title, but I would like to open a discussion on
+>> this topic. There are already several tickets about TopologyException
+>> happening in various contexts, and I now it is not an easy to solve
+>> problem. We, in my company, have struggled to circumvent this frequent
+>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>> The only solutions, at now, have been various workarounds that (not
+>> deterministically) work for some cases/datasets, but fail with others.
+>> Our first "meet" with this exception was due to GeomUnion operations.
+>> Today we face it for ST_Difference op in PostGIS, and this time no
+>> workaround is working.
+>>
+>> I anticipate the critics: put the money on the table and someone could
+>> invest time to solve it. Holy words, this is how foss should work. But
+>> I'm not the boss of my company, and I've suggested to employ
+>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>> no extra-money.
+>> ?If this problem cannot be solved I have to abandon PostGIS for one of
+>> our production environments, and that would be a pity.
+>>
+>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>> with this error. Are we the only ones to get stuck in it? Have others
+>> found consistent,deterministic solutions?
+>>
+>> I would be gratefull if you can share your experience and thoughts...
+>> Giovanni
+>>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From giohappy at gmail.com  Wed Sep 29 11:16:58 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 11:17:31 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+Message-ID: <AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+
+> Pre-empting Martin: your multipolygon is invalid.
+
+Thanks Paul, I've learned something I didn't know... I thought that a
+MP where two polygons touch on a vertice was valid.
+>From SFS Specifications (par. 2.1.12):
+
+"The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+may not ?cross? and may touch
+at only a finite number of points"
+
+JTS tells me that I have a self-intersection, but visually I only see
+two vertices touchin at 1664458.5096082322,1664458.5096082322
+
+> However: yes, there are lots of people who do big geoprocessing with
+> PostGIS who inevitably, in sieving millions of features through the
+> hopper, find pairs that cause topology exceptions. Would I like that
+> not to happen: oh yes. Do I have the time and money to fund the
+> development to conclusively remove those cases? I do not. Let's
+> randomly say it would take 100,000 euros to put a stake through the
+> heart of this one and fro all and see if anyone's pain rises to that
+> level.
+
+Well, I don't have 100.000, neither my company. I will keep
+TopologyExcpetions here and there :)
+
+Giovanni
+
+> Paul
+>
+> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri <giohappy@gmail.com> wrote:
+>> Here are the WKB representations of a polygon and a multipolygon which
+>> cause a TopologyException for ST_Difference:
+>>
+>> Polygon: http://pastebin.com/rWAGMmME
+>> Multipolygon: http://pastebin.com/sik9jZk2
+>>
+>>
+>>
+>> 2010/9/29 G. Allegri <giohappy@gmail.com>:
+>>> Sorry for this strong title, but I would like to open a discussion on
+>>> this topic. There are already several tickets about TopologyException
+>>> happening in various contexts, and I now it is not an easy to solve
+>>> problem. We, in my company, have struggled to circumvent this frequent
+>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>> The only solutions, at now, have been various workarounds that (not
+>>> deterministically) work for some cases/datasets, but fail with others.
+>>> Our first "meet" with this exception was due to GeomUnion operations.
+>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>> workaround is working.
+>>>
+>>> I anticipate the critics: put the money on the table and someone could
+>>> invest time to solve it. Holy words, this is how foss should work. But
+>>> I'm not the boss of my company, and I've suggested to employ
+>>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>>> no extra-money.
+>>> ?If this problem cannot be solved I have to abandon PostGIS for one of
+>>> our production environments, and that would be a pity.
+>>>
+>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>> with this error. Are we the only ones to get stuck in it? Have others
+>>> found consistent,deterministic solutions?
+>>>
+>>> I would be gratefull if you can share your experience and thoughts...
+>>> Giovanni
+>>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From giohappy at gmail.com  Wed Sep 29 11:16:58 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 11:17:41 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+Message-ID: <AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+
+> Pre-empting Martin: your multipolygon is invalid.
+
+Thanks Paul, I've learned something I didn't know... I thought that a
+MP where two polygons touch on a vertice was valid.
+>From SFS Specifications (par. 2.1.12):
+
+"The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+may not ?cross? and may touch
+at only a finite number of points"
+
+JTS tells me that I have a self-intersection, but visually I only see
+two vertices touchin at 1664458.5096082322,1664458.5096082322
+
+> However: yes, there are lots of people who do big geoprocessing with
+> PostGIS who inevitably, in sieving millions of features through the
+> hopper, find pairs that cause topology exceptions. Would I like that
+> not to happen: oh yes. Do I have the time and money to fund the
+> development to conclusively remove those cases? I do not. Let's
+> randomly say it would take 100,000 euros to put a stake through the
+> heart of this one and fro all and see if anyone's pain rises to that
+> level.
+
+Well, I don't have 100.000, neither my company. I will keep
+TopologyExcpetions here and there :)
+
+Giovanni
+
+> Paul
+>
+> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri <giohappy@gmail.com> wrote:
+>> Here are the WKB representations of a polygon and a multipolygon which
+>> cause a TopologyException for ST_Difference:
+>>
+>> Polygon: http://pastebin.com/rWAGMmME
+>> Multipolygon: http://pastebin.com/sik9jZk2
+>>
+>>
+>>
+>> 2010/9/29 G. Allegri <giohappy@gmail.com>:
+>>> Sorry for this strong title, but I would like to open a discussion on
+>>> this topic. There are already several tickets about TopologyException
+>>> happening in various contexts, and I now it is not an easy to solve
+>>> problem. We, in my company, have struggled to circumvent this frequent
+>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>> The only solutions, at now, have been various workarounds that (not
+>>> deterministically) work for some cases/datasets, but fail with others.
+>>> Our first "meet" with this exception was due to GeomUnion operations.
+>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>> workaround is working.
+>>>
+>>> I anticipate the critics: put the money on the table and someone could
+>>> invest time to solve it. Holy words, this is how foss should work. But
+>>> I'm not the boss of my company, and I've suggested to employ
+>>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>>> no extra-money.
+>>> ?If this problem cannot be solved I have to abandon PostGIS for one of
+>>> our production environments, and that would be a pity.
+>>>
+>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>> with this error. Are we the only ones to get stuck in it? Have others
+>>> found consistent,deterministic solutions?
+>>>
+>>> I would be gratefull if you can share your experience and thoughts...
+>>> Giovanni
+>>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From giohappy at gmail.com  Wed Sep 29 11:26:31 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 11:26:33 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult to
+	employ in my production environments...
+In-Reply-To: <3E730C71-70C3-4A30-97CC-EBDAF1C8DEA9@gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<3E730C71-70C3-4A30-97CC-EBDAF1C8DEA9@gmail.com>
+Message-ID: <AANLkTimB0QDAtCMTT=zFS26a=7ObLhHWy1Hb591Cj4Lw@mail.gmail.com>
+
+Howard, I know well how foss development works. So, my email wasn't
+meant to ask someone to solve things for me. In this project I'm not
+in the position to make such choices. I've just been able to move
+little money to ask strk a first, basic analysis. I absolutely agree
+with the commercial philosophy behind foss, and when I will be able to
+manage enough money I won't easitate to invest it in that way.
+
+I'm just surprised to see not so many issues raising from this
+topology problems, as GEOS/JTS are maybe the most widespread libraries
+used in the gfoss ecosystem. No problems when using it as a data
+repository, but as soon as I use it massively for geometry processing
+I face, almost everyday, thie TopolyException. So I was simply
+wondering what the others think about this, if they have solved it
+somehow. OS is also sharing best practices, isn'it? I don't want to
+steal industry secrests to anyone, just share ideas...
+
+Giovanni
+
+2010/9/29 Howard Butler <hobu.inc@gmail.com>:
+>
+> On Sep 29, 2010, at 8:31 AM, G. Allegri wrote:
+>> I anticipate the critics: put the money on the table and someone could
+>> invest time to solve it. Holy words, this is how foss should work. But
+>> I'm not the boss of my company, and I've suggested to employ
+>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>> no extra-money.
+>> If this problem cannot be solved I have to abandon PostGIS for one of
+>> our production environments, and that would be a pity.
+>
+> Your choices are:
+>
+> - Put the time in and fix the bugs yourself
+> - Put the money in and attract experts to fix the bugs
+> - Find an alternative and implement it
+>
+> Saying that it's a pity you can't use software XX because the bugs *you* need fixed are not being fixed by someone else at no cost is not an option. ?First, no one cares. ?Second, the social contract of open source software requires that you put the time and money into getting what you need out of it. ?Emails like this are not helpful to your cause, and in fact they will act to paint you as someone not being worthy of helping.
+>
+> What if putting the amount of money you would have to pay for the commercial solution toward the bug fixes you need solved the problem? ?I don't know that it would be enough to actually solve your issues, but if you did that, I think you would still be further ahead than if you used the commercial solution. ?You need to express the issue(s) to your boss in these terms.
+>
+>>
+>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>> with this error. Are we the only ones to get stuck in it? Have others
+>> found consistent,deterministic solutions?
+>
+> One way to eliminate a number of the topology issues might be to re-implement PostGIS with a computational geometry library that uses math that doesn't have floating point precision issues. ?LEDA and CGAL come to mind. ?Neither of these libraries directly map very well to the specific problems of geographic geometry problems, however, and implementing either would bring significant licensing challenges (you're going to have to pay). ?The cost to do this work would be huge as well.
+>
+> If the vast majority of PostGIS/GEOS users frequently had these problems, they would either be fixed or no one would use PostGIS/GEOS...
+>
+> Howard_______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From maxime at altribe.org  Wed Sep 29 11:13:00 2010
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Sep 29 11:33:17 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult
+	to  employ in my production environments...
+In-Reply-To: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+Message-ID: <4CA3577C.3060704@altribe.org>
+
+On 09/29/2010 03:31 PM, G. Allegri wrote:
+> I would be gratefull if you can share your experience and thoughts...
+
+Hi,
+
+We're having the exact same problem. Though we didn't (yet) put money on
+the table because we're a very young startup not even making money yet.
+:) But we're strongly considering it for the future. Currently I try to
+help where I can in geos/PostGis but have not much time to really do
+much. :(
+
+To address this problem, or at least reduce it, we wrapped the geos
+operations we need (intersection, difference, etc) and perform cascaded
+heuristic simplifications when a TopologyException occurs (simplify,
+buffer of "epsilon" around the geometry, etc).
+
+-- 
+Maxime
+From maxime at altribe.org  Wed Sep 29 11:39:54 2010
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Sep 29 11:33:29 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult
+	to  employ in my production environments...
+In-Reply-To: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+Message-ID: <4CA35DCA.3080808@altribe.org>
+
+On 09/29/2010 03:31 PM, G. Allegri wrote:
+> I would be gratefull if you can share your experience and thoughts...
+
+Hi,
+
+We're having the exact same problem. Though we didn't (yet) put money on
+the table because we're a very young startup not even making money yet.
+:) But we're strongly considering it for the future. Currently I try to
+help where I can in geos/PostGis but have not much time to really do
+much. :(
+
+To address this problem, or at least reduce it, we wrapped the geos
+operations we need (intersection, difference, etc) and perform cascaded
+heuristic simplifications when a TopologyException occurs (simplify,
+buffer of "epsilon" around the geometry, etc).
+
+-- 
+Maxime
+From maxime at altribe.org  Wed Sep 29 11:40:18 2010
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Sep 29 11:33:52 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult
+	to  employ in my production environments...
+In-Reply-To: <4CA35DCA.3080808@altribe.org>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<4CA35DCA.3080808@altribe.org>
+Message-ID: <4CA35DE2.8090103@altribe.org>
+
+Sorry for the double post.
+
+-- 
+Maxime
+From giohappy at gmail.com  Wed Sep 29 11:37:21 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 11:37:23 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult to
+	employ in my production environments...
+In-Reply-To: <4CA3577C.3060704@altribe.org>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<4CA3577C.3060704@altribe.org>
+Message-ID: <AANLkTim3w9-GMKYkVG771wb05fRHcmwDa24VH6b-oBb_@mail.gmail.com>
+
+Hi Maxime,
+
+> To address this problem, or at least reduce it, we wrapped the geos
+> operations we need (intersection, difference, etc) and perform cascaded
+> heuristic simplifications when a TopologyException occurs (simplify,
+> buffer of "epsilon" around the geometry, etc).
+
+me too :) It doesn't work in all the cases I have, but it works many
+times. This time it seems the doing a ST_Union (unary union) on the
+multipolygons before doing ST_Difference solves the issue. Probably
+the union resolves the noding problems, but what I fear is that it
+works for this specific data set, then it will fail when some other
+corner cases come out...
+Thanks for sharing anyway!
+From maxime at altribe.org  Wed Sep 29 11:49:27 2010
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Sep 29 11:43:02 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult
+	to  employ in my production environments...
+In-Reply-To: <AANLkTim3w9-GMKYkVG771wb05fRHcmwDa24VH6b-oBb_@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>	<4CA3577C.3060704@altribe.org>
+	<AANLkTim3w9-GMKYkVG771wb05fRHcmwDa24VH6b-oBb_@mail.gmail.com>
+Message-ID: <4CA36007.1080603@altribe.org>
+
+On 09/29/2010 05:37 PM, G. Allegri wrote:
+> me too :) It doesn't work in all the cases I have, but it works many
+> times. This time it seems the doing a ST_Union (unary union) on the
+> multipolygons before doing ST_Difference solves the issue. Probably
+> the union resolves the noding problems, but what I fear is that it
+> works for this specific data set, then it will fail when some other
+> corner cases come out...
+> Thanks for sharing anyway!
+
+As I understood from the other posts, you might have invalid geometries.
+That's my top-priority check. Before and after any operation I check
+that all my geometries are valid, and if not I try to trace back to the
+origin the faulty geometry to correct it.
+
+-- 
+Maxime
+From giohappy at gmail.com  Wed Sep 29 11:47:19 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 11:47:35 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult to
+	employ in my production environments...
+In-Reply-To: <4CA36007.1080603@altribe.org>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<4CA3577C.3060704@altribe.org>
+	<AANLkTim3w9-GMKYkVG771wb05fRHcmwDa24VH6b-oBb_@mail.gmail.com>
+	<4CA36007.1080603@altribe.org>
+Message-ID: <AANLkTinNBxj0-m2T7PkZOLVJ6osVossKtrd0xXrsuh0q@mail.gmail.com>
+
+> As I understood from the other posts, you might have invalid geometries.
+> That's my top-priority check. Before and after any operation I check
+> that all my geometries are valid, and if not I try to trace back to the
+> origin the faulty geometry to correct it.
+
+Well, I checked the original polygons and they were right, but two of
+them touch. This seems to make the Multipolygon invalid. Anyway I have
+to pass through a collection to do the required difference. It seems
+that ST_Union succeds in cleanin the bad intersections...
+From mbdavis at refractions.net  Wed Sep 29 12:15:48 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Sep 29 12:14:07 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+	<AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+Message-ID: <4CA36634.9020901@refractions.net>
+
+  I'll make the easy reply first.   8^)
+
+The invalidity is due to one component polygon overlapping another one.
+
+See the attached diagram which displays the problem (generated using the 
+Magnify Topology capability in the development version of JTS TestBuilder)
+
+Also, many of the segments of this component polygon are coincident with 
+the adjacent polygon boundary segments.  This violates the rule from SFS 
+2.1.12 that you quote, since segments contain an infinite number of points.
+
+Martin
+
+On 9/29/2010 8:16 AM, G. Allegri wrote:
+>> Pre-empting Martin: your multipolygon is invalid.
+> Thanks Paul, I've learned something I didn't know... I thought that a
+> MP where two polygons touch on a vertice was valid.
+> > From SFS Specifications (par. 2.1.12):
+>
+> "The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+> may not ?cross? and may touch
+> at only a finite number of points"
+>
+> JTS tells me that I have a self-intersection, but visually I only see
+> two vertices touchin at 1664458.5096082322,1664458.5096082322
+>
+>> However: yes, there are lots of people who do big geoprocessing with
+>> PostGIS who inevitably, in sieving millions of features through the
+>> hopper, find pairs that cause topology exceptions. Would I like that
+>> not to happen: oh yes. Do I have the time and money to fund the
+>> development to conclusively remove those cases? I do not. Let's
+>> randomly say it would take 100,000 euros to put a stake through the
+>> heart of this one and fro all and see if anyone's pain rises to that
+>> level.
+> Well, I don't have 100.000, neither my company. I will keep
+> TopologyExcpetions here and there :)
+>
+> Giovanni
+>
+>> Paul
+>>
+>> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri<giohappy@gmail.com>  wrote:
+>>> Here are the WKB representations of a polygon and a multipolygon which
+>>> cause a TopologyException for ST_Difference:
+>>>
+>>> Polygon: http://pastebin.com/rWAGMmME
+>>> Multipolygon: http://pastebin.com/sik9jZk2
+>>>
+>>>
+>>>
+>>> 2010/9/29 G. Allegri<giohappy@gmail.com>:
+>>>> Sorry for this strong title, but I would like to open a discussion on
+>>>> this topic. There are already several tickets about TopologyException
+>>>> happening in various contexts, and I now it is not an easy to solve
+>>>> problem. We, in my company, have struggled to circumvent this frequent
+>>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>>> The only solutions, at now, have been various workarounds that (not
+>>>> deterministically) work for some cases/datasets, but fail with others.
+>>>> Our first "meet" with this exception was due to GeomUnion operations.
+>>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>>> workaround is working.
+>>>>
+>>>> I anticipate the critics: put the money on the table and someone could
+>>>> invest time to solve it. Holy words, this is how foss should work. But
+>>>> I'm not the boss of my company, and I've suggested to employ
+>>>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>>>> no extra-money.
+>>>>   If this problem cannot be solved I have to abandon PostGIS for one of
+>>>> our production environments, and that would be a pity.
+>>>>
+>>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>>> with this error. Are we the only ones to get stuck in it? Have others
+>>>> found consistent,deterministic solutions?
+>>>>
+>>>> I would be gratefull if you can share your experience and thoughts...
+>>>> Giovanni
+>>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: geoms.png
+Type: image/png
+Size: 36971 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20100929/3a886ab5/geoms-0001.png
+From mbdavis at refractions.net  Wed Sep 29 12:33:59 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Sep 29 12:32:17 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <4CA36634.9020901@refractions.net>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>	<AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+	<4CA36634.9020901@refractions.net>
+Message-ID: <4CA36A77.3060807@refractions.net>
+
+  In case it helps, you can deal with this invalidity by running either 
+UnaryUnion or buffer(0) over the invalid MultiPolygon.  When unary union 
+is used, difference() then works on the results.
+
+On 9/29/2010 9:15 AM, Martin Davis wrote:
+>  I'll make the easy reply first.   8^)
+>
+> The invalidity is due to one component polygon overlapping another one.
+>
+> See the attached diagram which displays the problem (generated using 
+> the Magnify Topology capability in the development version of JTS 
+> TestBuilder)
+>
+> Also, many of the segments of this component polygon are coincident 
+> with the adjacent polygon boundary segments.  This violates the rule 
+> from SFS 2.1.12 that you quote, since segments contain an infinite 
+> number of points.
+>
+> Martin
+>
+> On 9/29/2010 8:16 AM, G. Allegri wrote:
+>>> Pre-empting Martin: your multipolygon is invalid.
+>> Thanks Paul, I've learned something I didn't know... I thought that a
+>> MP where two polygons touch on a vertice was valid.
+>> > From SFS Specifications (par. 2.1.12):
+>>
+>> "The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+>> may not ?cross? and may touch
+>> at only a finite number of points"
+>>
+>> JTS tells me that I have a self-intersection, but visually I only see
+>> two vertices touchin at 1664458.5096082322,1664458.5096082322
+>>
+>>> However: yes, there are lots of people who do big geoprocessing with
+>>> PostGIS who inevitably, in sieving millions of features through the
+>>> hopper, find pairs that cause topology exceptions. Would I like that
+>>> not to happen: oh yes. Do I have the time and money to fund the
+>>> development to conclusively remove those cases? I do not. Let's
+>>> randomly say it would take 100,000 euros to put a stake through the
+>>> heart of this one and fro all and see if anyone's pain rises to that
+>>> level.
+>> Well, I don't have 100.000, neither my company. I will keep
+>> TopologyExcpetions here and there :)
+>>
+>> Giovanni
+>>
+>>> Paul
+>>>
+>>> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri<giohappy@gmail.com>  wrote:
+>>>> Here are the WKB representations of a polygon and a multipolygon which
+>>>> cause a TopologyException for ST_Difference:
+>>>>
+>>>> Polygon: http://pastebin.com/rWAGMmME
+>>>> Multipolygon: http://pastebin.com/sik9jZk2
+>>>>
+>>>>
+>>>>
+>>>> 2010/9/29 G. Allegri<giohappy@gmail.com>:
+>>>>> Sorry for this strong title, but I would like to open a discussion on
+>>>>> this topic. There are already several tickets about TopologyException
+>>>>> happening in various contexts, and I now it is not an easy to solve
+>>>>> problem. We, in my company, have struggled to circumvent this 
+>>>>> frequent
+>>>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>>>> The only solutions, at now, have been various workarounds that (not
+>>>>> deterministically) work for some cases/datasets, but fail with 
+>>>>> others.
+>>>>> Our first "meet" with this exception was due to GeomUnion operations.
+>>>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>>>> workaround is working.
+>>>>>
+>>>>> I anticipate the critics: put the money on the table and someone 
+>>>>> could
+>>>>> invest time to solve it. Holy words, this is how foss should work. 
+>>>>> But
+>>>>> I'm not the boss of my company, and I've suggested to employ
+>>>>> PostGIS->GEOS in a big job... and now I have to solve this issue, 
+>>>>> with
+>>>>> no extra-money.
+>>>>>   If this problem cannot be solved I have to abandon PostGIS for 
+>>>>> one of
+>>>>> our production environments, and that would be a pity.
+>>>>>
+>>>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>>>> with this error. Are we the only ones to get stuck in it? Have others
+>>>>> found consistent,deterministic solutions?
+>>>>>
+>>>>> I would be gratefull if you can share your experience and thoughts...
+>>>>> Giovanni
+>>>>>
+>>>> _______________________________________________
+>>>> geos-devel mailing list
+>>>> geos-devel@lists.osgeo.org
+>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From giohappy at gmail.com  Wed Sep 29 12:33:09 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 12:33:11 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <4CA36634.9020901@refractions.net>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+	<AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+	<4CA36634.9020901@refractions.net>
+Message-ID: <AANLkTimFetMLVt+4VAj3Yyodbv1HhW=48gJAgHDesxCo@mail.gmail.com>
+
+Hi Martin,
+
+> See the attached diagram which displays the problem (generated using the
+> Magnify Topology capability in the development version of JTS TestBuilder)
+
+the Magnify is very nice and useful! I see the problem now...
+I will checkout the trunk.
+
+> Also, many of the segments of this component polygon are coincident with the
+> adjacent polygon boundary segments. ?This violates the rule from SFS 2.1.12
+> that you quote, since segments contain an infinite number of points.
+
+I interpreted it the wrong way. In fact I didn't understand what
+finite stood for. It's not menat as the number of vertices but the
+geometrical interpretation of a line mad by an inifinite number of
+points.
+Thx
+
+Giovanni
+
+>
+> Martin
+>
+> On 9/29/2010 8:16 AM, G. Allegri wrote:
+>>>
+>>> Pre-empting Martin: your multipolygon is invalid.
+>>
+>> Thanks Paul, I've learned something I didn't know... I thought that a
+>> MP where two polygons touch on a vertice was valid.
+>> > From SFS Specifications (par. 2.1.12):
+>>
+>> "The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+>> may not ?cross? and may touch
+>> at only a finite number of points"
+>>
+>> JTS tells me that I have a self-intersection, but visually I only see
+>> two vertices touchin at 1664458.5096082322,1664458.5096082322
+>>
+>>> However: yes, there are lots of people who do big geoprocessing with
+>>> PostGIS who inevitably, in sieving millions of features through the
+>>> hopper, find pairs that cause topology exceptions. Would I like that
+>>> not to happen: oh yes. Do I have the time and money to fund the
+>>> development to conclusively remove those cases? I do not. Let's
+>>> randomly say it would take 100,000 euros to put a stake through the
+>>> heart of this one and fro all and see if anyone's pain rises to that
+>>> level.
+>>
+>> Well, I don't have 100.000, neither my company. I will keep
+>> TopologyExcpetions here and there :)
+>>
+>> Giovanni
+>>
+>>> Paul
+>>>
+>>> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri<giohappy@gmail.com> ?wrote:
+>>>>
+>>>> Here are the WKB representations of a polygon and a multipolygon which
+>>>> cause a TopologyException for ST_Difference:
+>>>>
+>>>> Polygon: http://pastebin.com/rWAGMmME
+>>>> Multipolygon: http://pastebin.com/sik9jZk2
+>>>>
+>>>>
+>>>>
+>>>> 2010/9/29 G. Allegri<giohappy@gmail.com>:
+>>>>>
+>>>>> Sorry for this strong title, but I would like to open a discussion on
+>>>>> this topic. There are already several tickets about TopologyException
+>>>>> happening in various contexts, and I now it is not an easy to solve
+>>>>> problem. We, in my company, have struggled to circumvent this frequent
+>>>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>>>> The only solutions, at now, have been various workarounds that (not
+>>>>> deterministically) work for some cases/datasets, but fail with others.
+>>>>> Our first "meet" with this exception was due to GeomUnion operations.
+>>>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>>>> workaround is working.
+>>>>>
+>>>>> I anticipate the critics: put the money on the table and someone could
+>>>>> invest time to solve it. Holy words, this is how foss should work. But
+>>>>> I'm not the boss of my company, and I've suggested to employ
+>>>>> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+>>>>> no extra-money.
+>>>>> ?If this problem cannot be solved I have to abandon PostGIS for one of
+>>>>> our production environments, and that would be a pity.
+>>>>>
+>>>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>>>> with this error. Are we the only ones to get stuck in it? Have others
+>>>>> found consistent,deterministic solutions?
+>>>>>
+>>>>> I would be gratefull if you can share your experience and thoughts...
+>>>>> Giovanni
+>>>>>
+>>>> _______________________________________________
+>>>> geos-devel mailing list
+>>>> geos-devel@lists.osgeo.org
+>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From giohappy at gmail.com  Wed Sep 29 12:33:51 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Wed Sep 29 12:33:59 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <4CA36A77.3060807@refractions.net>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>
+	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>
+	<AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>
+	<4CA36634.9020901@refractions.net>
+	<4CA36A77.3060807@refractions.net>
+Message-ID: <AANLkTinXHhFAAf2PVdiCCWPRFjRp6QuVAYn0BsNgjKBD@mail.gmail.com>
+
+> ?In case it helps, you can deal with this invalidity by running either
+> UnaryUnion or buffer(0) over the invalid MultiPolygon. ?When unary union is
+
+That's exactly what I did (UnaryUnion), and I confirm it works.
+From mbdavis at refractions.net  Wed Sep 29 12:44:34 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Sep 29 12:42:52 2010
+Subject: [geos-devel] TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>
+Message-ID: <4CA36CF2.3030708@refractions.net>
+
+  Giovanni,
+
+I feel for your frustration.  Be assured that I have had very similar 
+feelings for a long time!  But as you realize, this just is not an easy 
+problem to solve (at least not for me, and I presume for others as well 
+since no-one has popped up with a solution over the last 10 years).  
+I've spent literally hundreds of hours and 10's of thousands of dollars 
+working on potential solutions to this problem.  Many improvements have 
+been made, such as:
+
+- more accurate intersection compuation
+- improved noding (via repeated noding)
+- using snapping when topology failures are found
+
+And I have more ideas sitting in the lab, such as Snap-Rounding, and an 
+improved technique for noding.  But work goes very slowly on these, both 
+because they are difficult problems to solve (and code), and because I 
+don't have the luxury of working on them full-time.
+
+It would be great if some funding could be found to allow full-time work 
+on this solutions.  I'll even lower Paul's number to say 30,000 euros!
+
+Martin
+
+On 9/29/2010 6:31 AM, G. Allegri wrote:
+> Sorry for this strong title, but I would like to open a discussion on
+> this topic. There are already several tickets about TopologyException
+> happening in various contexts, and I now it is not an easy to solve
+> problem. We, in my company, have struggled to circumvent this frequent
+> error, and we put some (few) money to let Sandro (strk) analyze it.
+> The only solutions, at now, have been various workarounds that (not
+> deterministically) work for some cases/datasets, but fail with others.
+> Our first "meet" with this exception was due to GeomUnion operations.
+> Today we face it for ST_Difference op in PostGIS, and this time no
+> workaround is working.
+>
+> I anticipate the critics: put the money on the table and someone could
+> invest time to solve it. Holy words, this is how foss should work. But
+> I'm not the boss of my company, and I've suggested to employ
+> PostGIS->GEOS in a big job... and now I have to solve this issue, with
+> no extra-money.
+>   If this problem cannot be solved I have to abandon PostGIS for one of
+> our production environments, and that would be a pity.
+>
+> So, my reflection is: in a few weeks we have fighted, almost daily,
+> with this error. Are we the only ones to get stuck in it? Have others
+> found consistent,deterministic solutions?
+>
+> I would be gratefull if you can share your experience and thoughts...
+> Giovanni
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From chodgson at refractions.net  Wed Sep 29 13:50:28 2010
+From: chodgson at refractions.net (Chris Hodgson)
+Date: Wed Sep 29 13:48:10 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult...
+In-Reply-To: <4CA36A77.3060807@refractions.net>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>	<AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>	<4CA36634.9020901@refractions.net>
+	<4CA36A77.3060807@refractions.net>
+Message-ID: <4CA37C64.5080103@refractions.net>
+
+I'm crossing this over into PostGIS-devel, for some further input.
+
+It seems to me that 90% of the the "Topology Exceptions" we see are the 
+result of invalid geometries. Would it make sense, somewhere in the 
+postgis-geos wrapper (or in "friendlier" API to GEOS/JTS), to catch 
+these and check the validity of the inputs, and if they are invalid, 
+return the "isValidReason()" output in a "InvalidGeometry Exception"? 
+This way we make it clear to the user what the problem is, because only 
+a very few of these problems actually come down to real floating point 
+or algorithm convergence issues.
+
+It seems like Topology Exceptions are just too nebulous for users, while 
+on the mailing list it tends to be a race to see who can prove that the 
+inputs were invalid.
+
+Also, it seems that in this case the invalid input might actually be an 
+output of another PostGIS function, likely ST_Collect? Certainly 
+ST_Collect can create an invalid multipolygon, if the input polygons are 
+overlapping. There are other functions that can create invalid outputs; 
+I think it was previously decided that this is acceptable - but perhaps 
+we need to document this with a big red warning in the docs so that 
+users are at least made aware of these potential pitfalls.
+
+Thoughts?
+
+Chris
+
+
+
+Martin Davis wrote:
+>  In case it helps, you can deal with this invalidity by running either 
+> UnaryUnion or buffer(0) over the invalid MultiPolygon.  When unary 
+> union is used, difference() then works on the results.
+>
+> On 9/29/2010 9:15 AM, Martin Davis wrote:
+>>  I'll make the easy reply first.   8^)
+>>
+>> The invalidity is due to one component polygon overlapping another one.
+>>
+>> See the attached diagram which displays the problem (generated using 
+>> the Magnify Topology capability in the development version of JTS 
+>> TestBuilder)
+>>
+>> Also, many of the segments of this component polygon are coincident 
+>> with the adjacent polygon boundary segments.  This violates the rule 
+>> from SFS 2.1.12 that you quote, since segments contain an infinite 
+>> number of points.
+>>
+>> Martin
+>>
+>> On 9/29/2010 8:16 AM, G. Allegri wrote:
+>>>> Pre-empting Martin: your multipolygon is invalid.
+>>> Thanks Paul, I've learned something I didn't know... I thought that a
+>>> MP where two polygons touch on a vertice was valid.
+>>> > From SFS Specifications (par. 2.1.12):
+>>>
+>>> "The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+>>> may not ?cross? and may touch
+>>> at only a finite number of points"
+>>>
+>>> JTS tells me that I have a self-intersection, but visually I only see
+>>> two vertices touchin at 1664458.5096082322,1664458.5096082322
+>>>
+>>>> However: yes, there are lots of people who do big geoprocessing with
+>>>> PostGIS who inevitably, in sieving millions of features through the
+>>>> hopper, find pairs that cause topology exceptions. Would I like that
+>>>> not to happen: oh yes. Do I have the time and money to fund the
+>>>> development to conclusively remove those cases? I do not. Let's
+>>>> randomly say it would take 100,000 euros to put a stake through the
+>>>> heart of this one and fro all and see if anyone's pain rises to that
+>>>> level.
+>>> Well, I don't have 100.000, neither my company. I will keep
+>>> TopologyExcpetions here and there :)
+>>>
+>>> Giovanni
+>>>
+>>>> Paul
+>>>>
+>>>> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri<giohappy@gmail.com>  
+>>>> wrote:
+>>>>> Here are the WKB representations of a polygon and a multipolygon 
+>>>>> which
+>>>>> cause a TopologyException for ST_Difference:
+>>>>>
+>>>>> Polygon: http://pastebin.com/rWAGMmME
+>>>>> Multipolygon: http://pastebin.com/sik9jZk2
+>>>>>
+>>>>>
+>>>>>
+>>>>> 2010/9/29 G. Allegri<giohappy@gmail.com>:
+>>>>>> Sorry for this strong title, but I would like to open a 
+>>>>>> discussion on
+>>>>>> this topic. There are already several tickets about 
+>>>>>> TopologyException
+>>>>>> happening in various contexts, and I now it is not an easy to solve
+>>>>>> problem. We, in my company, have struggled to circumvent this 
+>>>>>> frequent
+>>>>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>>>>> The only solutions, at now, have been various workarounds that (not
+>>>>>> deterministically) work for some cases/datasets, but fail with 
+>>>>>> others.
+>>>>>> Our first "meet" with this exception was due to GeomUnion 
+>>>>>> operations.
+>>>>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>>>>> workaround is working.
+>>>>>>
+>>>>>> I anticipate the critics: put the money on the table and someone 
+>>>>>> could
+>>>>>> invest time to solve it. Holy words, this is how foss should 
+>>>>>> work. But
+>>>>>> I'm not the boss of my company, and I've suggested to employ
+>>>>>> PostGIS->GEOS in a big job... and now I have to solve this issue, 
+>>>>>> with
+>>>>>> no extra-money.
+>>>>>>   If this problem cannot be solved I have to abandon PostGIS for 
+>>>>>> one of
+>>>>>> our production environments, and that would be a pity.
+>>>>>>
+>>>>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>>>>> with this error. Are we the only ones to get stuck in it? Have 
+>>>>>> others
+>>>>>> found consistent,deterministic solutions?
+>>>>>>
+>>>>>> I would be gratefull if you can share your experience and 
+>>>>>> thoughts...
+>>>>>> Giovanni
+>>>>>>
+>>>>> _______________________________________________
+>>>>> geos-devel mailing list
+>>>>> geos-devel@lists.osgeo.org
+>>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>>
+>>>> _______________________________________________
+>>>> geos-devel mailing list
+>>>> geos-devel@lists.osgeo.org
+>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>>
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+From mbdavis at refractions.net  Wed Sep 29 14:13:22 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Sep 29 14:11:41 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very
+	difficult...
+In-Reply-To: <4CA37C64.5080103@refractions.net>
+References: <AANLkTinJMDV37Euc-B0h9t6XXXviW7FJZ5oN2nQS8C9U@mail.gmail.com>	<AANLkTimtVqCZ2kn-YqoDk3NRTdU4eiq2knkgisHhXNu9@mail.gmail.com>	<AANLkTikRWRb3Dz-ctNJxYHqA4skaLf0m1gASJmUNnvVi@mail.gmail.com>	<AANLkTim02jQ9FD5J61fkNGsRTSeG05ajFr1tfBR9e20t@mail.gmail.com>	<4CA36634.9020901@refractions.net>	<4CA36A77.3060807@refractions.net>
+	<4CA37C64.5080103@refractions.net>
+Message-ID: <4CA381C2.8090307@refractions.net>
+
+  The idea of checking for invalid input and providing a more specific 
+error message seems like an excellent one.  Thanks for thinking of this, 
+Chris.
+
+I think it would make sense to run this check inside the JTS/GEOS 
+overlay functions, and throw an InvalidGeometry exception instead of a 
+TopologyException if an invalid input was detected.  This would be the 
+"friendliest" API, e.g. providing the most information to users.  There 
+is a cost to checking validity, but this is usually going to be no 
+larger than the cost of running the operation in the first place, and it 
+will only be incurred when an error is encountered - which is supposed 
+to be an unusual event.  And if users are really concerned about 
+avoiding this cost, they can call a lower-level API to avoid the check.
+
+(I think this is a general principle of API design, at least for 
+JTS/GEOS.  The "obvious" API functions should value correctness and 
+safety over performance, and "lower-level" APIs can be provided where 
+necessary for performance).
+
+In order to avoid a breaking change to the API, perhaps 
+TopologyException should be kept as the general superclass for 
+exceptions, and InvalidGeometryException can subclass it.
+
+Martin
+
+On 9/29/2010 10:50 AM, Chris Hodgson wrote:
+> I'm crossing this over into PostGIS-devel, for some further input.
+>
+> It seems to me that 90% of the the "Topology Exceptions" we see are 
+> the result of invalid geometries. Would it make sense, somewhere in 
+> the postgis-geos wrapper (or in "friendlier" API to GEOS/JTS), to 
+> catch these and check the validity of the inputs, and if they are 
+> invalid, return the "isValidReason()" output in a "InvalidGeometry 
+> Exception"? This way we make it clear to the user what the problem is, 
+> because only a very few of these problems actually come down to real 
+> floating point or algorithm convergence issues.
+>
+> It seems like Topology Exceptions are just too nebulous for users, 
+> while on the mailing list it tends to be a race to see who can prove 
+> that the inputs were invalid.
+>
+> Also, it seems that in this case the invalid input might actually be 
+> an output of another PostGIS function, likely ST_Collect? Certainly 
+> ST_Collect can create an invalid multipolygon, if the input polygons 
+> are overlapping. There are other functions that can create invalid 
+> outputs; I think it was previously decided that this is acceptable - 
+> but perhaps we need to document this with a big red warning in the 
+> docs so that users are at least made aware of these potential pitfalls.
+>
+> Thoughts?
+>
+> Chris
+>
+>
+>
+> Martin Davis wrote:
+>>  In case it helps, you can deal with this invalidity by running 
+>> either UnaryUnion or buffer(0) over the invalid MultiPolygon.  When 
+>> unary union is used, difference() then works on the results.
+>>
+>> On 9/29/2010 9:15 AM, Martin Davis wrote:
+>>>  I'll make the easy reply first.   8^)
+>>>
+>>> The invalidity is due to one component polygon overlapping another one.
+>>>
+>>> See the attached diagram which displays the problem (generated using 
+>>> the Magnify Topology capability in the development version of JTS 
+>>> TestBuilder)
+>>>
+>>> Also, many of the segments of this component polygon are coincident 
+>>> with the adjacent polygon boundary segments.  This violates the rule 
+>>> from SFS 2.1.12 that you quote, since segments contain an infinite 
+>>> number of points.
+>>>
+>>> Martin
+>>>
+>>> On 9/29/2010 8:16 AM, G. Allegri wrote:
+>>>>> Pre-empting Martin: your multipolygon is invalid.
+>>>> Thanks Paul, I've learned something I didn't know... I thought that a
+>>>> MP where two polygons touch on a vertice was valid.
+>>>> > From SFS Specifications (par. 2.1.12):
+>>>>
+>>>> "The Boundaries of any 2 Polygons that are elements of a MultiPolygon
+>>>> may not ?cross? and may touch
+>>>> at only a finite number of points"
+>>>>
+>>>> JTS tells me that I have a self-intersection, but visually I only see
+>>>> two vertices touchin at 1664458.5096082322,1664458.5096082322
+>>>>
+>>>>> However: yes, there are lots of people who do big geoprocessing with
+>>>>> PostGIS who inevitably, in sieving millions of features through the
+>>>>> hopper, find pairs that cause topology exceptions. Would I like that
+>>>>> not to happen: oh yes. Do I have the time and money to fund the
+>>>>> development to conclusively remove those cases? I do not. Let's
+>>>>> randomly say it would take 100,000 euros to put a stake through the
+>>>>> heart of this one and fro all and see if anyone's pain rises to that
+>>>>> level.
+>>>> Well, I don't have 100.000, neither my company. I will keep
+>>>> TopologyExcpetions here and there :)
+>>>>
+>>>> Giovanni
+>>>>
+>>>>> Paul
+>>>>>
+>>>>> On Wed, Sep 29, 2010 at 7:15 AM, G. Allegri<giohappy@gmail.com>  
+>>>>> wrote:
+>>>>>> Here are the WKB representations of a polygon and a multipolygon 
+>>>>>> which
+>>>>>> cause a TopologyException for ST_Difference:
+>>>>>>
+>>>>>> Polygon: http://pastebin.com/rWAGMmME
+>>>>>> Multipolygon: http://pastebin.com/sik9jZk2
+>>>>>>
+>>>>>>
+>>>>>>
+>>>>>> 2010/9/29 G. Allegri<giohappy@gmail.com>:
+>>>>>>> Sorry for this strong title, but I would like to open a 
+>>>>>>> discussion on
+>>>>>>> this topic. There are already several tickets about 
+>>>>>>> TopologyException
+>>>>>>> happening in various contexts, and I now it is not an easy to solve
+>>>>>>> problem. We, in my company, have struggled to circumvent this 
+>>>>>>> frequent
+>>>>>>> error, and we put some (few) money to let Sandro (strk) analyze it.
+>>>>>>> The only solutions, at now, have been various workarounds that (not
+>>>>>>> deterministically) work for some cases/datasets, but fail with 
+>>>>>>> others.
+>>>>>>> Our first "meet" with this exception was due to GeomUnion 
+>>>>>>> operations.
+>>>>>>> Today we face it for ST_Difference op in PostGIS, and this time no
+>>>>>>> workaround is working.
+>>>>>>>
+>>>>>>> I anticipate the critics: put the money on the table and someone 
+>>>>>>> could
+>>>>>>> invest time to solve it. Holy words, this is how foss should 
+>>>>>>> work. But
+>>>>>>> I'm not the boss of my company, and I've suggested to employ
+>>>>>>> PostGIS->GEOS in a big job... and now I have to solve this 
+>>>>>>> issue, with
+>>>>>>> no extra-money.
+>>>>>>>   If this problem cannot be solved I have to abandon PostGIS for 
+>>>>>>> one of
+>>>>>>> our production environments, and that would be a pity.
+>>>>>>>
+>>>>>>> So, my reflection is: in a few weeks we have fighted, almost daily,
+>>>>>>> with this error. Are we the only ones to get stuck in it? Have 
+>>>>>>> others
+>>>>>>> found consistent,deterministic solutions?
+>>>>>>>
+>>>>>>> I would be gratefull if you can share your experience and 
+>>>>>>> thoughts...
+>>>>>>> Giovanni
+>>>>>>>
+>>>>>> _______________________________________________
+>>>>>> geos-devel mailing list
+>>>>>> geos-devel@lists.osgeo.org
+>>>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>>>
+>>>>> _______________________________________________
+>>>>> geos-devel mailing list
+>>>>> geos-devel@lists.osgeo.org
+>>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>>
+>>>> _______________________________________________
+>>>> geos-devel mailing list
+>>>> geos-devel@lists.osgeo.org
+>>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>>
+>>>
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From ragi at burhum.com  Wed Sep 29 17:39:19 2010
+From: ragi at burhum.com (Ragi Burhum)
+Date: Wed Sep 29 17:39:21 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult to
+ employ in my production environments...
+Message-ID: <AANLkTinkevot4TAReXR8EA32V-7ME2FbyJKbYPMmszXi@mail.gmail.com>
+
+Giovanni,
+
+I am actually surprised that you bring this comment about a production
+environment. When working with real data in production environment, FOSS or
+proprietary alike (i.e ESRI), I *always* encounter data that causes Topology
+Exceptions (ESRI Geometry/Geoprocessing, GEOS, JTS, whatever) at some point,
+it happens. It is just the nature of the beast - data is not perfect.
+
+What I do in such cases, is that before I digest the data, I have a set of
+"cleansing" and identification procedures that I put my data through before
+putting it in my pretty system. In other words, a mini-fence that I use to
+avoid problems (self intersections, nulls, multiparts, whatever).
+
+I apologize if this seems rude, however, the very first thing I do when a
+geometry pair gives me problems, is to look at it. That would have shown the
+problem the problem right away.
+
+- Ragi
+
+Date: Wed, 29 Sep 2010 17:26:31 +0200
+> From: "G. Allegri" <giohappy@gmail.com>
+> Subject: Re: [geos-devel] TopologyException makes GEOS/JTS very
+>        difficult to    employ in my production environments...
+> To: GEOS Development List <geos-devel@lists.osgeo.org>
+>
+> Howard, I know well how foss development works. So, my email wasn't
+> meant to ask someone to solve things for me. In this project I'm not
+> in the position to make such choices. I've just been able to move
+> little money to ask strk a first, basic analysis. I absolutely agree
+> with the commercial philosophy behind foss, and when I will be able to
+> manage enough money I won't easitate to invest it in that way.
+>
+> I'm just surprised to see not so many issues raising from this
+> topology problems, as GEOS/JTS are maybe the most widespread libraries
+> used in the gfoss ecosystem. No problems when using it as a data
+> repository, but as soon as I use it massively for geometry processing
+> I face, almost everyday, thie TopolyException. So I was simply
+> wondering what the others think about this, if they have solved it
+> somehow. OS is also sharing best practices, isn'it? I don't want to
+> steal industry secrests to anyone, just share ideas...
+>
+> Giovanni
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20100929/90d16492/attachment.html
+From giohappy at gmail.com  Thu Sep 30 03:27:23 2010
+From: giohappy at gmail.com (G. Allegri)
+Date: Thu Sep 30 03:27:25 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult to
+ employ in my production environments...
+In-Reply-To: <AANLkTinkevot4TAReXR8EA32V-7ME2FbyJKbYPMmszXi@mail.gmail.com>
+References: <AANLkTinkevot4TAReXR8EA32V-7ME2FbyJKbYPMmszXi@mail.gmail.com>
+Message-ID: <AANLkTi=eEwNx533VgNErLw07yQMJdaLgHq2A8rDDZT_T@mail.gmail.com>
+
+Hi Ragi,
+I perfectly agree with you. We always pass our data through cleaning
+procedures, but sometimes it fail. The example I posted wasn't
+representative, because in that specific case there was effectively a
+validity problem. But many times the errors happen also with valid
+data, and that's the case, for example, in unioning. In such cases you
+cannot know before time what kind of beasts you will get through
+during the cascaded unioning. So, when I rely on valid datas, it's
+difficult to explain to the customer why the system fails here and
+there...
+
+I know I'm facing The Problem, the founmdamental one in geometrical
+computing with floating point precision, and I know that also
+commercial softwares suffer of similar problems. I've worked
+extensively both on ArcGIS and Oracle. I've never said, and I don't
+think, this is a problem of foss solutions only.
+
+giovanni
+
+2010/9/29 Ragi Burhum <ragi@burhum.com>:
+> Giovanni,
+> I am actually surprised that you bring this comment about a production
+> environment. When working with real data in production environment, FOSS or
+> proprietary alike (i.e ESRI), I *always* encounter data that causes Topology
+> Exceptions (ESRI Geometry/Geoprocessing, GEOS, JTS, whatever) at some point,
+> it happens. It is just the nature of the beast - data is not perfect.
+> What I do in such cases, is that before I digest the data, I have a set of
+> "cleansing" and identification procedures that I put my data through before
+> putting it in my pretty system. In other words, a mini-fence that I use to
+> avoid problems (self intersections, nulls, multiparts, whatever).
+> I apologize if this seems rude, however, the very first thing I do when a
+> geometry pair gives me problems, is to look at it. That would have shown the
+> problem the problem right away.
+> - Ragi
+>>
+>> Date: Wed, 29 Sep 2010 17:26:31 +0200
+>> From: "G. Allegri" <giohappy@gmail.com>
+>> Subject: Re: [geos-devel] TopologyException makes GEOS/JTS very
+>> ? ? ? ?difficult to ? ?employ in my production environments...
+>> To: GEOS Development List <geos-devel@lists.osgeo.org>
+>>
+>> Howard, I know well how foss development works. So, my email wasn't
+>> meant to ask someone to solve things for me. In this project I'm not
+>> in the position to make such choices. I've just been able to move
+>> little money to ask strk a first, basic analysis. I absolutely agree
+>> with the commercial philosophy behind foss, and when I will be able to
+>> manage enough money I won't easitate to invest it in that way.
+>>
+>> I'm just surprised to see not so many issues raising from this
+>> topology problems, as GEOS/JTS are maybe the most widespread libraries
+>> used in the gfoss ecosystem. No problems when using it as a data
+>> repository, but as soon as I use it massively for geometry processing
+>> I face, almost everyday, thie TopolyException. So I was simply
+>> wondering what the others think about this, if they have solved it
+>> somehow. OS is also sharing best practices, isn'it? I don't want to
+>> steal industry secrests to anyone, just share ideas...
+>>
+>> Giovanni
+>>
+>
+From strk at keybit.net  Thu Sep 30 03:49:53 2010
+From: strk at keybit.net (strk)
+Date: Thu Sep 30 03:49:57 2010
+Subject: [geos-devel] Re: TopologyException makes GEOS/JTS very difficult
+	to employ in my production environments...
+In-Reply-To: <AANLkTi=eEwNx533VgNErLw07yQMJdaLgHq2A8rDDZT_T@mail.gmail.com>
+References: <AANLkTinkevot4TAReXR8EA32V-7ME2FbyJKbYPMmszXi@mail.gmail.com>
+	<AANLkTi=eEwNx533VgNErLw07yQMJdaLgHq2A8rDDZT_T@mail.gmail.com>
+Message-ID: <20100930074953.GA38075@keybit.net>
+
+On Thu, Sep 30, 2010 at 09:27:23AM +0200, G. Allegri wrote:
+
+> But many times the errors happen also with valid
+> data, and that's the case, for example, in unioning. In such cases you
+> cannot know before time what kind of beasts you will get through
+> during the cascaded unioning.
+
+I think I fixed that bug in GEOS trunk (the one allowing invalid results
+coming out from Union operations).
+
+Still, there are cases in which valid inputs trigger TopologyExceptions
+(tracker has a few). Funding an improved-robustness-noding project
+might be useful indeed.
+
+Another idea might be figuring out a policy on dimensional collapses,
+which was the cause of one case I've been looking at while inspecting
+Giovanni's datasets.
+In that case, the operation was succeeding in augomented-precision 
+space (with common bits removed) and the result collapsed dimensionally
+while re-adding common bits (loosing precision).
+For polygons, such collapses result in zero-area rings or spikes.
+If you know you don't care about those, you may just have them removed
+rather than getting a TopologyException. This would be particularly
+useful when that happens in a cascaded union operation.
+
+I think the latter would even cost less than 30k
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html

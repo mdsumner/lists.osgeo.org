@@ -1,0 +1,976 @@
+From warmerdam at pobox.com  Sat Oct 15 23:13:29 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+Message-ID: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+
+Folks,
+
+Circa Sept26 I grabbed GEOS for an effort to integrate the C API
+with OGR (instead of the C++ API).  I have gotten back to that
+project today and gotten the updated OGR to build but there are
+still unexplained crashes.
+
+I haven't tracked that all down, but I do have a few suggestions I
+thought I should make while I have stuff fresh in my mind.
+
+ 1) The Distance operation is missing and would be quite useful.
+
+ 2) Why is the WKB buffer of type "const char *" instead of "unsigned
+     char *" or some similar "byte oriented" type?
+
+ 3) Within geos_c.h I think it should use produce it's own extern "C"  {}
+     around all the declarations if included by a C++ module.
+
+ 4) I think the GEOS C entry points should be DLL exported.
+
+ 5) I think it would be nice to provide entry points to directly
+     create and destroy geometries however that is not really critical.
+     However, I found it odd that calls like GEOS_GetNumCoordinate()
+     and GEOSGetNumGeometries() were provided when no calls
+     to get coordinates or geometries were provided.
+
+I appologise if my comments are out of date.
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at refractions.net  Mon Oct 17 05:39:26 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+Message-ID: <20051017093926.GA87322@keybit.net>
+
+On Sat, Oct 15, 2005 at 11:13:29PM -0400, Frank Warmerdam wrote:
+> Folks,
+>
+> Circa Sept26 I grabbed GEOS for an effort to integrate the C API
+> with OGR (instead of the C++ API).  I have gotten back to that
+> project today and gotten the updated OGR to build but there are
+> still unexplained crashes.
+>
+> I haven't tracked that all down, but I do have a few suggestions I
+> thought I should make while I have stuff fresh in my mind.
+>
+>  1) The Distance operation is missing and would be quite useful.
+
+Added.
+
+>  2) Why is the WKB buffer of type "const char *" instead of "unsigned
+>      char *" or some similar "byte oriented" type?
+
+I've changed the WKB I/O func signatures to use 'unsigned char', but
+the implementation still uses signed values. This is because in STL
+string<unsigned char> is not defined (and with GCC 3.3 it's not
+automatically instanciated). If you think relying on automatic
+cast would bring to any problem please let me know.
+
+>  3) Within geos_c.h I think it should use produce it's own extern "C"  {}
+>      around all the declarations if included by a C++ module.
+
+mmm.. so you can use the "stabler" API from C++ you mean ?
+Sounds fair... I'll try to figure out how to do this.
+
+>  4) I think the GEOS C entry points should be DLL exported.
+
+I'm not sure I understand this. Aren't them exported already ?
+
+>  5) I think it would be nice to provide entry points to directly
+>      create and destroy geometries however that is not really critical.
+>      However, I found it odd that calls like GEOS_GetNumCoordinate()
+>      and GEOSGetNumGeometries() were provided when no calls
+>      to get coordinates or geometries were provided.
+
+The whole point of the CAPI wrapper is to allow for deep changes in
+the underlying implementation, maybe changing Coordinate types from
+always 3d to possibly 2d... For this reason I'd avoid letting client
+code messing with Coordinates. I think I can get rid or the
+GEOS_GetNumCoordinate() part following this motivations...
+
+As for GEOSGetNumGeometries I think I might add a GetGeometryN
+function, but then we'll have to decide whether to make the
+returned GEOSGeom a copy of a reference to internal component,
+as the other open issue is memory management... What do you think ?
+
+> I appologise if my comments are out of date.
+
+There's been a segfault fix on Sep27, that actually brought to
+a change in the GEOS WKB code (see ChangeLog).
+
+Other additions since then (apart those reported above):
+
+        - NEW: int GEOS_setWKBOutputDims(int newdims)
+
+        - All exception handled invoking the ERROR function set
+          with initGEOS (these include GEOSexception, std::exception
+          and any other)
+
+--strk;
+
+From warmerdam at pobox.com  Mon Oct 17 09:25:23 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <20051017093926.GA87322@keybit.net>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051017093926.GA87322@keybit.net>
+Message-ID: <931f8ea90510170625y41e43af1kede100b6b82dcf7a@mail.gmail.com>
+
+On 10/17/05, strk@refractions.net <strk@refractions.net> wrote:
+> >  2) Why is the WKB buffer of type "const char *" instead of "unsigned
+> >      char *" or some similar "byte oriented" type?
+>
+> I've changed the WKB I/O func signatures to use 'unsigned char', but
+> the implementation still uses signed values. This is because in STL
+> string<unsigned char> is not defined (and with GCC 3.3 it's not
+> automatically instanciated). If you think relying on automatic
+> cast would bring to any problem please let me know.
+
+Strk,
+
+OK, this sounds fine.  In C I normally consider "unsigned char" a
+more nature byte type but casting it should cause no problems.
+
+> >  3) Within geos_c.h I think it should use produce it's own extern "C"  {}
+> >      around all the declarations if included by a C++ module.
+>
+> mmm.. so you can use the "stabler" API from C++ you mean ?
+> Sounds fair... I'll try to figure out how to do this.
+
+My main motivation is that I was unable to build GEOS with VC6
+on Win32 but I want to use it in my FWTools distribution.  It seems
+to be not possible to have VC6 C++ code call a VC7 C++ DLL;
+however, VC6 C calls into a VC7 DLL should be OK.
+
+More generally though I am hoping the C API will be more stable and
+hopefully make it easier to substitute use of JTS compiled with gcj
+for comparison.
+
+> >  4) I think the GEOS C entry points should be DLL exported.
+>
+> I'm not sure I understand this. Aren't them exported already ?
+
+I saw no sign that the C API had the dllexport attribute on the functions
+for win32.   I haven't tried things on win32 yet so perhaps I am missing
+something.
+
+> The whole point of the CAPI wrapper is to allow for deep changes in
+> the underlying implementation, maybe changing Coordinate types from
+> always 3d to possibly 2d... For this reason I'd avoid letting client
+> code messing with Coordinates. I think I can get rid or the
+> GEOS_GetNumCoordinate() part following this motivations...
+
+I don't think this would cause a problem for a GEOSGetCoordinateX(),
+and GEOSGetCoordinateY()  function.   However, as I mentioned
+
+> As for GEOSGetNumGeometries I think I might add a GetGeometryN
+> function, but then we'll have to decide whether to make the
+> returned GEOSGeom a copy of a reference to internal component,
+> as the other open issue is memory management... What do you think ?
+
+I would be concerned that a GEOSGetGeometryN() that returned an
+internal reference would limit options for internal implementation.
+
+As I mentioned, I'm happy enough to leave fine grained geometry
+creation and query out for now.  We can always add it later if we
+are more certain of what we want then.
+
+> > I appologise if my comments are out of date.
+>
+> There's been a segfault fix on Sep27, that actually brought to
+> a change in the GEOS WKB code (see ChangeLog).
+
+Excellent, I'll update before proceeding.
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at refractions.net  Mon Oct 17 10:36:40 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <931f8ea90510170625y41e43af1kede100b6b82dcf7a@mail.gmail.com>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051017093926.GA87322@keybit.net>
+	<931f8ea90510170625y41e43af1kede100b6b82dcf7a@mail.gmail.com>
+Message-ID: <20051017143640.GC87978@keybit.net>
+
+On Mon, Oct 17, 2005 at 09:25:23AM -0400, Frank Warmerdam wrote:
+> On 10/17/05, strk@refractions.net <strk@refractions.net> wrote:
+
+> > mmm.. so you can use the "stabler" API from C++ you mean ?
+> > Sounds fair... I'll try to figure out how to do this.
+> 
+> My main motivation is that I was unable to build GEOS with VC6
+> on Win32 but I want to use it in my FWTools distribution.  It seems
+> to be not possible to have VC6 C++ code call a VC7 C++ DLL;
+> however, VC6 C calls into a VC7 DLL should be OK.
+> 
+> More generally though I am hoping the C API will be more stable and
+> hopefully make it easier to substitute use of JTS compiled with gcj
+> for comparison.
+
+I've fixed a typedef problem I encountered with C++ compiler
+and added the extern "C" namespace when __cplusplus is defined.
+The latter was unneeded for g++.
+Does it work for you now ?
+Does it work w/out the extern "C" part as well ?
+
+> > >  4) I think the GEOS C entry points should be DLL exported.
+> >
+> > I'm not sure I understand this. Aren't them exported already ?
+> 
+> I saw no sign that the C API had the dllexport attribute on the functions
+> for win32.   I haven't tried things on win32 yet so perhaps I am missing
+> something.
+
+There is no dllexport attribute on any other GEOS function, that's why
+I wondered. As you know I won't try things on win32 so I'll wait for
+any problem report before attempting at any modification here.
+
+--strk;
+
+From warmerdam at pobox.com  Mon Oct 17 10:56:35 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <20051017143640.GC87978@keybit.net>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051017093926.GA87322@keybit.net>
+	<931f8ea90510170625y41e43af1kede100b6b82dcf7a@mail.gmail.com>
+	<20051017143640.GC87978@keybit.net>
+Message-ID: <931f8ea90510170756i401844f8r76c6909b65b4d760@mail.gmail.com>
+
+On 10/17/05, strk@refractions.net <strk@refractions.net> wrote:
+> I've fixed a typedef problem I encountered with C++ compiler
+> and added the extern "C" namespace when __cplusplus is defined.
+> The latter was unneeded for g++.
+> Does it work for you now ?
+> Does it work w/out the extern "C" part as well ?
+
+Strk,
+
+Before to get it working I had to do the 'extern "C"' around the whole
+include, but that work around did work.
+
+> There is no dllexport attribute on any other GEOS function, that's why
+> I wondered.
+
+Hmm, well, I have never actually successfully used GEOS on
+win32.  I wonder how other people handle this.
+
+> As you know I won't try things on win32 so I'll wait for
+> any problem report before attempting at any modification here.
+
+OK, when  I get to windows, I'll test it out and provide patches
+if needed.
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at refractions.net  Mon Oct 17 11:09:58 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <931f8ea90510170756i401844f8r76c6909b65b4d760@mail.gmail.com>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051017093926.GA87322@keybit.net>
+	<931f8ea90510170625y41e43af1kede100b6b82dcf7a@mail.gmail.com>
+	<20051017143640.GC87978@keybit.net>
+	<931f8ea90510170756i401844f8r76c6909b65b4d760@mail.gmail.com>
+Message-ID: <20051017150958.GA90334@keybit.net>
+
+On Mon, Oct 17, 2005 at 10:56:35AM -0400, Frank Warmerdam wrote:
+> On 10/17/05, strk@refractions.net <strk@refractions.net> wrote:
+> > I've fixed a typedef problem I encountered with C++ compiler
+> > and added the extern "C" namespace when __cplusplus is defined.
+> > The latter was unneeded for g++.
+> > Does it work for you now ?
+> > Does it work w/out the extern "C" part as well ?
+> 
+> Strk,
+> 
+> Before to get it working I had to do the 'extern "C"' around the whole
+> include, but that work around did work.
+
+This mean __cplusplus is not defined by default with your compiler.
+Do you think I can drop the construct from within geos_c.h then ?
+--strk;
+
+From warmerdam at pobox.com  Mon Oct 17 11:13:40 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <20051017150958.GA90334@keybit.net>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051017093926.GA87322@keybit.net>
+	<931f8ea90510170625y41e43af1kede100b6b82dcf7a@mail.gmail.com>
+	<20051017143640.GC87978@keybit.net>
+	<931f8ea90510170756i401844f8r76c6909b65b4d760@mail.gmail.com>
+	<20051017150958.GA90334@keybit.net>
+Message-ID: <931f8ea90510170813r6d7d437bif5726009ea9fff84@mail.gmail.com>
+
+On 10/17/05, strk@refractions.net <strk@refractions.net> wrote:
+> This mean __cplusplus is not defined by default with your compiler.
+
+The __cplusplus is defined by my compiler.  I meant, *before* you
+made these changes I needed to include geos_c.h like this:
+
+extern "C" {
+#include "geos_c.h"
+}
+
+> Do you think I can drop the construct from within geos_c.h then ?
+
+No, I don't think you should drop it.
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From Silke.Reimer at intevation.de  Mon Oct 17 13:01:22 2005
+From: Silke.Reimer at intevation.de (Silke Reimer)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] Fedora 4 Package
+In-Reply-To: <20050920151737.GC13833@intevation.de>
+References: <20050920151737.GC13833@intevation.de>
+Message-ID: <20051017170122.GB12297@intevation.de>
+
+On Tue, Sep 20, 2005 at 05:17:37PM +0200, Silke Reimer wrote:
+> 
+> Hallo!
+> 
+> Based on a package made by David Kaplan for Fedora 2 i have build a
+> Fedora 4 package of geos. I put it on our FTP-Server ([1] and [2])
+> where you can find the specfile, srpm and rpms in the corresponding
+> subdirectories. Please inform me if you experience any problems with
+> those packages.
+> 
+> If you find this useful please don't hesitate to add the specfile to
+> into the CVS repository of geos.
+
+I now asked for package review in the Fedora project so that I hope
+that geos becomes available via the Fedora archives in midterm.
+Please follow bug number 171039 [1] if you are interested in the
+progress.
+
+Many greetings,
+
+	Silke
+
+[1] https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=171039
+
+-- 
+Intevation GmbH
+
+Georgstrasse 4                    49074 Osnabr?ck, Germany
+http://intevation.de              http://intevation.de/~silke
+FreeGIS.org                       http://freegis.org/
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 189 bytes
+Desc: Digital signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051017/5b5948ed/attachment.bin
+From Sriram.Bhasker at rmsi.com  Tue Oct 18 00:14:52 2005
+From: Sriram.Bhasker at rmsi.com (SriRam Bhasker)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] help please
+In-Reply-To: <20051017170122.GB12297@intevation.de>
+Message-ID: <OF7794950D.54D7CEE9-ON6525709E.00173BA7-6525709E.001750F6@rmsi.com>
+
+
+
+Hello
+
+Can anyone please send me the VC++ project to create a Buffer for a Given
+Set of Lines.
+
+I am unable to compile the Source in my Machine.
+
+
+
+
+|--------+--------------------------------------->
+|        |          Silke Reimer                 |
+|        |          <Silke.Reimer@intevation.de> |
+|        |          Sent by:                     |
+|        |          geos-devel-bounces@geos.refra|
+|        |          ctions.net                   |
+|        |                                       |
+|        |                                       |
+|        |          10/17/2005 10:31 PM          |
+|        |          Please respond to GEOS       |
+|        |          Development List             |
+|--------+--------------------------------------->
+  >-----------------------------------------------------------------------------------------------------------|
+  |                                                                                                           |
+  |      To:     geos-devel@geos.refractions.net                                                              |
+  |      cc:                                                                                                  |
+  |      Subject:     Re: [geos-devel] Fedora 4 Package                                                       |
+  >-----------------------------------------------------------------------------------------------------------|
+
+
+
+
+On Tue, Sep 20, 2005 at 05:17:37PM +0200, Silke Reimer wrote:
+>
+> Hallo!
+>
+> Based on a package made by David Kaplan for Fedora 2 i have build a
+> Fedora 4 package of geos. I put it on our FTP-Server ([1] and [2])
+> where you can find the specfile, srpm and rpms in the corresponding
+> subdirectories. Please inform me if you experience any problems with
+> those packages.
+>
+> If you find this useful please don't hesitate to add the specfile to
+> into the CVS repository of geos.
+
+I now asked for package review in the Fedora project so that I hope
+that geos becomes available via the Fedora archives in midterm.
+Please follow bug number 171039 [1] if you are interested in the
+progress.
+
+Many greetings,
+
+           Silke
+
+[1] https://bugzilla.redhat.com/bugzilla/show_bug.cgi?id=171039
+
+--
+Intevation GmbH
+
+Georgstrasse 4                    49074 Osnabr?ck, Germany
+http://intevation.de              http://intevation.de/~silke
+FreeGIS.org                       http://freegis.org/
+(See attached file: signature.asc)
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: =?iso-8859-1?Q?signature.asc?=
+Type: application/octet-stream
+Size: 196 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051018/3f3a5ded/iso-8859-1Qsignature.obj
+From warmerdam at pobox.com  Thu Oct 20 22:52:09 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] Win32 porting
+Message-ID: <931f8ea90510201952o41d80165jea30e94e554a6f70@mail.gmail.com>
+
+Folks,
+
+I have commited a variety of updates to GEOS related to
+win32 porting.  I'm not sure this is a comprehensive list but
+it is the main points.
+
+ o source/Makefile.vc updated to include changed file list,
+    to build DLL and to build geostest.exe.
+ o capi/geostest.c: avoid use of non-portable "vasprintf" and
+    make large buffer static instead of placing it on the stack.
+ o capi/geos_c.h.in, capi/geos_c.cpp: Added GEOS_DLL
+   macro and incorporated into all prototypes so that functions
+   are exported from the DLL.
+
+Is the VisualStudio directory being maintained?  If not, I would
+like permission to remove it.  It confused me, so I imagine
+it will confuse others.
+
+I will note that win32 builds are complicated by the need to manually
+add version information in version.h and geos_c.h.  Will these
+files be distributed with version info embedded in release snapshots?
+
+I was able to use geostest.exe linked against the GEOS DLL.
+C++ programs cannot use the DLL since the C++ API is not
+exported.
+
+Hopefully I am very close to including GEOS support in
+the next FWTools on win32!
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at refractions.net  Fri Oct 21 04:42:29 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] GEOS C API Suggestions
+In-Reply-To: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+Message-ID: <20051021084229.GA37518@keybit.net>
+
+On Sat, Oct 15, 2005 at 11:13:29PM -0400, Frank Warmerdam wrote:
+...
+>  5) I think it would be nice to provide entry points to directly
+>      create and destroy geometries however that is not really critical.
+>      However, I found it odd that calls like GEOS_GetNumCoordinate()
+>      and GEOSGetNumGeometries() were provided when no calls
+>      to get coordinates or geometries were provided.
+
+I've been thinking about this. Geometry destruction is available
+alread, so we're talking about fine-grained construction and
+inspection.
+
+In order to implement this the least we must do is provide
+a CoordinateSequence abstract data type. To allow for internal
+storage changes this might expose the following interfaces:
+
+	/*
+	 * Create a coordinate sequence specifying number and
+	 * dimensions of coordinates
+	 */
+	GEOSCoordSeq GEOSCoordSeq_create(uint size, uint dims);
+
+	/* Set ordinate values */
+	void GEOSCoordSeq_setX(uint idx, double value);
+	void GEOSCoordSeq_setY(uint idx, double value);
+	void GEOSCoordSeq_setZ(uint idx, double value);
+	void GEOSCoordSeq_setOrdinate(uint idx, uint dim, double value);
+
+	/* Get ordinate values */
+	double GEOSCoordSeq_getX(uint idx);
+	double GEOSCoordSeq_getY(uint idx);
+	double GEOSCoordSeq_getZ(uint idx);
+	double GEOSCoordSeq_getOrdinate(uint idx, uint dim);
+
+	/* Copy a coordinate sequence */
+	GEOSCoordSeq GEOSCoordSeq_clone(GEOSCoordSeq);
+
+	/* Destroy a coordinate sequence */
+	void GEOSCoordSeq_destroy(GEOSCoordSeq);
+
+Then, we might construct specific geometry types. 
+
+	GEOSGeom GEOSGeom_createPoint(GEOSCoordSeq cs);
+	GEOSGeom GEOSGeom_createLineString(GEOSCoordSeq cs);
+	GEOSGeom GEOSGeom_createLinearRing(GEOSCoordSeq cs);
+
+And extract coordinates:
+
+	GEOSCoordSeq GEOSGeom_getCoordSeq(GEOSGeom g);
+
+Finally, to complete constructors:
+
+	GEOSGeom GEOSGeom_createPolygon(GEOSGeom shell,
+		GEOSGeom *holes, uint nholes)
+
+The following could replace GEOSMakeCollection, to be more consistent:
+
+	GEOSGeom GEOSGeom_createCollection(int type,
+		GEOSGeom *g, uint ngeoms);
+
+About memory management the safer thing would be make extractors
+return newly allocated objects and constructors copy input objects.
+
+Comments ?
+
+--strk;
+
+From strk at refractions.net  Fri Oct 21 08:16:18 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] CoordSeq ADT and fine-grained ctors for C-API (was:
+	GEOS C API Suggestions)
+In-Reply-To: <20051021084229.GA37518@keybit.net>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051021084229.GA37518@keybit.net>
+Message-ID: <20051021121618.GA39714@keybit.net>
+
+I've committed support for GEOSCoordSeq abstract data type,
+fine-grained construction and inspection.
+
+The geostest binary contains testing for it (deconsctruction
+and re-construction of input geometry).
+
+All extractors and constructors perform object copies.
+
+The GEOSmakeCollection function has been renamed to
+GEOSGeom_createCollection (to conform with other constructors).
+
+See geos_c.h for new function signatures.
+
+Comments welcome.
+
+--strk;
+
+From strk at refractions.net  Fri Oct 21 10:57:36 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] CoordSeq ADT and fine-grained ctors for C-API (was:
+	GEOS C API Suggestions)
+In-Reply-To: <20051021121618.GA39714@keybit.net>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051021084229.GA37518@keybit.net>
+	<20051021121618.GA39714@keybit.net>
+Message-ID: <20051021145736.GA41453@keybit.net>
+
+About performance and isolation, do we really want
+all the copies to happen ?
+
+Consider a multipolygon construction, you'll have copies:
+	- of CoordSeq objects of the shell and each hole
+	  at each of the corresponding object construction/copy
+	- of shell and hole geometry for each polygon 
+	  construction/copy
+	- of each polygon geometry at collection construction
+In practice it would take 3 copies of each involved CoordinateSequence.
+
+I'm thinking about making constructors take ownership of argument,
+and extractors (GetGeometryN, getExteriorRing, getCoordSeq..) return
+resources owned by the argument object...
+
+These changes would also allow changing any Ordinate value
+of any Geometry ...
+
+	GEOSGeom g1 = GEOSGetGeometryN(g, 2);
+	GEOSGeom hole3 = GEOSGetInteriorRingN(g1, 3);
+	GEOSCoordSeq s = GEOSGetCoordSeq(hole3);
+	GEOSCoordSeq_setX(s, 4);
+
+What do you think, is the advantage worth the danger ?
+
+--strk;
+
+
+On Fri, Oct 21, 2005 at 02:16:18PM +0200, strk@refractions.net wrote:
+> I've committed support for GEOSCoordSeq abstract data type,
+> fine-grained construction and inspection.
+> 
+> The geostest binary contains testing for it (deconsctruction
+> and re-construction of input geometry).
+> 
+> All extractors and constructors perform object copies.
+> 
+> The GEOSmakeCollection function has been renamed to
+> GEOSGeom_createCollection (to conform with other constructors).
+> 
+> See geos_c.h for new function signatures.
+> 
+> Comments welcome.
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From warmerdam at pobox.com  Fri Oct 21 12:01:30 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] CoordSeq ADT and fine-grained ctors for C-API (was:
+	GEOS C API Suggestions)
+In-Reply-To: <20051021145736.GA41453@keybit.net>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051021084229.GA37518@keybit.net>
+	<20051021121618.GA39714@keybit.net>
+	<20051021145736.GA41453@keybit.net>
+Message-ID: <931f8ea90510210901v30005b01v9de8d396a6d9a0b0@mail.gmail.com>
+
+On 10/21/05, strk@refractions.net <strk@refractions.net> wrote:
+> About performance and isolation, do we really want
+> all the copies to happen ?
+>
+> Consider a multipolygon construction, you'll have copies:
+>         - of CoordSeq objects of the shell and each hole
+>           at each of the corresponding object construction/copy
+>         - of shell and hole geometry for each polygon
+>           construction/copy
+>         - of each polygon geometry at collection construction
+> In practice it would take 3 copies of each involved CoordinateSequence.
+>
+> I'm thinking about making constructors take ownership of argument,
+> and extractors (GetGeometryN, getExteriorRing, getCoordSeq..) return
+> resources owned by the argument object...
+>
+> These changes would also allow changing any Ordinate value
+> of any Geometry ...
+>
+>         GEOSGeom g1 = GEOSGetGeometryN(g, 2);
+>         GEOSGeom hole3 = GEOSGetInteriorRingN(g1, 3);
+>         GEOSCoordSeq s = GEOSGetCoordSeq(hole3);
+>         GEOSCoordSeq_setX(s, 4);
+>
+> What do you think, is the advantage worth the danger ?
+
+Strk,
+
+If one of the rationales for the direct construction and query
+support is to provide a "fastest" method of converting to and
+from GEOS Geometries, then I think that avoiding copying
+would be wise.  I don't immediately intend to use the new
+api entries so it doesn't matter so much to me, but if we convert
+mapserver to use the GEOS C API then it speed would be an
+issue.
+
+I would say that the advantage is worth the danger, but the
+rules about internal references and taking of ownership need
+to be made clear in the docs.
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at refractions.net  Mon Oct 24 09:31:19 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:55 2007
+Subject: [geos-devel] CoordSeq ADT and fine-grained ctors for C-API (was:
+	GEOS C API Suggestions)
+In-Reply-To: <931f8ea90510210901v30005b01v9de8d396a6d9a0b0@mail.gmail.com>
+References: <931f8ea90510152013j500edf45m2f00ccaae70c9e5c@mail.gmail.com>
+	<20051021084229.GA37518@keybit.net>
+	<20051021121618.GA39714@keybit.net>
+	<20051021145736.GA41453@keybit.net>
+	<931f8ea90510210901v30005b01v9de8d396a6d9a0b0@mail.gmail.com>
+Message-ID: <20051024133119.GD74567@keybit.net>
+
+I've updated the GEOS C-api to avoid GEOSCoordSeq and GEOSGeom 
+object copies in constructors and inspectors.
+Ownership policy is documented in the geos_c.h header.
+Postgis connector has been updated to reflect new policy.
+
+--strk;
+
+On Fri, Oct 21, 2005 at 12:01:30PM -0400, Frank Warmerdam wrote:
+> On 10/21/05, strk@refractions.net <strk@refractions.net> wrote:
+> > About performance and isolation, do we really want
+> > all the copies to happen ?
+> >
+> > Consider a multipolygon construction, you'll have copies:
+> >         - of CoordSeq objects of the shell and each hole
+> >           at each of the corresponding object construction/copy
+> >         - of shell and hole geometry for each polygon
+> >           construction/copy
+> >         - of each polygon geometry at collection construction
+> > In practice it would take 3 copies of each involved CoordinateSequence.
+> >
+> > I'm thinking about making constructors take ownership of argument,
+> > and extractors (GetGeometryN, getExteriorRing, getCoordSeq..) return
+> > resources owned by the argument object...
+> >
+> > These changes would also allow changing any Ordinate value
+> > of any Geometry ...
+> >
+> >         GEOSGeom g1 = GEOSGetGeometryN(g, 2);
+> >         GEOSGeom hole3 = GEOSGetInteriorRingN(g1, 3);
+> >         GEOSCoordSeq s = GEOSGetCoordSeq(hole3);
+> >         GEOSCoordSeq_setX(s, 4);
+> >
+> > What do you think, is the advantage worth the danger ?
+> 
+> Strk,
+> 
+> If one of the rationales for the direct construction and query
+> support is to provide a "fastest" method of converting to and
+> from GEOS Geometries, then I think that avoiding copying
+> would be wise.  I don't immediately intend to use the new
+> api entries so it doesn't matter so much to me, but if we convert
+> mapserver to use the GEOS C API then it speed would be an
+> issue.
+> 
+> I would say that the advantage is worth the danger, but the
+> rules about internal references and taking of ownership need
+> to be made clear in the docs.
+> 
+> Best regards,
+> --
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From rburghol at chesapeakebay.net  Thu Oct 27 11:16:08 2005
+From: rburghol at chesapeakebay.net (Robert Burgholzer)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: [postgis-users] JTS -- was Re: Transform
+	Performance
+In-Reply-To: <20051027080416.GB10857@keybit.net>
+References: <djme91$i0c$1@sea.gmane.org>
+	<9EB50F1A91413F4FA63019487FCD251D2392D8@WEBBASEDDC.webbasedltd.local>
+	<435FB858.1050104@interserv.com> <20051026183411.GB4040@keybit.net>
+	<435FE469.5050108@interserv.com> <1130363202.1425.60.camel@menhaden>
+	<20051027080416.GB10857@keybit.net>
+Message-ID: <1130426166.1425.267.camel@menhaden>
+
+Ahh. I selected GEOS at compile time, so no java blame there. I have
+shifted this to the GEOS development forum, as I susptect it is more
+appropriate there.
+
+So, I wish to compare the intersection performance for the gpc library
+with the current one in the GEOS library. However, it seems that the
+geometry type has shifted to the LWG, is this the case? If so, I have
+some fancy footwork to do, since I believe the gpc only wants to deal
+with the older geometry type. Am I off base here?
+
+Thanks,
+Robert
+
+
+
+On Thu, 2005-10-27 at 04:04, strk@refractions.net wrote:
+> On Wed, Oct 26, 2005 at 05:46:42PM -0400, Robert Burgholzer wrote:
+> > With regard to general performance, are the performance hits due to
+> > execution of java functions?
+> > 
+> > I ask because, I think I found that the intersection() function seems to
+> > be java based (in JTS). Is this a correct interpretation of what is
+> > going on? I suppose I could just RTFLA (the friendly list archives that
+> > is), as I recall the topics of porting java functions to postgis. I had
+> > understood that this was the porting of java to C++, but perhaps that is
+> > untrue. Anyone that can clarify this?
+> 
+> intersection() is a function performed by a separate library
+> linked to the postgis library. At PostGIS compile time you 
+> can choose this external library between:
+> 	- GEOS built with a c++ compiler
+> 	- EXPERIMENTAL JTS built with gcj (GNU Java compiler)
+> 
+> In this case no topological function is involved, so penalty is
+> not due to these external libraries.
+> 
+> --strk;
+> 
+> > 
+> > r.b.
+> > 
+> > 
+> > On Wed, 2005-10-26 at 16:17, Charlie Savage wrote:
+> > > Very interesting.  Following your lead I created this function and then 
+> > > ran it through the scenarios you discuss below.
+> > > 
+> > > CREATE OR REPLACE FUNCTION
+> > > testme(value int) RETURNS int
+> > > AS $$
+> > > BEGIN
+> > > 	RAISE INFO 'testme: %', value;
+> > > 	RETURN value;
+> > > END;
+> > > $$
+> > > LANGUAGE plpgsql IMMUTABLE;
+> > > 
+> > > 
+> > > I thought, but was wrong, that in this case the function would only be 
+> > > called once:
+> > > 
+> > > select testme(MyField) from MyTable;
+> > > 
+> > > I had hoped that Postgresql would cache the value of the input 
+> > > parameter, see that testme had already been invoked for that parameter, 
+> > > and skip the evaluation.  However, it does not, the method get called 
+> > > for every record.  From the Postgresql docs (emphasis is mine):
+> > > 
+> > > "An IMMUTABLE function cannot modify the database and is guaranteed to 
+> > > return the same results given the same arguments forever. This category 
+> > > allows the optimizer to pre-evaluate the function when a query calls it 
+> > > with *constant* arguments."
+> > > 
+> > > > 
+> > > > POSSIBLE OPTIMIZATIONS
+> > > > 
+> > > > First optimization that comes to mind is reducing scans by making
+> > > > outer-level get_proj4_from_srid() calls take a constant argument:
+> > > > 
+> > > > 	transform_geometry(g, get_proj4_from_srid(find_srid(..)),
+> > > > 		get_proj4_from_srid(4326));
+> > > > 
+> > > 
+> > > Perhaps a quick simple way to do this is to create an overloaded version 
+> > > of transform that takes both the source srs and targer srs as constants. 
+> > >   That would get rid of all the SRID calls, and all but two of the 
+> > > get_proj4_from_srid calls.  Thus it would be a lot faster, but not much 
+> > > harder to use.
+> > > 
+> > > Thanks,
+> > > 
+> > > Charlie
+> > > 
+> > > 
+> > > 
+> > > _______________________________________________
+> > > postgis-users mailing list
+> > > postgis-users@postgis.refractions.net
+> > > http://postgis.refractions.net/mailman/listinfo/postgis-users
+> > -- 
+> > Non-point Source Data Analyst
+> > University of Maryland, College Park
+> > Chesapeake Bay Program Office
+> > 410 Severn Avenue, Suite 305B
+> > Annapolis, MD, 21403
+> > Phone: (410) 267-5779
+> > 
+> > rburghol@chesapeakebay.net
+> > 
+> > _______________________________________________
+> > postgis-users mailing list
+> > postgis-users@postgis.refractions.net
+> > http://postgis.refractions.net/mailman/listinfo/postgis-users
+> _______________________________________________
+> postgis-users mailing list
+> postgis-users@postgis.refractions.net
+> http://postgis.refractions.net/mailman/listinfo/postgis-users
+-- 
+Non-point Source Data Analyst
+University of Maryland, College Park
+Chesapeake Bay Program Office
+410 Severn Avenue, Suite 305B
+Annapolis, MD, 21403
+Phone: (410) 267-5779
+
+rburghol@chesapeakebay.net
+
+
+From niki.spahiev at gmail.com  Mon Oct 31 11:52:28 2005
+From: niki.spahiev at gmail.com (Niki Spahiev)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] IsValidOp.cpp still uses function finite()
+Message-ID: <67c229320510310852g4b1b2335p@mail.gmail.com>
+
+IsValidOp.cpp still uses function finite()
+Maybe should be replaced with FINITE() macro?
+
+Niki Spahiev
+
+P.S. Sorry if comes twice
+
+From niki.spahiev at gmail.com  Mon Oct 31 11:47:17 2005
+From: niki.spahiev at gmail.com (Niki Spahiev)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] IsValidOp.cpp still uses function finite()
+Message-ID: <67c229320510310847u5cc73380n@mail.gmail.com>
+
+IsValidOp.cpp still uses function finite()
+Maybe it should be replaced by FINITE() macro?
+
+Niki Spahiev
+

@@ -1,0 +1,462 @@
+From geos-trac at osgeo.org  Sat May 19 18:20:04 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Sun, 20 May 2018 01:20:04 -0000
+Subject: [geos-devel] [GEOS] #869: CommonBits::zeroLowerBits undefined
+	behavior
+Message-ID: <045.bfc710dae9073918b45ee2639cde6e64@osgeo.org>
+
+#869: CommonBits::zeroLowerBits undefined behavior
+------------------------+-------------------------------
+ Reporter:  goatbar     |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  minor       |  Milestone:  3.6.3
+Component:  Default     |    Version:  3.6.2
+ Severity:  Unassigned  |   Keywords:  UndefinedBehavior
+------------------------+-------------------------------
+ It is possible to get nBits to be a shift larger than `1 << 63`
+
+ I don't have a cleaned up test case for this issue.  I will try to add one
+ to this issue soon.
+
+ This is probably not the right fix...
+ {{{#!C++
+ /*static public*/
+ int64
+ CommonBits::zeroLowerBits(int64 bits, int nBits)
+ {
+         if (nBits >= sizeof(nBits) * 8) return 0;
+         int64 invMask = (1<< nBits)-1;
+         int64 mask = ~ invMask;
+         int64 zeroed = bits & mask;
+         return zeroed;
+ }
+ }}}
+
+ Found with autofuzz.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/869>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From fardet.tanguy at laposte.net  Thu May 24 00:36:57 2018
+From: fardet.tanguy at laposte.net (Tanguy Fardet)
+Date: Thu, 24 May 2018 09:36:57 +0200
+Subject: [geos-devel] Modify a linestring or prevent coordinatesequence
+	ownership transfer
+Message-ID: <936a71ac-a247-44a2-e1c9-a5ddff29d91a@laposte.net>
+
+Dear GEOS developers,
+
+I would like to know if there is a way, within the GEOS library, to 
+either 1) modify an existing LineString without copying the existing 
+points inside or 2) create a LineString from a CoordinateSequence 
+without having to clone the latter and without it being destroyed with 
+the LineString (i.e. how to not transfer ownership).
+
+ From a quick look at the code, this does not seem possible, but I would 
+like to make sure it is indeed the case.
+
+Basically I would like to store "growing lines" and check for 
+intersections between these lines and having to clone 
+CoordinateSequences every time makes things way too slow...
+
+Best regards,
+Tanguy Fardet
+
+
+From strk at kbt.io  Thu May 24 05:58:44 2018
+From: strk at kbt.io (Sandro Santilli)
+Date: Thu, 24 May 2018 14:58:44 +0200
+Subject: [geos-devel] Modify a linestring or prevent coordinatesequence
+ ownership transfer
+In-Reply-To: <936a71ac-a247-44a2-e1c9-a5ddff29d91a@laposte.net>
+References: <936a71ac-a247-44a2-e1c9-a5ddff29d91a@laposte.net>
+Message-ID: <20180524125844.zpjh3yinxvud7gsg@liz>
+
+On Thu, May 24, 2018 at 09:36:57AM +0200, Tanguy Fardet wrote:
+> Dear GEOS developers,
+> 
+> I would like to know if there is a way, within the GEOS library, to either
+> 1) modify an existing LineString without copying the existing points inside
+> or 2) create a LineString from a CoordinateSequence without having to clone
+> the latter and without it being destroyed with the LineString (i.e. how to
+> not transfer ownership).
+> 
+> From a quick look at the code, this does not seem possible, but I would like
+> to make sure it is indeed the case.
+
+I confirm this is the case, by (JTS-following) design.
+
+--strk;
+
+From mtnclimb at gmail.com  Thu May 24 07:43:59 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Thu, 24 May 2018 07:43:59 -0700
+Subject: [geos-devel] Modify a linestring or prevent coordinatesequence
+ ownership transfer
+In-Reply-To: <20180524125844.zpjh3yinxvud7gsg@liz>
+References: <936a71ac-a247-44a2-e1c9-a5ddff29d91a@laposte.net>
+ <20180524125844.zpjh3yinxvud7gsg@liz>
+Message-ID: <CAK2ens3+ZpdatMy+OBXjrE2Jz_woZT=pPNZxki5+ovFZimK+Cg@mail.gmail.com>
+
+Actually in JTS this is possible, by creating a CoordinateSequence
+implementation which allows extending the list of coordinates (e.g.
+something like this [1]).
+
+I guess the difference is that in C/C++ the API has to explicitly control
+the lifetime of the geometry associated structures.  Whereas in Java object
+lifetimes are managed by the GC, and objects can live as long as they are
+being referenced.
+
+Not sure what the best way to ease this constraint is - but it seems like
+there should be a common pattern to make this work?
+
+[1] https://github.com/locationtech/jts/pull/271
+
+On Thu, May 24, 2018 at 5:58 AM, Sandro Santilli <strk at kbt.io> wrote:
+
+> On Thu, May 24, 2018 at 09:36:57AM +0200, Tanguy Fardet wrote:
+> > Dear GEOS developers,
+> >
+> > I would like to know if there is a way, within the GEOS library, to
+> either
+> > 1) modify an existing LineString without copying the existing points
+> inside
+> > or 2) create a LineString from a CoordinateSequence without having to
+> clone
+> > the latter and without it being destroyed with the LineString (i.e. how
+> to
+> > not transfer ownership).
+> >
+> > From a quick look at the code, this does not seem possible, but I would
+> like
+> > to make sure it is indeed the case.
+>
+> I confirm this is the case, by (JTS-following) design.
+>
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180524/47ecd268/attachment.html>
+
+From geos-trac at osgeo.org  Wed May 30 18:15:07 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 31 May 2018 01:15:07 -0000
+Subject: [geos-devel] [GEOS] #874: Memory leaks in GEOSSTRTree_nearest
+Message-ID: <045.ddd988a22df4dbe17ed96f696ba898f3@osgeo.org>
+
+#874: Memory leaks in GEOSSTRTree_nearest
+------------------------+--------------------------
+ Reporter:  dbaston     |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.6.3
+Component:  Default     |    Version:  3.6.2
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ Output from Valgrind on unit tests:
+
+ {{{
+ 16,480 (5,768 direct, 10,712 indirect) bytes in 103 blocks are definitely
+ lost in loss record 15 of 16
+ operator new(unsigned long)
+ geos::geom::GeometryFactory::createPoint(geos::geom::CoordinateSequence*)
+ const
+ geos::geom::GeometryFactory::createPoint(geos::geom::Coordinate const&)
+ const
+ geos::geom::GeometryFactory::toGeometry(geos::geom::Envelope const*) const
+ geos::geom::Geometry::getEnvelope() const
+ GEOSSTRtree_nearest_r
+ GEOSSTRtree_nearest
+ void tut::test_object<tut::test_capistrtree_data>::test<1>()
+ tut::test_group<tut::test_capistrtree_data, 50>::run_test_seh_(void
+ (tut::test_object<tut::test_capistrtree_data>::*)(),
+ tut::test_group<tut::test_capistrtree_data,
+ 50>::safe_holder<tut::test_object>&, std::__cxx11::basic_string<char,
+ std::char_traits, std::allocator>&, int)
+ tut::test_group<tut::test_capistrtree_data,
+ 50>::run_test_(std::_Rb_tree_iterator<std::pair> const&,
+ tut::test_group<tut::test_capistrtree_data,
+ 50>::safe_holder<tut::test_object>&, tut::test_result&)
+ tut::test_group<tut::test_capistrtree_data,
+ 50>::run_next(tut::test_result&)
+ tut::test_runner::run_all_tests_in_group_(std::_Rb_tree_const_iterator<std::pair>)
+ const
+
+ 448 (64 direct, 384 indirect) bytes in 1 blocks are definitely lost in
+ loss record 10 of 16
+ operator new(unsigned long)
+ geos::geom::GeometryFactory::createPolygon(geos::geom::LinearRing*,
+ std::vector<geos::geom::Geometry*, std::allocator>*) const
+ geos::geom::GeometryFactory::toGeometry(geos::geom::Envelope const*) const
+ geos::geom::Geometry::getEnvelope() const
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/874>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu May 31 01:19:49 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 31 May 2018 08:19:49 -0000
+Subject: [geos-devel] [GEOS] #874: Memory leaks in GEOSSTRTree_nearest
+In-Reply-To: <045.ddd988a22df4dbe17ed96f696ba898f3@osgeo.org>
+References: <045.ddd988a22df4dbe17ed96f696ba898f3@osgeo.org>
+Message-ID: <060.55b27e60398c8299ae0b06d0c93f2ece@osgeo.org>
+
+#874: Memory leaks in GEOSSTRTree_nearest
+------------------------+---------------------------
+ Reporter:  dbaston     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.6.3
+Component:  Default     |     Version:  3.6.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ See if it is appropriate to use getEnvelope_internal instead,
+ which gets a link to the internal (Geometry-owned) envelope.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/874#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu May 31 06:51:46 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 31 May 2018 13:51:46 -0000
+Subject: [geos-devel] [GEOS] #876: rgeos::writeWKT() pass polygon direction
+	as parameter
+Message-ID: <048.ec0407fefc3a6b0f055bf25fa015b32b@osgeo.org>
+
+#876: rgeos::writeWKT() pass polygon direction as parameter
+-----------------------------+--------------------------
+ Reporter:  dennisguse       |      Owner:  geos-devel@…
+     Type:  enhancement      |     Status:  new
+ Priority:  minor            |  Milestone:  3.6.3
+Component:  Default          |    Version:  3.6.2
+ Severity:  Feature Request  |   Keywords:  WKT
+-----------------------------+--------------------------
+ I am using rgeos::writeWKT() to export geo data for import into Microsoft
+ SQLServer.
+ Sadly, the server is picky about the polygon orientation (ie., clockwise,
+ counter-clockwise).
+
+ However, rgeos::writeWKT() does not support to to define the orientation.
+ It would be awesome to add this option.
+
+ Workaround for me:
+ So far, I convert the (wrongly inverted) polygons in SQLServer by checking
+ the actual size and if too large invert them.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/876>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu May 31 07:14:31 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 31 May 2018 14:14:31 -0000
+Subject: [geos-devel] [GEOS] #876: rgeos::writeWKT() pass polygon
+ direction as parameter
+In-Reply-To: <048.ec0407fefc3a6b0f055bf25fa015b32b@osgeo.org>
+References: <048.ec0407fefc3a6b0f055bf25fa015b32b@osgeo.org>
+Message-ID: <063.60854edae0d9353a407326e09195be8f@osgeo.org>
+
+#876: rgeos::writeWKT() pass polygon direction as parameter
+-----------------------------+---------------------------
+ Reporter:  dennisguse       |       Owner:  geos-devel@…
+     Type:  enhancement      |      Status:  new
+ Priority:  minor            |   Milestone:  3.6.3
+Component:  Default          |     Version:  3.6.2
+ Severity:  Feature Request  |  Resolution:
+ Keywords:  WKT              |
+-----------------------------+---------------------------
+
+Comment (by strk):
+
+ WKT is a standard, which I don't think prescribes a specific orientation
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/876#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From lr at pcorp.us  Thu May 31 12:28:33 2018
+From: lr at pcorp.us (Regina Obe)
+Date: Thu, 31 May 2018 15:28:33 -0400
+Subject: [geos-devel] PSC Vote release of GEOS 3.7.0alpha in 1-2 weeks
+Message-ID: <001501d3f915$90efcb20$b2cf6160$@pcorp.us>
+
+I'd like to propose that we do an alpha release of GEOS 3.7.0alpha in about
+1-2 weeks.
+
+I know both Dan Baston and Even Rouault are working on things they'd like to
+get in.  I'm okay with everything not in before alpha release, but read by
+beta.
+
+Part of the reason I want to do this is just to get the ball rolling.  This
+will be the first release we do under Git and I'd like to have a couple
+trial runs before final release.
+
+So I'm envisioning
+
+1) GEOS 3.7.0alpha (not feature complete) but at least a specific point in
+time people can test against
+2) GEOS 3.7.0beta1 (completely feature complete) say a week after alpha
+release
+3) GEOS 3.7.0rc1 (a month after beta 1)
+4) GEOS 3.7.0 (released a little before expected PostGIS 2.5.0 release in
+late Aug/Sept)
+
++1 from me.
+Of course since I called it , it goes without saying, I'm happy to take on
+the responsibility of doing the release.
+
+Please other PSC people vote.
+
+Thanks,
+Regina
+
+
+From geos-trac at osgeo.org  Thu May 31 12:52:21 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 31 May 2018 19:52:21 -0000
+Subject: [geos-devel] [GEOS] #858: LineIntersector sanitizer failure
+ (was: LinIntersector sanitizer failure)
+In-Reply-To: <045.b5770e9464c01d6d0de67195e3d583a5@osgeo.org>
+References: <045.b5770e9464c01d6d0de67195e3d583a5@osgeo.org>
+Message-ID: <060.7ce6a6a001cbf79906eb987180580ed5@osgeo.org>
+
+#858: LineIntersector sanitizer failure
+------------------------+---------------------------
+ Reporter:  goatbar     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.6.3
+Component:  Default     |     Version:  3.6.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/858#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From schwehr at gmail.com  Thu May 31 12:58:20 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Thu, 31 May 2018 12:58:20 -0700
+Subject: [geos-devel] PSC Vote release of GEOS 3.7.0alpha in 1-2 weeks
+In-Reply-To: <001501d3f915$90efcb20$b2cf6160$@pcorp.us>
+References: <001501d3f915$90efcb20$b2cf6160$@pcorp.us>
+Message-ID: <CACmBxyv1CHEOx+jAXou-9qq+LzKAJiNBkDsY=ZtT0HH2kPa6iw@mail.gmail.com>
+
+There are quite a few open bugs that have no responses.  Any chance that a
+core maintainer could triage these before a 3.7.0?
+
+Many of my bugs don't have a proposed solution.  Any thoughts from someone
+else on my open bugs would be hugely appreciated.
+
+I could especially use feedback on https://trac.osgeo.org/geos/ticket/858.
+This issue with SimpleMCSweepLineIntersector keeps getting hit by my
+fuzzers running inside Google and blocks them from generating (potentially)
+more interesting bug reports.
+
+And I've got 2 tickets with proposed changes:
+
+https://trac.osgeo.org/geos/ticket/862
+https://trac.osgeo.org/geos/ticket/863
+
+Thanks!
+-kurt
+
+
+On Thu, May 31, 2018 at 12:28 PM, Regina Obe <lr at pcorp.us> wrote:
+
+> I'd like to propose that we do an alpha release of GEOS 3.7.0alpha in about
+> 1-2 weeks.
+>
+> I know both Dan Baston and Even Rouault are working on things they'd like
+> to
+> get in.  I'm okay with everything not in before alpha release, but read by
+> beta.
+>
+> Part of the reason I want to do this is just to get the ball rolling.  This
+> will be the first release we do under Git and I'd like to have a couple
+> trial runs before final release.
+>
+> So I'm envisioning
+>
+> 1) GEOS 3.7.0alpha (not feature complete) but at least a specific point in
+> time people can test against
+> 2) GEOS 3.7.0beta1 (completely feature complete) say a week after alpha
+> release
+> 3) GEOS 3.7.0rc1 (a month after beta 1)
+> 4) GEOS 3.7.0 (released a little before expected PostGIS 2.5.0 release in
+> late Aug/Sept)
+>
+> +1 from me.
+> Of course since I called it , it goes without saying, I'm happy to take on
+> the responsibility of doing the release.
+>
+> Please other PSC people vote.
+>
+> Thanks,
+> Regina
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180531/819e3814/attachment.html>
+
+From geos-trac at osgeo.org  Thu May 31 23:43:41 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 01 Jun 2018 06:43:41 -0000
+Subject: [geos-devel] [GEOS] #876: rgeos::writeWKT() pass polygon
+ direction as parameter
+In-Reply-To: <048.ec0407fefc3a6b0f055bf25fa015b32b@osgeo.org>
+References: <048.ec0407fefc3a6b0f055bf25fa015b32b@osgeo.org>
+Message-ID: <063.9895ae40f126eb8e07ab5ac895b85abf@osgeo.org>
+
+#876: rgeos::writeWKT() pass polygon direction as parameter
+-----------------------------+---------------------------
+ Reporter:  dennisguse       |       Owner:  geos-devel@…
+     Type:  enhancement      |      Status:  new
+ Priority:  minor            |   Milestone:  3.6.3
+Component:  Default          |     Version:  3.6.2
+ Severity:  Feature Request  |  Resolution:
+ Keywords:  WKT              |
+-----------------------------+---------------------------
+
+Comment (by dennisguse):
+
+ Until now I was thinking the same, but the spec says something different:
+
+ Page 26 of current spec:
+ http://portal.opengeospatial.org/files/?artifact_id=25355
+ Highlighting mine.
+
+   <<The exterior boundary LinearRing defines the “top” of the surface
+ which is the side of the surface from which the exterior boundary appears
+ to traverse the boundary in a **counter clockwise direction**. The
+ interior LinearRings will have the opposite orientation, and appear as
+ **clockwise** when viewed from the “top”,>>
+
+ In addition, I tested the interpretation of Openlayers (v4.6.5) for WKT:
+ they seem to ignore the direction of the polygon and always use the
+ smaller area as inner part.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/876#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+

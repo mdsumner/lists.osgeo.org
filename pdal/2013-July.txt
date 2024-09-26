@@ -1,0 +1,2258 @@
+From hobu.inc at gmail.com  Mon Jul  1 06:22:20 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon, 1 Jul 2013 08:22:20 -0500
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+Message-ID: <5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+
+
+On Jun 30, 2013, at 7:54 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+
+> On 29 June 2013 16:16, Chris Foster <chris.foster at roames.com.au> wrote:
+>> I've submitted a pull request which fixes the problem
+>> (https://github.com/PDAL/PDAL/pull/146)
+
+I want to note that the mosaic filter has not had much exercise, and there are very likely situations where it doesn't quite behave how we'd want. PDAL is still very much a work in progress, and there are plenty of pointy bits all about. I welcome any help you wish to contribute to file down those pointy bits into something less dangerous. While we/I try to make PDAL generic as possible, my group uses it for some very specific translation operations, and these are going to be more optimized and understood than many of the other possible combinations that are possible.
+
+That said, I would welcome any and all support you might be able to give. Feel free to break stuff (a little bit), and question things. The answer might simply be because I got it to work and didn't think hard enough about it after that :)
+
+Thanks to Mateusz, we now have Travis builds for PDAL at https://travis-ci.org/PDAL/PDAL We had a jenkins instance before, but this is better integrated and does pull requests. 
+
+
+> On further testing, I've found that disabling the dimension caching between
+> calls to read() does have a measurable performance impact in some cases.  When
+> reading an uncompressed las file in small chunks (buffer size of 1000) the
+> patch above causes a 50% performance degradation or so.
+
+One thing I want implement is a mechanism for a Stage to advertise whether changes the PointBuffer's schema. This would allow pipelines that are all simple reads to cache their dimension positions once.
+
+
+> This is a bit surprising as it indicates the cost of dimension lookup in the
+> schema is rather large, unless there's something else I'm missing.  I'll have
+> to do some additional performance testing to try to get to the bottom of this.
+
+The cost of dimension lookup per-point would be prohibitive. It is essentially a std::map (actually boost::multi_array) traverse to find a dimension. 
+
+
+From hobu.inc at gmail.com  Mon Jul  1 06:34:30 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon, 1 Jul 2013 08:34:30 -0500
+Subject: [pdal] Array Dimensions
+In-Reply-To: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+Message-ID: <4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+
+
+On Jun 30, 2013, at 8:32 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+
+> Hi all,
+> 
+> Sorry to bombard the list with so much mail, I'll try to hold off a bit after
+> this one.
+
+Not a problem at all. Keep emailing as you explore and find dumb stuff :)
+
+> After a bit of hacking on the weekend I'm fairly confident that pdal will work
+> for us, with the possible exception of one major feature which appears to be
+> missing from PointBuffer: Dimensions which hold short fixed size arrays rather
+> than single elements.
+
+I hadn't thought of this. 
+
+Were you planing to use PDAL for something other than data translation? 
+
+> The problem is that sometimes a Dimension logically contains more than one
+> element, and it doesn't make sense to name the elements independently.  For
+> example, suppose I want to write a filter which computes local geometric
+> properties using the eigenstructure of the local covariance matrix.  The
+> output from this is naturally represented as a 3-vector of eigenvalues and a
+> 3x3 matrix of eigenvectors per point.  Now, I could name each of these using
+> their own Dimension, but that introduces unnecessary overhead and the
+> resulting components don't make logical sense on their own.
+> 
+
+You could kind of do this now with a dimension type pdal::dimension::UnsignedByte and an explicit size. Nothing useful other than yourself would be able to interpret it though.
+
+> I'm imagining something like
+> 
+> PointBuffer buf(...);
+> const Dimension& eigenValuesDim = buf.getSchema().getDimension("EigenValues");
+> // ...
+> float* vals = buf.getArrayField<float>(eigenValuesDim, 0);
+> 
+> If the size is known at compile time, the following would pretty much work
+> already
+> 
+> const boost::array<float,9>& vals =
+>    buf.getField<boost::array<float,9> >(eigenValuesDim, 0);
+> 
+> 
+> Other libraries agree that this is a useful feature, for example PCL has
+> explicit support for it in their PCD file format.
+
+Yes, this makes total sense.
+
+> 
+> I'm certainly willing to write code to make this work, but I'm not sure how
+> large a job it would be, so I'd need some guidance about whether it's a
+> desired feature before I start anything.  If not, I may have to implement a
+> point buffer class of my own, but I like to avoid reinventing wheels where
+> possible.
+
+Thinking out loud, we'd need:
+
+* pdal::dimension::ArrayType
+* pdal::Dimension::getElementCount() (or appropriate name)
+* pdal::Dimension::getByteSize() needs to be made dynamic when the dimension type is array
+* getField/setField *should* just work as-is.
+* other stuff I'm sure I forgot.
+
+Please start a pull request with this effort, and I'll make sure to track its development. If you get stuck, don't hesitate to ask or catch me on IRC.
+
+Thanks for the contribution!
+
+Howard
+
+
+From mateusz at loskot.net  Mon Jul  1 06:45:12 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Mon, 1 Jul 2013 14:45:12 +0100
+Subject: [pdal] Array Dimensions
+In-Reply-To: <4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+Message-ID: <CABUeae_f6=6PmxNQa4TJz77Z1dbf19xK390TzDeUx=fb4noT7g@mail.gmail.com>
+
+On 1 July 2013 14:34, Howard Butler <hobu.inc at gmail.com> wrote:
+> On Jun 30, 2013, at 8:32 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+>
+> Please start a pull request with this effort, and I'll make sure to track its development.
+
+FYI, it's a good idea to issue pull request from a dedicated topic branch [1],
+it then not only makes it easier to update it (even collaboratively), but also
+for Travis CI to pick up changes - as far as my experience show.
+
+[1] https://help.github.com/articles/using-pull-requests
+
+Best regards,
+--
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From chris.foster at roames.com.au  Mon Jul  1 06:51:37 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Mon, 1 Jul 2013 23:51:37 +1000
+Subject: [pdal] Array Dimensions
+In-Reply-To: <CABUeae_f6=6PmxNQa4TJz77Z1dbf19xK390TzDeUx=fb4noT7g@mail.gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CABUeae_f6=6PmxNQa4TJz77Z1dbf19xK390TzDeUx=fb4noT7g@mail.gmail.com>
+Message-ID: <CAPrisyqa9V88dcTm1dtKfUeeoAO6NzXSAU409_RYWGn=9r5hjQ@mail.gmail.com>
+
+On 1 July 2013 23:45, Mateusz Loskot <mateusz at loskot.net> wrote:
+> On 1 July 2013 14:34, Howard Butler <hobu.inc at gmail.com> wrote:
+>> On Jun 30, 2013, at 8:32 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+>>
+>> Please start a pull request with this effort, and I'll make sure to track its development.
+>
+> FYI, it's a good idea to issue pull request from a dedicated topic branch [1],
+> it then not only makes it easier to update it (even collaboratively), but also
+> for Travis CI to pick up changes - as far as my experience show.
+
+Ok, thanks.  I've submitted two pull requests already using my usual branching
+strategy.  The Travis CI build apparently succeeded, so hopefully I did it the
+right way.
+
+~Chris
+
+From chris.foster at roames.com.au  Mon Jul  1 07:54:07 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Tue, 2 Jul 2013 00:54:07 +1000
+Subject: [pdal] Array Dimensions
+In-Reply-To: <4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+Message-ID: <CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+
+On 1 July 2013 23:34, Howard Butler <hobu.inc at gmail.com> wrote:
+>> Sorry to bombard the list with so much mail, I'll try to hold off a bit after
+>> this one.
+>
+> Not a problem at all. Keep emailing as you explore and find dumb stuff :)
+
+Excellent, I will keep looking around :)
+
+>> After a bit of hacking on the weekend I'm fairly confident that pdal will work
+>> for us, with the possible exception of one major feature which appears to be
+>> missing from PointBuffer: Dimensions which hold short fixed size arrays rather
+>> than single elements.
+>
+> I hadn't thought of this.
+>
+> Were you planing to use PDAL for something other than data translation?
+
+I have two uses in mind.  One is to extract chunks of data from a custom point
+database which we have at work.  We already have a filtering system but pdal
+is much slicker, particularly the pipeline serialization side of things, which
+is a real pleasure to behold :)  Ultimately I've been writing sophisticated
+filter chains where some stages require building spatial datastructures from
+the points.  The filters in my current code aren't composable however, and you
+can't add custom dimensions to communicate between stages.  I'm hoping that
+using the pdal API will solve those problems.  It seems to me that requiring
+spatial context in a filter goes a bit beyond what pdal was designed for, but
+given you do everything in chunks I'm hoping it's possible without too much
+effort.
+
+The other use is as a reader for various point cloud formats (primarily .las
+and .laz) for my point cloud viewer displaz (https://github.com/c42f/displaz).
+I integrated initial (very basic) support for pdal on the weekend.  Displaz is
+meant to be a swiss army knife for geospatial point cloud visualization, so it
+needs the ability to read and display arbitrary point dimensions, and good
+metadata support.  Currently I have a quick and dirty PointArray to hold the
+data in memory, but I'd like to replace this with pdal's PointBuffer if
+possible.  I really want flexible visualization of arbitrary point dimensions
+whose names and types are not known at compile time.
+
+>> The problem is that sometimes a Dimension logically contains more than one
+>> element, and it doesn't make sense to name the elements independently.  For
+>> example, suppose I want to write a filter which computes local geometric
+>> properties using the eigenstructure of the local covariance matrix.  The
+>> output from this is naturally represented as a 3-vector of eigenvalues and a
+>> 3x3 matrix of eigenvectors per point.  Now, I could name each of these using
+>> their own Dimension, but that introduces unnecessary overhead and the
+>> resulting components don't make logical sense on their own.
+>>
+>
+> You could kind of do this now with a dimension type
+> pdal::dimension::UnsignedByte and an explicit size. Nothing useful other
+> than yourself would be able to interpret it though.
+
+Right.  Question: what's the distinction between UnsignedByte and
+UnsignedInteger?  It's confusing to me to have both of these.
+
+>> I'm certainly willing to write code to make this work, but I'm not sure how
+>> large a job it would be, so I'd need some guidance about whether it's a
+>> desired feature before I start anything.  If not, I may have to implement a
+>> point buffer class of my own, but I like to avoid reinventing wheels where
+>> possible.
+>
+> Thinking out loud, we'd need:
+>
+> * pdal::dimension::ArrayType
+
+Arrayness seems orthogonal from the element type to me.  In the past I've
+flagged arrays simply by having element count > 1.
+
+> * pdal::Dimension::getElementCount() (or appropriate name)
+
+Sounds good.
+
+> * pdal::Dimension::getByteSize() needs to be made dynamic when the dimension type is array
+
+I assume this doesn't come with a performance hit?  I'm just wondering if
+there's code somewhere which habitually checks the byte size in a tight loop,
+expecting it to be a simple memory access.
+
+> * getField/setField *should* just work as-is.
+
+Yes I think so, provided it's reinterpreted as a boost::array or some
+equivalent aggregate type.  We probably need a special version which returns a
+pointer to the first element of the array for those cases where the element
+count isn't known at compile time.  Or is there a better option?
+
+Another more wacky thought which crosses my mind is that it would be helpful
+to have aliases (eg, "Red", "Blue" and "Green" dimensions alias fields of the
+"Color" dimension which is a three element array per point).  This would be
+rather handy for me since I actually don't care to read the color components
+separately, but it might be too hard to get right.
+
+> Please start a pull request with this effort, and I'll make sure to track
+> its development. If you get stuck, don't hesitate to ask or catch me on IRC.
+
+Great, I'll make a pull request once I have something concrete to share.
+
+~Chris
+
+From hobu.inc at gmail.com  Mon Jul  1 08:18:08 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon, 1 Jul 2013 10:18:08 -0500
+Subject: [pdal] Array Dimensions
+In-Reply-To: <CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+Message-ID: <EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+
+
+On Jul 1, 2013, at 9:54 AM, Chris Foster <chris.foster at roames.com.au> wrote:
+
+> On 1 July 2013 23:34, Howard Butler <hobu.inc at gmail.com> wrote:
+>> 
+>> Were you planing to use PDAL for something other than data translation?
+> 
+> I have two uses in mind.  One is to extract chunks of data from a custom point
+> database which we have at work.  We already have a filtering system but pdal
+> is much slicker, particularly the pipeline serialization side of things, which
+> is a real pleasure to behold :)  
+
+I'm glad you've found it useful. It is a shameless rip-off of GDAL's VRTs (in spirit).
+
+> Ultimately I've been writing sophisticated
+> filter chains where some stages require building spatial datastructures from
+> the points.  The filters in my current code aren't composable however, and you
+> can't add custom dimensions to communicate between stages.  I'm hoping that
+> using the pdal API will solve those problems.  
+
+> It seems to me that requiring
+> spatial context in a filter goes a bit beyond what pdal was designed for, but
+> given you do everything in chunks I'm hoping it's possible without too much
+> effort.
+
+I've been thinking about this one too. PointBuffer does carry its "bounds" around, which I've used 
+for some communication (mostly going in/out of database backends), but we haven't hinted the entire pipeline 
+with spatial awareness.
+
+Additionally, there's a FLANN-based filter available, and that's not plugged into everything like it should.
+I don't know that I want to make FLANN a hard dependency, but I've found nanoflann, which is an 
+all-in-one-header port of BSD-licensed FLANN, so that could be a possibility now. I'd be interested 
+in any ideas you have to make this aspect better.
+
+
+> The other use is as a reader for various point cloud formats (primarily .las
+> and .laz) for my point cloud viewer displaz (https://github.com/c42f/displaz).
+> I integrated initial (very basic) support for pdal on the weekend.  Displaz is
+> meant to be a swiss army knife for geospatial point cloud visualization, so it
+> needs the ability to read and display arbitrary point dimensions, and good
+> metadata support.  Currently I have a quick and dirty PointArray to hold the
+> data in memory, but I'd like to replace this with pdal's PointBuffer if
+> possible.  I really want flexible visualization of arbitrary point dimensions
+> whose names and types are not known at compile time.
+
+Sounds great.
+
+> Right.  Question: what's the distinction between UnsignedByte and
+> UnsignedInteger?  It's confusing to me to have both of these.
+
+*interpretation* is the keyword here, not merely type. Do I interpret this dimension as byte or integer? The idea was that I might care about the difference. UnsignedByte isn't used much though, and it could be removed without consequence if it is clear this just makes things confusing.
+
+> Arrayness seems orthogonal from the element type to me.  In the past I've
+> flagged arrays simply by having element count > 1.
+
+The getInterpretation is to be able to discriminate how we should treat a dimension.
+
+again, interpretation, not type. So for boost::array<float, 9>, we'd have
+
+getInterpretation() == dimension::Float
+getElementCount() == 9
+getByteSize() == 4*getElementCount()
+
+> 
+>> * pdal::Dimension::getByteSize() needs to be made dynamic when the dimension type is array
+> 
+> I assume this doesn't come with a performance hit?  I'm just wondering if
+> there's code somewhere which habitually checks the byte size in a tight loop,
+> expecting it to be a simple memory access.
+
+ah, good point. It is not beneath me to simply cache the value once it has been calculated for a dimension instance, however.
+
+> Another more wacky thought which crosses my mind is that it would be helpful
+> to have aliases (eg, "Red", "Blue" and "Green" dimensions alias fields of the
+> "Color" dimension which is a three element array per point).  This would be
+> rather handy for me since I actually don't care to read the color components
+> separately, but it might be too hard to get right.
+
+/me strokes his chin and wonders how messy dimension aliasing could get.
+
+I'm not against it, mind you, but I'm just a bit worried that the dimension/schema stuff is a bit messy as it is.  
+Pull up a chair and let me tell you about dimension inheritance when you have the time... :)
+
+
+From hobu.inc at gmail.com  Mon Jul  1 12:39:22 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon, 1 Jul 2013 14:39:22 -0500
+Subject: [pdal] Compiled version of PDAL
+In-Reply-To: <37460AF5-E074-4ED8-B9D0-12D7EFD3199A@gmail.com>
+References: <519a1e82.62a3420a.211a.5023SMTPIN_ADDED_BROKEN@mx.google.com>
+	<37460AF5-E074-4ED8-B9D0-12D7EFD3199A@gmail.com>
+Message-ID: <8AECA4E4-6F7F-4CAB-BB94-28FFA69DA816@gmail.com>
+
+
+On May 20, 2013, at 4:11 PM, Howard Butler <hobu.inc at gmail.com> wrote:
+
+> 
+> On May 20, 2013, at 8:00 AM, Nicolas Mantelier <nicolas.mantelier at spaceyes.fr> wrote:
+> 
+>> Hi sorry I make mistake with my precedent request, so I make a new query.
+>> 
+>> I want to know if there is compiled version of PDAL available for download. 
+> 
+> There is no pre-compiled version of PDAL available at this time.
+
+32 bit PDAL is now available via OSGeo4W at http://trac.osgeo.org/osgeo4w/
+
+Howard
+
+From doug_newcomb at fws.gov  Mon Jul  1 14:04:41 2013
+From: doug_newcomb at fws.gov (Newcomb, Doug)
+Date: Mon, 1 Jul 2013 17:04:41 -0400
+Subject: [pdal] Compiled version of PDAL
+In-Reply-To: <8AECA4E4-6F7F-4CAB-BB94-28FFA69DA816@gmail.com>
+References: <519a1e82.62a3420a.211a.5023SMTPIN_ADDED_BROKEN@mx.google.com>
+	<37460AF5-E074-4ED8-B9D0-12D7EFD3199A@gmail.com>
+	<8AECA4E4-6F7F-4CAB-BB94-28FFA69DA816@gmail.com>
+Message-ID: <CALQGVr0KcCm-+iCHuyA8nzpxNMbWF_vvvoYbS2Cv2p=RFV46Yw@mail.gmail.com>
+
+Compilation on Ubuntu 12.04 64 bit works well ( with gdal 1.9.2 compiled
+form source and laszip 2.1)
+
+Doug
+
+
+On Mon, Jul 1, 2013 at 3:39 PM, Howard Butler <hobu.inc at gmail.com> wrote:
+
+>
+> On May 20, 2013, at 4:11 PM, Howard Butler <hobu.inc at gmail.com> wrote:
+>
+> >
+> > On May 20, 2013, at 8:00 AM, Nicolas Mantelier <
+> nicolas.mantelier at spaceyes.fr> wrote:
+> >
+> >> Hi sorry I make mistake with my precedent request, so I make a new
+> query.
+> >>
+> >> I want to know if there is compiled version of PDAL available for
+> download.
+> >
+> > There is no pre-compiled version of PDAL available at this time.
+>
+> 32 bit PDAL is now available via OSGeo4W at http://trac.osgeo.org/osgeo4w/
+>
+> Howard
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+
+-- 
+Doug Newcomb
+USFWS
+Raleigh, NC
+919-856-4520 ext. 14 doug_newcomb at fws.gov
+---------------------------------------------------------------------------------------------------------
+The opinions I express are my own and are not representative of the
+official policy of the U.S.Fish and Wildlife Service or Dept. of the
+Interior.   Life is too short for undocumented, proprietary data formats.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20130701/e7f8fe26/attachment.html>
+
+From chris.foster at roames.com.au  Mon Jul  1 19:58:55 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Tue, 2 Jul 2013 12:58:55 +1000
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+Message-ID: <CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+
+On 1 July 2013 23:22, Howard Butler <hobu.inc at gmail.com> wrote:
+>
+> On Jun 30, 2013, at 7:54 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+>
+>> On 29 June 2013 16:16, Chris Foster <chris.foster at roames.com.au> wrote:
+>>> I've submitted a pull request which fixes the problem
+>>> (https://github.com/PDAL/PDAL/pull/146)
+>
+> I want to note that the mosaic filter has not had much exercise, and there
+> are very likely situations where it doesn't quite behave how we'd want. PDAL
+> is still very much a work in progress, and there are plenty of pointy bits
+> all about. I welcome any help you wish to contribute to file down those
+> pointy bits into something less dangerous. While we/I try to make PDAL
+> generic as possible, my group uses it for some very specific translation
+> operations, and these are going to be more optimized and understood than
+> many of the other possible combinations that are possible.
+
+That's fine, some pieces will naturally be more battle hardened than others,
+especially in a relatively new library like PDAL.
+
+>> On further testing, I've found that disabling the dimension caching between
+>> calls to read() does have a measurable performance impact in some cases.  When
+>> reading an uncompressed las file in small chunks (buffer size of 1000) the
+>> patch above causes a 50% performance degradation or so.
+>
+> One thing I want implement is a mechanism for a Stage to advertise whether
+> changes the PointBuffer's schema. This would allow pipelines that are all
+> simple reads to cache their dimension positions once.
+
+Ok.  They would have to cache the dimensions by value though, unlike
+the las reader which stores pointers: There's no way to know when the
+PointBuffer from a previous call to read() may be deleted, which leads to
+stale pointers to Dimensions even if the next PointBuffer has identical
+layout.  This is what caused the crash in the Mosaic case.
+
+Having a look at the way getDimension() is implemented I can see several
+things which are convenient but probably make it go much slower than
+necessary, so I think a lot of performance can be clawed back by simply
+optimizing getDimension() and getDimensionOptional().  Things which stick out
+to me:
+
+* Exceptions are thrown as a matter of course (even in getDimensionOptional,
+  where they are caught and used to return an empty optional).  I'm very
+  suspicious of any code which uses exceptions as part of normal flow control.
+
+* _Lots_ of memory management traffic happens behind the scenes:
+  std::ostringstream is used to format an error message as a matter of course
+  (rather than only in error situations), several std::string objects are
+  created, etc.
+
+* Complicated data structures are allocated for the dimension inheritance
+  stuff.  I don't know how this works yet so I don't know whether it could be
+  faster.
+
+Ideally getDimension() can be made zero allocation, and getDimensionOptional
+should never cause an exception to be thrown and gobbled behind the scenes.
+I'll have a look at how to improve the performance there if I get a chance.
+
+Side note: I expect it's too late to change now, but what benefit do we get by
+making getDimensionOptional() return a boost::optional rather than a pointer?
+It strikes me as very slightly safer but less convenient when you end up
+caching raw pointers in places like the las reader anyway.
+
+>> This is a bit surprising as it indicates the cost of dimension lookup in the
+>> schema is rather large, unless there's something else I'm missing.  I'll have
+>> to do some additional performance testing to try to get to the bottom of this.
+>
+> The cost of dimension lookup per-point would be prohibitive. It is
+> essentially a std::map (actually boost::multi_array) traverse to find a
+> dimension.
+
+Definitely.  What I'm noting is that the cost is *still* noticeable
+even when amortized over buffer sizes of 1000 points.  Something must be
+suboptimal!
+
+~Chris
+
+From chris.foster at roames.com.au  Mon Jul  1 20:24:13 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Tue, 2 Jul 2013 13:24:13 +1000
+Subject: [pdal] Array Dimensions
+In-Reply-To: <EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+	<EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+Message-ID: <CAPrisypgk4K03UXY4oAQcWmHVtaRvy-SKSLYqzTsiPMUE8xB1g@mail.gmail.com>
+
+On 2 July 2013 01:18, Howard Butler <hobu.inc at gmail.com> wrote:
+>> It seems to me that requiring
+>> spatial context in a filter goes a bit beyond what pdal was designed for, but
+>> given you do everything in chunks I'm hoping it's possible without too much
+>> effort.
+>
+> I've been thinking about this one too. PointBuffer does carry its "bounds" around, which I've used
+> for some communication (mostly going in/out of database backends), but we haven't hinted the entire pipeline
+> with spatial awareness.
+>
+> Additionally, there's a FLANN-based filter available, and that's not plugged into everything like it should.
+> I don't know that I want to make FLANN a hard dependency, but I've found nanoflann, which is an
+> all-in-one-header port of BSD-licensed FLANN, so that could be a possibility now. I'd be interested
+> in any ideas you have to make this aspect better.
+
+Agreed that making FLANN a hard dependency would be a bad thing.  I don't have
+any specific thoughts about how this would hang together yet, all I know is
+that the filter will need all available points within a spatial region
+(including a buffer for extra context) before any filtering decisions can be
+made.  I suspect that baking in a particular spatial data structure would be a
+mistake to start with - in principle each filter stage needs different kinds
+of spatial queries, some of which may require building a specialized
+acceleration structure.
+
+>> Right.  Question: what's the distinction between UnsignedByte and
+>> UnsignedInteger?  It's confusing to me to have both of these.
+>
+> *interpretation* is the keyword here, not merely type. Do I interpret this
+> dimension as byte or integer? The idea was that I might care about the
+> difference. UnsignedByte isn't used much though, and it could be removed
+> without consequence if it is clear this just makes things confusing.
+
+Ok, so UnsignedByte is more like "raw bucket of bits"?  I can definitely see
+the case for a raw interpretation of some kind, allowing arbitrary serialized
+user data to be passed along without pdal messing with it.
+
+>> Arrayness seems orthogonal from the element type to me.  In the past I've
+>> flagged arrays simply by having element count > 1.
+>
+> The getInterpretation is to be able to discriminate how we should treat a dimension.
+>
+> again, interpretation, not type. So for boost::array<float, 9>, we'd have
+>
+> getInterpretation() == dimension::Float
+> getElementCount() == 9
+> getByteSize() == 4*getElementCount()
+
+Sounds sensible, I was imagining you meant pdal::dimension::ArrayType was a
+possible return value from getInterpretation().  I'm still not sure how
+ArrayType fits in here.
+
+>> Another more wacky thought which crosses my mind is that it would be
+>> helpful to have aliases (eg, "Red", "Blue" and "Green" dimensions alias
+>> fields of the "Color" dimension which is a three element array per point).
+>> This would be rather handy for me since I actually don't care to read the
+>> color components separately, but it might be too hard to get right.
+>
+> /me strokes his chin and wonders how messy dimension aliasing could get.
+>
+> I'm not against it, mind you, but I'm just a bit worried that the
+> dimension/schema stuff is a bit messy as it is.  Pull up a chair and let me
+> tell you about dimension inheritance when you have the time... :)
+
+Yep, the hoops which you jump through to do this are obvious in the code.
+Don't ask me what they do just yet, but I can see them there :)  Certainly I
+won't bother tackling aliasing until I have a much better understanding of the
+chaos it would cause.
+
+~Chris
+
+From hobu.inc at gmail.com  Tue Jul  2 07:55:51 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue, 2 Jul 2013 09:55:51 -0500
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+Message-ID: <4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+
+
+On Jul 1, 2013, at 9:58 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+> Ok.  They would have to cache the dimensions by value though, unlike
+> the las reader which stores pointers: There's no way to know when the
+> PointBuffer from a previous call to read() may be deleted, which leads to
+> stale pointers to Dimensions even if the next PointBuffer has identical
+> layout.  This is what caused the crash in the Mosaic case.
+
+/me nods. 
+
+Please clean these up as you find them.
+
+
+> 
+> Having a look at the way getDimension() is implemented I can see several
+> things which are convenient but probably make it go much slower than
+> necessary, so I think a lot of performance can be clawed back by simply
+> optimizing getDimension() and getDimensionOptional().  Things which stick out
+> to me:
+> 
+> * Exceptions are thrown as a matter of course (even in getDimensionOptional,
+>  where they are caught and used to return an empty optional).  I'm very
+>  suspicious of any code which uses exceptions as part of normal flow control.
+> 
+> * _Lots_ of memory management traffic happens behind the scenes:
+>  std::ostringstream is used to format an error message as a matter of course
+>  (rather than only in error situations), several std::string objects are
+>  created, etc.
+
+Agreed. I'll spend some time trying to tighten this up a bit.
+
+
+> * Complicated data structures are allocated for the dimension inheritance
+>  stuff.  I don't know how this works yet so I don't know whether it could be
+>  faster.
+> 
+> Ideally getDimension() can be made zero allocation, and getDimensionOptional
+> should never cause an exception to be thrown and gobbled behind the scenes.
+> I'll have a look at how to improve the performance there if I get a chance.
+
+Excellent. I'll try to do some too.
+
+
+> Side note: I expect it's too late to change now, but what benefit do we get by
+> making getDimensionOptional() return a boost::optional rather than a pointer?
+> It strikes me as very slightly safer but less convenient when you end up
+> caching raw pointers in places like the las reader anyway.
+
+The code is in transition. I want to move to boost::optional rather than naked pointers. They're more 
+convenient and a bit safer. Mateusz may have some more to say on that account as well
+
+
+> 
+>>> This is a bit surprising as it indicates the cost of dimension lookup in the
+>>> schema is rather large, unless there's something else I'm missing.  I'll have
+>>> to do some additional performance testing to try to get to the bottom of this.
+>> 
+>> The cost of dimension lookup per-point would be prohibitive. It is
+>> essentially a std::map (actually boost::multi_array) traverse to find a
+>> dimension.
+> 
+> Definitely.  What I'm noting is that the cost is *still* noticeable
+> even when amortized over buffer sizes of 1000 points.  Something must be
+> suboptimal!
+
+Agreed. This is something I haven't spent a lot of time performance testing. Our usage scenario is to 
+have one giant PointBuffer for our entire read (millions of points, usually), so these costs aren't felt so much by us. There's definitely 
+
+From hobu.inc at gmail.com  Tue Jul  2 08:01:49 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue, 2 Jul 2013 10:01:49 -0500
+Subject: [pdal] Array Dimensions
+In-Reply-To: <CAPrisypgk4K03UXY4oAQcWmHVtaRvy-SKSLYqzTsiPMUE8xB1g@mail.gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+	<EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+	<CAPrisypgk4K03UXY4oAQcWmHVtaRvy-SKSLYqzTsiPMUE8xB1g@mail.gmail.com>
+Message-ID: <30D66FBD-5852-4652-87DD-94A2DAF9D9A8@gmail.com>
+
+
+On Jul 1, 2013, at 10:24 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+
+> On 2 July 2013 01:18, Howard Butler <hobu.inc at gmail.com> wrote:
+> Agreed that making FLANN a hard dependency would be a bad thing.  I don't have
+> any specific thoughts about how this would hang together yet, all I know is
+> that the filter will need all available points within a spatial region
+> (including a buffer for extra context) before any filtering decisions can be
+> made.  I suspect that baking in a particular spatial data structure would be a
+> mistake to start with - in principle each filter stage needs different kinds
+> of spatial queries, some of which may require building a specialized
+> acceleration structure.
+
+Correct. Sometimes you want an octree, sometimes a kdtree, sometimes something else. Trying to allow you to plug into an index in any sort of generic way is difficult.
+
+My first cut at this was to make a filter that simply passed-through the data as it were consumed by a pipeline, and then you cast(ed) the filter into a concrete type and used its special methods to find points, etc. It's not perfect, but it kind of works (see pcequal for some example)
+
+> 
+>>> Right.  Question: what's the distinction between UnsignedByte and
+>>> UnsignedInteger?  It's confusing to me to have both of these.
+>> 
+>> *interpretation* is the keyword here, not merely type. Do I interpret this
+>> dimension as byte or integer? The idea was that I might care about the
+>> difference. UnsignedByte isn't used much though, and it could be removed
+>> without consequence if it is clear this just makes things confusing.
+> 
+> Ok, so UnsignedByte is more like "raw bucket of bits"?  I can definitely see
+> the case for a raw interpretation of some kind, allowing arbitrary serialized
+> user data to be passed along without pdal messing with it.
+
+Yes, exactly.
+
+
+
+From hobu.inc at gmail.com  Tue Jul  2 12:15:33 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue, 2 Jul 2013 14:15:33 -0500
+Subject: [pdal] --drivers and --options now available
+Message-ID: <B651472F-947C-45EC-B006-4B030A47825D@gmail.com>
+
+All,
+
+I have implemented the frequently requested support for listing the --options and --drivers that are available for the PDAL command line utilities.
+
+See https://github.com/PDAL/PDAL/issues/148 for an example. I'd be interested in hearing about how we should format this better, and what other driver-specific information we should try to pass down through this mechanism.
+
+Thanks,
+
+Howard
+
+From chris.foster at roames.com.au  Tue Jul  2 20:15:07 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Wed, 3 Jul 2013 13:15:07 +1000
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+Message-ID: <CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+
+On 3 July 2013 00:55, Howard Butler <hobu.inc at gmail.com> wrote:
+>> * Exceptions are thrown as a matter of course (even in getDimensionOptional,
+>>  where they are caught and used to return an empty optional).  I'm very
+>>  suspicious of any code which uses exceptions as part of normal flow control.
+>>
+>> * _Lots_ of memory management traffic happens behind the scenes:
+>>  std::ostringstream is used to format an error message as a matter of course
+>>  (rather than only in error situations), several std::string objects are
+>>  created, etc.
+>
+> Agreed. I'll spend some time trying to tighten this up a bit.
+
+I did some performance testing last night - initial results indicate that
+the major problem is throwing and gobbling exceptions unnecessarily.  For a
+buffer size of 1000 and a large file this can be half the runtime!  Not that I
+want small buffers per se, but why use extra memory and thrash the processor
+cache if you don't have to ;-)
+
+For good performance we really need to avoid
+
+try
+{
+    Thing& x = some_function_which_may_throw();
+    // do stuff with x
+}
+catch(Exception&)
+{
+    // Silently swallow the exception, since x not existing isn't
+actually an error
+}
+
+This is much more efficiently (and conveniently!) written as
+
+Thing* x = some_function_optional();
+if (x)
+{
+    // do stuff with x
+}
+
+Some debate can be had about whether to use Thing* or boost::optional<Thing&>
+here.  To some extent that's just a matter of taste and I tend to prefer a raw
+pointer.  If you have functions named nicely like getDimensionOptional(), it's
+super easy to remember that the returned pointer may not actually be valid and
+must be checked.
+
+>> Side note: I expect it's too late to change now, but what benefit do we get by
+>> making getDimensionOptional() return a boost::optional rather than a pointer?
+>> It strikes me as very slightly safer but less convenient when you end up
+>> caching raw pointers in places like the las reader anyway.
+>
+> The code is in transition. I want to move to boost::optional rather than
+> naked pointers. They're more convenient and a bit safer. Mateusz may have
+> some more to say on that account as well
+
+They are (arguably) slightly safer, but more conveient?
+
+Thing* x = some_function_optional();
+if (x)
+{
+    x->bar();
+    x->foo();
+    baz(x);
+}
+
+vs
+
+boost::optional<Thing&> x = some_function_optional();
+if (x)
+{
+    x->bar();
+    x->foo();
+    baz(*x);
+}
+
+or possibly
+
+boost::optional<Thing&> x = some_function_optional();
+if (x)
+{
+    Thing& x2 = *x;
+    x2.bar();
+    x2.foo();
+    baz(x2);
+}
+
+boost::optional definitely demands more typing in this case, and more human
+parsing effort when reading the code.  It's also very slightly less efficient
+because you end up checking validity of x at least twice (four times in
+example two).
+
+Another reason for using optional is that value types don't naturally have a
+special "invalid value".  In this case we're talking about reference semantics
+however and you can always use the NULL pointer which also happens to be very
+convenient to check in an if() statement.
+
+IMO the only reason to choose optional for references is to generate
+an exception rather than a segfault in the case of programming error.  But
+this isn't even much of an advantage since the program will crash in a visible
+way in either case.  I'll concede that if you're embedding PDAL as a plugin
+into a larger program it may be nicer to catch the error and gracefully
+terminate the plugin.  PDAL isn't shy about unsafe fiddling with pointers
+though - PointBuffer.getField is a prime example.
+
+>> Definitely.  What I'm noting is that the cost is *still* noticeable
+>> even when amortized over buffer sizes of 1000 points.  Something must be
+>> suboptimal!
+>
+> Agreed. This is something I haven't spent a lot of time performance testing.
+> Our usage scenario is to have one giant PointBuffer for our entire read
+> (millions of points, usually), so these costs aren't felt so much by us.
+
+No problems at all, obviously the code will be more solid in areas which are
+heavily used.
+
+~Chris
+
+From chris.foster at roames.com.au  Tue Jul  2 20:20:37 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Wed, 3 Jul 2013 13:20:37 +1000
+Subject: [pdal] Array Dimensions
+In-Reply-To: <30D66FBD-5852-4652-87DD-94A2DAF9D9A8@gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+	<EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+	<CAPrisypgk4K03UXY4oAQcWmHVtaRvy-SKSLYqzTsiPMUE8xB1g@mail.gmail.com>
+	<30D66FBD-5852-4652-87DD-94A2DAF9D9A8@gmail.com>
+Message-ID: <CAPrisypyj+b9JPomfLcuKNuEGMCkzF2HgeVNJbx4YJChquYcGw@mail.gmail.com>
+
+On 3 July 2013 01:01, Howard Butler <hobu.inc at gmail.com> wrote:
+> Sometimes you want an octree, sometimes a kdtree, sometimes something else.
+> Trying to allow you to plug into an index in any sort of generic way is
+> difficult.
+>
+> My first cut at this was to make a filter that simply passed-through the
+> data as it were consumed by a pipeline, and then you cast(ed) the filter
+> into a concrete type and used its special methods to find points, etc. It's
+> not perfect, but it kind of works (see pcequal for some example)
+
+I'll have a look.
+
+>> Ok, so UnsignedByte is more like "raw bucket of bits"?  I can definitely see
+>> the case for a raw interpretation of some kind, allowing arbitrary serialized
+>> user data to be passed along without pdal messing with it.
+>
+> Yes, exactly.
+
+Right.  In that case, is there any need for the UnsignedByte/SignedByte
+distinction?  I'd be inclined to rename this as something like
+"Raw" (or a better name, I'm sure there is one :))
+
+~Chris
+
+From mateusz at loskot.net  Wed Jul  3 02:08:14 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed, 3 Jul 2013 10:08:14 +0100
+Subject: [pdal] Array Dimensions
+In-Reply-To: <CAPrisypyj+b9JPomfLcuKNuEGMCkzF2HgeVNJbx4YJChquYcGw@mail.gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+	<EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+	<CAPrisypgk4K03UXY4oAQcWmHVtaRvy-SKSLYqzTsiPMUE8xB1g@mail.gmail.com>
+	<30D66FBD-5852-4652-87DD-94A2DAF9D9A8@gmail.com>
+	<CAPrisypyj+b9JPomfLcuKNuEGMCkzF2HgeVNJbx4YJChquYcGw@mail.gmail.com>
+Message-ID: <CABUeae8jFENtgOqA5=zWHeemJ3A2H3wPvzyHKf2BzkVbQGBTmg@mail.gmail.com>
+
+On 3 July 2013 04:20, Chris Foster <chris.foster at roames.com.au> wrote:
+> On 3 July 2013 01:01, Howard Butler <hobu.inc at gmail.com> wrote:
+>> Sometimes you want an octree, sometimes a kdtree, sometimes something else.
+>> Trying to allow you to plug into an index in any sort of generic way is
+>> difficult.
+>>
+>> My first cut at this was to make a filter that simply passed-through the
+>> data as it were consumed by a pipeline, and then you cast(ed) the filter
+>> into a concrete type and used its special methods to find points, etc. It's
+>> not perfect, but it kind of works (see pcequal for some example)
+>
+> I'll have a look.
+>
+>>> Ok, so UnsignedByte is more like "raw bucket of bits"?  I can definitely see
+>>> the case for a raw interpretation of some kind, allowing arbitrary serialized
+>>> user data to be passed along without pdal messing with it.
+>>
+>> Yes, exactly.
+>
+> Right.  In that case, is there any need for the UnsignedByte/SignedByte
+> distinction?  I'd be inclined to rename this as something like
+> "Raw" (or a better name, I'm sure there is one :))
+
+For raw byte streams, you can pick freely signed char or unsigned char,
+so single type is sufficient, indeed.
+
+Best regards,
+--
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From mateusz at loskot.net  Wed Jul  3 02:21:45 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed, 3 Jul 2013 10:21:45 +0100
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+Message-ID: <CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+
+On 3 July 2013 04:15, Chris Foster <chris.foster at roames.com.au> wrote:
+> On 3 July 2013 00:55, Howard Butler <hobu.inc at gmail.com> wrote:
+>>> * Exceptions are thrown as a matter of course (even in getDimensionOptional,
+>>>  where they are caught and used to return an empty optional).  I'm very
+>>>  suspicious of any code which uses exceptions as part of normal flow control.
+>>>
+>>> * _Lots_ of memory management traffic happens behind the scenes:
+>>>  std::ostringstream is used to format an error message as a matter of course
+>>>  (rather than only in error situations), several std::string objects are
+>>>  created, etc.
+>>
+>> Agreed. I'll spend some time trying to tighten this up a bit.
+>
+> I did some performance testing last night - initial results indicate that
+> the major problem is throwing and gobbling exceptions unnecessarily.  For a
+> buffer size of 1000 and a large file this can be half the runtime!  Not that I
+> want small buffers per se, but why use extra memory and thrash the processor
+> cache if you don't have to ;-)
+>
+> For good performance we really need to avoid
+>
+> try
+> {
+>     Thing& x = some_function_which_may_throw();
+>     // do stuff with x
+> }
+> catch(Exception&)
+> {
+>     // Silently swallow the exception, since x not existing isn't
+> actually an error
+> }
+
+If the function throws often and frequently, yes.
+
+> This is much more efficiently (and conveniently!) written as
+>
+> Thing* x = some_function_optional();
+> if (x)
+> {
+>     // do stuff with x
+> }
+>
+> Some debate can be had about whether to use Thing* or boost::optional<Thing&>
+> here.  To some extent that's just a matter of taste and I tend to prefer a raw
+> pointer.  If you have functions named nicely like getDimensionOptional(), it's
+> super easy to remember that the returned pointer may not actually be valid and
+> must be checked.
+
+The use of a pointer is idiomatic, indeed, but it is not equivalent to
+exceptions,
+same with boost::optional - it's just syntactic sugar for nullptr in this case.
+It is equivalent to the following:
+
+bool some_function_which_may_fail(T& t);
+T t;
+if (some_function_which_may_fail(t))
+    // do stuff with t
+
+If that captures the idea properly, it should be sufficient.
+
+In case there are more complex states required, the only alternative
+would be a proper monad:
+
+either<error_code, file_id> load_file(...);
+// check what error_code, decide to use file_id
+
+Some freely avaialble implementations here:
+
+https://github.com/camio/Boost.Either
+https://github.com/TrademarkPewPew/Boost.Expected
+
+with related v. detailed discussion:
+http://lists.boost.org/Archives/boost/2013/06/204738.php
+
+
+>>> Side note: I expect it's too late to change now, but what benefit do we get by
+>>> making getDimensionOptional() return a boost::optional rather than a pointer?
+>>> It strikes me as very slightly safer but less convenient when you end up
+>>> caching raw pointers in places like the las reader anyway.
+>>
+>> The code is in transition. I want to move to boost::optional rather than
+>> naked pointers. They're more convenient and a bit safer. Mateusz may have
+>> some more to say on that account as well
+>
+> They are (arguably) slightly safer, but more conveient?
+>
+> Thing* x = some_function_optional();
+> if (x)
+> {
+>     x->bar();
+>     x->foo();
+>     baz(x);
+> }
+>
+> vs
+>
+> boost::optional<Thing&> x = some_function_optional();
+> if (x)
+> {
+>     x->bar();
+>     x->foo();
+>     baz(*x);
+> }
+>
+> or possibly
+>
+> boost::optional<Thing&> x = some_function_optional();
+> if (x)
+> {
+>     Thing& x2 = *x;
+>     x2.bar();
+>     x2.foo();
+>     baz(x2);
+> }
+>
+> boost::optional definitely demands more typing in this case, and more human
+> parsing effort when reading the code.  It's also very slightly less efficient
+> because you end up checking validity of x at least twice (four times in
+> example two).
+>
+> Another reason for using optional is that value types don't naturally have a
+> special "invalid value".  In this case we're talking about reference semantics
+> however and you can always use the NULL pointer which also happens to be very
+> convenient to check in an if() statement.
+
+The problem I've got with nullptr is that it does not necessarily mean
+"invalid value". It means, "something could not deliver a value",
+but if something can deliver and the value delivered is invalid...
+
+My 5 groszy.
+
+Best regards,
+--
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From chris.foster at roames.com.au  Wed Jul  3 05:19:50 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Wed, 3 Jul 2013 22:19:50 +1000
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+Message-ID: <CAPrisyqmHNx=pb3LXfGYRt1twY5q7O_BCdnU=SajPduSV+oLGQ@mail.gmail.com>
+
+On Wed, Jul 3, 2013 at 7:21 PM, Mateusz Loskot <mateusz at loskot.net> wrote:
+> The problem I've got with nullptr is that it does not necessarily mean
+> "invalid value". It means, "something could not deliver a value",
+> but if something can deliver and the value delivered is invalid...
+
+Let me paraphrase to see if I understand you here.  The distinction is
+"a failure occurred while trying to find the value" vs
+"things worked but the value wasn't present".  For the getDimensionOptional()
+case, that would be something like
+"memory could not be allocated so the search for the dimension failed" vs
+"everything worked, but the dimension wasn't present"
+
+In my opinion the first is neatly captured by an exception (the program
+encountered a hard failure which the function wasn't prepared to deal with),
+whereas in the second case nullptr can simply be returned.  In this way it seems
+like nullptr can have perfectly well defined semantics.
+
+~Chris
+
+From mateusz at loskot.net  Wed Jul  3 05:27:45 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed, 3 Jul 2013 13:27:45 +0100
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CAJDU5QntaXMDP-5vdMQ8CRNW-ST0-AFFtFq3F4yTxdQP6Hyw1A@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<CAJDU5QntaXMDP-5vdMQ8CRNW-ST0-AFFtFq3F4yTxdQP6Hyw1A@mail.gmail.com>
+Message-ID: <CABUeae_C23Av_Tu2bfqzAwnU+idMqskCqB-0Ke4d68nS+jNbSw@mail.gmail.com>
+
+On 3 July 2013 13:15, Chris Foster <chris42f at gmail.com> wrote:
+> On Wed, Jul 3, 2013 at 7:21 PM, Mateusz Loskot <mateusz at loskot.net> wrote:
+>> The problem I've got with nullptr is that it does not necessarily mean
+>> "invalid value". It means, "something could not deliver a value",
+>> but if something can deliver and the value delivered is invalid...
+>
+> Let me paraphrase to see if I understand you here.  The distinction is
+> "a failure occurred while trying to find the value" vs
+> "things worked but the value wasn't present".
+
+or, in case when value is calculated,
+"things worked and the value(s) was present, but the output
+computation returned invalid valeu"
+
+It all depends on particular situation, so obviously I gave somewhat
+general point on
+role of nullptr in defining an interface.
+
+> For the getDimensionOptional() case, that would be something like
+> "memory could not be allocated so the search for the dimension failed" vs
+> "everything worked, but the dimension wasn't present"
+>
+> In my opinion the first is neatly captured by an exception (the program
+> encountered a hard failure which the function wasn't prepared to deal with),
+> whereas in the second case nullptr can simply be returned.  In this way it seems
+> like nullptr can have perfectly well defined semantics.
+
+Yes, for example.
+The second case also may mean "skip dimension and continue", whereas the first
+may lead to (graceful) termination.
+
+To give a contrast of use of nullptr as part of interface:
+std::malloc(...) == nullptr would be a hard error.
+
+
+Best regards,
+-- 
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From hobu.inc at gmail.com  Wed Jul  3 07:06:26 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed, 3 Jul 2013 09:06:26 -0500
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+Message-ID: <34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+
+
+On Jul 3, 2013, at 4:21 AM, Mateusz Loskot <mateusz at loskot.net> wrote:
+
+> On 3 July 2013 04:15, Chris Foster <chris.foster at roames.com.au> wrote:
+>> On 3 July 2013 00:55, Howard Butler <hobu.inc at gmail.com> wrote:
+> 
+> The use of a pointer is idiomatic, indeed, but it is not equivalent to
+> exceptions,
+> same with boost::optional - it's just syntactic sugar for nullptr in this case.
+> It is equivalent to the following:
+
+That is very much the intention -- sugar for nullptr. It is also a case of Python infecting the C++. Looking through things now, it doesn't appear to be even that good of sugar. I will try to create a branch that removes getDimensionOptional...
+
+Howard
+
+
+
+
+From hobu.inc at gmail.com  Wed Jul  3 07:43:17 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed, 3 Jul 2013 09:43:17 -0500
+Subject: [pdal] Array Dimensions
+In-Reply-To: <CABUeae8jFENtgOqA5=zWHeemJ3A2H3wPvzyHKf2BzkVbQGBTmg@mail.gmail.com>
+References: <CAPrisyrxbhfxbL4k6U31HZ0F-3zZxDYhuThfdWMOx-xvGahTHg@mail.gmail.com>
+	<4EAEE18F-F646-4118-9D6A-7A7C34A1C0E2@gmail.com>
+	<CAPrisyozmFp8+i=cBGVZ8=0C=U92crzLw9Nbvca-Mq-_49D+yw@mail.gmail.com>
+	<EE263C28-2DE5-49C2-BF1E-9F48BC5CFAC1@gmail.com>
+	<CAPrisypgk4K03UXY4oAQcWmHVtaRvy-SKSLYqzTsiPMUE8xB1g@mail.gmail.com>
+	<30D66FBD-5852-4652-87DD-94A2DAF9D9A8@gmail.com>
+	<CAPrisypyj+b9JPomfLcuKNuEGMCkzF2HgeVNJbx4YJChquYcGw@mail.gmail.com>
+	<CABUeae8jFENtgOqA5=zWHeemJ3A2H3wPvzyHKf2BzkVbQGBTmg@mail.gmail.com>
+Message-ID: <B6A82BB8-5B5F-4298-A555-BF7B6A4F8495@gmail.com>
+
+
+
+> On 3 July 2013 04:20, Chris Foster <chris.foster at roames.com.au> wrote:
+> 
+>> Right.  In that case, is there any need for the UnsignedByte/SignedByte
+>> distinction?  I'd be inclined to rename this as something like
+>> "Raw" (or a better name, I'm sure there is one :))
+
+
+Renamed. 
+
+https://github.com/PDAL/PDAL/pull/150
+
+From hobu.inc at gmail.com  Wed Jul  3 07:55:44 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed, 3 Jul 2013 09:55:44 -0500
+Subject: [pdal] --drivers and --options now available
+In-Reply-To: <CAPrisyorZ0ymNuyn=f85AALkK3CpHmaJ8dxPMwG+Wk3US27PaA@mail.gmail.com>
+References: <B651472F-947C-45EC-B006-4B030A47825D@gmail.com>
+	<CAPrisyorZ0ymNuyn=f85AALkK3CpHmaJ8dxPMwG+Wk3US27PaA@mail.gmail.com>
+Message-ID: <ED6C0F77-11E6-41A0-A5C2-5608A4A99F2C@gmail.com>
+
+
+On Jul 2, 2013, at 10:38 PM, Chris Foster <chris.foster at roames.com.au> wrote:
+
+> On 3 July 2013 05:15, Howard Butler <hobu.inc at gmail.com> wrote:
+>> I have implemented the frequently requested support for listing the
+>> --options and --drivers that are available for the PDAL command line
+>> utilities.
+> 
+> Very nice, I was going to ask if there was a way of doing this :)
+> 
+> So does this mean I have a bug in the change I made to Mosaic the other day: I
+> used getOptions().getValueOrDefault<bool>("ignore_srs", false), but I didn't
+> add "ignore_srs" to the getDefaultOptions() function?
+
+There's a hard balance to strike. I don't want people to have to instantiate an entire pipeline with the stages arranged how they want just to get help information back on what options they should need to use, or what dimensions a stage might add to the pipeline. This is because most stages require linkage to other stages, and it's a giant hassle.
+
+To that end, we have a set of defined static methods that return a pdal::Options or a vector of pdal::Dimension. This update simply uses them instead of the previous behavior where they were mostly ignored. Hopefully this is incentive for us to keep things up to date.
+
+> 
+> I don't suppose there's a way we could enforce this kind of metadata
+> consistency between the reported options and the options which are actually
+> used?
+
+I can't think of any. As stated above, I don't want to force construction of the stage simply to fetch help info.
+
+> 
+> Just thinking aloud here - One way to do it would be to avoid storing Options
+> in Stage as a matter of course and remove Stage::getOptions().  This would
+> encourage each stage to cache the relevant options in member variables.  There
+> would need to be a standard way to do this which builds the list default
+> options automatically.
+
+I don't want to do that because there could be situations where one stage might be listening to another stages options (why, I don't know, but maybe it is a possibility).
+
+
+From chris.foster at roames.com.au  Wed Jul  3 18:21:55 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Thu, 4 Jul 2013 11:21:55 +1000
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+Message-ID: <CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+
+On 4 July 2013 00:06, Howard Butler <hobu.inc at gmail.com> wrote:
+>
+> On Jul 3, 2013, at 4:21 AM, Mateusz Loskot <mateusz at loskot.net> wrote:
+>
+>> On 3 July 2013 04:15, Chris Foster <chris.foster at roames.com.au> wrote:
+>>> On 3 July 2013 00:55, Howard Butler <hobu.inc at gmail.com> wrote:
+>>
+>> The use of a pointer is idiomatic, indeed, but it is not equivalent to
+>> exceptions,
+>> same with boost::optional - it's just syntactic sugar for nullptr in this case.
+>> It is equivalent to the following:
+>
+> That is very much the intention -- sugar for nullptr. It is also a case of
+> Python infecting the C++. Looking through things now, it doesn't appear to
+> be even that good of sugar. I will try to create a branch that removes
+> getDimensionOptional...
+
+We do need some version getDimensionXXX() which signifies the absence of the
+dimension in some other way than throwing.  Whether that's by returning
+boost::optional, or by returning a pointer doesn't matter too much in the
+grand scheme of things, I'm just picky when it comes to API design ;-)
+
+~Chris
+
+From mateusz at loskot.net  Thu Jul  4 01:44:15 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 4 Jul 2013 09:44:15 +0100
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+	<CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+Message-ID: <CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+
+On 4 July 2013 02:21, Chris Foster <chris.foster at roames.com.au> wrote:
+> On 4 July 2013 00:06, Howard Butler <hobu.inc at gmail.com> wrote:
+>> On Jul 3, 2013, at 4:21 AM, Mateusz Loskot <mateusz at loskot.net> wrote:
+>>> On 3 July 2013 04:15, Chris Foster <chris.foster at roames.com.au> wrote:
+>>>> On 3 July 2013 00:55, Howard Butler <hobu.inc at gmail.com> wrote:
+>>>
+>>> The use of a pointer is idiomatic, indeed, but it is not equivalent to
+>>> exceptions,
+>>> same with boost::optional - it's just syntactic sugar for nullptr in this case.
+>>> It is equivalent to the following:
+>>
+>> That is very much the intention -- sugar for nullptr. It is also a case of
+>> Python infecting the C++. Looking through things now, it doesn't appear to
+>> be even that good of sugar. I will try to create a branch that removes
+>> getDimensionOptional...
+>
+> We do need some version getDimensionXXX() which signifies the absence of the
+> dimension in some other way than throwing.  Whether that's by returning
+> boost::optional, or by returning a pointer doesn't matter too much in the
+> grand scheme of things, I'm just picky when it comes to API design ;-)
+
+The getDimension could be simply overloaded:
+
+
+#include <new>
+#if (__cplusplus >= 201103L)
+    #define PDAL_NO_THROW nothrow
+#else
+    #define PDAL_NO_THROW throw()
+#endif
+
+void getDimension() { throw ""; }
+bool getDimension(std::nothrow_t const&) PDAL_NO_THROW { return false; }
+
+Then, uesr can explicitly state which one she prefers:
+
+try {
+   getDimension();
+} catch (...) {}
+
+if (!getDimension(std::nothrow))
+   ...
+
+Extension of this technique is used by Boost.Asio, compare these two
+overloadeds of resolve function:
+
+http://www.boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/ip__basic_resolver/resolve/overload1.html
+http://www.boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/ip__basic_resolver/resolve/overload2.html
+
+The Asio's way allow to be more details about reasons of failure.
+
+Best regards,
+-- 
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From mateusz at loskot.net  Thu Jul  4 01:55:18 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 4 Jul 2013 09:55:18 +0100
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+	<CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+	<CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+Message-ID: <CABUeae8mnwhs--PNUOVrwzWammJ5cZByqvM86YHXQuevmgPM8g@mail.gmail.com>
+
+On 4 July 2013 09:44, Mateusz Loskot <mateusz at loskot.net> wrote:
+> On 4 July 2013 02:21, Chris Foster <chris.foster at roames.com.au> wrote:
+>> On 4 July 2013 00:06, Howard Butler <hobu.inc at gmail.com> wrote:
+>>> On Jul 3, 2013, at 4:21 AM, Mateusz Loskot <mateusz at loskot.net> wrote:
+>>>> On 3 July 2013 04:15, Chris Foster <chris.foster at roames.com.au> wrote:
+>>>>> On 3 July 2013 00:55, Howard Butler <hobu.inc at gmail.com> wrote:
+>>>>
+>>>> The use of a pointer is idiomatic, indeed, but it is not equivalent to
+>>>> exceptions,
+>>>> same with boost::optional - it's just syntactic sugar for nullptr in this case.
+>>>> It is equivalent to the following:
+>>>
+>>> That is very much the intention -- sugar for nullptr. It is also a case of
+>>> Python infecting the C++. Looking through things now, it doesn't appear to
+>>> be even that good of sugar. I will try to create a branch that removes
+>>> getDimensionOptional...
+>>
+>> We do need some version getDimensionXXX() which signifies the absence of the
+>> dimension in some other way than throwing.  Whether that's by returning
+>> boost::optional, or by returning a pointer doesn't matter too much in the
+>> grand scheme of things, I'm just picky when it comes to API design ;-)
+>
+> The getDimension could be simply overloaded:
+>
+>
+> #include <new>
+> #if (__cplusplus >= 201103L)
+>     #define PDAL_NO_THROW nothrow
+> #else
+>     #define PDAL_NO_THROW throw()
+> #endif
+>
+> void getDimension() { throw ""; }
+> bool getDimension(std::nothrow_t const&) PDAL_NO_THROW { return false; }
+>
+> Then, uesr can explicitly state which one she prefers:
+>
+> try {
+>    getDimension();
+> } catch (...) {}
+>
+> if (!getDimension(std::nothrow))
+>    ...
+>
+> Extension of this technique is used by Boost.Asio, compare these two
+> overloadeds of resolve function:
+>
+> http://www.boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/ip__basic_resolver/resolve/overload1.html
+> http://www.boost.org/doc/libs/1_54_0/doc/html/boost_asio/reference/ip__basic_resolver/resolve/overload2.html
+>
+> The Asio's way allow to be more details about reasons of failure.
+
+I forgot to mention, PDAL could utilise
+std::error_code/std::error_category machinery too.
+
+The std::error_code and friends come from <sytem_error> or <boost/system/*>
+IMHO, the name may seem misleading, as it's not exclusively for sytem errors,
+but errors from other levels too:
+
+"The class error_code describes an object used to hold error code
+values, such as those originating from the
+operating system or other low-level application program interfaces"
+
+Here is good not-too-long example of custom error codes:
+https://github.com/spesmilo/libbitcoin/blob/master/include/bitcoin/error.hpp
+https://github.com/spesmilo/libbitcoin/blob/master/src/error.cpp
+
+Here is good overview of those utilities in 5 parties article:
+http://blog.think-async.com/2010/04/system-error-support-in-c0x-part-1.html
+
+Best regards,
+--
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From chris.foster at roames.com.au  Thu Jul  4 02:47:50 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Thu, 4 Jul 2013 19:47:50 +1000
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+	<CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+	<CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+Message-ID: <CAPrisyo=EFXrDndyxSiz48JQbRo9s4zoW+S0FEOyo63UfGGeJA@mail.gmail.com>
+
+On 4 July 2013 18:44, Mateusz Loskot <mateusz at loskot.net> wrote:
+>> We do need some version getDimensionXXX() which signifies the absence of the
+>> dimension in some other way than throwing.  Whether that's by returning
+>> boost::optional, or by returning a pointer doesn't matter too much in the
+>> grand scheme of things, I'm just picky when it comes to API design ;-)
+>
+> The getDimension could be simply overloaded:
+>
+> #include <new>
+> #if (__cplusplus >= 201103L)
+>     #define PDAL_NO_THROW nothrow
+> #else
+>     #define PDAL_NO_THROW throw()
+> #endif
+>
+> void getDimension() { throw ""; }
+> bool getDimension(std::nothrow_t const&) PDAL_NO_THROW { return false; }
+
+Careful - the second getDimension can still throw (it is currently necessary
+to call operator new behind the scenes for the dimension inheritance stuff).
+
+Here's what I'm imagining:
+
+The usual getDimension returns the dimension as a reference; naturally it
+throws if the dimension isn't found.  In fact, this is just exactly the
+existing getDimension which I think is absolutely fine.
+
+The other getDimension just returns a pointer and you need to check whether
+it's null.  I actually think getDimensionOptional() was a reasonable name for
+this [or perhaps getOptionalDimension()?] but perhaps there's something
+better.
+
+The API is almost there already, I don't see a need for a big change here.
+
+> Then, uesr can explicitly state which one she prefers:
+>
+> try {
+>    getDimension();
+> } catch (...) {}
+>
+> if (!getDimension(std::nothrow))
+>    ...
+
+IMO this is cute, but too cute ;-)  These functions have different return
+types (different semantics on failure to find the dimension!), so it's
+entirely appropriate to have different names.
+
+I think this is a case where it's best to keep things simple, because the
+simplest thing will work fine and be easy to understand when you come back to
+read the code.  I've designed some really fancy APIs in the past, bristling
+with neat user defined types and clever overloads... looking back on them they
+are not APIs I would now like to use!
+
+~Chris
+
+From mateusz at loskot.net  Thu Jul  4 03:06:15 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 4 Jul 2013 11:06:15 +0100
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CAPrisyo=EFXrDndyxSiz48JQbRo9s4zoW+S0FEOyo63UfGGeJA@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+	<CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+	<CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+	<CAPrisyo=EFXrDndyxSiz48JQbRo9s4zoW+S0FEOyo63UfGGeJA@mail.gmail.com>
+Message-ID: <CABUeae_cVKkju+f2Z_ruC55SfC5-UgAQr62QHZg3B6_nYzx7+A@mail.gmail.com>
+
+On 4 July 2013 10:47, Chris Foster <chris.foster at roames.com.au> wrote:
+> On 4 July 2013 18:44, Mateusz Loskot <mateusz at loskot.net> wrote:
+>>> We do need some version getDimensionXXX() which signifies the absence of the
+>>> dimension in some other way than throwing.  Whether that's by returning
+>>> boost::optional, or by returning a pointer doesn't matter too much in the
+>>> grand scheme of things, I'm just picky when it comes to API design ;-)
+>>
+>> The getDimension could be simply overloaded:
+>>
+>> #include <new>
+>> #if (__cplusplus >= 201103L)
+>>     #define PDAL_NO_THROW nothrow
+>> #else
+>>     #define PDAL_NO_THROW throw()
+>> #endif
+>>
+>> void getDimension() { throw ""; }
+>> bool getDimension(std::nothrow_t const&) PDAL_NO_THROW { return false; }
+>
+> Careful - the second getDimension can still throw (it is currently necessary
+> to call operator new behind the scenes for the dimension inheritance stuff).
+
+I assumed the second implementation will guarantee the semantic
+indicated by the signature.
+
+>> Then, uesr can explicitly state which one she prefers:
+>>
+>> try {
+>>    getDimension();
+>> } catch (...) {}
+>>
+>> if (!getDimension(std::nothrow))
+>>    ...
+>
+> IMO this is cute, but too cute ;-)  These functions have different return
+> types (different semantics on failure to find the dimension!), so it's
+> entirely appropriate to have different names.
+
+It's just a a minimal example to illustrate the idea, it surely is not complete.
+For example, both versions can return pointer, this makes interface
+consistent and easier to use i.e. at compile-time, than separate name
+as it only differes by parameter.
+
+> I think this is a case where it's best to keep things simple, because the
+> simplest thing will work fine and be easy to understand when you come back to
+> read the code. I've designed some really fancy APIs in the past, bristling
+> with neat user defined types and clever overloads... looking back on them they
+> are not APIs I would now like to use!
+
+Simple is very relative.
+
+T* get();
+T* get(argument);
+
+is not fancy, is very simple, if not simplest interface capturing
+diversity that one can imagine.
+Separate names just to capture some low-level elemennt is first step
+to the fancy zoo :)
+
+Nobody would like to call
+
+std::sort_with_random_iterator()
+std::sort_with_input_iterator()
+std::sort_with_forward_iterator()
+
+Certainly, the discussion about error_code is just an example in case
+there are more
+requirements regarding the function semantic. I'm not suggesting PDAL
+should go for that,
+but alternatives are worth to consider especially if they are apparent
+and available, IMHO.
+
+Best regards,
+--
+Mateusz  Loskot, http://mateusz.loskot.net
+
+From chris.foster at roames.com.au  Thu Jul  4 03:46:48 2013
+From: chris.foster at roames.com.au (Chris Foster)
+Date: Thu, 4 Jul 2013 20:46:48 +1000
+Subject: [pdal] questions about iterator and buffer semantics
+In-Reply-To: <CABUeae8mnwhs--PNUOVrwzWammJ5cZByqvM86YHXQuevmgPM8g@mail.gmail.com>
+References: <CAPrisyqQFr=Lp1HY2+-snUs=4irQN=OnZAu0EA5zpvAnPN_qhw@mail.gmail.com>
+	<CAPrisyoDnYr4H6XRmtiFTObqHwZnJZa9BsJ5rKTKJyDCDYYzJA@mail.gmail.com>
+	<5BD3CE5B-8A67-4987-A908-C8465539FD3E@gmail.com>
+	<CAPrisyostVTKD6+b2FSuk9m3=RRbdApMv8_-nY9XfAwUOc1unA@mail.gmail.com>
+	<4F78061A-03FF-404E-A4FD-4C29E2A6F60F@gmail.com>
+	<CAPrisyrp9rY039Dy4QUX5HwQciLKgPiK=7om73B7a2DdPZ3geA@mail.gmail.com>
+	<CABUeae8PKBqt+nbEBBk_m2DuV+1_0JE0BCkr1AEGjc-yH8UsaQ@mail.gmail.com>
+	<34A5C3D0-2542-4124-A4C1-B7D65C935F0F@gmail.com>
+	<CAPrisyrcQZUjzKcmCL9geqx5nv9yJtwrAmA_pFyn2V5QuuWaTQ@mail.gmail.com>
+	<CABUeae9rjPkDKoGUxF51o116LxkcTHQcjrN2t1DYE6UYnD_OHg@mail.gmail.com>
+	<CABUeae8mnwhs--PNUOVrwzWammJ5cZByqvM86YHXQuevmgPM8g@mail.gmail.com>
+Message-ID: <CAPrisyo7ozNNngMmGQU_1OSOrROp4DZjQ4TJU9riaPAwxw9E7w@mail.gmail.com>
+
+On 4 July 2013 18:55, Mateusz Loskot <mateusz at loskot.net> wrote:
+> Here is good overview of those utilities in 5 parties article:
+> http://blog.think-async.com/2010/04/system-error-support-in-c0x-part-1.html
+
+Thanks for pointing this out.  It's quite neat, and one part of the new
+standard I didn't know anything about.
+
+~Chris
+
+From nicolas.mantelier at spaceyes.fr  Tue Jul  9 02:44:39 2013
+From: nicolas.mantelier at spaceyes.fr (Nicolas Mantelier)
+Date: Tue, 9 Jul 2013 11:44:39 +0200
+Subject: [pdal] Question About Spatial index
+Message-ID: <000501ce7c88$eef6c7f0$cce457d0$@mantelier@spaceyes.fr>
+
+Hi everybody,
+
+ 
+
+I am starting with PDAL step by step, 
+
+ 
+
+I read an las file that I display with osg that work pretty well, 
+
+I want now make some optimization for loading and reloading my scene,
+
+ 
+
+My file testing is las with 25 000 000 points so I use:
+
+One reader, on which I use decimation filter, then Crop filter.
+
+All this step are quick, but when I use sequentialIterator and read function
+I can take a coffee break.
+
+That is a big problem for me, cause I want to reload my scene with different
+decimation factor or different Bounds.
+
+And each time all las is read.
+
+
+Is there any method for read only a part of file? 
+
+Any way to produced spatial index ?
+
+ 
+
+Regards
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20130709/d6b1e212/attachment.html>
+
+From rbedell at coordinatesolutions.com  Sun Jul 14 10:08:45 2013
+From: rbedell at coordinatesolutions.com (Roger Bedell)
+Date: Sun, 14 Jul 2013 19:08:45 +0200
+Subject: [pdal] Odd Inplace Reprojection Offsets
+Message-ID: <CAEZO=iLk-EqFmyRqLjUoJnaY=-2sLu0kp60W0wrwMO4C4O2xZQ@mail.gmail.com>
+
+Hello,
+I am working on importing some NRCS Lidar data into pgPointCloud. One of
+our requirements is to use 4326 to store the data, since the data covers
+several UTM zones, and I want a single internal projection. So, using the
+very convenient Inplace Reprojection Filter, I imported some data,
+converting from EPSG:26914 to EPSG:4326, very similarly to the example in
+the docs for the filter. Unfortunately, the Latitude (Y) data doesn't work
+properly.
+
+"{"pcid":1,"pt":[90,1,1,0,0,2,6,0,3,-2.29314e+007,0,0,0,-96.9688,-21.4745,264.218,204,0]}"
+
+Note, the Latitude is -21.4745 instead of around 36.09.
+
+I think that I have located the difficulty. If you look at the Schema, you
+see this:
+
+  <pc:dimension>
+    <pc:position>15</pc:position>
+    <pc:size>4</pc:size>
+    <pc:description>Y coordinate as a long integer. You must use the scale
+and offset information of the header to determine the double
+value.</pc:description>
+    <pc:name>Y</pc:name>
+    <pc:interpretation>int32_t</pc:interpretation>
+    <pc:scale>0.00000001000000</pc:scale>
+    <pc:offset>0.000297639019</pc:offset>
+    <pc:active>true</pc:active>
+    <pc:uuid>0d1d8966-3e1c-4303-86de-69421f04003b</pc:uuid>
+    <pc:parent_uuid>00000000-0000-0000-0000-000000000000</pc:parent_uuid>
+  </pc:dimension>
+
+Why is pc:offset = 0.0002976, when I explicitly asked for an offset of 33
+in the pipeline XML?:
+
+<?xml version="1.0" encoding="utf-8"?>
+<Pipeline version="1.0">
+  <Writer type="drivers.pgpointcloud.writer">
+    <Option name="connection">host='localhost' dbname='LIDAR2'
+user='postgres'</Option>
+    <Option name="table">qtest4326</Option>
+    <Option name="srid">4326</Option>
+    <Option name="overwrite">true</Option>
+    <Filter type="filters.chipper">
+      <Option name="capacity">400</Option>
+      <Filter type="filters.cache">
+        <Option name="max_cache_blocks">3</Option>
+        <Option name="cache_block_size">32184</Option>
+        <Filter type="filters.inplacereprojection">
+          <Option name="in_srs">EPSG:26914</Option>
+          <Option name="out_srs">EPSG:4326</Option>
+          <Option name="offset_x">-104</Option>
+          <Option name="offset_y">33</Option>
+          <Option name="offset_z">0.0</Option>
+          <Option name="scale_x">0.00000001</Option>
+          <Option name="scale_y">0.00000001</Option>
+          <Option name="scale_z">0.001</Option>
+          <Reader type="drivers.las.reader">
+            <Option name="filename">NRCSTEST10k.las</Option>
+            <Option name="spatialreference">EPSG:26914</Option>
+          </Reader>
+        </Filter>
+      </Filter>
+    </Filter>
+  </Writer>
+</Pipeline>
+
+When I increase the scale_x and scale_y to 0.0000001, it works better. To
+me this seems like the offset isn't being written correctly, and with the
+smaller scale, the 32 bit int overflows due to the incorrect offset_y value.
+
+I was able to reproduce this using your UTM17.LAS sample data. Using this
+pipeline XML:
+
+
+<Pipeline version="1.0">
+  <Writer type="drivers.las.writer">
+    <Option name="filename">UTM17_out.las</Option>
+    <Option name="spatialreference">EPSG:4326</Option>
+    <Filter type="filters.inplacereprojection">
+          <Option name="in_srs">EPSG:32617</Option>
+          <Option name="out_srs">EPSG:4326</Option>
+          <Option name="offset_x">-84.0</Option>
+          <Option name="offset_y">38.0</Option>
+          <Option name="offset_z">0.0</Option>
+          <Option name="scale_x">0.0000001</Option>
+          <Option name="scale_y">0.0000001</Option>
+          <Option name="scale_z">0.01</Option>
+          <Reader type="drivers.las.reader">
+            <Option name="filename">UTM17.las</Option>
+            <Option name="spatialreference">EPSG:32617</Option>
+          </Reader>
+        </Filter>
+  </Writer>
+</Pipeline>
+
+Then, running pcinfo on the result, you see this:
+
+    <Metadata name="scale_x" type="double">1e-007</Metadata>
+    <Metadata name="scale_y" type="double">1e-007</Metadata>
+    <Metadata name="scale_z" type="double">0.01</Metadata>
+    <Metadata name="offset_x" type="double">-85.48949644011782</Metadata>
+    <Metadata name="offset_y" type="double">0.0003427359249286009</Metadata>
+    <Metadata name="offset_z" type="double">0</Metadata>
+
+One additional item, I requested offsets of -84.0 and 38.0 for the
+UTM17.las sample, but instead, got -85.4894... and 0.0003427...
+
+Shouldn't I get what I asked for?
+
+Thanks,
+
+Roger Bedell
+Coordinate Solutions Inc.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20130714/af6ab4f9/attachment.html>
+
+From hobu.inc at gmail.com  Mon Jul 15 07:00:09 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon, 15 Jul 2013 09:00:09 -0500
+Subject: [pdal] Odd Inplace Reprojection Offsets
+In-Reply-To: <CAEZO=iLk-EqFmyRqLjUoJnaY=-2sLu0kp60W0wrwMO4C4O2xZQ@mail.gmail.com>
+References: <CAEZO=iLk-EqFmyRqLjUoJnaY=-2sLu0kp60W0wrwMO4C4O2xZQ@mail.gmail.com>
+Message-ID: <6D372684-BDF6-4AB8-9C2D-276926ECEBFC@gmail.com>
+
+
+On Jul 14, 2013, at 12:08 PM, Roger Bedell <rbedell at coordinatesolutions.com> wrote:
+> Note, the Latitude is -21.4745 instead of around 36.09. 
+
+The combination of scale * raw in32_t  + offset  values are overflowing past 32 bits. You probably need to dial the scale back to 0.0000001 or 0.000001.
+
+
+>     <pc:scale>0.00000001000000</pc:scale>
+>     <pc:offset>0.000297639019</pc:offset>
+> Why is pc:offset = 0.0002976, when I explicitly asked for an offset of 33 in the pipeline XML?:
+
+It's trying to calculate an offset for you based on the offset of the incoming data. Try turning up the debug noise with -d and -v 7 to see it spits out any illuminating noise.
+
+> 
+> <?xml version="1.0" encoding="utf-8"?>
+> <Pipeline version="1.0">
+>   <Writer type="drivers.pgpointcloud.writer">
+>     <Option name="connection">host='localhost' dbname='LIDAR2' user='postgres'</Option>
+>     <Option name="table">qtest4326</Option>
+>     <Option name="srid">4326</Option>
+>     <Option name="overwrite">true</Option>
+>     <Filter type="filters.chipper">
+>       <Option name="capacity">400</Option>
+>       <Filter type="filters.cache">
+>         <Option name="max_cache_blocks">3</Option>
+>         <Option name="cache_block_size">32184</Option>
+>         <Filter type="filters.inplacereprojection">
+>           <Option name="in_srs">EPSG:26914</Option>
+>           <Option name="out_srs">EPSG:4326</Option>
+>           <Option name="offset_x">-104</Option>
+>           <Option name="offset_y">33</Option>
+>           <Option name="offset_z">0.0</Option>
+>           <Option name="scale_x">0.00000001</Option>
+>           <Option name="scale_y">0.00000001</Option>
+>           <Option name="scale_z">0.001</Option>
+>           <Reader type="drivers.las.reader">
+>             <Option name="filename">NRCSTEST10k.las</Option>
+>             <Option name="spatialreference">EPSG:26914</Option>
+>           </Reader>
+>         </Filter>
+>       </Filter>
+>     </Filter>
+>   </Writer>
+> </Pipeline>
+> 
+> When I increase the scale_x and scale_y to 0.0000001, it works better. To me this seems like the offset isn't being written correctly, and with the smaller scale, the 32 bit int overflows due to the incorrect offset_y value.
+
+InplaceReprojection filter tries to be smart and allow you to merely set the scale value and back-calculate an offset based on the offset of the X dimension that's coming from the LAS reader. If that calculation overflows, bad things happen. I used to trap for overflows, but the cost of that trap happening per-dimension-per-point was prohibitive. Maybe I should try to put it back in debug mode or something.
+
+> I was able to reproduce this using your UTM17.LAS sample data. Using this pipeline XML:
+> 
+> 
+> <Pipeline version="1.0">
+>   <Writer type="drivers.las.writer">
+>     <Option name="filename">UTM17_out.las</Option>
+>     <Option name="spatialreference">EPSG:4326</Option>
+>     <Filter type="filters.inplacereprojection">
+>           <Option name="in_srs">EPSG:32617</Option>
+>           <Option name="out_srs">EPSG:4326</Option>
+>           <Option name="offset_x">-84.0</Option>
+>           <Option name="offset_y">38.0</Option>
+>           <Option name="offset_z">0.0</Option>
+>           <Option name="scale_x">0.0000001</Option>
+>           <Option name="scale_y">0.0000001</Option>
+>           <Option name="scale_z">0.01</Option>
+>           <Reader type="drivers.las.reader">
+>             <Option name="filename">UTM17.las</Option>
+>             <Option name="spatialreference">EPSG:32617</Option>
+>           </Reader>
+>         </Filter>
+>   </Writer>
+> </Pipeline>
+
+With current PDAL/PDAL:master, this seems to produce what is expected for me. Any chance you can try with the latest code? If you're still stuck, please catch me on IRC.
+
+Thanks for being willing to dive into PDAL. It is still very much software that is growing, and there's still a number of pointy bits like this throughout.
+
+Howard
+
+
+From hobu.inc at gmail.com  Mon Jul 15 09:22:52 2013
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon, 15 Jul 2013 11:22:52 -0500
+Subject: [pdal] Odd Inplace Reprojection Offsets
+In-Reply-To: <6CED8B2D-0C7B-4ECE-B8C8-0F4C4E29574C@gmail.com>
+References: <CAEZO=iLk-EqFmyRqLjUoJnaY=-2sLu0kp60W0wrwMO4C4O2xZQ@mail.gmail.com>
+	<6D372684-BDF6-4AB8-9C2D-276926ECEBFC@gmail.com>
+	<6CED8B2D-0C7B-4ECE-B8C8-0F4C4E29574C@gmail.com>
+Message-ID: <9B8B3700-A99B-44A1-86FC-B4F8A587AC40@gmail.com>
+
+Roger,
+
+I think Paul submitted a patch to do this in https://github.com/PDAL/PDAL/issues/143 
+
+Because of the way we use the Inplacereprojection filter from oracle, we load cloud objects per-file (with each having its own scale/offset), so we haven't run into this before.
+
+Howard
+
+
+On Jul 15, 2013, at 11:12 AM, Roger Bedell <sylvanascent at gmail.com> wrote:
+
+> Hello Howard,
+> Thanks for your quick reply. I would like to make a suggestion.
+> 
+> - if the offset is specified in the options, use it exactly as specified.
+> -if not specified, derive a suitable offset from the data.
+> 
+> The reason is that with pgPointCloud, it is possible to add many LAS files to the same table. Only the user knows what might be a suitable offset beforehand.
+> 
+> I can try my hand at this if you dont have the time, if you can point me in the right direction.
+> 
+> Regards,
+> Roger
+> 
+> Sent from my iPad
+> 
+> On Jul 15, 2013, at 16:00, Howard Butler <hobu.inc at gmail.com> wrote:
+> 
+>> 
+>> On Jul 14, 2013, at 12:08 PM, Roger Bedell <rbedell at coordinatesolutions.com> wrote:
+>>> Note, the Latitude is -21.4745 instead of around 36.09. 
+>> 
+>> The combination of scale * raw in32_t  + offset  values are overflowing past 32 bits. You probably need to dial the scale back to 0.0000001 or 0.000001.
+>> 
+>> 
+>>>   <pc:scale>0.00000001000000</pc:scale>
+>>>   <pc:offset>0.000297639019</pc:offset>
+>>> Why is pc:offset = 0.0002976, when I explicitly asked for an offset of 33 in the pipeline XML?:
+>> 
+>> It's trying to calculate an offset for you based on the offset of the incoming data. Try turning up the debug noise with -d and -v 7 to see it spits out any illuminating noise.
+>> 
+>>> 
+>>> <?xml version="1.0" encoding="utf-8"?>
+>>> <Pipeline version="1.0">
+>>> <Writer type="drivers.pgpointcloud.writer">
+>>>   <Option name="connection">host='localhost' dbname='LIDAR2' user='postgres'</Option>
+>>>   <Option name="table">qtest4326</Option>
+>>>   <Option name="srid">4326</Option>
+>>>   <Option name="overwrite">true</Option>
+>>>   <Filter type="filters.chipper">
+>>>     <Option name="capacity">400</Option>
+>>>     <Filter type="filters.cache">
+>>>       <Option name="max_cache_blocks">3</Option>
+>>>       <Option name="cache_block_size">32184</Option>
+>>>       <Filter type="filters.inplacereprojection">
+>>>         <Option name="in_srs">EPSG:26914</Option>
+>>>         <Option name="out_srs">EPSG:4326</Option>
+>>>         <Option name="offset_x">-104</Option>
+>>>         <Option name="offset_y">33</Option>
+>>>         <Option name="offset_z">0.0</Option>
+>>>         <Option name="scale_x">0.00000001</Option>
+>>>         <Option name="scale_y">0.00000001</Option>
+>>>         <Option name="scale_z">0.001</Option>
+>>>         <Reader type="drivers.las.reader">
+>>>           <Option name="filename">NRCSTEST10k.las</Option>
+>>>           <Option name="spatialreference">EPSG:26914</Option>
+>>>         </Reader>
+>>>       </Filter>
+>>>     </Filter>
+>>>   </Filter>
+>>> </Writer>
+>>> </Pipeline>
+>>> 
+>>> When I increase the scale_x and scale_y to 0.0000001, it works better. To me this seems like the offset isn't being written correctly, and with the smaller scale, the 32 bit int overflows due to the incorrect offset_y value.
+>> 
+>> InplaceReprojection filter tries to be smart and allow you to merely set the scale value and back-calculate an offset based on the offset of the X dimension that's coming from the LAS reader. If that calculation overflows, bad things happen. I used to trap for overflows, but the cost of that trap happening per-dimension-per-point was prohibitive. Maybe I should try to put it back in debug mode or something.
+>> 
+>>> I was able to reproduce this using your UTM17.LAS sample data. Using this pipeline XML:
+>>> 
+>>> 
+>>> <Pipeline version="1.0">
+>>> <Writer type="drivers.las.writer">
+>>>   <Option name="filename">UTM17_out.las</Option>
+>>>   <Option name="spatialreference">EPSG:4326</Option>
+>>>   <Filter type="filters.inplacereprojection">
+>>>         <Option name="in_srs">EPSG:32617</Option>
+>>>         <Option name="out_srs">EPSG:4326</Option>
+>>>         <Option name="offset_x">-84.0</Option>
+>>>         <Option name="offset_y">38.0</Option>
+>>>         <Option name="offset_z">0.0</Option>
+>>>         <Option name="scale_x">0.0000001</Option>
+>>>         <Option name="scale_y">0.0000001</Option>
+>>>         <Option name="scale_z">0.01</Option>
+>>>         <Reader type="drivers.las.reader">
+>>>           <Option name="filename">UTM17.las</Option>
+>>>           <Option name="spatialreference">EPSG:32617</Option>
+>>>         </Reader>
+>>>       </Filter>
+>>> </Writer>
+>>> </Pipeline>
+>> 
+>> With current PDAL/PDAL:master, this seems to produce what is expected for me. Any chance you can try with the latest code? If you're still stuck, please catch me on IRC.
+>> 
+>> Thanks for being willing to dive into PDAL. It is still very much software that is growing, and there's still a number of pointy bits like this throughout.
+>> 
+>> Howard
+>> 
+>> 
+
+
+From rbedell at coordinatesolutions.com  Mon Jul 15 13:03:37 2013
+From: rbedell at coordinatesolutions.com (Roger Bedell)
+Date: Mon, 15 Jul 2013 22:03:37 +0200
+Subject: [pdal] Odd Inplace Reprojection Offsets
+In-Reply-To: <CAEZO=i+aMLoLQY7Aso8cJa=KZWyO1f3sXT0rOwihjR3VGUv3hA@mail.gmail.com>
+References: <CAEZO=iLk-EqFmyRqLjUoJnaY=-2sLu0kp60W0wrwMO4C4O2xZQ@mail.gmail.com>
+	<6D372684-BDF6-4AB8-9C2D-276926ECEBFC@gmail.com>
+	<6CED8B2D-0C7B-4ECE-B8C8-0F4C4E29574C@gmail.com>
+	<9B8B3700-A99B-44A1-86FC-B4F8A587AC40@gmail.com>
+	<CAEZO=i+aMLoLQY7Aso8cJa=KZWyO1f3sXT0rOwihjR3VGUv3hA@mail.gmail.com>
+Message-ID: <CAEZO=iJu=144V5fojVkc2_=FzgZqYEzBdwU7vTzhdH7hkpTfKQ@mail.gmail.com>
+
+Hello Howard,
+Yes, after reviewing my Github setup, apparently it wasn't fetching
+properly. Now everything works as advertised. Sorry for the bother.
+
+Roger
+
+
+On Mon, Jul 15, 2013 at 6:42 PM, Roger Bedell <sylvanascent at gmail.com>wrote:
+
+> Hi Howard,
+> I thought I fetched the latest from master yesterday and recompiled, but
+> perhaps I don't know what I'm doing with Github, I will look more closely.
+> That patch seems to be exactly what I'm looking for.
+>
+> Roger
+>
+>
+> On Mon, Jul 15, 2013 at 6:22 PM, Howard Butler <hobu.inc at gmail.com> wrote:
+>
+>> Roger,
+>>
+>> I think Paul submitted a patch to do this in
+>> https://github.com/PDAL/PDAL/issues/143
+>>
+>> Because of the way we use the Inplacereprojection filter from oracle, we
+>> load cloud objects per-file (with each having its own scale/offset), so we
+>> haven't run into this before.
+>>
+>> Howard
+>>
+>>
+>> On Jul 15, 2013, at 11:12 AM, Roger Bedell <sylvanascent at gmail.com>
+>> wrote:
+>>
+>> > Hello Howard,
+>> > Thanks for your quick reply. I would like to make a suggestion.
+>> >
+>> > - if the offset is specified in the options, use it exactly as
+>> specified.
+>> > -if not specified, derive a suitable offset from the data.
+>> >
+>> > The reason is that with pgPointCloud, it is possible to add many LAS
+>> files to the same table. Only the user knows what might be a suitable
+>> offset beforehand.
+>> >
+>> > I can try my hand at this if you dont have the time, if you can point
+>> me in the right direction.
+>> >
+>> > Regards,
+>> > Roger
+>> >
+>> > Sent from my iPad
+>> >
+>> > On Jul 15, 2013, at 16:00, Howard Butler <hobu.inc at gmail.com> wrote:
+>> >
+>> >>
+>> >> On Jul 14, 2013, at 12:08 PM, Roger Bedell <
+>> rbedell at coordinatesolutions.com> wrote:
+>> >>> Note, the Latitude is -21.4745 instead of around 36.09.
+>> >>
+>> >> The combination of scale * raw in32_t  + offset  values are
+>> overflowing past 32 bits. You probably need to dial the scale back to
+>> 0.0000001 or 0.000001.
+>> >>
+>> >>
+>> >>>   <pc:scale>0.00000001000000</pc:scale>
+>> >>>   <pc:offset>0.000297639019</pc:offset>
+>> >>> Why is pc:offset = 0.0002976, when I explicitly asked for an offset
+>> of 33 in the pipeline XML?:
+>> >>
+>> >> It's trying to calculate an offset for you based on the offset of the
+>> incoming data. Try turning up the debug noise with -d and -v 7 to see it
+>> spits out any illuminating noise.
+>> >>
+>> >>>
+>> >>> <?xml version="1.0" encoding="utf-8"?>
+>> >>> <Pipeline version="1.0">
+>> >>> <Writer type="drivers.pgpointcloud.writer">
+>> >>>   <Option name="connection">host='localhost' dbname='LIDAR2'
+>> user='postgres'</Option>
+>> >>>   <Option name="table">qtest4326</Option>
+>> >>>   <Option name="srid">4326</Option>
+>> >>>   <Option name="overwrite">true</Option>
+>> >>>   <Filter type="filters.chipper">
+>> >>>     <Option name="capacity">400</Option>
+>> >>>     <Filter type="filters.cache">
+>> >>>       <Option name="max_cache_blocks">3</Option>
+>> >>>       <Option name="cache_block_size">32184</Option>
+>> >>>       <Filter type="filters.inplacereprojection">
+>> >>>         <Option name="in_srs">EPSG:26914</Option>
+>> >>>         <Option name="out_srs">EPSG:4326</Option>
+>> >>>         <Option name="offset_x">-104</Option>
+>> >>>         <Option name="offset_y">33</Option>
+>> >>>         <Option name="offset_z">0.0</Option>
+>> >>>         <Option name="scale_x">0.00000001</Option>
+>> >>>         <Option name="scale_y">0.00000001</Option>
+>> >>>         <Option name="scale_z">0.001</Option>
+>> >>>         <Reader type="drivers.las.reader">
+>> >>>           <Option name="filename">NRCSTEST10k.las</Option>
+>> >>>           <Option name="spatialreference">EPSG:26914</Option>
+>> >>>         </Reader>
+>> >>>       </Filter>
+>> >>>     </Filter>
+>> >>>   </Filter>
+>> >>> </Writer>
+>> >>> </Pipeline>
+>> >>>
+>> >>> When I increase the scale_x and scale_y to 0.0000001, it works
+>> better. To me this seems like the offset isn't being written correctly, and
+>> with the smaller scale, the 32 bit int overflows due to the incorrect
+>> offset_y value.
+>> >>
+>> >> InplaceReprojection filter tries to be smart and allow you to merely
+>> set the scale value and back-calculate an offset based on the offset of the
+>> X dimension that's coming from the LAS reader. If that calculation
+>> overflows, bad things happen. I used to trap for overflows, but the cost of
+>> that trap happening per-dimension-per-point was prohibitive. Maybe I should
+>> try to put it back in debug mode or something.
+>> >>
+>> >>> I was able to reproduce this using your UTM17.LAS sample data. Using
+>> this pipeline XML:
+>> >>>
+>> >>>
+>> >>> <Pipeline version="1.0">
+>> >>> <Writer type="drivers.las.writer">
+>> >>>   <Option name="filename">UTM17_out.las</Option>
+>> >>>   <Option name="spatialreference">EPSG:4326</Option>
+>> >>>   <Filter type="filters.inplacereprojection">
+>> >>>         <Option name="in_srs">EPSG:32617</Option>
+>> >>>         <Option name="out_srs">EPSG:4326</Option>
+>> >>>         <Option name="offset_x">-84.0</Option>
+>> >>>         <Option name="offset_y">38.0</Option>
+>> >>>         <Option name="offset_z">0.0</Option>
+>> >>>         <Option name="scale_x">0.0000001</Option>
+>> >>>         <Option name="scale_y">0.0000001</Option>
+>> >>>         <Option name="scale_z">0.01</Option>
+>> >>>         <Reader type="drivers.las.reader">
+>> >>>           <Option name="filename">UTM17.las</Option>
+>> >>>           <Option name="spatialreference">EPSG:32617</Option>
+>> >>>         </Reader>
+>> >>>       </Filter>
+>> >>> </Writer>
+>> >>> </Pipeline>
+>> >>
+>> >> With current PDAL/PDAL:master, this seems to produce what is expected
+>> for me. Any chance you can try with the latest code? If you're still stuck,
+>> please catch me on IRC.
+>> >>
+>> >> Thanks for being willing to dive into PDAL. It is still very much
+>> software that is growing, and there's still a number of pointy bits like
+>> this throughout.
+>> >>
+>> >> Howard
+>> >>
+>> >>
+>>
+>>
+>
+
+
+-- 
+Roger Bedell
+Coordinate Solutions Inc.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20130715/94c7bccb/attachment.html>
+

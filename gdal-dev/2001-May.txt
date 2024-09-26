@@ -1,0 +1,123 @@
+From r.denham at f...  Wed May  2 18:07:22 2001
+From: r.denham at f... (Robert Denham)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] python bindings
+Message-ID: <Pine.OSF.4.20.0105030806190.4482-100000@e...>
+
+
+Hi gdal-developers,
+can someone help me understand how to modify
+and
+create images using the gdal and gdalnumeric python modules?
+
+I have no trouble reading the files in, but am a bit confused about how to
+save changes and close the image.
+
+For example, under gdalnumeric, you can use:
+
+from Numeric import *
+import gdalnumeric
+
+array=gdalnumeric.LoadFile("/some/image.tiff")
+array2=array*-1
+
+but now I am unsure how to save array2 to a new tiff, but keep or copy the
+projection information from "/some/image.tiff".
+If I use SaveArray(array2,'/some/newimage.tiff') it doesn't have the same
+projection information as image.tiff, and I am not sure how to copy that
+information across.
+
+It would be great if someone could fill the last few lines in for me.
+
+Thanks,
+Robert
+
+
+------------------------------------
+| Robert Denham |
+| School of Mathematical Sciences |
+| Queensland University of Technology |
+| denham@f... |
+------------------------------------
+
+
+
+
+From warmerdam at p...  Thu May  3 09:36:03 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] python bindings
+References: <Pine.OSF.4.20.0105030806190.4482-100000@e...>
+Message-ID: <3AF15EC3.FFD4AACF@p...>
+
+Robert Denham wrote:
+> 
+> Hi gdal-developers,
+> can someone help me understand how to modify
+> and
+> create images using the gdal and gdalnumeric python modules?
+> 
+> I have no trouble reading the files in, but am a bit confused about how to
+> save changes and close the image.
+> 
+> For example, under gdalnumeric, you can use:
+> 
+> from Numeric import *
+> import gdalnumeric
+> 
+> array=gdalnumeric.LoadFile("/some/image.tiff")
+> array2=array*-1
+
+Robert,
+
+The problem is that the raw arrays in numpy don't have information like
+georeferencing or projections associated with them. The following script
+demonstrates how to create a GDAL Dataset object associated with an array
+and to assign the projection and georeferencing to it, and then write to an
+output file. I hope it makes things clearer.
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+#!/usr/bin/env python
+
+import gdal
+import gdalnumeric
+
+from Numeric import *
+
+def SaveArrayWithGeo( array, src_filename, dst_filename, format='GTiff' ):
+
+# Read information from source file.
+src_ds = gdal.Open(src_filename)
+gt = src_ds.GetGeoTransform()
+pj = src_ds.GetProjection()
+src_ds = None
+
+# Create GDAL dataset for array, and set georeferencing.
+src_ds = gdalnumeric.OpenArray( array )
+src_ds.SetGeoTransform( gt )
+src_ds.SetProjection( pj )
+
+# Write array dataset to new file. 
+driver = gdal.GetDriverByName( format )
+if driver is None:
+raise ValueError, "Can't find driver "+format
+
+return driver.CreateCopy( dst_filename, src_ds )
+
+
+
+if __name__ == '__main__':
+
+filename = '/home/warmerda/openev/utm.tif'
+array = gdalnumeric.LoadFile( filename )
+array2 = 255 - array
+array2 = array2.astype(Float32)
+SaveArrayWithGeo( array2, filename, 'out.tif' )
+
+

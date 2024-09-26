@@ -1,0 +1,782 @@
+From mika.heiskanen at fmi.fi  Fri Jun  5 03:38:39 2015
+From: mika.heiskanen at fmi.fi (Mika Heiskanen)
+Date: Fri, 05 Jun 2015 13:38:39 +0300
+Subject: [geos-devel] Disconnected interior failure?
+Message-ID: <55717C2F.2000900@fmi.fi>
+
+Hi,
+
+We recently encountered a temperature isoband which GEOS isValidOp 
+claims is invalid:
+
+   Interior is disconnected at or near point 16.56825286557833 -6
+
+The geometry consists of a shell plus two holes. The holes touch at a 
+single point, but do not touch the shell. The description does not
+match to what the ConnectedInteriorTester class reference says:
+
+    An area Geometry is invalid if the interior is disconnected.
+    This can happen if:
+
+    * one or more holes either form a chain touching the shell
+      at two places
+    * one or more holes form a ring around a portion of the interior
+
+I extracted the problematic shell plus the holes from the global data,
+and made them temporarily available from http://beta.fmi.fi/geos/
+
+QGis and MapShaper validators accept the shape made from the WKT printed 
+by GEOS. Could there be a bug in the GEOS validator?
+
+Regards,
+
+Mika Heiskanen / FMI
+
+
+
+From gim.spb at gmail.com  Fri Jun  5 07:39:50 2015
+From: gim.spb at gmail.com (Gorbachev Ivan)
+Date: Fri, 5 Jun 2015 17:39:50 +0300
+Subject: [geos-devel] Handle 1 000 000 geometry objects
+Message-ID: <CADijsLQaeF1Z_Zoka1twQy8UHAZgyp5tSCVaAuKNkgK4A8vtSA@mail.gmail.com>
+
+Hello!
+
+I need to handle 1 000 000 geometry objects. I process about  10 000
+objects at a time. I need to create the Geometry for each object, process
+Geometry and remove it after that. If I call "new" and "delete" too often,
+it leads to memory defragmentation and high memory consumption. Are there
+any methods to solve this problem in GEOS? Has the GEOS its own memory
+allocator?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20150605/377a5d55/attachment.html>
+
+From strk at keybit.net  Fri Jun  5 08:17:33 2015
+From: strk at keybit.net (Sandro Santilli)
+Date: Fri, 5 Jun 2015 17:17:33 +0200
+Subject: [geos-devel] Handle 1 000 000 geometry objects
+In-Reply-To: <CADijsLQaeF1Z_Zoka1twQy8UHAZgyp5tSCVaAuKNkgK4A8vtSA@mail.gmail.com>
+References: <CADijsLQaeF1Z_Zoka1twQy8UHAZgyp5tSCVaAuKNkgK4A8vtSA@mail.gmail.com>
+Message-ID: <20150605151733.GA15478@localhost>
+
+On Fri, Jun 05, 2015 at 05:39:50PM +0300, Gorbachev Ivan wrote:
+> Hello!
+> 
+> I need to handle 1 000 000 geometry objects. I process about  10 000
+> objects at a time. I need to create the Geometry for each object, process
+> Geometry and remove it after that. If I call "new" and "delete" too often,
+> it leads to memory defragmentation and high memory consumption. Are there
+> any methods to solve this problem in GEOS? Has the GEOS its own memory
+> allocator?
+
+There's no custom memory allocator. It would be a good idea to use one.
+In Gnash we have a configure switch that enables use of jmalloc, could
+be a place to look for inspiration: http://www.canonware.com/jemalloc/
+
+Willing to give it a try and provide a patch ?
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+
+From manisandro at gmail.com  Mon Jun 15 07:52:45 2015
+From: manisandro at gmail.com (Sandro Mani)
+Date: Mon, 15 Jun 2015 16:52:45 +0200
+Subject: [geos-devel] QgsVectorLayerCache
+In-Reply-To: <557ED448.9030404@gmx.ch>
+References: <557EC846.1090208@gmail.com> <557ED448.9030404@gmx.ch>
+Message-ID: <557EE6BD.3050907@gmail.com>
+
+Hi Matthias
+
+On 15.06.2015 15:34, Matthias Kuhn wrote:
+> Hi Sandro
+>
+> On 06/15/2015 02:42 PM, Sandro Mani wrote:
+>> Hello Matthias and List
+>>
+>> I have two questions about the QgsVectorLayerCache, which you
+>> (@Matthias) have implemented [1].
+>>
+>> 1. First the easy one:
+>> https://github.com/qgis/QGIS/blame/master/src/core/qgsvectorlayercache.cpp#L97
+>>
+>> -> I'm not sure what this block of code is supposed to do. As far as I
+>> can see it just performs an empty iteration over all layer features,
+>> but has no effects otherwise. Am I missing something? This block of
+>> code is executed when loading the attribute table. If I comment it, I
+>> can't spot any side effects, except that the loading of the attribute
+>> table is faster.
+> It's a QgsCachedFeatureWriterIterator which fills the cache when
+> iterating over it.
+> It's only being invoked when full caching is requested to avoid
+> incremental population of the cache with a lot of subsequent requests.
+> If you have slow round-trips and disable this code the effect should be
+> noticeable. If it's not, there's something wrong with it.
+Uhm ok, I'll need to investigate this together with my AFS provider 
+implementation, somehow the result of that code block was that all 
+features were fetched from the server twice.
+>
+>> 2. Secondly, to the vector layer cache in general.
+>> Some background: I've done an initial implementation of an ArcGIS
+>> Feature Service ("AFS") data provider, and similarly to the WFS
+>> provider, the question of intelligent caching arises, to reduce
+>> round-trips with the server. The WFS provider just caches all features
+>> in memory (if the corresponding option is checked), which is
+>> suboptimal for large datasets.
+>> I've hence been thinking about implementing a local disc-based cache
+>> (say in the form of an SpatiaLite DB), which acts as a local feature
+>> cache. The usefulness of this could however go beyond just WFS and
+>> AFS, to include all non-local data sources. So my idea is to implement
+>> something like a QgsVectorDataProviderProxy which
+>>
+>> - overrides getFeatures to return a QgsCacheProxyFeatureIterator: this
+>> iterator first checks whether the Feature is cached, and if not, only
+>> then fetches it from the data provider. If the QgsFeatureRequest
+>> includes an extent, entire pages of features could be loaded from the
+>> disk to memory (up to a specified threshold).
+>>
+>> - overrides all add/change/delete methods to ensure that the cache
+>> remains consistent.
+>>
+>> Actually I think the most elegant approach would be to have
+>> QgsVectorLayer::mDataProvider be an instance of this
+>> QgsVectorDataProviderProxy. If the data source is local, the calls are
+>> simply forwarded to the actual data provider, otherwise, the above
+>> outlined behavior applies.
+>>
+>> So (@Matthias): such an implementation would pretty much overlap with
+>> what you have implemented, but does the work directly at provider
+>> level. What are your thoughts on this? From your experience
+>> implementing [1], do any alarm bells start ringing?
+> I have thought about this approach as well as it seems to be very nice
+> to have one shared cache which is able to provide several consumers with
+> cached data (canvas, attribute table...). Do you think you will be
+> introducing a size limit?
+Speaking of the disk-cache: Yes, I suppose that would make sense, 
+perhaps as a configurable option in the user preferences. For memory 
+cache, there clearly would be a size limit.
+>
+> One risk I see is, that if you have different consumers (with a shared
+> cache), they have different requirements.
+> For the canvas the requirement is usually to have some spatial index
+> that keeps track of which regions are cached and if a new request can be
+> satisfied. It would be even easy/nice to do some look-ahead to pre-load
+> features or only load part of the canvas if a big region is already
+> loaded or do tiling.
+Right, I'd like to model the cache around an idea of "pages", i.e. 
+entire spatial regions which can be swapped in and out of memory 
+depending on the current region of interest.
+>
+> If another consumer then does a second request without a spatial filter
+> (none or attribute filter instead) it may fetch a lot of features and
+> pollute your cache with these features. If there's a size limit of the
+> cache it can then be cleaned of previous features which would still be
+> more important for drawing then the ones fetched for a different
+> consumer which may have been requested just once.
+Yes I see the problem. First, one would need to investigate how 
+expensive such cache trashings are compared to the situation with no 
+cache at all. Then I suppose the usual ideas are things like having an 
+access time stamp on the page loaded in memory, and if a page needs to 
+go, the one last accessed furthest back will get thrown out.
+>
+> You will also have to take care of multithreading since multiple
+> iterators can run at the same time.
+Definitely.
+>
+> It's probably also required to spend some thoughts on how to invalidate
+> the cache if the source data changes. (A time-based limit, a button to
+> trigger a reload...).
+Perhaps it would generally be a good idea to have a clear user-facing 
+entry in the layer context menu to re-sync the entire provider data with 
+the data source.
+>
+> If this is implemented, it would surely be nice to have it not only for
+> AFS but also for other providers. Either way I would leave the choice to
+> the user if he wants to use it or not.
+Sure, this would be a user-configurable option, which ideally would just 
+decide whether QgsVectorLayer::mDataProvider receives an actual provider 
+instance of a cache proxy instance.
+
+
+> If there's a request with a subsetOfAttributes set or without geometry,
+> it's important to know if the request is going to be changed before
+> sending it to the provider (so the cache contains all the information
+> but the request may take longer) or if the request is going to be sent,
+> requesting a reduced amount of information but not going to be cached.
+> Or if it's going to be cached with reduced information, but then it has
+> to be ensured later on that a subsequent request does not receive less
+> information than it requires.
+
+I'd go with fetching the reduced feature from the data provider, and not caching it, for a start at least. There are clearly more nifty approaches to be explored later on ;)
+
+>
+> I hope there are some good inputs in here
+Yes definitely, thanks!
+
+Sandro
+
+From manisandro at gmail.com  Mon Jun 15 07:57:34 2015
+From: manisandro at gmail.com (Sandro Mani)
+Date: Mon, 15 Jun 2015 16:57:34 +0200
+Subject: [geos-devel] QgsVectorLayerCache
+In-Reply-To: <557EE6BD.3050907@gmail.com>
+References: <557EC846.1090208@gmail.com> <557ED448.9030404@gmx.ch>
+	<557EE6BD.3050907@gmail.com>
+Message-ID: <557EE7DE.6030204@gmail.com>
+
+(sorry this ended up on the wrong list)
+
+From geos-trac at osgeo.org  Tue Jun 16 10:31:35 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 16 Jun 2015 17:31:35 -0000
+Subject: [geos-devel] [GEOS] #728: GEOSDelaunayTriangulation() utterly slow
+	on cloud
+Message-ID: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+
+#728: GEOSDelaunayTriangulation() utterly slow on cloud
+------------------------+--------------------------
+ Reporter:  rouault     |      Owner:  geos-devel@?
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.4.3
+Component:  Default     |    Version:  3.4.2
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ GEOSDelaunayTriangulation() doesn't complete in a reasonable time (I
+ stopped it after ~ 15 minutes) when run on the multipoint aggregating all
+ the points of the attashed shapefile. On the contrary,QHull Delaunay
+ triangulation completes in less than one second.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/728>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Jun 16 10:34:42 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 16 Jun 2015 17:34:42 -0000
+Subject: [geos-devel] [GEOS] #728: GEOSDelaunayTriangulation() utterly
+	slow on cloud
+In-Reply-To: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+References: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+Message-ID: <060.f504d333e3a3ba3d38f909a17572b824@osgeo.org>
+
+#728: GEOSDelaunayTriangulation() utterly slow on cloud
+------------------------+---------------------------
+ Reporter:  rouault     |       Owner:  geos-devel@?
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.4.3
+Component:  Default     |     Version:  3.4.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by rouault):
+
+ Link is http://even.rouault.free.fr/delaunay_input.shp.zip
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/728#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Jun 16 10:35:34 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 16 Jun 2015 17:35:34 -0000
+Subject: [geos-devel] [GEOS] #728: GEOSDelaunayTriangulation() utterly
+ slow on big point cloud (133 000 points) (was: GEOSDelaunayTriangulation()
+ utterly slow on cloud)
+In-Reply-To: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+References: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+Message-ID: <060.22f6660bd11964842d3c87ce907b8550@osgeo.org>
+
+#728: GEOSDelaunayTriangulation() utterly slow on big point cloud (133 000
+points)
+------------------------+---------------------------
+ Reporter:  rouault     |       Owner:  geos-devel@?
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.4.3
+Component:  Default     |     Version:  3.4.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/728#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From strk at keybit.net  Tue Jun 16 11:11:03 2015
+From: strk at keybit.net (Sandro Santilli)
+Date: Tue, 16 Jun 2015 20:11:03 +0200
+Subject: [geos-devel] Disconnected interior failure?
+In-Reply-To: <55717C2F.2000900@fmi.fi>
+References: <55717C2F.2000900@fmi.fi>
+Message-ID: <20150616181103.GA5700@localhost>
+
+Had you checked if the two shell's interior-interior intersection
+is empty and the boundary-boundary intersection is puntual,
+with the Relate operation ?
+
+--strk;
+
+On Fri, Jun 05, 2015 at 01:38:39PM +0300, Mika Heiskanen wrote:
+> Hi,
+> 
+> We recently encountered a temperature isoband which GEOS isValidOp
+> claims is invalid:
+> 
+>   Interior is disconnected at or near point 16.56825286557833 -6
+> 
+> The geometry consists of a shell plus two holes. The holes touch at
+> a single point, but do not touch the shell. The description does not
+> match to what the ConnectedInteriorTester class reference says:
+> 
+>    An area Geometry is invalid if the interior is disconnected.
+>    This can happen if:
+> 
+>    * one or more holes either form a chain touching the shell
+>      at two places
+>    * one or more holes form a ring around a portion of the interior
+> 
+> I extracted the problematic shell plus the holes from the global data,
+> and made them temporarily available from http://beta.fmi.fi/geos/
+> 
+> QGis and MapShaper validators accept the shape made from the WKT
+> printed by GEOS. Could there be a bug in the GEOS validator?
+> 
+> Regards,
+> 
+> Mika Heiskanen / FMI
+
+From geos-trac at osgeo.org  Tue Jun 16 13:28:27 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 16 Jun 2015 20:28:27 -0000
+Subject: [geos-devel] [GEOS] #728: GEOSDelaunayTriangulation() utterly
+ slow on big point cloud (133 000 points)
+In-Reply-To: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+References: <045.83825515ce4c533458b9ed2866e3701a@osgeo.org>
+Message-ID: <060.98f067d8b2f2d2161b754c25541c16a8@osgeo.org>
+
+#728: GEOSDelaunayTriangulation() utterly slow on big point cloud (133 000
+points)
+------------------------+---------------------------
+ Reporter:  rouault     |       Owner:  geos-devel@?
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.4.3
+Component:  Default     |     Version:  3.4.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by rsbivand):
+
+ There are 3 dimensions in the shapefile. Using two dimensions only, R
+ deldir::deldir completes in 444 seconds on my laptop, but does this make
+ sense, given that the points are in geographical coordinates? Does Qhull
+ use GC distances - I don't think so, nor does GEOS - is this just a test
+ case?
+
+ {{{
+ > bbox(out)
+                 min          max
+ coords.x1 145.77283   216.073340
+ coords.x2 -78.36998    -7.316789
+ coords.x3  -4.00000 10632.000000
+ }}}
+
+--
+Ticket URL: <http://trac.osgeo.org/geos/ticket/728#comment:3>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From mika.heiskanen at fmi.fi  Tue Jun 16 22:15:55 2015
+From: mika.heiskanen at fmi.fi (Mika Heiskanen)
+Date: Wed, 17 Jun 2015 08:15:55 +0300
+Subject: [geos-devel] Disconnected interior failure?
+In-Reply-To: <20150616181103.GA5700@localhost>
+References: <55717C2F.2000900@fmi.fi> <20150616181103.GA5700@localhost>
+Message-ID: <1434518155.2952.3.camel@fmi.fi>
+
+No. However, the input set is such that any intersections can occur
+only at vertices. The holes touch at a single vertex, as does
+the exterior with another exterior. I will see if I can reduce
+the problem to a simpler test case.
+
+- Mika
+
+On Tue, 2015-06-16 at 21:11 +0300, Sandro Santilli wrote:
+> Had you checked if the two shell's interior-interior intersection
+> is empty and the boundary-boundary intersection is puntual,
+> with the Relate operation ?
+> 
+> --strk;
+> 
+> On Fri, Jun 05, 2015 at 01:38:39PM +0300, Mika Heiskanen wrote:
+> > Hi,
+> > 
+> > We recently encountered a temperature isoband which GEOS isValidOp
+> > claims is invalid:
+> > 
+> >   Interior is disconnected at or near point 16.56825286557833 -6
+> > 
+> > The geometry consists of a shell plus two holes. The holes touch at
+> > a single point, but do not touch the shell. The description does not
+> > match to what the ConnectedInteriorTester class reference says:
+> > 
+> >    An area Geometry is invalid if the interior is disconnected.
+> >    This can happen if:
+> > 
+> >    * one or more holes either form a chain touching the shell
+> >      at two places
+> >    * one or more holes form a ring around a portion of the interior
+> > 
+> > I extracted the problematic shell plus the holes from the global data,
+> > and made them temporarily available from http://beta.fmi.fi/geos/
+> > 
+> > QGis and MapShaper validators accept the shape made from the WKT
+> > printed by GEOS. Could there be a bug in the GEOS validator?
+> > 
+> > Regards,
+> > 
+> > Mika Heiskanen / FMI
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+From jmckenna at gatewaygeomatics.com  Thu Jun 18 13:15:17 2015
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 18 Jun 2015 17:15:17 -0300
+Subject: [geos-devel] branch vs trunk
+Message-ID: <558326D5.7010902@gatewaygeomatics.com>
+
+Hi all,
+
+As a package maintainer, should I be using GEOS from trunk, or through 
+branch 3.4?  I notice that there hasn't been a release in almost 2 
+years, so, I want to make sure that I use an updated version.  I see 
+some changes done recently in trunk, so I will head down that path, 
+compiling, for now...
+
+-jeff
+
+
+
+-- 
+Jeff McKenna
+MapServer Consulting and Training Services
+http://www.gatewaygeomatics.com/
+
+
+
+
+From jmckenna at gatewaygeomatics.com  Thu Jun 18 13:38:01 2015
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 18 Jun 2015 17:38:01 -0300
+Subject: [geos-devel] branch vs trunk
+In-Reply-To: <558326D5.7010902@gatewaygeomatics.com>
+References: <558326D5.7010902@gatewaygeomatics.com>
+Message-ID: <55832C29.3070307@gatewaygeomatics.com>
+
+On second thought, I decided to go with the stable branch (/3.4).
+
+Sorry for the noise.
+
+-jeff
+
+
+
+
+On 2015-06-18 5:15 PM, Jeff McKenna wrote:
+> Hi all,
+>
+> As a package maintainer, should I be using GEOS from trunk, or through
+> branch 3.4?  I notice that there hasn't been a release in almost 2
+> years, so, I want to make sure that I use an updated version.  I see
+> some changes done recently in trunk, so I will head down that path,
+> compiling, for now...
+>
+> -jeff
+>
+>
+>
+
+From jmckenna at gatewaygeomatics.com  Thu Jun 18 14:42:14 2015
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 18 Jun 2015 18:42:14 -0300
+Subject: [geos-devel] branch vs trunk
+In-Reply-To: <rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+References: <558326D5.7010902@gatewaygeomatics.com>	<55832C29.3070307@gatewaygeomatics.com>
+	<rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+Message-ID: <55833B36.4080406@gatewaygeomatics.com>
+
+Hi Greg, thanks, yes I agree, I will use the 3.4 branch until such 
+external pressure (more pressure than little 'ol me) comes from beyond. 
+  -jeff
+
+
+
+On 2015-06-18 6:39 PM, Greg Troxel wrote:
+>
+> Jeff McKenna <jmckenna at gatewaygeomatics.com> writes:
+>
+>> On second thought, I decided to go with the stable branch (/3.4).
+>>
+>> Sorry for the noise.
+>
+> It was actually a really good question.   My opinion (I maintain the
+> pkgsrc entry) is that you should only package releases, which sounds
+> like your standard practice too.  But 3.5-to-be is starting to get used
+> as an almost-dependency by postgis, and I expect pressure from that to
+> lead to a 3.5 release within the next half year.   (I'm not involved;
+> that's just a guess as a packager/lurker.)
+>
+
+
+From gdt at ir.bbn.com  Thu Jun 18 14:39:08 2015
+From: gdt at ir.bbn.com (Greg Troxel)
+Date: Thu, 18 Jun 2015 17:39:08 -0400
+Subject: [geos-devel] branch vs trunk
+In-Reply-To: <55832C29.3070307@gatewaygeomatics.com> (Jeff McKenna's message
+	of "Thu, 18 Jun 2015 17:38:01 -0300")
+References: <558326D5.7010902@gatewaygeomatics.com>
+	<55832C29.3070307@gatewaygeomatics.com>
+Message-ID: <rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+
+
+Jeff McKenna <jmckenna at gatewaygeomatics.com> writes:
+
+> On second thought, I decided to go with the stable branch (/3.4).
+>
+> Sorry for the noise.
+
+It was actually a really good question.   My opinion (I maintain the
+pkgsrc entry) is that you should only package releases, which sounds
+like your standard practice too.  But 3.5-to-be is starting to get used
+as an almost-dependency by postgis, and I expect pressure from that to
+lead to a 3.5 release within the next half year.   (I'm not involved;
+that's just a guess as a packager/lurker.)
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 180 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20150618/845f518f/attachment.pgp>
+
+From lr at pcorp.us  Thu Jun 18 16:03:27 2015
+From: lr at pcorp.us (Paragon Corporation)
+Date: Thu, 18 Jun 2015 19:03:27 -0400
+Subject: [geos-devel] branch vs trunk
+In-Reply-To: <rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+References: <558326D5.7010902@gatewaygeomatics.com>	<55832C29.3070307@gatewaygeomatics.com>
+	<rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+Message-ID: <00d901d0aa1a$fd06fe70$f714fb50$@pcorp.us>
+
+Yes we are shooting to get GEOS 3.5.0 out the door before PostGIS 2.2. So
+probably before September.  A few important  PostGIS 2.2 functions rely on
+GEOS 3.5 functionality.
+
+Strk,
+
+Any comments?
+
+Thanks,
+Regina
+
+-----Original Message-----
+From: geos-devel-bounces at lists.osgeo.org
+[mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of Greg Troxel
+Sent: Thursday, June 18, 2015 5:39 PM
+To: Jeff McKenna
+Cc: geos-devel at lists.osgeo.org
+Subject: Re: [geos-devel] branch vs trunk
+
+
+Jeff McKenna <jmckenna at gatewaygeomatics.com> writes:
+
+> On second thought, I decided to go with the stable branch (/3.4).
+>
+> Sorry for the noise.
+
+It was actually a really good question.   My opinion (I maintain the
+pkgsrc entry) is that you should only package releases, which sounds like
+your standard practice too.  But 3.5-to-be is starting to get used as an
+almost-dependency by postgis, and I expect pressure from that to
+lead to a 3.5 release within the next half year.   (I'm not involved;
+that's just a guess as a packager/lurker.)
+
+
+
+From jmckenna at gatewaygeomatics.com  Thu Jun 18 16:52:51 2015
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 18 Jun 2015 20:52:51 -0300
+Subject: [geos-devel] branch vs trunk
+In-Reply-To: <00d901d0aa1a$fd06fe70$f714fb50$@pcorp.us>
+References: <558326D5.7010902@gatewaygeomatics.com>	<55832C29.3070307@gatewaygeomatics.com>
+	<rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+	<00d901d0aa1a$fd06fe70$f714fb50$@pcorp.us>
+Message-ID: <558359D3.5060903@gatewaygeomatics.com>
+
+Ok, thanks.  I'll watch for around September.
+
+I can imagine today's GDAL 2.0 release will cause more people than me 
+banging on the door though :)
+
+-jeff
+
+
+
+On 2015-06-18 8:03 PM, Paragon Corporation wrote:
+> Yes we are shooting to get GEOS 3.5.0 out the door before PostGIS 2.2. So
+> probably before September.  A few important  PostGIS 2.2 functions rely on
+> GEOS 3.5 functionality.
+>
+> Strk,
+>
+> Any comments?
+>
+> Thanks,
+> Regina
+>
+> -----Original Message-----
+> From: geos-devel-bounces at lists.osgeo.org
+> [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of Greg Troxel
+> Sent: Thursday, June 18, 2015 5:39 PM
+> To: Jeff McKenna
+> Cc: geos-devel at lists.osgeo.org
+> Subject: Re: [geos-devel] branch vs trunk
+>
+>
+> Jeff McKenna <jmckenna at gatewaygeomatics.com> writes:
+>
+>> On second thought, I decided to go with the stable branch (/3.4).
+>>
+>> Sorry for the noise.
+>
+> It was actually a really good question.   My opinion (I maintain the
+> pkgsrc entry) is that you should only package releases, which sounds like
+> your standard practice too.  But 3.5-to-be is starting to get used as an
+> almost-dependency by postgis, and I expect pressure from that to
+> lead to a 3.5 release within the next half year.   (I'm not involved;
+> that's just a guess as a packager/lurker.)
+>
+
+From geos-trac at osgeo.org  Fri Jun 19 01:47:08 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 19 Jun 2015 08:47:08 -0000
+Subject: [geos-devel] [GEOS] #589: GEOSBufferWithStyle with mitre style
+	on LinearRing
+In-Reply-To: <047.49be5b9407c3c224dacd8c5d9870ae4b@osgeo.org>
+References: <047.49be5b9407c3c224dacd8c5d9870ae4b@osgeo.org>
+Message-ID: <062.f1b3287bff4f3ffdde29c295cfd7b0ab@osgeo.org>
+
+#589: GEOSBufferWithStyle with mitre style on LinearRing
+------------------------+---------------------------
+ Reporter:  olivier80   |       Owner:  geos-devel@?
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.5.0
+Component:  Default     |     Version:  3.3.5
+ Severity:  Unassigned  |  Resolution:
+ Keywords:  jtsfail     |
+------------------------+---------------------------
+Changes (by strk):
+
+ * cc: mbdavis (added)
+
+
+Comment:
+
+ Martin, did anything move in JTS about this ?
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/589#comment:6>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Fri Jun 19 01:51:20 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 19 Jun 2015 08:51:20 -0000
+Subject: [geos-devel] [GEOS] #380: Buffer(Geometry,
+ 0) deletes part of the polygon [JTS affected too]
+In-Reply-To: <048.9e14d2aedce81b9405bc48ea3709f32c@osgeo.org>
+References: <048.9e14d2aedce81b9405bc48ea3709f32c@osgeo.org>
+Message-ID: <063.b410345974f1ce03aa27125a7ec15d0d@osgeo.org>
+
+#380: Buffer(Geometry,0) deletes part of the polygon [JTS affected too]
+-------------------------+---------------------------
+ Reporter:  jaapdekker   |       Owner:  geos-devel@?
+     Type:  enhancement  |      Status:  new
+ Priority:  minor        |   Milestone:  GEOS Future
+Component:  Default      |     Version:  3.2.0
+ Severity:  Unassigned   |  Resolution:
+ Keywords:               |
+-------------------------+---------------------------
+
+Comment (by strk):
+
+ I'm afraid this is expected, after all. Buffer, by contract, is not
+ expected to work correctly on invalid input.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/380#comment:8>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From strk at keybit.net  Fri Jun 19 02:03:26 2015
+From: strk at keybit.net (Sandro Santilli)
+Date: Fri, 19 Jun 2015 11:03:26 +0200
+Subject: [geos-devel] branch vs trunk
+In-Reply-To: <00d901d0aa1a$fd06fe70$f714fb50$@pcorp.us>
+References: <558326D5.7010902@gatewaygeomatics.com>
+	<55832C29.3070307@gatewaygeomatics.com>
+	<rmi8ubgr91f.fsf@fnord.ir.bbn.com>
+	<00d901d0aa1a$fd06fe70$f714fb50$@pcorp.us>
+Message-ID: <20150619090326.GC5046@localhost>
+
+On Thu, Jun 18, 2015 at 07:03:27PM -0400, Paragon Corporation wrote:
+> Yes we are shooting to get GEOS 3.5.0 out the door before PostGIS 2.2. So
+> probably before September.  A few important  PostGIS 2.2 functions rely on
+> GEOS 3.5 functionality.
+> 
+> Strk,
+> Any comments?
+
+I'll try my best to release 3.5.0 before the end of September.
+But 3.4.3 might come out earlier (I really need help with these releases)
+
+--strk;
+
+From geos-trac at osgeo.org  Fri Jun 19 19:31:53 2015
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat, 20 Jun 2015 02:31:53 -0000
+Subject: [geos-devel] [GEOS] #729: Add MinimumRectangle method
+Message-ID: <045.fac918879c3db1227ecc0cebec9e38ec@osgeo.org>
+
+#729: Add MinimumRectangle method
+-----------------------------+--------------------------
+ Reporter:  mwtoews          |      Owner:  geos-devel@?
+     Type:  enhancement      |     Status:  new
+ Priority:  major            |  Milestone:  GEOS Future
+Component:  Default          |    Version:
+ Severity:  Feature Request  |   Keywords:
+-----------------------------+--------------------------
+ This enhancement is to port the `getMinimumRectangle()` method from JTS,
+ and expose it to the GEOS C API. The GEOS
+ [http://geos.refractions.net/ro/doxygen_docs/html/classgeos_1_1algorithm_1_1MinimumDiameter.html
+ geos::algorithm::MinimumDiameter Class] does not have this ability.
+
+ See
+ [http://tsusiatsoftware.net/jts/javadoc/com/vividsolutions/jts/algorithm/MinimumDiameter.html
+ com.vividsolutions.jts.algorithm.MinimumDiameter]
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/729>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+

@@ -1,0 +1,303 @@
+From hobu.inc at gmail.com  Wed Apr 13 10:48:38 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] The specialness of X, Y, Z dimensions
+Message-ID: <CFE36BA3-6C38-4D87-A6D0-667BB16C7CE9@gmail.com>
+
+Michael,
+
+One of the things I've struggled with is a lot of the filters have X::Double etc baked in as the X dimension for their operations, but my reader is producing X::Int32+scaling.  What should the filters be doing?  Looking for Field_X plus every combination of DataType?  This seems silly.  The crop filter *wants* XYZ data as a <double>, but some other filter might want unscaled data to work with (if it is available).
+
+What if we were able flip around the getField call to return what you wanted instead of what you have?
+
+// Return you the *first* X dimension in the schema, regardless of DataType
+Dimension const& xDim = schema.getX();
+int fieldIndex = schema.getDimensionIndex(xDim);
+
+double x = buffer.getField<double>(index, fieldIndex); // Would implicitly apply scaling if the dimension had it
+uint32_t x = buffer.getField<uint32_t>(index, fieldIndex);  
+
+A challenge is getField currently gives you direct access into the buffer, so there's no need to worry about differing type sizes.  
+
+What do you think?
+
+Howard
+
+
+
+From mpg at flaxen.com  Wed Apr 13 11:53:13 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] The specialness of X, Y, Z dimensions
+In-Reply-To: <CFE36BA3-6C38-4D87-A6D0-667BB16C7CE9@gmail.com>
+References: <CFE36BA3-6C38-4D87-A6D0-667BB16C7CE9@gmail.com>
+Message-ID: <020b01cbf9f2$e6e5e8e0$b4b1baa0$@flaxen.com>
+
+Yes: the filters that assume X is a double are broken, based on the current
+getField() model.  This is really my fault, as I was just whipping out the
+"demo" filters to see if they'd function at all.
+
+If I understand what you are asking, your idea is to add a new function
+getFieldAs<Tsrc,Tdst>(), which would know how to convert the actual
+underlying type Tsrc (in this case an int) to the desired type Tdst (in this
+case a double).  This is more than just a simple conversion, because the
+source type in this case is "special", in that it is scaled, so the function
+would have to "know" this.
+
+Closely related, I wonder if the enum Int is the wrong type for X -- maybe
+it should be a special enum ScaledInt?
+
+-mpg
+
+
+
+> -----Original Message-----
+> From: libpc-bounces@lists.osgeo.org [mailto:libpc-bounces@lists.osgeo.org]
+> On Behalf Of Howard Butler
+> Sent: Wednesday, April 13, 2011 7:49 AM
+> To: libpc@lists.osgeo.org
+> Subject: [libpc] The specialness of X, Y, Z dimensions
+> 
+> Michael,
+> 
+> One of the things I've struggled with is a lot of the filters have
+X::Double etc
+> baked in as the X dimension for their operations, but my reader is
+producing
+> X::Int32+scaling.  What should the filters be doing?  Looking for Field_X
+plus
+> every combination of DataType?  This seems silly.  The crop filter *wants*
+> XYZ data as a <double>, but some other filter might want unscaled data to
+> work with (if it is available).
+> 
+> What if we were able flip around the getField call to return what you
+wanted
+> instead of what you have?
+> 
+> // Return you the *first* X dimension in the schema, regardless of
+DataType
+> Dimension const& xDim = schema.getX(); int fieldIndex =
+> schema.getDimensionIndex(xDim);
+> 
+> double x = buffer.getField<double>(index, fieldIndex); // Would implicitly
+> apply scaling if the dimension had it uint32_t x =
+> buffer.getField<uint32_t>(index, fieldIndex);
+> 
+> A challenge is getField currently gives you direct access into the buffer,
+so
+> there's no need to worry about differing type sizes.
+> 
+> What do you think?
+> 
+> Howard
+> 
+> 
+> _______________________________________________
+> libpc mailing list
+> libpc@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/libpc
+
+
+From hobu.inc at gmail.com  Wed Apr 13 12:19:24 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] The specialness of X, Y, Z dimensions
+In-Reply-To: <020b01cbf9f2$e6e5e8e0$b4b1baa0$@flaxen.com>
+References: <CFE36BA3-6C38-4D87-A6D0-667BB16C7CE9@gmail.com>
+	<020b01cbf9f2$e6e5e8e0$b4b1baa0$@flaxen.com>
+Message-ID: <E7F241DA-F50F-4858-BC1F-D64FD01A1532@gmail.com>
+
+
+On Apr 13, 2011, at 10:53 AM, Michael P. Gerlek wrote:
+
+> Yes: the filters that assume X is a double are broken, based on the current
+> getField() model.  This is really my fault, as I was just whipping out the
+> "demo" filters to see if they'd function at all.
+> 
+> If I understand what you are asking, your idea is to add a new function
+> getFieldAs<Tsrc,Tdst>(), which would know how to convert the actual
+> underlying type Tsrc (in this case an int) to the desired type Tdst (in this
+> case a double).  This is more than just a simple conversion, because the
+> source type in this case is "special", in that it is scaled, so the function
+> would have to "know" this.
+
+Can't we determine the output type from the return type of the function?  I'm not so template aware though ...
+
+Tdst getField<Tsrc>(index, fieldIndex);
+
+> 
+> Closely related, I wonder if the enum Int is the wrong type for X -- maybe
+> it should be a special enum ScaledInt?
+
+Isn't that implicit by the existence of a scale/offset value for the dimension?
+
+
+> 
+> -mpg
+> 
+> 
+> 
+>> -----Original Message-----
+>> From: libpc-bounces@lists.osgeo.org [mailto:libpc-bounces@lists.osgeo.org]
+>> On Behalf Of Howard Butler
+>> Sent: Wednesday, April 13, 2011 7:49 AM
+>> To: libpc@lists.osgeo.org
+>> Subject: [libpc] The specialness of X, Y, Z dimensions
+>> 
+>> Michael,
+>> 
+>> One of the things I've struggled with is a lot of the filters have
+> X::Double etc
+>> baked in as the X dimension for their operations, but my reader is
+> producing
+>> X::Int32+scaling.  What should the filters be doing?  Looking for Field_X
+> plus
+>> every combination of DataType?  This seems silly.  The crop filter *wants*
+>> XYZ data as a <double>, but some other filter might want unscaled data to
+>> work with (if it is available).
+>> 
+>> What if we were able flip around the getField call to return what you
+> wanted
+>> instead of what you have?
+>> 
+>> // Return you the *first* X dimension in the schema, regardless of
+> DataType
+>> Dimension const& xDim = schema.getX(); int fieldIndex =
+>> schema.getDimensionIndex(xDim);
+>> 
+>> double x = buffer.getField<double>(index, fieldIndex); // Would implicitly
+>> apply scaling if the dimension had it uint32_t x =
+>> buffer.getField<uint32_t>(index, fieldIndex);
+>> 
+>> A challenge is getField currently gives you direct access into the buffer,
+> so
+>> there's no need to worry about differing type sizes.
+>> 
+>> What do you think?
+>> 
+>> Howard
+>> 
+>> 
+>> _______________________________________________
+>> libpc mailing list
+>> libpc@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/libpc
+> 
+
+
+From mpg at flaxen.com  Wed Apr 13 12:25:27 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] The specialness of X, Y, Z dimensions
+In-Reply-To: <E7F241DA-F50F-4858-BC1F-D64FD01A1532@gmail.com>
+References: <CFE36BA3-6C38-4D87-A6D0-667BB16C7CE9@gmail.com>
+	<020b01cbf9f2$e6e5e8e0$b4b1baa0$@flaxen.com>
+	<E7F241DA-F50F-4858-BC1F-D64FD01A1532@gmail.com>
+Message-ID: <021801cbf9f7$6780e550$3682aff0$@flaxen.com>
+
+> Can't we determine the output type from the return type of the function?
+> I'm not so template aware though ...
+> 
+> Tdst getField<Tsrc>(index, fieldIndex);
+
+I know you're not allowed to do overloading just based on the return type,
+but I'm not sure how this plays into the templatedness of things here.  
+
+> > Closely related, I wonder if the enum Int is the wrong type for X --
+> > maybe it should be a special enum ScaledInt?
+> 
+> Isn't that implicit by the existence of a scale/offset value for the
+dimension?
+
+The idea would be to have a specialization of the template which "knows" how
+to do the Special int->double conversion, as opposed to the regular
+int->double conversion.  My idea was that rather than add a runtime check to
+the specialized function ("is this int scaled?"), the specialized function
+would be for the scaledint->double case so there would be no runtime cost
+for the non-special case.
+
+This might be in the realm of premature optimization.  I think we need to
+ask, what is the set of conversion operations which need to be specially
+handled?  Is it just for the case of Int32 data that is scaled, going to a
+Float or a Double?
+
+-mpg
+
+
+
+From mateusz at loskot.net  Fri Apr 15 10:54:35 2011
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] The specialness of X, Y, Z dimensions
+In-Reply-To: <E7F241DA-F50F-4858-BC1F-D64FD01A1532@gmail.com>
+References: <CFE36BA3-6C38-4D87-A6D0-667BB16C7CE9@gmail.com>	<020b01cbf9f2$e6e5e8e0$b4b1baa0$@flaxen.com>
+	<E7F241DA-F50F-4858-BC1F-D64FD01A1532@gmail.com>
+Message-ID: <4DA85C2B.4050704@loskot.net>
+
+On 13/04/11 17:19, Howard Butler wrote:
+> On Apr 13, 2011, at 10:53 AM, Michael P. Gerlek wrote:
+>>
+>> If I understand what you are asking, your idea is to add a new function
+>> getFieldAs<Tsrc,Tdst>(), which would know how to convert the actual
+>> underlying type Tsrc (in this case an int) to the desired type Tdst (in this
+>> case a double).  This is more than just a simple conversion, because the
+>> source type in this case is "special", in that it is scaled, so the function
+>> would have to "know" this.
+>
+> Can't we determine the output type from the return type of the function?
+ > I'm not so template aware though ...
+>
+> Tdst getField<Tsrc>(index, fieldIndex);
+
+You can't do determine return type here.
+You can do it to some extent using C++0x features, auto and decltype [1]
+but still there must be an "anchor" that leads to type determination.
+Like "t" of type "T" used in foo() and its forwarder example in [1]
+In the getField case above, I don't really see such thing.
+
+[1] http://en.wikipedia.org/wiki/Decltype
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+Member of ACCU, http://accu.org
+
+From mpg at flaxen.com  Mon Apr 18 17:48:11 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Perf update
+Message-ID: <005401cbfe12$511be480$f353ad80$@flaxen.com>
+
+I was testing pcview today on the MtStHelens data set, using a decimation
+filter to chop it down to 1M points and a colorizer filter to make the
+points look pretty.
+
+Informally, it looks like with the native libpc driver it does the point
+reading/processing in about 1.0 seconds, and with the libLAS driver it takes
+about 2.5 seconds.  Pretty sweet!
+
+Also, for this test anyway, pcview is a bit faster than Martin's lasview.
+
+-mpg
+
+
+
+From mpg at flaxen.com  Tue Apr 26 18:09:51 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] deleting iters
+Message-ID: <01d201cc045e$ab192310$014b6930$@flaxen.com>
+
+The iterators returned by the Stage::create*Iterator() calls are returned as
+pointers to heap objects.
+
+This is the only place we do that sort of thing, and I keep forgetting to
+insert the "delete iter" line in my code.
+
+I'm wondering if we want to return a shared_ptr here or something.
+
+-mpg
+
+
+

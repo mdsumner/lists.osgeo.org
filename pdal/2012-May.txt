@@ -1,0 +1,205 @@
+From edgar.ellis at caris.com  Tue May  1 14:47:50 2012
+From: edgar.ellis at caris.com (Edgar Ellis)
+Date: Tue May  1 14:48:41 2012
+Subject: [pdal] Submitting patches
+Message-ID: <4FA02FD6.4040002@caris.com>
+
+Hi,
+
+I have a few minor fixes to pdal, what's the preferred way of submitting 
+patches? email git format-patch? github pull request?
+
+- Edgar
+From hobu.inc at gmail.com  Tue May  1 14:49:53 2012
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue May  1 14:49:58 2012
+Subject: [pdal] Submitting patches
+In-Reply-To: <4FA02FD6.4040002@caris.com>
+References: <4FA02FD6.4040002@caris.com>
+Message-ID: <A76AFDD8-DF22-4E4C-98CA-1C56714D6A50@gmail.com>
+
+I'll happily merge pull requests.  
+
+On May 1, 2012, at 1:47 PM, Edgar Ellis wrote:
+
+> Hi,
+> 
+> I have a few minor fixes to pdal, what's the preferred way of submitting patches? email git format-patch? github pull request?
+> 
+> - Edgar
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From brad.chambers at gmail.com  Fri May 18 13:03:29 2012
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Fri May 18 13:03:37 2012
+Subject: [pdal] writing point cloud with no previous stage
+Message-ID: <CAJyqqPzqY-DM4bg4Csb55OiBEd_54xcNkoEyPxrOJ7ka+FZVXA@mail.gmail.com>
+
+I'm looking at adding PDAL support to an existing application--one that is
+mature enough that I'm not sure I really want to embed PDAL throughout
+(e.g., converting my filtering methods to PDAL Filters), but I do want to
+use it for point cloud I/O.
+
+My first step was to use PDAL to import data into the code's existing data
+structures, which works well enough. I'm able to get all the necessary
+information about each dimension, and to subsequently use getField to pull
+the data into memory. I then use existing code to filter the data and write
+it to disk. I'd like PDAL to take care of that last step, but I think I'm
+currently limited in my ability to use PDAL in this manner given that there
+is so much emphasis on stages and pipelines, neither of which I'm using. Is
+this by design?
+
+Consider the following.
+
+First, I make the reader stage, inferring driver type from the filename.
+
+  pdal::Options readerOptions;
+  {
+    readerOptions.add<std::string>("filename", in_filename);
+  }
+  pdal::Stage *reader = AppSupport::makeReader(readerOptions);
+
+Next, I go ahead and read all of the data into a PointBuffer.
+
+  pdal::PointBuffer in_buffer(schema, reader->getNumPoints());
+  pdal::StageSequentialIterator *iter = reader->createSequentialIterator(
+in_buffer);
+  boost::uint32_t num_read = iter->read(in_buffer);
+
+  for (boost::uint32_t point_idx = 0; point_idx < num_read; ++point_idx)
+  {
+    x[point_idx] =
+in_buffer.getField<float>(data.getSchema().getDimension("X"),
+point_idx);
+  }
+
+Here I'd like to do "stuff." The operations do not necessarily retain the
+same number of points as the input. Points may also be scaled, smoothed,
+classified, etc.
+
+When I'm done filtering the data, I create a new buffer, using the existing
+schema, but limited to the number of points I've retained.
+
+  pdal::PointBuffer out_buffer(reader->getSchema(), num_points_kept);
+
+I then iterate over the points, setting the modified dimension to its new
+value.
+
+  for (boost::int32_t point_idx = 0; point_idx < num_points_kept;
+++point_idx)
+  {
+    out_buffer.setField<float>(out_buffer.getSchema().getDimension("X"),
+point_idx, x[point_idx]);
+  }
+
+Here's the problem, I don't really want to create the writer using the
+reader as the previous stage (as shown below), but I also didn't want to go
+to the lengths of creating a filter to serve as the previous stage. Given
+the scenario, is there a way to write the modified cloud?
+
+  pdal::Options writerOptions;
+  {
+    writerOptions.add<std::string>("filename", out_filename);
+  }
+  pdal::Writer *writer = AppSupport::makeWriter(writerOptions, *reader);
+  writer->initialize();
+  writer->write();
+
+As an aside, note the use of makeReader and makeWriter. I like being able
+to infer the I/O drivers from the filename, as is done in the apps (e.g.,
+pc2pc), hence the reuse here. Has there been any discussion about bringing
+these into the main library and exposing them?
+
+Brad
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20120518/bd219f32/attachment.html
+From mpg at flaxen.com  Fri May 18 13:26:42 2012
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Fri May 18 13:27:29 2012
+Subject: [pdal] writing point cloud with no previous stage
+In-Reply-To: <CAJyqqPzqY-DM4bg4Csb55OiBEd_54xcNkoEyPxrOJ7ka+FZVXA@mail.gmail.com>
+References: <CAJyqqPzqY-DM4bg4Csb55OiBEd_54xcNkoEyPxrOJ7ka+FZVXA@mail.gmail.com>
+Message-ID: <036e01cd351b$64a18af0$2de4a0d0$@flaxen.com>
+
+Brad-
+
+ 
+
+I think you're saying you want to make a Writer that gets its input from a special kind of Reader which gets its data directly from a PointBuffer instead of from a file or similar. We don't have one of those, but it would be very easy to write.. except that our Writer imposes a "pull-from-the-data-source" style of operation, which means our writer is going to be the one in control, orchestrating how your app functions: your data supplier would be taking orders ("Get me another buffer!") from our writer.  which might not be what you want?
+
+ 
+
+We didn't put the makeReader/Writer functions into the PDAL library itself because at the time we didn't have a generic driver system. We mostly have that now, though, so those functions could be folded into the StageFactory class and such I think.
+
+ 
+
+-mpg
+
+ 
+
+From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Bradley Chambers
+Sent: Friday, May 18, 2012 10:03 AM
+To: pdal@lists.osgeo.org
+Subject: [pdal] writing point cloud with no previous stage
+
+ 
+
+I'm looking at adding PDAL support to an existing application--one that is mature enough that I'm not sure I really want to embed PDAL throughout (e.g., converting my filtering methods to PDAL Filters), but I do want to use it for point cloud I/O.
+
+My first step was to use PDAL to import data into the code's existing data structures, which works well enough. I'm able to get all the necessary information about each dimension, and to subsequently use getField to pull the data into memory. I then use existing code to filter the data and write it to disk. I'd like PDAL to take care of that last step, but I think I'm currently limited in my ability to use PDAL in this manner given that there is so much emphasis on stages and pipelines, neither of which I'm using. Is this by design?
+
+Consider the following.
+
+First, I make the reader stage, inferring driver type from the filename.
+
+  pdal::Options readerOptions;
+  {
+    readerOptions.add<std::string>("filename", in_filename);
+  }
+  pdal::Stage *reader = AppSupport::makeReader(readerOptions);
+
+Next, I go ahead and read all of the data into a PointBuffer.
+
+  pdal::PointBuffer in_buffer(schema, reader->getNumPoints());
+  pdal::StageSequentialIterator *iter = reader->createSequentialIterator(in_buffer);
+  boost::uint32_t num_read = iter->read(in_buffer);
+
+  for (boost::uint32_t point_idx = 0; point_idx < num_read; ++point_idx)
+  {
+    x[point_idx] = in_buffer.getField<float>(data.getSchema().getDimension("X"), point_idx);
+  }
+
+Here I'd like to do "stuff." The operations do not necessarily retain the same number of points as the input. Points may also be scaled, smoothed, classified, etc.
+
+When I'm done filtering the data, I create a new buffer, using the existing schema, but limited to the number of points I've retained.
+
+  pdal::PointBuffer out_buffer(reader->getSchema(), num_points_kept);
+
+I then iterate over the points, setting the modified dimension to its new value.
+
+  for (boost::int32_t point_idx = 0; point_idx < num_points_kept; ++point_idx)
+  {
+    out_buffer.setField<float>(out_buffer.getSchema().getDimension("X"), point_idx, x[point_idx]);
+  }
+
+Here's the problem, I don't really want to create the writer using the reader as the previous stage (as shown below), but I also didn't want to go to the lengths of creating a filter to serve as the previous stage. Given the scenario, is there a way to write the modified cloud?
+
+  pdal::Options writerOptions;
+  {
+    writerOptions.add<std::string>("filename", out_filename);
+  }
+  pdal::Writer *writer = AppSupport::makeWriter(writerOptions, *reader);
+  writer->initialize();
+  writer->write();
+
+As an aside, note the use of makeReader and makeWriter. I like being able to infer the I/O drivers from the filename, as is done in the apps (e.g., pc2pc), hence the reuse here. Has there been any discussion about bringing these into the main library and exposing them?
+
+Brad
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20120518/c9175123/attachment.html

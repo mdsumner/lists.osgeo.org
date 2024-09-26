@@ -1,0 +1,1572 @@
+From warmerdam at p...  Thu Jul  5 09:54:28 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: Some GDAL feedback
+References: <MGEOKJAEOFKANAFBLFGGGEIICLAA.ben@v...>
+Message-ID: <3B447194.7E300022@p...>
+
+Ben Discoe wrote:
+> 
+> Hi Frank,
+> 
+> I spent some time this evening on beginning to port the VTP code onto GDAL,
+> starting with the support for elevation rasters. (I'm using the
+> headers/binaries version you released for Win32.) Some small points of
+> feedback.
+> 
+> On the documentation page "GDAL API Tutorial",
+> 
+> 1. It would be nice to mention the name of the main header to include. As
+> far as i could determine, this is "gdal.h" for C programs, and "gdal_priv.h"
+> for C++.
+
+Ben,
+
+I have added them into the first (opening) example. 
+
+> 2. The C example code for opening a dataset doesn't look right; "hDataset =
+> ...; if (poDataset == ...)"
+
+Fixed.
+
+> 3. Under 'Getting Dataset Information', the C++ example doesn't look right;
+> i suspect that `s' should be `%s', d should be %d etc. in a few format
+> strings.
+
+This was a problem with the way Doxygen was processing the code. I have put
+all the code into \code segments, and things look proper now. 
+
+> Overall, i found the tutorial to be excellent and i was able to get rapidly
+> to the point of using GDAL to read SDTS DEMs, with a very small amount of
+> code; it's a wonderful improvement over my previous body of code which
+> called some antique version of LibSDTS, with great complexity.
+> 
+> One unresolved question: i believe the method GDALRasterBand::GetUnitType()
+> should indicate whether the vertical units are 'feet' or 'meters', and i
+> know that this information is contained in the SDTS DEMs that i am reading.
+> However, GetUnitType() is only returning an empty string, on either type of
+> file.
+
+Of course, what methods are actually implemented are format dependent, and I
+don't think GetUnitType() had actually been implemented for any formats yet!
+I have added this to the SDTS driver, added a C cover for GetUnitType() and
+add code to gdalinfo to report the units type if not empty. The SDTS 
+driver will now return "m" or "ft". 
+
+This is in CVS, and will appear in the next release. You might want to work
+from CVS. 
+
+> One of the big complaints i've had from people trying to build the VTP code,
+> especially on Linux, is the very large number of dependent libraries, each
+> of which have to be downloaded, installed/configured and built. I look
+> forward to leveraging GDAL/OGR to greatly reduce the number of dependencies!
+
+Well, now you have added another (GDAL), but built with most subcomponents 
+"built in" GDAL need not have many depenencies. 
+
+I appreciate your constructive feedback.
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From ben at v...  Sat Jul  7 07:05:56 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:13 2007
+Subject: SDTS
+In-Reply-To: <3B447194.7E300022@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGKEKBCLAA.ben@v...>
+
+
+Some more feedback on loading SDTS DEM with GDAL.
+
+My previous code which used an old version of "libsdts++" did the following,
+to get the datum out of a SDTS DEM:
+
+sb_ExtSpatialRef *pXREF;
+pXREF = new sb_ExtSpatialRef(record);
+// Find Datum type...
+const char * strDatum = pXREF->getHorizDatum().c_str();
+if (!strcmp(strDatum, "NAS") )
+m_Datum = NAD27;
+else if (!strcmp(strDatum, "WGC") )
+[....]
+
+When i now use GDALOpen() and GetProjectionRef(), i get a string:
+
+"+proj=utm +zone=10 +ellps=clrk66 "
+
+.. which doesn't contain the datum. Shouldn't it be contained in this
+string?
+
+-Ben
+
+
+
+From warmerdam at p...  Mon Jul  9 09:10:36 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] Projection description class
+References: <MGEOKJAEOFKANAFBLFGGEEKCCLAA.ben@v...>
+Message-ID: <3B49AD4C.C7A64E5F@p...>
+
+Ben Discoe wrote:
+> 
+> My code, which i'm trying to migrate to leverage GDAL/OGR/etc., used to
+> represent geographic projections with a very naive class like this:
+> 
+> class MyProjection {
+> [a bunch of methods]
+> bool m_bUTM;
+> int m_iUTMZone;
+> enum DATUM m_Datum;
+> };
+> 
+> This was fine for most of the USGS products, but is otherwise really
+> limited - it doesn't handle State Planes, Albers, and other terribly common
+> projections.
+> 
+> So, i'd like to replace the usage of my Projection class with the
+> appropriate class in the GDAL system. Studying the docs, it seems the a
+> likely candidate is "GDALProjDef", which in turn is built on
+> "OGRSpatialReference" and its related classes.
+
+Ben,
+
+GDALProjDef is a dead-end. I would encourage you to use OGRSpatialReference
+directly, as it is intended to superceed the GDALProjDef. 
+
+> Looking at the python source to OpenEV, i find the following:
+> 
+> projection = gdal_ds.GetProjection()
+> if len(projection) > 0:
+> sr = osr.SpatialReference()
+> if sr.ImportFromWkt( projection ) == 0:
+> projection = sr.ExportToPrettyWkt( simplify = 1 )
+> 
+> This seems to indicate that the underlying "SpatialReference" class is the
+> full-featured one. (Is there some reason why 'ExportToPrettyWkt' doesn't
+> appear in the C++ version of 'OGRSpatialReference'?)
+
+Why do you say that exportToPrettyWkt() doesn't appear in the C+ version?
+It is a method on the OGRSpatialReference. 
+
+> All my code needs is to concisely represent any number of projections and
+> quickly convert coordinates between them; should i be looking at using
+> GDALProjDef, or OGRSpatialReference, or something else?
+
+OGRSpatialReference can be the coordinate system definition, and 
+OGRCoordinateTransformation (built on PROJ.4) can do the reprojection. 
+
+Note that OGRSpatialReference and company are not easily separated from
+GDAL. Are you prepared to build in an absolute dependence on GDAL in your
+application? If so, It think the OGRSpatialReference and company will
+serve you well. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Mon Jul  9 09:07:07 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] SDTS
+References: <MGEOKJAEOFKANAFBLFGGKEKBCLAA.ben@v...>
+Message-ID: <3B49AC7B.AE0FE3F@p...>
+
+Ben Discoe wrote:
+> 
+> Some more feedback on loading SDTS DEM with GDAL.
+> 
+> My previous code which used an old version of "libsdts++" did the following,
+> to get the datum out of a SDTS DEM:
+> 
+> sb_ExtSpatialRef *pXREF;
+> pXREF = new sb_ExtSpatialRef(record);
+> // Find Datum type...
+> const char * strDatum = pXREF->getHorizDatum().c_str();
+> if (!strcmp(strDatum, "NAS") )
+> m_Datum = NAD27;
+> else if (!strcmp(strDatum, "WGC") )
+> [....]
+> 
+> When i now use GDALOpen() and GetProjectionRef(), i get a string:
+> 
+> "+proj=utm +zone=10 +ellps=clrk66 "
+> 
+> .. which doesn't contain the datum. Shouldn't it be contained in this
+> string?
+
+Ben,
+
+I appologise. The SDTS projection support is very old (by GDAL standards)
+and predates my introduction of OGC WKT support. I have rewritten my 
+SDTS projection code and you should now get back something like:
+
+PROJCS["UTM Zone 12, Northern Hemisphere",
+GEOGCS["NAD27",
+DATUM["North_American_Datum_1927",
+SPHEROID["Clarke 1866",6378206.4,294.978698213898,
+AUTHORITY["EPSG",7008]],
+TOWGS84[-3,142,183,0,0,0,0],
+AUTHORITY["EPSG",6267]],
+PRIMEM["Greenwich",0,
+AUTHORITY["EPSG",8901]],
+UNIT["DMSH",0.0174532925199433,
+AUTHORITY["EPSG",9108]],
+AXIS["Lat","NORTH"],
+AXIS["Long","EAST"],
+AUTHORITY["EPSG",4267]],
+PROJECTION["Transverse_Mercator"],
+PARAMETER["latitude_of_origin",0],
+PARAMETER["central_meridian",-111],
+PARAMETER["scale_factor",0.9996],
+PARAMETER["false_easting",500000],
+PARAMETER["false_northing",0]]
+
+This would normally be parsed using the OGRSpatialReference. After
+converting it into an OGRSpatialReference (With importFromWkt()), 
+you would call GetAttrValue("DATUM") to get the datum name 
+(North_Americian_Datum_1927) and GetUTMZone() to get the zone. 
+
+The changes haven't been committed back to CVS but should as soon as
+cvs.remotesensing.org is working properly again. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Mon Jul  9 09:10:36 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] Projection description class
+References: <MGEOKJAEOFKANAFBLFGGEEKCCLAA.ben@v...>
+Message-ID: <3B49AD4C.C7A64E5F@p...>
+
+Ben Discoe wrote:
+> 
+> My code, which i'm trying to migrate to leverage GDAL/OGR/etc., used to
+> represent geographic projections with a very naive class like this:
+> 
+> class MyProjection {
+> [a bunch of methods]
+> bool m_bUTM;
+> int m_iUTMZone;
+> enum DATUM m_Datum;
+> };
+> 
+> This was fine for most of the USGS products, but is otherwise really
+> limited - it doesn't handle State Planes, Albers, and other terribly common
+> projections.
+> 
+> So, i'd like to replace the usage of my Projection class with the
+> appropriate class in the GDAL system. Studying the docs, it seems the a
+> likely candidate is "GDALProjDef", which in turn is built on
+> "OGRSpatialReference" and its related classes.
+
+Ben,
+
+GDALProjDef is a dead-end. I would encourage you to use OGRSpatialReference
+directly, as it is intended to superceed the GDALProjDef. 
+
+> Looking at the python source to OpenEV, i find the following:
+> 
+> projection = gdal_ds.GetProjection()
+> if len(projection) > 0:
+> sr = osr.SpatialReference()
+> if sr.ImportFromWkt( projection ) == 0:
+> projection = sr.ExportToPrettyWkt( simplify = 1 )
+> 
+> This seems to indicate that the underlying "SpatialReference" class is the
+> full-featured one. (Is there some reason why 'ExportToPrettyWkt' doesn't
+> appear in the C++ version of 'OGRSpatialReference'?)
+
+Why do you say that exportToPrettyWkt() doesn't appear in the C+ version?
+It is a method on the OGRSpatialReference. 
+
+> All my code needs is to concisely represent any number of projections and
+> quickly convert coordinates between them; should i be looking at using
+> GDALProjDef, or OGRSpatialReference, or something else?
+
+OGRSpatialReference can be the coordinate system definition, and 
+OGRCoordinateTransformation (built on PROJ.4) can do the reprojection. 
+
+Note that OGRSpatialReference and company are not easily separated from
+GDAL. Are you prepared to build in an absolute dependence on GDAL in your
+application? If so, It think the OGRSpatialReference and company will
+serve you well. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From ben at v...  Fri Jul 13 05:32:27 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] SDTS
+In-Reply-To: <3B49AC7B.AE0FE3F@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGIEMFCLAA.ben@v...>
+
+
+Great to hear that SDTS projection got fixed!
+
+My next trouble is with using OGR to read SDTS-DLG files. (I'm using the
+version of OGR compiled in that latest GDAL release).
+
+I downloaded some SDTS-DLG files, which i can load and view correctly in the
+USGS DlgV32 software. OGR seems to load and parse them "mostly correct",
+but i cannot get the feature geometry.
+
+My code looks like this:
+
+OGRRegisterAll();
+OGRDataSource *datasource = OGRSFDriverRegistrar::Open( strFileName );
+OGRLayer *layer = datasource->GetLayer(0);
+int feature_count = layer->GetFeatureCount();
+layer->ResetReading();
+OGRFeature *pFeature;
+while( (pFeature = layer->GetNextFeature()) != NULL )
+{
+OGRGeometry *geom = pFeature->GetGeometryRef();
+[....]
+}
+
+Unfortunately the return from GetGeometryRef is always NULL, although the
+feature count is correct and there are no errors reported.
+
+Is this functionality known to work in OGR?
+
+Thanks,
+Ben
+
+
+
+From ben at v...  Fri Jul 13 06:06:24 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Projection description class
+In-Reply-To: <3B49AD4C.C7A64E5F@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGEEMGCLAA.ben@v...>
+
+
+> -----Original Message-----
+> From: Frank Warmerdam
+>
+> I would encourage you to use OGRSpatialReference
+> directly, as it is intended to superceed the GDALProjDef.
+
+OK. I will migrate my whole code base to using OGRSpatialReference. This
+may generate some questions! :)
+
+1. Is there a good reason why there is no OGRSpatialReference::GetDatum()?
+I suppose datum could be parsed out of the text returned by one of the
+"exportTo" methods.
+
+2. The datum can be set as one of the arguments to SetGeogCS(), but how
+would i set the datum if specifying some other projection, such as UTM?
+
+3. Must the projection be fully initialized before it can be queried? I
+tried the following:
+OGRSpatialReference test;
+int zone = test.GetUTMZone();
+which results not in an error message, but a crash.
+
+> Note that OGRSpatialReference and company are not easily separated from
+> GDAL. Are you prepared to build in an absolute dependence on GDAL in your
+> application? If so, It think the OGRSpatialReference and company will
+> serve you well.
+
+Yes; i currently have a dependence on a number of smaller, older libraries
+which GDAL/OGR will replace, so i am comfortable with the dependency.
+
+Thanks,
+Ben
+
+
+
+From warmerdam at p...  Fri Jul 13 08:38:52 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Projection description class
+References: <MGEOKJAEOFKANAFBLFGGEEMGCLAA.ben@v...>
+Message-ID: <3B4EEBDC.13A4057E@p...>
+
+Ben Discoe wrote:
+> 1. Is there a good reason why there is no OGRSpatialReference::GetDatum()?
+> I suppose datum could be parsed out of the text returned by one of the
+> "exportTo" methods.
+
+Ben,
+
+There is no good reason, but the intention is that simple values from the
+tree, such as DATUM, can be fetched with OGRSpatialReference::GetNodeValue().
+
+eg. 
+
+pszDatum = oSRS.GetNodeValue("DATUM");
+
+More specific get methods have been implemented for complex values, or
+values which we want to support specific defaulting rules for. 
+
+> 2. The datum can be set as one of the arguments to SetGeogCS(), but how
+> would i set the datum if specifying some other projection, such as UTM?
+
+You would first set the projection information (ie. SetUTM()) and then you
+would do the SetGeogCS() call to set the related geographic coordinate
+system information. Don't do the SetGeogCS() first, or the coordinate
+system as a whole will be geographic.
+
+I am happy to tweak the behaviour of OGRSpatialReference when you run into
+things that are likely to be widespread impediments to it's use. 
+
+> 3. Must the projection be fully initialized before it can be queried? I
+> tried the following:
+> OGRSpatialReference test;
+> int zone = test.GetUTMZone();
+> which results not in an error message, but a crash.
+
+This is a bug. I have committed a fix for it to ogrspatialreference.cpp. Note
+that GetUTMZone() returns zero if it fails for some reason, such as it not
+really being a UTM projection. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Fri Jul 13 08:44:56 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] SDTS
+References: <MGEOKJAEOFKANAFBLFGGIEMFCLAA.ben@v...>
+Message-ID: <3B4EED48.A2338FEE@p...>
+
+Ben Discoe wrote:
+> 
+> Great to hear that SDTS projection got fixed!
+> 
+> My next trouble is with using OGR to read SDTS-DLG files. (I'm using the
+> version of OGR compiled in that latest GDAL release).
+> 
+> I downloaded some SDTS-DLG files, which i can load and view correctly in the
+> USGS DlgV32 software. OGR seems to load and parse them "mostly correct",
+> but i cannot get the feature geometry.
+...
+> Unfortunately the return from GetGeometryRef is always NULL, although the
+> feature count is correct and there are no errors reported.
+> 
+> Is this functionality known to work in OGR?
+
+Ben,
+
+I am not sure which scale of DLG you were working with, but if I run ogrinfo
+against a 1:24000 DLG I get:
+
+warmerda@gdal[176]% ogrinfo -ro HP01CATD.DDF 
+INFO: Open of `HP01CATD.DDF'
+using driver `SDTS' successful.
+1: AHPF (None)
+2: AHPT (None)
+3: AHDR (None)
+4: NP01 (Point)
+5: NE01 (Point)
+6: NA01 (Point)
+7: NO01 (Point)
+8: LE01 (Line String)
+9: PC01 (Polygon)
+
+Of these layers, the first three (with geometry type None) are pure secondary
+attribute tables. You will find the Point, Line String and Polygon layers 
+have geometry.
+
+Given an OGRLayer, you can call poLayer->GetDefn()->GetGeomType() to get the
+geometry type from the enumeration OGRwkbGeometryType in ogr_geometry.h
+(values such as wkbPoint, wkbPoint25D, wkbLineString, wkbLineString25D, etc). 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From ben at v...  Sat Jul 14 18:57:50 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] SDTS
+In-Reply-To: <3B4EED48.A2338FEE@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGOEMLCLAA.ben@v...>
+
+
+Thanks to your help so far! I've made a lot of great progress.
+
+The current problem is with getting information out of SDTS DLG with OGR.
+
+In the "classic" DLG representation, there are "nodes" which are connected
+by "lines". The "lines" connect the nodes, not only via an array of points,
+but they also reference the start and end nodes by index.
+
+Using OGRLineString in the "Line String" layer, i can get the array of
+points for each line. But, i cannot figure out how to tell which are the
+start and end nodes.
+
+I tried iterating through the OGRFieldDefn for these features, but none of
+them contain the node information.
+
+I could try doing a manual lookup of start and end nodes, by comparing the
+(x,y) values at the ends of the lines... but is there a way to get the
+information directly, as one does from a normal DLG?
+
+Thanks,
+Ben
+
+> -----Original Message-----
+> From: Frank Warmerdam
+> Subject: Re: [gdal-dev] SDTS
+>
+>
+> if I run ogrinfo against a 1:24000 DLG I get:
+>
+> warmerda@gdal[176]% ogrinfo -ro HP01CATD.DDF
+> INFO: Open of `HP01CATD.DDF'
+> using driver `SDTS' successful.
+> 1: AHPF (None)
+> 2: AHPT (None)
+> 3: AHDR (None)
+> 4: NP01 (Point)
+> 5: NE01 (Point)
+> 6: NA01 (Point)
+> 7: NO01 (Point)
+> 8: LE01 (Line String)
+> 9: PC01 (Polygon)
+>
+> Of these layers, the first three (with geometry type None) are
+> pure secondary attribute tables. You will find the Point, Line
+> String and Polygon layers have geometry.
+
+
+
+
+From ben at v...  Sun Jul 15 15:54:00 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: normal USGS DEM?
+In-Reply-To: <3B4EEBDC.13A4057E@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGKEMOCLAA.ben@v...>
+
+
+I noticed today that OpenEV/GDAL doesn't actually appear to support normal
+USGS DEMs (non-SDTS), which are one of the most common formats out there...
+it's not a big issue, since the VTP and plenty of other libraries already
+provide open source for reading DEMs, but i was curious as to why there is
+this odd ommision from the otherwise comprehensive list of GDAL-supported
+formats?
+
+-Ben
+
+
+
+From ben at v...  Sun Jul 15 18:26:46 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: OGRCreateCoordinateTransformation
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGKEMOCLAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGCENACLAA.ben@v...>
+
+
+Is OGRCreateCoordinateTransformation() part of the usual GDAL/OGR library?
+I know that OGR is a "loosely coupled subcomponent" of GDAL, so perhaps it
+omitted? I am linking against gdal_i.lib and it is coming up undefined.
+
+It looks like it is the only way to convert coordinates, a very important
+ability, so i would hope that it is built in to GDAL somehow.
+
+-Ben
+
+
+
+From ben at v...  Sun Jul 15 18:29:01 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: copying OGRSpatialReference
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGOEMLCLAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGGENACLAA.ben@v...>
+
+
+I'm unclear on how to copy a OGRSpatialReference value. If i just use the
+default assignment operator, like this:
+
+OGRSpatialReference test1;
+test1.SetProjCS("UTM Zone 12, Northern Hemisphere");
+OGRSpatialReference test2 = test1;
+
+then it crashes when both are deleted, presumably because it's a shallow
+rather than deep copy.
+
+The "Clone" method looks like it's provided to be used instead, but when i
+try:
+
+OGRSpatialReference test1;
+OGRSpatialReference *test2 = test1.Clone();
+
+it crashes as well. Actually, Clone() seems to work as long as the source
+has some nodes, so perhaps is it just a little bug with empty projections.
+
+-Ben
+
+
+
+From ben at v...  Sun Jul 15 22:29:50 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: OGRSpatialReference Datum behavior
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGGENACLAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGEENDCLAA.ben@v...>
+
+
+Sorry about the rash of feedback, but it's been an exciting day of porting
+to OGR.
+
+I'm experiencing an odd behavior:
+
+OGRSpatialReference sr;
+sr.SetWellKnownGeogCS( "NAD27" );
+sr.SetUTM( 10, TRUE );
+const char *datum = sr.GetAttrValue("DATUM");
+
+This returns not "North_American_Datum_1927" as expected, but NULL. It is
+correct if i don't call SetUTM. Somehow the call to SetUTM is wiping out
+the datum. Bug?
+
+Thanks,
+Ben
+
+
+
+From warmerdam at p...  Sun Jul 15 23:15:26 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] copying OGRSpatialReference
+References: <MGEOKJAEOFKANAFBLFGGGENACLAA.ben@v...>
+Message-ID: <3B525C4E.33796317@p...>
+
+Ben Discoe wrote:
+> 
+> I'm unclear on how to copy a OGRSpatialReference value. If i just use the
+> default assignment operator, like this:
+> 
+> OGRSpatialReference test1;
+> test1.SetProjCS("UTM Zone 12, Northern Hemisphere");
+> OGRSpatialReference test2 = test1;
+>
+> then it crashes when both are deleted, presumably because it's a shallow
+> rather than deep copy.
+
+Ben,
+
+Fixed. 
+
+> The "Clone" method looks like it's provided to be used instead, but when i
+> try:
+> 
+> OGRSpatialReference test1;
+> OGRSpatialReference *test2 = test1.Clone();
+> 
+> it crashes as well. Actually, Clone() seems to work as long as the source
+> has some nodes, so perhaps is it just a little bug with empty projections.
+
+Fixed. 
+
+In general I have always used the Clone() method to make copies, but I have
+now implemented copy constructors and assignment operators. You are exposing
+the fact that I myself use these classes in fairly specific ways and so I 
+don't fall into these traps I have laid for others. 
+
+Nevertheless, I am happy to fix them as they come up. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Sun Jul 15 23:27:32 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] OGRSpatialReference Datum behavior
+References: <MGEOKJAEOFKANAFBLFGGEENDCLAA.ben@v...>
+Message-ID: <3B525F24.909D4FCF@p...>
+
+Ben Discoe wrote:
+> 
+> Sorry about the rash of feedback, but it's been an exciting day of porting
+> to OGR.
+> 
+> I'm experiencing an odd behavior:
+> 
+> OGRSpatialReference sr;
+> sr.SetWellKnownGeogCS( "NAD27" );
+> sr.SetUTM( 10, TRUE );
+> const char *datum = sr.GetAttrValue("DATUM");
+> 
+> This returns not "North_American_Datum_1927" as expected, but NULL. It is
+> correct if i don't call SetUTM. Somehow the call to SetUTM is wiping out
+> the datum. Bug?
+
+Ben,
+
+The theory was that you should set the projection and then make calls
+to set the GEOGCS which would result in it being added to the definition.
+However, these expectation are based on viewing things in terms of creating
+the WKT parse tree, and don't really abstract the management of the 
+SRS as much as I would like. I have modified SetUTM() and a bunch of related
+functions for setting projections to demote the GEOGCS node to being a
+child of the OGRSpatialReference instead of just blowing it away when things
+are done in this order. Your problem should be resolved. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Sun Jul 15 23:32:03 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] OGRCreateCoordinateTransformation
+References: <MGEOKJAEOFKANAFBLFGGCENACLAA.ben@v...>
+Message-ID: <3B526033.DBBAE1AD@p...>
+
+Ben Discoe wrote:
+> 
+> Is OGRCreateCoordinateTransformation() part of the usual GDAL/OGR library?
+> I know that OGR is a "loosely coupled subcomponent" of GDAL, so perhaps it
+> omitted? I am linking against gdal_i.lib and it is coming up undefined.
+> 
+> It looks like it is the only way to convert coordinates, a very important
+> ability, so i would hope that it is built in to GDAL somehow.
+
+Ben,
+
+I have apparently never used this function in code outside of the GDAL
+DLL before (though I have called the C analog OCTNewCoordinateTransformation())
+and so I didn't realize it wasn't properly defined with the CPL_DLL marker
+in the include file. I have corrected this. After a clean build it should
+be exported properly and available in gdal_i.lib. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Sun Jul 15 23:34:02 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] normal USGS DEM?
+References: <MGEOKJAEOFKANAFBLFGGKEMOCLAA.ben@v...>
+Message-ID: <3B5260AA.3E111E7B@p...>
+
+Ben Discoe wrote:
+> 
+> I noticed today that OpenEV/GDAL doesn't actually appear to support normal
+> USGS DEMs (non-SDTS), which are one of the most common formats out there...
+> it's not a big issue, since the VTP and plenty of other libraries already
+> provide open source for reading DEMs, but i was curious as to why there is
+> this odd ommision from the otherwise comprehensive list of GDAL-supported
+> formats?
+
+Ben,
+
+In my previous life at PCI I spent alot of miserable effort supporting a wide
+variety of USGS DEM products. Different LF/CF configurations, some with fixed
+length records, some with variable, some screwed up files from ESRI software,
+etc. Anyways, no one has had much interest in old style DEMs in GDAL and my
+previously experienced with them weren't so pleasant so I haven't bothered.
+
+If you can point me to some relatively straight forward code for reading them,
+and some sample files, I would be willing to add the format. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Sun Jul 15 23:50:50 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] SDTS
+References: <MGEOKJAEOFKANAFBLFGGOEMLCLAA.ben@v...>
+Message-ID: <3B52649A.4C0BA586@p...>
+
+Ben Discoe wrote:
+> 
+> Thanks to your help so far! I've made a lot of great progress.
+> 
+> The current problem is with getting information out of SDTS DLG with OGR.
+> 
+> In the "classic" DLG representation, there are "nodes" which are connected
+> by "lines". The "lines" connect the nodes, not only via an array of points,
+> but they also reference the start and end nodes by index.
+> 
+> Using OGRLineString in the "Line String" layer, i can get the array of
+> points for each line. But, i cannot figure out how to tell which are the
+> start and end nodes.
+> 
+> I tried iterating through the OGRFieldDefn for these features, but none of
+> them contain the node information.
+> 
+> I could try doing a manual lookup of start and end nodes, by comparing the
+> (x,y) values at the ends of the lines... but is there a way to get the
+> information directly, as one does from a normal DLG?
+
+Ben,
+
+The ENID/SNID (end and start node) information was being discarded. I have
+added ENID and SNID attributes on the line features with the integer record
+numbers of the end and start node. This doesn't indicate what module (layer)
+the nodes come from. If you need the module information too I can add it. 
+
+Note that some other "structural" information is also discarded, such as that
+used to build the polygons from the nodes and lines, but I hadn't seen it as
+being of much value before. 
+
+I assume you want the start/end nodes to trace the network? 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From nhv at y...  Mon Jul 16 00:16:11 2001
+From: nhv at y... (Norman Vine)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] normal USGS DEM?
+In-Reply-To: <3B5260AA.3E111E7B@p...>
+Message-ID: <000e01c10dae$0c78d2c0$a300a8c0@nhv>
+
+Frank Warmerdam writes:
+>
+>In my previous life at PCI I spent alot of miserable effort supporting a
+wide
+>variety of USGS DEM products. Different LF/CF configurations, some with
+fixed
+>length records, some with variable, some screwed up files from ESRI
+software,
+>etc. Anyways, no one has had much interest in old style DEMs in GDAL and
+my
+>previously experienced with them weren't so pleasant so I haven't bothered.
+>
+>If you can point me to some relatively straight forward code for reading
+them,
+>and some sample files, I would be willing to add the format.
+
+For USGS DEMs there are several projects with good source
+The drawmap code is straight forward clean 'C'
+http://www.ttc-cmc.net/~fme/drawmap.html
+http://www.arq.net/~kasten/demtools/
+http://www.mindspring.com/~jamoyers/kdem/
+
+WIndows code from USGS < excellent but may be windows specific >
+ftp://ftpmcmc.er.usgs.gov/release/viewers/dlgv32/source/
+
+FWIW
+If you have any specific questions about USGS DEMs
+I can usually find the answer fairly quickly
+
+Cheers
+
+Norman
+
+
+
+
+
+
+From ben at v...  Mon Jul 16 00:40:41 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] SDTS
+In-Reply-To: <3B52649A.4C0BA586@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGMENECLAA.ben@v...>
+
+
+> I have added ENID and SNID attributes on the line features
+> with the integer record numbers of the end and start node. This
+> doesn't indicate what module (layer) the nodes come from. If
+> you need the module information too I can add it.
+
+That shouldn't be necessary. As it is, i'm making the assumption that SDTS
+DLG are going to have their nodes in a layer called "NO01" and their lines
+in a lyayer called "LE01".
+
+> I assume you want the start/end nodes to trace the network?
+
+Yup, it's vital for doing stuff like navigating the road network, also handy
+for keeping things tidy while editing the network.
+
+-Ben
+
+
+
+From ben at v...  Mon Jul 16 00:48:47 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] normal USGS DEM?
+In-Reply-To: <3B5260AA.3E111E7B@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGGENFCLAA.ben@v...>
+
+
+> variety of USGS DEM products. Different LF/CF configurations,
+> some with fixed length records, some with variable, some screwed up
+> files from ESRI software, etc.
+
+Yup. I had to go through lots of crap too, as did a lot of people
+independently, before Open Source popularity brought a lot of the
+implementations to the surface. The VTP software already reads
+fixed/variable record DLG (ug - not even the USGS software reads both of
+them (!?)) and many of the (apparently countless) variations of format
+calling themselves "DEM". Ick.
+
+> If you can point me to some relatively straight forward code for
+> reading them,
+> and some sample files, I would be willing to add the format.
+
+I'll send you an attachment with DEM-reading source that not only covers
+plenty of strange varieties, but (as of today) even constructs an
+OGRSpatialReference from it :-)
+
+-Ben
+
+
+
+From ben at v...  Mon Jul 16 04:09:47 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: Small build problem
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGGENFCLAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGGENGCLAA.ben@v...>
+
+
+I got gdal from cvs and tried to build it on Win32. The library compiled
+nicely, but it snagged on some problem (with the test applications?)
+
+[...]
+Creating library gdal_i.lib and object gdal_i.exp
+cd apps
+nmake /f makefile.vc
+NMAKE : fatal error U1073: don't know how to make 'lib\setargv.obj'
+Stop.
+
+-Ben
+
+
+
+From ben at v...  Mon Jul 16 05:12:24 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: GDAL and PROJ.4
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGGENFCLAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGIENICLAA.ben@v...>
+
+
+Now that i have the latest GDAL (with the all the excellent recent fixes!) i
+tried calling OGRCreateCoordinateTransformation to convert between a plain
+Geographic projection and UTM.
+
+OGRCreateCoordinateTransformation returns NULL, so i used
+CPLPushErrorHandler to find out what is failing. The message is "Unable to
+load PROJ.4 library (proj.dll), creation of OGRCoordinateTransformation
+failed."
+
+So, i looked around for "proj.dll" and found that it isn't built by GDAL
+straight from CVS - it appears to be an entirely separate library, yet a
+"proj.dll" was included somehow with the last Win32 binary GDAL 114-2
+release. I tried coping that "proj.dll" to my current path, and got a
+message:
+
+Attempt to load proj.dll, but couldn't find pj_transform.
+Please upgrade to PROJ 4.1.2 or later.
+
+It appears the "current" 114-2 GDAL release has a very old version of
+proj.dll?
+
+So, i went and looked at the PROJ.4 page, http://www.remotesensing.org/proj/
+and found a binary for Linux, but not Win32. Downloaded the latest source
+and built it, copied "proj.dll" to the GDAL bin directory, and finally it
+works. (Could we add a binary release for Win32 to the PROJ.4 site, like
+there is for Linux?)
+
+However, the results i'm getting from
+OGRCreateCoordinateTransformation::Transform are definitely wrong. Perhaps
+there is some trickiness.
+
+From: "+proj=longlat +ellps=WGS84 +datum=WGS84 "
+To: "+proj=utm +zone=10 +ellps=clrk66 +datum=NAD27 +units=m "
+
+Any reason why this transformation wouldn't be supported?
+
+-Ben
+
+
+
+From warmerdam at p...  Mon Jul 16 08:34:05 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL and PROJ.4
+References: <MGEOKJAEOFKANAFBLFGGIENICLAA.ben@v...>
+Message-ID: <3B52DF3D.AB15E3A8@p...>
+
+Ben Discoe wrote:
+> So, i went and looked at the PROJ.4 page, http://www.remotesensing.org/proj/
+> and found a binary for Linux, but not Win32. Downloaded the latest source
+> and built it, copied "proj.dll" to the GDAL bin directory, and finally it
+> works. (Could we add a binary release for Win32 to the PROJ.4 site, like
+> there is for Linux?)
+
+Ben,
+
+It is my intention to prepare a proper PROJ.4 binary distribution for Windows
+at some point. 
+
+> However, the results i'm getting from
+> OGRCreateCoordinateTransformation::Transform are definitely wrong. Perhaps
+> there is some trickiness.
+> 
+> From: "+proj=longlat +ellps=WGS84 +datum=WGS84 "
+> To: "+proj=utm +zone=10 +ellps=clrk66 +datum=NAD27 +units=m "
+
+To successfully do the datum shift, PROJ.4 needs to be able to find the
+datum shift files. On windows this process is a bit more challenging than
+with a default unix install. You should be able to define the PROJ_LIB
+environment variable, and point it to the PROJ\NAD directory. 
+
+Also, ensure that you have "preprocessed" the datum shift files. With the
+latest PROJ.4 from CVS you should be able to "nmake /f makefile.vc nadshift"
+in the PROJ\SRC directory to process the datum shift files in PROJ\NAD. 
+
+In the longer term I hope this process will be smoother, especially the
+mechanisms for finding the datum shift files. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerdam at p...  Mon Jul 16 09:18:50 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Small build problem
+References: <MGEOKJAEOFKANAFBLFGGGENGCLAA.ben@v...>
+Message-ID: <3B52E9BA.38C018F9@p...>
+
+Ben Discoe wrote:
+> 
+> I got gdal from cvs and tried to build it on Win32. The library compiled
+> nicely, but it snagged on some problem (with the test applications?)
+> 
+> [...]
+> Creating library gdal_i.lib and object gdal_i.exp
+> cd apps
+> nmake /f makefile.vc
+> NMAKE : fatal error U1073: don't know how to make 'lib\setargv.obj'
+> Stop.
+
+Ben,
+
+I imagine you don't have the VCDIR variable set properly in GDAL\nmake.opt.
+This tells the system where Visual C++ is found so that it can link against
+the wildcard expansion code in $VCDIR/lib/setargv.obj. It may also affect
+some other build aspects. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From ben at v...  Mon Jul 16 14:17:42 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Small build problem
+In-Reply-To: <3B52E9BA.38C018F9@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGMENOCLAA.ben@v...>
+
+
+> I imagine you don't have the VCDIR variable set properly in
+> GDAL\nmake.opt.
+
+That was indeed the problem. I have MSVC installed in a rather default
+location:
+
+VCDIR = "C:\Program Files\Visual Studio\VC98"
+
+...but the Makefile apparently doesn't support spaces in paths. To get it
+to work, i had to use the DOS-mangle equivalent:
+
+VCDIR = C:\PROGRA~1\VISUAL~1\VC98
+
+I notice that the default nmake.opt indicates a machine on which VC98 is
+conveniently installed in a path without spaces :-) The norm being
+otherwise, perhaps there should be a little note telling people what they
+need to do to.
+
+-Ben
+
+
+
+From warmerdam at p...  Tue Jul 17 14:32:12 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: GDAL 1.1.5 Beta 1 
+Message-ID: <3B5484AC.3D7416DA@p...>
+
+Folks,
+
+I have prepared a first beta for a hopefully soon to come GDAL 1.1.5 release.
+Anyone interested in a smooth GDAL 1.1.5 release is encouraged to download
+and try configuring and building GDAL 1.1.5. 
+
+ftp://ftp.remotesensing.org/gdal/gdal-1.1.5b1.tar.gz
+
+Amoung other things I have done a bunch of work to ensure GDAL can be built
+fairly smoothly on Cygwin environments. I will prepare a more detailed list
+of new features before a final 1.1.5 release. 
+
+It is my hope that this release will coincide approximatley with the MapServer
+3.5 release, which now uses GDAL. It also includes the many fixes Ben has
+requested for VTP. 
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From nhv at y...  Wed Jul 18 11:19:49 2001
+From: nhv at y... (Norman Vine)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL 1.1.5 Beta 1 
+In-Reply-To: <3B5484AC.3D7416DA@p...>
+Message-ID: <003101c10f9d$16b00100$a300a8c0@nhv>
+
+Frank Warmerdam writes:
+>
+>I have prepared a first beta for a hopefully soon to come GDAL 1.1.5
+release.
+>Anyone interested in a smooth GDAL 1.1.5 release is encouraged to download
+>and try configuring and building GDAL 1.1.5.
+>
+> ftp://ftp.remotesensing.org/gdal/gdal-1.1.5b1.tar.gz
+>
+>Amoung other things I have done a bunch of work to ensure GDAL can be built
+>fairly smoothly on Cygwin environments. I will prepare a more detailed
+list
+>of new features before a final 1.1.5 release.
+
+Hi Frank
+
+I managed to build this using the CVS Cygwin files using
+./configure --without-python --with-grass=no --with-jpeg=internal --with-geo
+tiff=internal --with-libtiff=internal
+
+this should probably be mentioned somewhere in a readme
+or did I miss something reguired inorder to be able to link successfully
+with the Cygwin distributed libraries
+
+Hopefull I will be able to figure out a python Distutils setup.py
+to do the Python extension in a cross platform way.
+< may take a while though >
+
+Also I am a bit concerned that there may be problems using gdal
+and Cygwin with a GUI because of the following from cpl_port.h
+
+/* ==================================================================== */
+/* This will disable most WIN32 stuff in a Cygnus build which */
+/* defines unix to 1. */
+/* ==================================================================== */
+#ifdef unix
+# undef WIN32
+#endif
+
+I believe the generally accepted way of doing this in the Cygwin community
+is to do something more along the lines of
+
+#if (defined(WIN32) || defined(_WIN32)) && !defined(__CYGWIN__)
+do things ala WIN32 API
+#else
+// do things POSIX way
+#endif
+
+This allows the use WIN32 or _WIN32 as flags to be used when wanting
+to use the Windows GDI and still use the Cygwin POSIX layer.
+
+I am more then willing to do some or all of the 'grunt' work required
+if I knew what we wanted.
+< this might be a showstopper for a Cygwin OSSIM wxWindows combination >
+
+Thanks
+
+Norman
+
+
+
+From ben at v...  Thu Jul 19 01:56:23 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: GDAL, OGR and Shapelib
+In-Reply-To: <3B52DF3D.AB15E3A8@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGKEPFCLAA.ben@v...>
+
+
+Before moving to GDAL, my code was using Shapelib; now i suspect that i
+don't have to link with an external Shapelib anymore, since Shapelib can be
+(is?) compiled into GDAL. However, the necessary headers (e.g. that define
+'SHPObject') aren't in the GDAL 'distribution', only in the CVS files.
+
+I presume that OGR encapsulates Shapelib, so one way would be port my
+Shapelib code to use OGR instead, but that introduces a lot of overhead -
+Shapelib is far simpler and more direct.
+
+Advice? Could the Shapelib classes be added the GDAL-exposed headers?
+
+Thanks,
+Ben
+
+
+
+From warmerdam at p...  Thu Jul 19 23:37:38 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL, OGR and Shapelib
+References: <MGEOKJAEOFKANAFBLFGGKEPFCLAA.ben@v...>
+Message-ID: <3B57A782.CB767B3F@p...>
+
+Ben Discoe wrote:
+> 
+> Before moving to GDAL, my code was using Shapelib; now i suspect that i
+> don't have to link with an external Shapelib anymore, since Shapelib can be
+> (is?) compiled into GDAL. However, the necessary headers (e.g. that define
+> 'SHPObject') aren't in the GDAL 'distribution', only in the CVS files.
+> 
+> I presume that OGR encapsulates Shapelib, so one way would be port my
+> Shapelib code to use OGR instead, but that introduces a lot of overhead -
+> Shapelib is far simpler and more direct.
+> 
+> Advice? Could the Shapelib classes be added the GDAL-exposed headers?
+
+Ben,
+
+I am not too keen on installing shapefil.h with GDAL's include files as
+a standard thing for GDAL. I think you would be pretty safe just
+carrying a copy of shapefil.h around with VTP. As long as you stick 
+to calling the API (as opposed to diddling with the structures) you should
+be OK for a long time to come. Shapelib is pretty "stable". 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From ben at v...  Fri Jul 20 01:25:31 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL, OGR and Shapelib
+In-Reply-To: <3B57A782.CB767B3F@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGAEPMCLAA.ben@v...>
+
+
+OK, but...
+I tried adding shapelib.h to my own local gdal. It compiled with that, but
+didn't find the SHP functions at link time.
+
+Looking at gdal_i.lib, i see the SHP functions are not exposed there.
+
+Can this be fixed, or do i really need to built and link with Shapelib
+separately, which would be redundant with the Shapelib code already built
+into gdal.dll?
+
+-Ben
+
+> -----Original Message-----
+> From: Frank Warmerdam
+> Sent: Thursday, July 19, 2001 8:38 PM
+> To: gdal-dev@yahoogroups.com
+> Subject: Re: [gdal-dev] GDAL, OGR and Shapelib
+>
+>
+> Ben Discoe wrote:
+> >
+> > Before moving to GDAL, my code was using Shapelib; now i suspect that i
+> > don't have to link with an external Shapelib anymore, since
+> Shapelib can be
+> > (is?) compiled into GDAL. However, the necessary headers (e.g.
+> that define
+> > 'SHPObject') aren't in the GDAL 'distribution', only in the CVS files.
+> >
+> > I presume that OGR encapsulates Shapelib, so one way would be port my
+> > Shapelib code to use OGR instead, but that introduces a lot of
+> overhead -
+> > Shapelib is far simpler and more direct.
+> >
+> > Advice? Could the Shapelib classes be added the GDAL-exposed headers?
+>
+> Ben,
+>
+> I am not too keen on installing shapefil.h with GDAL's include files as
+> a standard thing for GDAL. I think you would be pretty safe just
+> carrying a copy of shapefil.h around with VTP. As long as you stick
+> to calling the API (as opposed to diddling with the structures) you should
+> be OK for a long time to come. Shapelib is pretty "stable".
+>
+
+
+
+From warmerdam at p...  Fri Jul 20 09:08:14 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL, OGR and Shapelib
+References: <MGEOKJAEOFKANAFBLFGGAEPMCLAA.ben@v...>
+Message-ID: <3B582D3E.3B4F37E3@p...>
+
+Ben Discoe wrote:
+> 
+> OK, but...
+> I tried adding shapelib.h to my own local gdal. It compiled with that, but
+> didn't find the SHP functions at link time.
+> 
+> Looking at gdal_i.lib, i see the SHP functions are not exposed there.
+> 
+> Can this be fixed, or do i really need to built and link with Shapelib
+> separately, which would be redundant with the Shapelib code already built
+> into gdal.dll?
+
+
+Ben,
+
+I have corrected the way Shapelib is built in GDAL on Windows so that the
+functions are exported. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From ben at v...  Sat Jul 28 10:01:02 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL and PROJ.4
+In-Reply-To: <3B52DF3D.AB15E3A8@p...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGKEEHCMAA.ben@v...>
+
+
+> From: warmerda@s...
+> Subject: Re: [gdal-dev] GDAL and PROJ.4
+>
+> It is my intention to prepare a proper PROJ.4 binary distribution
+> for Windows at some point.
+
+That would be great.
+
+> To successfully do the datum shift, PROJ.4 needs to be able to find the
+> datum shift files. On windows this process is a bit more challenging than
+> with a default unix install. You should be able to define the PROJ_LIB
+> environment variable, and point it to the PROJ\NAD directory.
+
+Is this 'PROJ_LIB' necessary to "build" the datum shift files, or necessary
+at runtime? It is a bit much for me to expect Windows end-users to set an
+environment variable to run the top-level software.
+
+> Also, ensure that you have "preprocessed" the datum shift files.
+
+I admit i haven't gone too deeply into the PROJ docs, but i'm quite puzzled
+why PROJ requires this step, when the similar 'gctpc' package does Datum
+conversion and does not need any similar step.
+
+> With the latest PROJ.4 from CVS you should be able to "nmake /f
+> makefile.vc nadshift"
+> in the PROJ\SRC directory to process the datum shift files in PROJ\NAD.
+
+When i try that, i get the error:
+C:\APIs\proj\nad>..\src\nad2bin.exe < conus.lla conus
+The system cannot find the file specified.
+
+Indeed, there is no file 'conus.lla' in the PROJ cvs.
+
+> In the longer term I hope this process will be smoother, especially the
+> mechanisms for finding the datum shift files.
+
+Please! Can they be 'compiled in' to the library, or perhaps whatever
+'gctpc' does?
+
+Thanks,
+Ben
+
+
+
+From ben at v...  Sat Jul 28 12:06:13 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: Detecting type of SDTS file?
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGKEEHCMAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGMEEICMAA.ben@v...>
+
+
+When somebody does a drag-and-drop of an SDTS file (*catd.ddf) into my
+application, i need to quickly find out if it is a SDTS-DEM (in which case i
+will load it with GDAL) or an SDTS-DLG (in which case i will load it with
+OGR).
+
+Is there any way to do this simply, short of the full process of attempting
+to load the file with both GDAL and OGR and testing which operation fails?
+
+-Ben
+
+
+
+From danmo at v...  Sat Jul 28 17:07:58 2001
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL and PROJ.4
+References: <MGEOKJAEOFKANAFBLFGGKEEHCMAA.ben@v...>
+Message-ID: <3B6329AE.671EE051@d...>
+
+Ben Discoe wrote:
+> 
+> > With the latest PROJ.4 from CVS you should be able to "nmake /f
+> > makefile.vc nadshift"
+> > in the PROJ\SRC directory to process the datum shift files in PROJ\NAD.
+> 
+> When i try that, i get the error:
+> C:\APIs\proj\nad>..\src\nad2bin.exe < conus.lla conus
+> The system cannot find the file specified.
+> 
+> Indeed, there is no file 'conus.lla' in the PROJ cvs.
+> 
+
+I haven't tried this on Windows, but with Unix you have to download and
+extract the file proj-nad27-1.1.tar.gz in the nad directory. The
+conus.lla and family are not in the proj4 CVS. 
+See http://www.remotesensing.org/proj/
+
+FYI Frank is away for 10 days so don't be surprised if you don't get
+replies to your other questions...
+-- 
+------------------------------------------------------------
+Daniel Morissette morissette@d...
+DM Solutions Group http://www.dmsolutions.ca/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+
+
+
+From ben at v...  Sat Jul 28 18:40:39 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL and PROJ.4
+In-Reply-To: <3B6329AE.671EE051@d...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGGEEKCMAA.ben@v...>
+
+
+> -----Original Message-----
+> From: Daniel Morissette [mailto:danmo@v...]
+>
+> I haven't tried this on Windows, but with Unix you have to download
+> and extract the file proj-nad27-1.1.tar.gz in the nad directory.
+
+Ah, thanks, i didn't see that.
+
+Upon untarring, i do notice that the file ntv1_can.dat (1 MB!) is present in
+both CVS and in proj-nad27-1.1.tar.gz.
+
+Now (on Windows) i get the following:
+
+\proj\src>nmake /f makefile.vc
+[...]
+Creating library proj_i.lib and object proj_i.exp
+nad_init.obj : error LNK2001: unresolved external symbol _emess
+proj.dll : fatal error LNK1120: 1 unresolved externals
+
+emess?
+
+-Ben
+
+
+
+From ben at v...  Sat Jul 28 20:22:47 2001
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:14 2007
+Subject: How to declare State Plane coordinates?
+In-Reply-To: <MGEOKJAEOFKANAFBLFGGMEEICMAA.ben@v...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGAEELCMAA.ben@v...>
+
+
+I have a Shapefile which is said to use the following projection:
+"Washington State Plane Coordinates, North".
+
+I can use Shapelib (or OGR, i suppose) to load the file, but how do a
+construct a OGRSpatialReference with the projection? The online
+documentation for OGRSpatialReference::SetStatePlane() has only are the
+words "State Plane." So, i dug into the CVS source, and found more: "State
+plane zone number, in the USGS numbering scheme."
+
+I dug around more in the source but couldn't locate a set of values for this
+'USGS numbering scheme'; there is some related-looking tables in the GeoTiff
+code, but AFAICT nothing which describes the values to pass to
+SetStatePlane()?
+
+Ideally, i would like to display a list of strings containing the possible
+values to the user, so they can inform my program of which State Plane they
+have. Does such a table appear anywhere usable in GDAL/OGR?
+
+-Ben
+
+
+

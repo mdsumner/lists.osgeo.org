@@ -1,0 +1,2677 @@
+From tutey at o2.pl  Mon May  5 11:47:53 2008
+From: tutey at o2.pl (Maciej Sieczka)
+Date: Mon, 05 May 2008 20:47:53 +0200
+Subject: [Proj] Re: SRS stuff broken in GDAL and PROJ
+In-Reply-To: <4810D8A6.8070705@pobox.com>
+References: <47F69506.3010207@o2.pl> <47FF8049.3050201@duif.net>
+	<4800B7D9.6030307@duif.net>
+	<200804131343.01414.marco.hugentobler@karto.baug.ethz.ch>
+	<d368056f0804140538k1298c472m57ddcc08c7a8a6ce@mail.gmail.com>
+	<48079C6E.1060508@o2.pl> <4807A225.1000404@pobox.com>
+	<4807AD5B.1080409@o2.pl> <480F8167.7080908@o2.pl>
+	<480F84F0.2030108@pobox.com> <48103B54.3020101@o2.pl>
+	<4810D8A6.8070705@pobox.com>
+Message-ID: <481F5659.7050806@o2.pl>
+
+As the attachments were too big for the ML I'm re-sending the message
+with the list of control points and script attached only.
+
+Frank Warmerdam pisze:
+> Maciej Sieczka wrote:
+
+>> Ouch. So SRS stuff is pretty much broken in GDAL and PROJ. I 
+>> subscribed to the ticket and I'd be happy to help with testing.
+
+> I disagree with the assessment that things are broken.  They are just
+>  a little bent. Numerically the differences are insignificant.
+
+Frank,
+
+So I checked and it looks that, unfortunately, things really are broken.
+
+I have compared the results of re-projection from ll/WGS84 to each EPSG
+code common for PROJ 4.5 and 4.6, using proj4 strings as present in the
+"epsg" file.
+
+Test points were obtained from the EPSG dataset v6.15 [1] using the
+following SQL query on the SRS's area-of-use boundaries:
+
+SELECT coord_ref_sys_code, area_west_bound_lon, area_south_bound_lat
+FROM epsg_coordinatereferencesystem, epsg_area WHERE
+epsg_coordinatereferencesystem.area_of_use_code=epsg_area.area_code AND
+epsg_coordinatereferencesystem.show_crs=1 AND
+epsg_coordinatereferencesystem.deprecated=0;
+
+This gave a list of points located in the SW corner of each SRS's area
+of use. The list is attached as epsg_control_pts.txt.zip.
+
+The "epsg" files were extracted from PROJ.4 4.5 and 4.6 source code, and
+named "epsg.45", "epsg.46", respectively.
+
+These files were used as an input for the attached script,
+proj-epsg_45vs46.sh. It's output are 2 files: epsg.45.result,
+epsg.46.result. When comparing them it is clear that there are
+numerically significant differences between epsg files coming with
+PROJ.4 4.5 and 4.6.
+
+Out of the 2865 common EPSG codes, proj4 strings of 133 of them are
+different enough between the epsg files of PROJ 4.5 and 4.6 to result in
+re-projection errors of few centimeters most of the time, about a meter
+in several cases to as much as kilometers in few. I would call this a
+critical issue.
+
+> The issue is with comparing string representations of coordinate 
+> systems.
+
+That's another big issue.
+
+Maciek
+
+[1]http://www.epsg.org/databases/Discv6_15sql-PosgreSql.html
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: epsg_control_pts.txt.zip
+Type: application/zip
+Size: 18576 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080505/7432e406/attachment.zip>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: proj-epsg_45vs46.sh
+Type: application/x-sh
+Size: 896 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080505/7432e406/attachment.sh>
+
+From warmerdam at pobox.com  Mon May  5 11:57:02 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 05 May 2008 14:57:02 -0400
+Subject: [Proj] Re: SRS stuff broken in GDAL and PROJ
+In-Reply-To: <481F5659.7050806@o2.pl>
+References: <47F69506.3010207@o2.pl> <47FF8049.3050201@duif.net>
+	<4800B7D9.6030307@duif.net>
+	<200804131343.01414.marco.hugentobler@karto.baug.ethz.ch>
+	<d368056f0804140538k1298c472m57ddcc08c7a8a6ce@mail.gmail.com>
+	<48079C6E.1060508@o2.pl> <4807A225.1000404@pobox.com>
+	<4807AD5B.1080409@o2.pl> <480F8167.7080908@o2.pl>
+	<480F84F0.2030108@pobox.com> <48103B54.3020101@o2.pl>
+	<4810D8A6.8070705@pobox.com> <481F5659.7050806@o2.pl>
+Message-ID: <481F587E.2080806@pobox.com>
+
+Maciej Sieczka wrote:
+> Out of the 2865 common EPSG codes, proj4 strings of 133 of them are
+> different enough between the epsg files of PROJ 4.5 and 4.6 to result in
+> re-projection errors of few centimeters most of the time, about a meter
+> in several cases to as much as kilometers in few. I would call this a
+> critical issue.
+
+Maciej,
+
+I am presuming that the ones with large differences are due to the fact
+that PROJ 4.6.0 does *not* apply a change-of-ellipse shift when no
+datum to wgs84 mapping information is available.
+
+I would suggest you isolate 2-3 examples out of your list that you are
+confident are significant issues and we can discuss them in more detail.
+Please ensure that you have worked out whether the significant difference
+is in the PROJ.4 string generated for the epsg file, or whether it is
+the behavior of PROJ.4 between 4.5 and 4.6 that you think is responsible.
+
+It is important to isolate particular issues and try to understand them
+deeply.
+
+As you likely know Andrey has committed a fix in the last day or two
+for CPLAtof() and with this change we should be able to generate an
+epsg init file without the slight round off differences.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From tutey at o2.pl  Mon May  5 23:00:36 2008
+From: tutey at o2.pl (Maciej Sieczka)
+Date: Tue, 06 May 2008 08:00:36 +0200
+Subject: [Proj] Re: SRS stuff broken in GDAL and PROJ
+In-Reply-To: <481F587E.2080806@pobox.com>
+References: <47F69506.3010207@o2.pl> <47FF8049.3050201@duif.net>
+	<4800B7D9.6030307@duif.net>
+	<200804131343.01414.marco.hugentobler@karto.baug.ethz.ch>
+	<d368056f0804140538k1298c472m57ddcc08c7a8a6ce@mail.gmail.com>
+	<48079C6E.1060508@o2.pl> <4807A225.1000404@pobox.com>
+	<4807AD5B.1080409@o2.pl> <480F8167.7080908@o2.pl>
+	<480F84F0.2030108@pobox.com> <48103B54.3020101@o2.pl>
+	<4810D8A6.8070705@pobox.com> <481F5659.7050806@o2.pl>
+	<481F587E.2080806@pobox.com>
+Message-ID: <481FF404.60402@o2.pl>
+
+Frank Warmerdam pisze:
+> Maciej Sieczka wrote:
+
+>> Out of the 2865 common EPSG codes, proj4 strings of 133 of them are
+>>  different enough between the epsg files of PROJ 4.5 and 4.6 to
+>> result in re-projection errors of few centimeters most of the time,
+>> about a meter in several cases to as much as kilometers in few. I
+>> would call this a critical issue.
+
+> I am presuming that the ones with large differences are due to the
+> fact that PROJ 4.6.0 does *not* apply a change-of-ellipse shift when
+> no datum to wgs84 mapping information is available.
+
+Right. After making correction for that, 120 SRSs in the epsg file of
+PROJ 4.6 still have errors significant enough to cause an error of few
+decimeters, compared to epsg file of PROJ 4.5.
+
+> I would suggest you isolate 2-3 examples out of your list that you
+> are confident are significant issues and we can discuss them in more
+> detail.
+
+All 120 are significant. Please pick for testing the one you like. I'm
+attaching a list of test points I used - 120pts.txt. They are in
+ll/WGS84 coordinates. The file is organized as follows:
+
+---
+espg_no easting northing
+...
+---
+
+Respective proj4 strings, derived from the epsg file of PROJ 4.5 and
+4.6, followed by cs2cs result obtained with both proj4 strings per each
+pair of coordinates is attached as 120errors.txt. The file is organized
+as follows:
+
+---
+epsg.45:<epsg_no> proj4 string derived from epsg file of PROJ 4.5
+epsg.46:<same_epsg_no> relevant proj4 string from epsg file of PROJ 4.6
+result.45: re-projection result from ll/WGS84 using the 4.5 proj4 string
+result.46: re-projection result from ll/WGS84 using the 4.6 proj4 string
+
+...
+---
+
+> Please ensure that you have worked out whether the significant
+> difference is in the PROJ.4 string generated for the epsg file, or
+> whether it is the behavior of PROJ.4 between 4.5 and 4.6 that you
+> think is responsible.
+
+I used exclusively PROJ 4.6 in the test. Only the epsg file alone was
+taken from PROJ 4.5 to compare it with PROJ 4.6 one.
+
+> As you likely know Andrey has committed a fix in the last day or two 
+> for CPLAtof()
+
+That's excellent. There is no mention of it in the relevant Trac ticket
+tough [1].
+
+Cheers
+Maciek
+
+[1]http://trac.osgeo.org/gdal/ticket/2036
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 120.zip
+Type: application/zip
+Size: 6077 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080506/a668a2bc/attachment.zip>
+
+From agerturk at gmail.com  Tue May  6 23:23:42 2008
+From: agerturk at gmail.com (Aydin)
+Date: Wed, 7 May 2008 06:23:42 +0000 (UTC)
+Subject: [Proj] To handle geographic info from HDF5 formated Satellite Data
+Message-ID: <loom.20080507T061642-157@post.gmane.org>
+
+I try to handle geographic coordinates (lat/lon) from a sattellite data in 
+HDF5 format. You can find necessary information below.
+Could you please tell me how can initialize proj4 program and how can obtain 
+lat/lon values for one pixel.
+
+detailed info is below:
+
+geo_number_rows = 4500
+geo_number_columns = 3165
+geo_pixel_size_x = 0.560648
+geo_pixel_size_y = -0.56215554
+geo_row_offset = -4759.928
+geo_column_offset = -1636.3636
+geo_dim_pixel = KM, KM
+geo_pixel_def = CENTRE
+geo_product_corners = -25.0, 25.0, -25.0, 75.0, 45.0, 75.0, 45.0, 25.0
+geo_product_center = 9.719999, 50.47374
+
+projection_name = EQUIDISTANT_CYLINDRICAL
+projection_proj4_params = +proj=eqc +lat_ts = 0 +lon_0=0.000000
+
+
+
+
+
+
+From warmerdam at pobox.com  Wed May  7 09:00:16 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 07 May 2008 12:00:16 -0400
+Subject: [Proj] To handle geographic info from HDF5 formated Satellite Data
+In-Reply-To: <loom.20080507T061642-157@post.gmane.org>
+References: <loom.20080507T061642-157@post.gmane.org>
+Message-ID: <4821D210.9090202@pobox.com>
+
+Aydin wrote:
+> I try to handle geographic coordinates (lat/lon) from a sattellite data in 
+> HDF5 format. You can find necessary information below.
+> Could you please tell me how can initialize proj4 program and how can obtain 
+> lat/lon values for one pixel.
+> 
+> detailed info is below:
+> 
+> geo_number_rows = 4500
+> geo_number_columns = 3165
+> geo_pixel_size_x = 0.560648
+> geo_pixel_size_y = -0.56215554
+> geo_row_offset = -4759.928
+> geo_column_offset = -1636.3636
+> geo_dim_pixel = KM, KM
+> geo_pixel_def = CENTRE
+> geo_product_corners = -25.0, 25.0, -25.0, 75.0, 45.0, 75.0, 45.0, 25.0
+> geo_product_center = 9.719999, 50.47374
+> 
+> projection_name = EQUIDISTANT_CYLINDRICAL
+> projection_proj4_params = +proj=eqc +lat_ts = 0 +lon_0=0.000000
+
+Aydin,
+
+PROJ.4 does not address transformation from pixel/line space to georeferenced
+space.  Just projected space to geographic space (and back).  The info above
+does not indicate an ellipsoid, but we might assume WGS84 as a guess.
+If the corners are in long/lat ordering we can assume the top left corner
+is 25W, 75N.  This can be converted to equidistant cylindrical coordinates
+like this:
+
+proj +proj=eqc +lat_ts=0 +lon_0=0.000000 +ellps=WGS84
+-25 75
+-2782987.27     8348961.81
+
+So, the top left corner is -2782987.27mE, 8348961.81mN.
+
+Actually, treating this as a projection issue is rather silly since
+the projection is eqc which is just a scaling of geographic space.
+And since all the locations and pixel sizes are expressed in decimal
+degrees you might as well just ignore that aspect, and treat this as
+a WGS84 image with the given corners.
+
+So, if the top left corner is -25,75 and the pixel size is
+0.560648, 0.56215554 you could compute pixel (20in from left,15 down
+from top) as:
+
+longitude = -25 + 0.560548 * 20
+latitude = 75 - 0.560648 * 15
+
+etc
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From marco.pasetti at alice.it  Wed May  7 11:53:17 2008
+From: marco.pasetti at alice.it (Marco Pasetti)
+Date: Wed, 7 May 2008 20:53:17 +0200
+Subject: [Proj] DCW Projection
+Message-ID: <008d01c8b073$9ccedf30$0201a8c0@notebookmarco>
+
+Hi all,
+
+I need to import DCW (http://www.maproom.psu.edu/dcw/dcw_about.shtml) data
+in GRASS, and I need to create a location with the correct projection to
+import them.
+On the DCW web site I read as follows:
+
+COORDINATE SYSTEM DESCRIPTION
+
+The coordinate system is described according to ARC/INFO standards. For more
+information, see the project command in the ARC/INFO Users Guide.
+
+General Projection Information
+
+Projection:	GEOGRAPHIC
+		The coordinate pairs are measured by latitude/longitude and
+have not been altered by projection algorithms.
+		If you are using ARCVIEW, the projection MUST be GEOGRAPIC
+in order to reproject.
+
+Units:		DD
+		Coordinate pairs are measured in decimal degrees.
+
+Spheroid:	CLARKE1866
+		The spheroid for the data is the Clark 1866.
+
+I created a location with the following projection: +proj=longlat
++ellps=clrk66 +no_defs
+
+Is it correct? What would you suggest me?
+
+Thanks,
+
+Marco
+
+
+
+From agerturk at gmail.com  Thu May  8 03:56:40 2008
+From: agerturk at gmail.com (Aydin)
+Date: Thu, 8 May 2008 10:56:40 +0000 (UTC)
+Subject: [Proj] Re: To handle geographic info from HDF5 formated Satellite
+	Data
+References: <loom.20080507T061642-157@post.gmane.org>
+	<4821D210.9090202@pobox.com>
+Message-ID: <loom.20080508T105548-825@post.gmane.org>
+
+Thank you for response.
+if I use your suggestion, for example pixel (1000,1000);
+
+longitude = -25 + 0.560648 * 1000 = 5581.48
+latitude = 75 - 0.560648 * 1000 = -5531.48
+
+So, it is not possible.
+
+I do not have problem converting projected space to geographic space using 
+proj lib. My problem is how can calculate the distance from the corner using 
+below parameters than I can convert those to lat/lon.
+
+Best Regards,
+Aydin
+
+
+
+
+
+
+From agerturk at gmail.com  Thu May  8 03:58:05 2008
+From: agerturk at gmail.com (=?ISO-8859-9?Q?Ayd=FDn_G=FCrol_Ert=FCrk?=)
+Date: Thu, 8 May 2008 13:58:05 +0300
+Subject: [Proj] To handle geographic info from HDF5 formated Satellite Data
+In-Reply-To: <4821D210.9090202@pobox.com>
+References: <loom.20080507T061642-157@post.gmane.org>
+	<4821D210.9090202@pobox.com>
+Message-ID: <ae2b37fe0805080358m39366789xe61e28800fd862e8@mail.gmail.com>
+
+Frank,
+
+Thank you for response.
+if I use your suggestion, for example pixel (1000,1000);
+
+longitude = -25 + 0.560648 * 1000 = 5581.48
+latitude = 75 - 0.560648 * 1000 = -5531.48
+
+So, it is not possible.
+
+I do not have problem converting projected space to geographic space using
+proj lib. My problem is how can calculate the distance from the corner using
+
+below parameters than I can convert those to lat/lon.
+
+Best Regards,
+Aydin
+
+
+2008/5/7, Frank Warmerdam <warmerdam at pobox.com>:
+>
+> Aydin wrote:
+>
+> > I try to handle geographic coordinates (lat/lon) from a sattellite data
+> > in HDF5 format. You can find necessary information below.
+> > Could you please tell me how can initialize proj4 program and how can
+> > obtain lat/lon values for one pixel.
+> >
+> > detailed info is below:
+> >
+> > geo_number_rows = 4500
+> > geo_number_columns = 3165
+> > geo_pixel_size_x = 0.560648
+> > geo_pixel_size_y = -0.56215554
+> > geo_row_offset = -4759.928
+> > geo_column_offset = -1636.3636
+> > geo_dim_pixel = KM, KM
+> > geo_pixel_def = CENTRE
+> > geo_product_corners = -25.0, 25.0, -25.0, 75.0, 45.0, 75.0, 45.0, 25.0
+> > geo_product_center = 9.719999, 50.47374
+> >
+> > projection_name = EQUIDISTANT_CYLINDRICAL
+> > projection_proj4_params = +proj=eqc +lat_ts = 0 +lon_0=0.000000
+> >
+>
+> Aydin,
+>
+> PROJ.4 does not address transformation from pixel/line space to
+> georeferenced
+> space.  Just projected space to geographic space (and back).  The info
+> above
+> does not indicate an ellipsoid, but we might assume WGS84 as a guess.
+> If the corners are in long/lat ordering we can assume the top left corner
+> is 25W, 75N.  This can be converted to equidistant cylindrical coordinates
+> like this:
+>
+> proj +proj=eqc +lat_ts=0 +lon_0=0.000000 +ellps=WGS84
+> -25 75
+> -2782987.27     8348961.81
+>
+> So, the top left corner is -2782987.27mE, 8348961.81mN.
+>
+> Actually, treating this as a projection issue is rather silly since
+> the projection is eqc which is just a scaling of geographic space.
+> And since all the locations and pixel sizes are expressed in decimal
+> degrees you might as well just ignore that aspect, and treat this as
+> a WGS84 image with the given corners.
+>
+> So, if the top left corner is -25,75 and the pixel size is
+> 0.560648, 0.56215554 you could compute pixel (20in from left,15 down
+> from top) as:
+>
+> longitude = -25 + 0.560548 * 20
+> latitude = 75 - 0.560648 * 15
+>
+> etc
+>
+> Best regards,
+> --
+>
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+> warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080508/3a1324a0/attachment.html>
+
+From agerturk at gmail.com  Thu May  8 04:21:14 2008
+From: agerturk at gmail.com (Aydin)
+Date: Thu, 8 May 2008 11:21:14 +0000 (UTC)
+Subject: [Proj] Re: To handle geographic info from HDF5 formated Satellite
+	Data
+References: <loom.20080507T061642-157@post.gmane.org>
+	<4821D210.9090202@pobox.com>
+Message-ID: <loom.20080508T112019-905@post.gmane.org>
+
+Frank Warmerdam <warmerdam <at> pobox.com> writes:
+> 
+> Aydin,
+> 
+> PROJ.4 does not address transformation from pixel/line space to georeferenced
+> space.  Just projected space to geographic space (and back).  The info above
+> does not indicate an ellipsoid, but we might assume WGS84 as a guess.
+> If the corners are in long/lat ordering we can assume the top left corner
+> is 25W, 75N.  This can be converted to equidistant cylindrical coordinates
+> like this:
+> 
+> proj +proj=eqc +lat_ts=0 +lon_0=0.000000 +ellps=WGS84
+> -25 75
+> -2782987.27     8348961.81
+> 
+> So, the top left corner is -2782987.27mE, 8348961.81mN.
+> 
+> Actually, treating this as a projection issue is rather silly since
+> the projection is eqc which is just a scaling of geographic space.
+> And since all the locations and pixel sizes are expressed in decimal
+> degrees you might as well just ignore that aspect, and treat this as
+> a WGS84 image with the given corners.
+> 
+> So, if the top left corner is -25,75 and the pixel size is
+> 0.560648, 0.56215554 you could compute pixel (20in from left,15 down
+> from top) as:
+> 
+> longitude = -25 + 0.560548 * 20
+> latitude = 75 - 0.560648 * 15
+> 
+> etc
+> 
+> Best regards,
+Frank,
+
+Thank you for response.
+if I use your suggestion, for example pixel (1000,1000);
+
+longitude = -25 + 0.560648 * 1000 = 5581.48
+latitude = 75 - 0.560648 * 1000 = -5531.48
+
+So, it is not possible.
+
+I do not have problem converting projected space to geographic space using 
+proj lib. My problem is how can calculate the distance from the corner using 
+below parameters than I can convert those to lat/lon.
+
+Best Regards,
+Aydin
+
+
+
+
+
+
+From warmerdam at pobox.com  Thu May  8 05:56:04 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 08 May 2008 08:56:04 -0400
+Subject: [Proj] Re: To handle geographic info from HDF5 formated
+	Satellite Data
+In-Reply-To: <loom.20080508T112019-905@post.gmane.org>
+References: <loom.20080507T061642-157@post.gmane.org>
+	<4821D210.9090202@pobox.com> <loom.20080508T112019-905@post.gmane.org>
+Message-ID: <4822F864.3@pobox.com>
+
+Aydin wrote:
+> Frank,
+> 
+> Thank you for response.
+> if I use your suggestion, for example pixel (1000,1000);
+> 
+> longitude = -25 + 0.560648 * 1000 = 5581.48
+> latitude = 75 - 0.560648 * 1000 = -5531.48
+> 
+> So, it is not possible.
+> 
+> I do not have problem converting projected space to geographic space using 
+> proj lib. My problem is how can calculate the distance from the corner using 
+> below parameters than I can convert those to lat/lon.
+
+Aydin,
+
+I stand corrected - the pixel size turns out to be in km not decimal degrees.
+
+So you will have to offset from the top left corner using:
+
+x (easting) = -2782987.27 + 560.648 * pixel
+y (northing) = 8348961.81 - 560.648 * line
+
+Then reproject that point back to long/lat using
+
+proj -I +proj=eqc +lat_ts=0 +lon_0=0.000000 +ellps=WGS84
+
+Good luck,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From agerturk at gmail.com  Thu May  8 06:51:49 2008
+From: agerturk at gmail.com (Aydin)
+Date: Thu, 8 May 2008 13:51:49 +0000 (UTC)
+Subject: [Proj] Re: To handle geographic info from HDF5 formated	Satellite
+	Data
+References: <loom.20080507T061642-157@post.gmane.org>
+	<4821D210.9090202@pobox.com>
+	<loom.20080508T112019-905@post.gmane.org> <4822F864.3@pobox.com>
+Message-ID: <loom.20080508T134207-740@post.gmane.org>
+
+Frank Warmerdam <warmerdam <at> pobox.com> writes:
+
+> 
+> Aydin wrote:
+> > Frank,
+> > 
+> > Thank you for response.
+> > if I use your suggestion, for example pixel (1000,1000);
+> > 
+> > longitude = -25 + 0.560648 * 1000 = 5581.48
+> > latitude = 75 - 0.560648 * 1000 = -5531.48
+> > 
+> > So, it is not possible.
+> > 
+> > I do not have problem converting projected space to geographic space using 
+> > proj lib. My problem is how can calculate the distance from the corner 
+using 
+> > below parameters than I can convert those to lat/lon.
+> 
+> Aydin,
+> 
+> I stand corrected - the pixel size turns out to be in km not decimal degrees.
+> 
+> So you will have to offset from the top left corner using:
+> 
+> x (easting) = -2782987.27 + 560.648 * pixel
+> y (northing) = 8348961.81 - 560.648 * line
+> 
+> Then reproject that point back to long/lat using
+> 
+> proj -I +proj=eqc +lat_ts=0 +lon_0=0.000000 +ellps=WGS84
+> 
+> Good luck,
+Frank,
+
+Thank you very much that you pay time for me.
+Unfortunately, it does not work. Let me show.
+We have centre lon/lat values which are: lon=9.719999, lat=50.47374
+Centre point pixel value are XCenter=2250, Ycenter=1583.
+
+x (2250) = -2783 + 2250*0.560648  = -1521.5 km.
+y (1583) =  8349 - 1583*0.5621554 =  7459 km.
+
+When get the lon/lat using proj
+lon = -13.667867
+lat =  67.006235 
+
+which are not true.
+
+It is realy diffcult to solve this porblem at least for me.
+
+Best regards,
+
+Aydin
+
+
+
+
+
+From hamish_b at yahoo.com  Fri May  9 02:51:06 2008
+From: hamish_b at yahoo.com (Hamish)
+Date: Fri, 9 May 2008 21:51:06 +1200
+Subject: [Proj] PROJ4 settings for direct import of Smith & Sandwell topo
+	data, GMT
+Message-ID: <20080509215106.17adb16a.hamish_b@yahoo.com>
+
+[ maybe this wiki page has a clue for Aydin re. HDF5 efforts? it has tips
+  on how to set map corner coords and projection metadata for HDF4 using
+  gdal_translate, etc. http://grass.osgeo.org/wiki/MODIS ]
+
+---
+
+[the following is a re-post from the grass-users list, no answer there.]
+
+Hi,
+
+I have been trying to figure out how to create a GRASS location for the
+native projection of Smith and Sandwell's 1-minute global elevation
+v9.1b, August 21, 2007.  http://topex.ucsd.edu/marine_topo/mar_topo.html 
+(dataset is 712mb uncompressed)
+
+Data is given as simple Mercator on a sphere, the same as GMT's "img2grd
+-D". I wish to eventually correlate with or reproject into WGS84 lat/lon,
+but to minimize loss of detail I prefer to work with the original data as
+long as possible.
+
+What are the magic +proj settings to use? so far nothing I've tried works
+well. I can load the original binary file ok with r.in.bin, but the north/
+south scaling is rather wrong.
+
+I have a working method using img2grd; g.region; grd2xyz | r.in.xyz.
+Although I am still a bit unsure about the north-south resolution, it all
+seems to line up well with a world coastline vector overlay.
+
+I can use GMT's img2grd -> grdreformat =bf to convert into an old GMT
+native binary (which r.in.bin's -h flag knows about), but that seems to
+harm the data values (elevation += ~0.005m ?!). Anyway grd2xyz + r.in.xyz
+seems to cover that part of the process cleanly so I ignore the
+grdreformat problem for now.
+
+
+notes and ideas about it here:
+  http://grass.osgeo.org/wiki/Marine_Science#Bathymetric_data
+
+shoot down to the "Import Directly" section to see the PROJ.4 settings I
+tried.
+
+
+provided ERMapper .ers file for the dataset is here:
+  ftp://topex.ucsd.edu/pub/global_topo_1min/
+but I don't understand that much (no joy with MRWORLD projection).
+
+
+One thing I don't understand is why the GRASS wkt becomes PROJECTION
+["Mercator_2SP"], but maybe that is harmless if only 1 std parallel is
+actually defined.
+
+
+has anyone solved this before? eventually I would like the clean up the
+above wiki page with a clear mini-howto for using this data with GRASS
+and/or GDAL.
+
+
+thanks,
+Hamish
+
+
+
+From warmerdam at pobox.com  Thu May 15 14:38:25 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 15 May 2008 17:38:25 -0400
+Subject: [Proj] New Bug Tracker
+Message-ID: <482CAD51.7000706@pobox.com>
+
+Folks,
+
+While I have unfortunately been unable to recover the old PROJ.4 bug database
+from bugzilla.remotesensing.org, I have created a new bug database at:
+
+   http://trac.osgeo.org/proj
+
+I have updated the web page accordingly.
+
+Please feel free to file any new bugs here, or even old bugs that you still
+need addressed.
+
+I would add that the MetaCRS project - a confederation of coordinate systems
+related projects has been launched and has establish a Project Steering
+Committee (http://wiki.osgeo.org/wiki/MetaCRS_PSC) with me as PROJ.4 rep
+and chair.  MetaCRS also includes CS-Map (Norm Olson's library from Mentor
+Software, now being open sourced by Autodesk) and Proj4js, the JavaScript
+projections library loosely inspired by PROJ.4.
+
+There have been some active discussions on how the MetaCRS project might
+maintain coordinate system dictionaries to be shared between projects
+(including in the form of PROJ.4 init files) on the MetaCRS mailing list.
+Folks interested in broader PROJ.4 governance issues, issues around
+coordinate system dictionaries, and cooperation with other projects are
+encouraged to join the MetaCRS list, though this list will still be the
+place to discuss PROJ.4 specific issues.
+
+   http://lists.osgeo.org/mailman/listinfo/MetaCRS
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From warmerdam at pobox.com  Thu May 15 22:04:33 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 16 May 2008 01:04:33 -0400
+Subject: [Proj] New Bug Tracker
+In-Reply-To: <482CAD51.7000706@pobox.com>
+References: <482CAD51.7000706@pobox.com>
+Message-ID: <482D15E1.6030600@pobox.com>
+
+Frank Warmerdam wrote:
+> Folks,
+> 
+> While I have unfortunately been unable to recover the old PROJ.4 bug 
+> database
+> from bugzilla.remotesensing.org, I have created a new bug database at:
+> 
+>   http://trac.osgeo.org/proj
+> 
+> I have updated the web page accordingly.
+
+Folks,
+
+I have taken the liberty of migrating the PROJ.4 web site entirely into the
+Trac wiki with the intent of superceding the old HTML content kept at
+http://www.remotesensing.org/proj and http://proj.maptools.org/.  Thus
+the new home URL for the project is:
+
+   http://trac.osgeo.org/proj
+
+I have placed redirects at the old locations.
+
+This means any authenticated user with an OSGeo Userid can login and
+modify/improve/extend the PROJ.4 web site!  So, if you have long had the
+latent desire to improve the PROJ.4 web site, this is your chance to help
+out!
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From Mikael.Rittri at carmenta.com  Thu May 22 02:04:01 2008
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Thu, 22 May 2008 11:04:01 +0200
+Subject: [Proj] Transverse Mercator algorithm with good accuracy/speed
+	trade-off? 
+Message-ID: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+
+Hello,
+I am thinking about extending the accuracy of our Transverse Mercator. But is it worth the trouble?  
+
+Summary: 
+-------
+tmerc is fast, but inaccurate far from the central line. 
+I have implemented a quite exact algorithm, but it was much slower than tmerc. Is there a happy compromise? 
+
+Long-winded motivation:
+----------------------
+The tmerc of Proj4 is efficient. But it has millimeter accuracy only out to 6° of longitude from the central meridian [Oscar van Vlijmen, <http://lists.maptools.org/pipermail/proj/2006-June/002316.html]. 
+
+Sometimes, a Transverse Mercator is used farther away: Sweden uses UTM zone 33 (lon_0 = 15°E) for the whole country, and the eastmost point Kataja is at 65°42'N, 24°10'E.  I think Norway does the same, with the same projection, and its eastmost point Hornøya is at 70°22'N, 31°10'E.  I have found the following errors for tmerc:
+ 
+  errors   forward   inverse 
+  Kataja   0.25 mm     16.5 mm
+  Hornøya  7.51 mm   2715   mm 
+
+The local scale factor is only 1.0018 at Kataja and 1.0040 at Hornøya, so one can argue that ellipsoid formulas should indeed be used here, rather than spherical formulas. Snyder writes that ellipsoid formulas can be motivated to some 10° to 15° of arc distance from the central meridian [Map projections: A working manual, page 48].
+Although Hornøya is 16°10' of longitude away from lon_0, it is only 599 km or 5°24' of arc distance away, because of the high latitude: cos(70°22')=0.336. 
+     So, I am slightly worried about these errors (even though there are other Swedish and Norwegian projections intended for local use at detailed scales).  
+     A more trivial reason for higher accuracy is that I would like to make our geographic toolkit more foolproof. 
+The mismatch between forward and inverse can cause problems.
+
+Oscar van Vlijmen wrote
+[http://lists.maptools.org/pipermail/proj/2006-June/002296.html]:
+> At least three geodetic services use routines approximating the exact 
+> TM better than tmerc, DMA/NIMA/NGA and the like:
+> 1) French IGN 
+>  <http://www.ign.fr/telechargement/MPro/geodesie/CIRCE/NTG_76.pdf>
+> 2) Swedish Lantmäteriet
+>  <http://www.lantmateriet.se/upload/filer/kartor/geodesi_gps_och_detaljmatning/geodesi/Formelsamling/Gauss_Conformal_Projection.pdf>    
+> 3) Finnish JHS    
+>  <http://www.jhs-suositukset.fi/intermin/hankkeet/jhs/home.nsf/files/JHS154/$file/JHS154.pdf>
+> Each follow a slightly different route, but the 
+> differences in the results are small.
+
+(The Finnish report has been moved, and is now on
+ http://docs.jhs-suositukset.fi/jhs-suositukset/JHS154/JHS154.pdf)
+
+I have implemented the Swedish proposal[*], which was not too difficult, and I got it to agree with Oscar van Vlijmen's test point. But my implementation is about 4.5 times slower than tmerc in the forward direction, and about 15 times slower in the inverse direction. I doubt that I can improve the speed much. 
+
+So, finally, I wonder if there is some happy compromise: 
+an algorithm that is somewhat more accurate than tmerc, but not too much slower?
+
+Best regards,
+   Mikael 
+
+PS: I noted that Clifford Mugnier has implemented a more accurate version of the tmerc/Snyder formulas, giving millimeter accuracy 24 degrees away, based on US Army Tech. Manual TM 5-241-10, "Universal Transverse Mercator Grid: Extension of zone  to zone transformation tables", 1962, 642 pages.
+[http://lists.maptools.org/pipermail/proj/2003-January/thread.html]
+But as I understood it, this version is cumbersome to implement (and the report is quite hard to find). 
+
+[*] footnote: the Swedish note gives no literature references, but I have learned from Lars E. Engberg that the formulas come from 
+  L. Krüger's book:
+  Konforme Abbildung des Erdellipsoids in der Ebene,
+  Veröffentlichung des Könglich Preuzischen Geodätischen Institutes,
+  Neue Folge 52, Leipzig 1912.
+The formulas also appear in
+  Kurt Bretterbauer:
+  Gebrauchsformeln für die UTM-Projektion nach Krüger,
+  Österr. Zeitschr. für Vermessung und Geoinformation, 3/2003;
+  abstract in German and English at http://www.ovg.at/index.php?id=222.
+
+--
+Mikael Rittri
+Carmenta AB
+Box 11354
+SE-404 28 Göteborg
+Visitors: Sankt Eriksgatan 5
+SWEDEN
+Tel: +46-31-775 57 37
+Mob: +46-703-60 34 07
+mikael.rittri at carmenta.com
+www.carmenta.com
+
+
+
+From cjmce at lsu.edu  Thu May 22 12:04:26 2008
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Thu, 22 May 2008 14:04:26 -0500
+Subject: [Proj] Transverse Mercator algorithm with good
+	accuracy/speedtrade-off? 
+References: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+Message-ID: <B597ADFC46B67741B18EA6AA13613FF7EC22A1@email002.lsu.edu>
+
+Dozier came up with an iterative forward and inverse Transverse Mercator that's good to almost 90° from the Central Meridian with sub-millimeter round-trip precision.  It was written up in an obscure NOAA pub some 20+ years ago in pre-ANSI "C" language.  ESRI has implemented it with substantial code and algebraic corrections, and I understand that it works very well.
+ 
+Clifford J. Mugnier, C.P., C.M.S.
+LSU Student ASCE Chapter Faculty Advisor
+and
+Past National Director (2006-2008),
+Photogrammetric Applications Division
+American Society for Photogrammetry and Remote Sensing 
+and 
+Chief of Geodesy,
+CENTER FOR GEOINFORMATICS 
+Department of Civil Engineering 
+Patrick F. Taylor Hall 3223A
+LOUISIANA STATE UNIVERSITY 
+Baton Rouge, LA  70803
+Voice and Facsimile:  (225) 578-8536 [Academic] 
+Voice and Facsimile:  (225) 578-4474 [Research] 
+Honorary Life Member of the 
+Louisiana Society of Professional Surveyors 
+Member Emeritus of the ASPRS 
+Member of the Americas Petroleum Survey Group
+======================================================
+http://www.asprs.org/resources/GRIDS/
+======================================================
+
+________________________________
+
+From: proj-bounces at lists.maptools.org on behalf of Mikael Rittri
+Sent: Thu 22-May-08 04:04
+To: proj at lists.maptools.org
+Subject: [Proj] Transverse Mercator algorithm with good accuracy/speedtrade-off? 
+
+
+
+Hello,
+I am thinking about extending the accuracy of our Transverse Mercator. But is it worth the trouble? 
+
+Summary:
+-------
+tmerc is fast, but inaccurate far from the central line.
+I have implemented a quite exact algorithm, but it was much slower than tmerc. Is there a happy compromise?
+
+Long-winded motivation:
+----------------------
+The tmerc of Proj4 is efficient. But it has millimeter accuracy only out to 6° of longitude from the central meridian [Oscar van Vlijmen, <http://lists.maptools.org/pipermail/proj/2006-June/002316.html]. 
+
+Sometimes, a Transverse Mercator is used farther away: Sweden uses UTM zone 33 (lon_0 = 15°E) for the whole country, and the eastmost point Kataja is at 65°42'N, 24°10'E.  I think Norway does the same, with the same projection, and its eastmost point Hornøya is at 70°22'N, 31°10'E.  I have found the following errors for tmerc:
+
+  errors   forward   inverse
+  Kataja   0.25 mm     16.5 mm
+  Hornøya  7.51 mm   2715   mm
+
+The local scale factor is only 1.0018 at Kataja and 1.0040 at Hornøya, so one can argue that ellipsoid formulas should indeed be used here, rather than spherical formulas. Snyder writes that ellipsoid formulas can be motivated to some 10° to 15° of arc distance from the central meridian [Map projections: A working manual, page 48].
+Although Hornøya is 16°10' of longitude away from lon_0, it is only 599 km or 5°24' of arc distance away, because of the high latitude: cos(70°22')=0.336.
+     So, I am slightly worried about these errors (even though there are other Swedish and Norwegian projections intended for local use at detailed scales). 
+     A more trivial reason for higher accuracy is that I would like to make our geographic toolkit more foolproof.
+The mismatch between forward and inverse can cause problems.
+
+Oscar van Vlijmen wrote
+[http://lists.maptools.org/pipermail/proj/2006-June/002296.html]:
+> At least three geodetic services use routines approximating the exact
+> TM better than tmerc, DMA/NIMA/NGA and the like:
+> 1) French IGN
+>  <http://www.ign.fr/telechargement/MPro/geodesie/CIRCE/NTG_76.pdf>
+> 2) Swedish Lantmäteriet
+>  <http://www.lantmateriet.se/upload/filer/kartor/geodesi_gps_och_detaljmatning/geodesi/Formelsamling/Gauss_Conformal_Projection.pdf>   
+> 3) Finnish JHS   
+>  <http://www.jhs-suositukset.fi/intermin/hankkeet/jhs/home.nsf/files/JHS154/$file/JHS154.pdf>
+> Each follow a slightly different route, but the
+> differences in the results are small.
+
+(The Finnish report has been moved, and is now on
+ http://docs.jhs-suositukset.fi/jhs-suositukset/JHS154/JHS154.pdf)
+
+I have implemented the Swedish proposal[*], which was not too difficult, and I got it to agree with Oscar van Vlijmen's test point. But my implementation is about 4.5 times slower than tmerc in the forward direction, and about 15 times slower in the inverse direction. I doubt that I can improve the speed much.
+
+So, finally, I wonder if there is some happy compromise:
+an algorithm that is somewhat more accurate than tmerc, but not too much slower?
+
+Best regards,
+   Mikael
+
+PS: I noted that Clifford Mugnier has implemented a more accurate version of the tmerc/Snyder formulas, giving millimeter accuracy 24 degrees away, based on US Army Tech. Manual TM 5-241-10, "Universal Transverse Mercator Grid: Extension of zone  to zone transformation tables", 1962, 642 pages.
+[http://lists.maptools.org/pipermail/proj/2003-January/thread.html]
+But as I understood it, this version is cumbersome to implement (and the report is quite hard to find).
+
+[*] footnote: the Swedish note gives no literature references, but I have learned from Lars E. Engberg that the formulas come from
+  L. Krüger's book:
+  Konforme Abbildung des Erdellipsoids in der Ebene,
+  Veröffentlichung des Könglich Preuzischen Geodätischen Institutes,
+  Neue Folge 52, Leipzig 1912.
+The formulas also appear in
+  Kurt Bretterbauer:
+  Gebrauchsformeln für die UTM-Projektion nach Krüger,
+  Österr. Zeitschr. für Vermessung und Geoinformation, 3/2003;
+  abstract in German and English at http://www.ovg.at/index.php?id=222.
+
+--
+Mikael Rittri
+Carmenta AB
+Box 11354
+SE-404 28 Göteborg
+Visitors: Sankt Eriksgatan 5
+SWEDEN
+Tel: +46-31-775 57 37
+Mob: +46-703-60 34 07
+mikael.rittri at carmenta.com
+www.carmenta.com
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080522/bbaea6b5/attachment.html>
+
+From mkennedy2 at earthlink.net  Fri May 23 19:02:56 2008
+From: mkennedy2 at earthlink.net (Melita Kennedy)
+Date: Fri, 23 May 2008 19:02:56 -0700 (GMT-07:00)
+Subject: [Proj] Dozier paper on improved transverse Mercator calculations
+Message-ID: <29186137.1211594577056.JavaMail.root@elwamui-lapwing.atl.sa.earthlink.net>
+
+The internet is a wonderful thing.
+
+I had to look up the reference for this paper, and rather than try to 
+unearth it from the programmer's office, did a search. Amazingly someone 
+has scanned it and turned it into a PDF.
+
+http://fiesta.bren.ucsb.edu/~dozier/Pubs/DozierUTM1980.pdf
+
+Melita
+
+Melita Kennedy
+ESRI, Inc.
+
+
+From strebe at aol.com  Sat May 24 02:58:30 2008
+From: strebe at aol.com (strebe)
+Date: Sat, 24 May 2008 02:58:30 -0700
+Subject: [Proj] Re: Transverse Mercator algorithm with good accuracy/speed
+ trade-off?
+In-Reply-To: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+Message-ID: <9C6FC426.5A3B.4DC0.9F98.FBDB1E2501DF@aol.com>
+
+
+You might investigate the series development of Karsten Engsager, which is quite efficient and covers most of the globe with a manageable number of terms. Dr. Engsager is with the Geodetic Division of KMS, Denmark.
+
+Regards,
+-- daan Strebe
+
+
+On May 22, 2008, at 2:04:01 AM, "Mikael Rittri" <Mikael.Rittri at carmenta.com> wrote:
+From:   "Mikael Rittri" <Mikael.Rittri at carmenta.com>
+Subject:    [Proj] Transverse Mercator algorithm with good accuracy/speed   trade-off?
+Date:   May 22, 2008 2:04:01 AM PDT
+To: proj at lists.maptools.org
+Hello,
+I am thinking about extending the accuracy of our Transverse Mercator. But is it worth the trouble? 
+
+Summary: 
+-------
+tmerc is fast, but inaccurate far from the central line. 
+I have implemented a quite exact algorithm, but it was much slower than tmerc. Is there a happy compromise?
+
+Long-winded motivation:
+----------------------
+The tmerc of Proj4 is efficient. But it has millimeter accuracy only out to 6° of longitude from the central meridian [Oscar van Vlijmen, <http://lists.maptools.org/pipermail/proj/2006-June/002316.html]. 
+
+Sometimes, a Transverse Mercator is used farther away: Sweden uses UTM zone 33 (lon_0 = 15°E) for the whole country, and the eastmost point Kataja is at 65°42'N, 24°10'E. I think Norway does the same, with the same projection, and its eastmost point Hornøya is at 70°22'N, 31°10'E. I have found the following errors for tmerc:
+
+errors forward inverse 
+Kataja 0.25 mm 16.5 mm
+Hornøya 7.51 mm 2715 mm 
+
+The local scale factor is only 1.0018 at Kataja and 1.0040 at Hornøya, so one can argue that ellipsoid formulas should indeed be used here, rather than spherical formulas. Snyder writes that ellipsoid formulas can be motivated to some 10° to 15° of arc distance from the central meridian [Map projections: A working manual, page 48].
+Although Hornøya is 16°10' of longitude away from lon_0, it is only 599 km or 5°24' of arc distance away, because of the high latitude: cos(70°22')=0.336. 
+So, I am slightly worried about these errors (even though there are other Swedish and Norwegian projections intended for local use at detailed scales). 
+A more trivial reason for higher accuracy is that I would like to make our geographic toolkit more foolproof. 
+The mismatch between forward and inverse can cause problems.
+
+Oscar van Vlijmen wrote
+[http://lists.maptools.org/pipermail/proj/2006-June/002296.html]:
+> At least three geodetic services use routines approximating the exact 
+> TM better than tmerc, DMA/NIMA/NGA and the like:
+> 1) French IGN 
+> <http://www.ign.fr/telechargement/MPro/geodesie/CIRCE/NTG_76.pdf>
+> 2) Swedish Lantmäteriet
+> <http://www.lantmateriet.se/upload/filer/kartor/geodesi_gps_och_detaljmatning/geodesi/Formelsamling/Gauss_Conformal_Projection.pdf>
+> 3) Finnish JHS 
+> <http://www.jhs-suositukset.fi/intermin/hankkeet/jhs/home.nsf/files/JHS154/$file/JHS154.pdf>
+> Each follow a slightly different route, but the 
+> differences in the results are small.
+
+(The Finnish report has been moved, and is now on
+http://docs.jhs-suositukset.fi/jhs-suositukset/JHS154/JHS154.pdf)
+
+I have implemented the Swedish proposal[*], which was not too difficult, and I got it to agree with Oscar van Vlijmen's test point. But my implementation is about 4.5 times slower than tmerc in the forward direction, and about 15 times slower in the inverse direction. I doubt that I can improve the speed much. 
+
+So, finally, I wonder if there is some happy compromise: 
+an algorithm that is somewhat more accurate than tmerc, but not too much slower?
+
+Best regards,
+Mikael 
+
+PS: I noted that Clifford Mugnier has implemented a more accurate version of the tmerc/Snyder formulas, giving millimeter accuracy 24 degrees away, based on US Army Tech. Manual TM 5-241-10, "Universal Transverse Mercator Grid: Extension of zone to zone transformation tables", 1962, 642 pages.
+[http://lists.maptools.org/pipermail/proj/2003-January/thread.html]
+But as I understood it, this version is cumbersome to implement (and the report is quite hard to find). 
+
+[*] footnote: the Swedish note gives no literature references, but I have learned from Lars E. Engberg that the formulas come from 
+L. Krüger's book:
+Konforme Abbildung des Erdellipsoids in der Ebene,
+Veröffentlichung des Könglich Preuzischen Geodätischen Institutes,
+Neue Folge 52, Leipzig 1912.
+The formulas also appear in
+Kurt Bretterbauer:
+Gebrauchsformeln für die UTM-Projektion nach Krüger,
+Österr. Zeitschr. für Vermessung und Geoinformation, 3/2003;
+abstract in German and English at http://www.ovg.at/index.php?id=222.
+
+--
+Mikael Rittri
+Carmenta AB
+Box 11354
+SE-404 28 Göteborg
+Visitors: Sankt Eriksgatan 5
+SWEDEN
+Tel: +46-31-775 57 37
+Mob: +46-703-60 34 07
+mikael.rittri at carmenta.com
+www.carmenta.com
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080524/c4dff58c/attachment.html>
+
+From geraldi.evenden at gmail.com  Sat May 24 07:39:33 2008
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Sat, 24 May 2008 10:39:33 -0400
+Subject: [Proj] Re: Transverse Mercator algorithm with good accuracy/speed
+	trade-off?
+In-Reply-To: <9C6FC426.5A3B.4DC0.9F98.FBDB1E2501DF@aol.com>
+References: <9C6FC426.5A3B.4DC0.9F98.FBDB1E2501DF@aol.com>
+Message-ID: <200805241039.33689.geraldi.evenden@gmail.com>
+
+Ahhh!  Sigh,  Deja vu all over again.  I thought we beat this dead horse and 
+Dosier several years ago.
+
+It seems worthless to expand the longitudinal accuracy of the projection as 
+long as the scale error and usefulness also goes to hell at the same time.  
+The useful range for the tmerc is in the immediate vicinity of the central 
+meridian so why bother worrying about extending computational accuracy in the 
+longitudinal direction?
+
+Enough is enough.  Please.
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+
+
+From cjmce at lsu.edu  Sat May 24 10:14:29 2008
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Sat, 24 May 2008 12:14:29 -0500
+Subject: [Proj] Re: Transverse Mercator algorithm with good
+	accuracy/speedtrade-off?
+References: <9C6FC426.5A3B.4DC0.9F98.FBDB1E2501DF@aol.com>
+	<200805241039.33689.geraldi.evenden@gmail.com>
+Message-ID: <B597ADFC46B67741B18EA6AA13613FF7EC22A7@email002.lsu.edu>
+
+It's not purely an "academic" horse if you practice in the oil patch.  Reservoir engineers want a system recognizable to them and don't really care about practical geodetic applications, ... just solutions to their own problems and UTM is the way they want to go.
+ 
+You're not going to succeed in educating the entire world's Oil Patch industry.
+ 
+There are practical applications to this even if a classical cartographer is ignorant of the reasons.
+ 
+The horse ain't dead, just maybe the jockey.
+ 
+Cliff Mugnier
+
+________________________________
+
+From: proj-bounces at lists.maptools.org on behalf of Gerald I. Evenden
+Sent: Sat 24-May-08 09:39
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] Re: Transverse Mercator algorithm with good accuracy/speedtrade-off?
+
+
+
+Ahhh!  Sigh,  Deja vu all over again.  I thought we beat this dead horse and
+Dosier several years ago.
+
+It seems worthless to expand the longitudinal accuracy of the projection as
+long as the scale error and usefulness also goes to hell at the same time. 
+The useful range for the tmerc is in the immediate vicinity of the central
+meridian so why bother worrying about extending computational accuracy in the
+longitudinal direction?
+
+Enough is enough.  Please.
+
+--
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080524/0ba236ca/attachment.html>
+
+From geraldi.evenden at gmail.com  Sat May 24 10:49:16 2008
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Sat, 24 May 2008 13:49:16 -0400
+Subject: [Proj] Re: Transverse Mercator algorithm with good
+	accuracy/speedtrade-off?
+In-Reply-To: <B597ADFC46B67741B18EA6AA13613FF7EC22A7@email002.lsu.edu>
+References: <9C6FC426.5A3B.4DC0.9F98.FBDB1E2501DF@aol.com>
+	<200805241039.33689.geraldi.evenden@gmail.com>
+	<B597ADFC46B67741B18EA6AA13613FF7EC22A7@email002.lsu.edu>
+Message-ID: <200805241349.16328.geraldi.evenden@gmail.com>
+
+On Saturday 24 May 2008 1:14 pm, you wrote:
+> It's not purely an "academic" horse if you practice in the oil patch. 
+> Reservoir engineers want a system recognizable to them and don't really
+> care about practical geodetic applications, ... just solutions to their own
+> problems and UTM is the way they want to go.
+
+I do not think of UTM as simply a "practical geodetic application" especially 
+since it was championed by the military as a mechanism to standardize mapping 
+and help artillery FOs in their job.  Indeed, if we are to champion practical 
+application we should educate the oil patch industry to find better 
+solutions.
+
+A practical problem with UTM and its longitude limit is that if one proceeds 
+too far to the west the grid system goes negative---a fatal situation for 
+those who can't handle signed numbers.  If you change the X offset to 
+compensate please be careful to NOT use the term UTM as the name of the new 
+system(s).
+
+> You're not going to succeed in educating the entire world's Oil Patch
+> industry.
+
+It is a noble undertaking to educate the ignorant.
+
+> There are practical applications to this even if a classical cartographer
+> is ignorant of the reasons.
+
+Please explain and justify.  I do not understand the use of the 
+term "classical." I am just discussing practical, reasonable and proper 
+usage.
+
+> The horse ain't dead, just maybe the jockey.
+
+:-)
+
+> Cliff Mugnier
+
+As an aside: I was never able to get Dozier's procedure to properly function 
+in the nearly +/-90 longitude situation and communications with Dozier seemed 
+to indicate that his interest in the problem had waned.
+> ________________________________
+>
+> From: proj-bounces at lists.maptools.org on behalf of Gerald I. Evenden
+> Sent: Sat 24-May-08 09:39
+> To: PROJ.4 and general Projections Discussions
+> Subject: Re: [Proj] Re: Transverse Mercator algorithm with good
+> accuracy/speedtrade-off?
+>
+>
+>
+> Ahhh!  Sigh,  Deja vu all over again.  I thought we beat this dead horse
+> and Dosier several years ago.
+>
+> It seems worthless to expand the longitudinal accuracy of the projection as
+> long as the scale error and usefulness also goes to hell at the same time.
+> The useful range for the tmerc is in the immediate vicinity of the central
+> meridian so why bother worrying about extending computational accuracy in
+> the longitudinal direction?
+>
+> Enough is enough.  Please.
+...
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+
+
+From strebe at aol.com  Sat May 24 11:48:53 2008
+From: strebe at aol.com (strebe)
+Date: Sat, 24 May 2008 11:48:53 -0700
+Subject: [Proj] Re: Transverse Mercator algorithm with good accuracy/speed
+ trade-off?
+In-Reply-To: <200805241039.33689.geraldi.evenden@gmail.com>
+Message-ID: <DE44E8C5.6EAC.4B4F.8272.B6E29876D0F4@aol.com>
+
+
+Gerald I. Evenden writes:
+
+_______
+It seems worthless to expand the longitudinal accuracy of the projection as 
+long as the scale error and usefulness also goes to hell at the same time. 
+The useful range for the tmerc is in the immediate vicinity of the central 
+meridian so why bother worrying about extending computational accuracy in the 
+longitudinal direction?
+_______
+
+Do you have a better suggestion if you need a single projection over a broad area?
+
+Didn't think so.
+
+Regards,
+-- daan Strebe
+
+
+On May 24, 2008, at 7:39:33 AM, "Gerald I. Evenden" <geraldi.evenden at gmail.com> wrote:
+Ahhh! Sigh, Deja vu all over again. I thought we beat this dead horse and 
+Dosier several years ago.
+
+It seems worthless to expand the longitudinal accuracy of the projection as 
+long as the scale error and usefulness also goes to hell at the same time. 
+The useful range for the tmerc is in the immediate vicinity of the central 
+meridian so why bother worrying about extending computational accuracy in the 
+longitudinal direction?
+
+Enough is enough. Please.
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939) British psychologist
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080524/3459d8af/attachment.html>
+
+From support.mn at elisanet.fi  Sat May 24 14:12:33 2008
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Sun, 25 May 2008 00:12:33 +0300 (EEST)
+Subject: [Proj] Transverse Mercator algorithm with good accuracy/speed
+	trade-off?
+Message-ID: <3307491.112621211663554227.JavaMail.support.mn@elisanet.fi>
+
+> The tmerc of Proj4 is efficient. But it has millimeter accuracy only out to 6° of longitude from the central meridian...
+
+
+1) The most easy way is to make sure never be futher than 6° away from the central median.
+
+or
+
+2) You could implement a floating central median (let's call it "ftmerc"), which would automatically shift as your longitude shifts. Let's say in steps of 1 degree or less. Not at all difficult to implement. And most of "tmerc" routines can be reused.
+
+or
+
+3) Are we talking about UTM...
+
+Regards: Janne
+
+
+
+
+
+From cjmce at lsu.edu  Sat May 24 15:34:46 2008
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Sat, 24 May 2008 17:34:46 -0500
+Subject: [Proj] Transverse Mercator algorithm with good
+	accuracy/speedtrade-off?
+References: <3307491.112621211663554227.JavaMail.support.mn@elisanet.fi>
+Message-ID: <B597ADFC46B67741B18EA6AA13613FF7EC22A8@email002.lsu.edu>
+
+There's a lot of "other field" specialists that get into GIS.  I see a good number of people in the Oil & Gas Exploration and Production industry.  Lots of Geologists and Petroleum Engineers are found, but nary a classical Cartographer, or Geodesist in the bunch for the most part.  (Royal Dutch Shell is an exception.)  These people work large to enormous geographic areas all over the world, and don't know diddly about map projections or grids.  Most don't know the difference between UTM, Datums, and Grids muchless realize that the words are not interchangeable.  They usually are well-educated in their fields, and simply consider GIS a necessary evil tool to use in order to get their job done.  They usually don't care about important concepts in positioning tech nology, coordinate systems, reference frames, etc.  They are professionals in something other than what it is that we do, for the most part.
+ 
+Consider a local application just for the Oil Patch:  The Gulf of Mexico.  Platforms are offshore in Louisiana and Texas, but production is petering out and exploration and development are further out in Federal Waters.  The State Waters use the various State Plane Coordinate Systems (Lambert Conformal Conic in multiple zones), but the Federal Waters use UTM in more than one zone.  Furthermore, there's the Safety Fairways in the Gulf of Mexico that use the ellipsoidal Mercator that is overlain with all of the Lambert zones and all of the UTM zones.  Geologists could not care less.  It's pretty neat for Geodesists and the classical Cartographers that understand loxodromes and Grid intersection problems, but the average GIS practitioner doesn't know the difference muchless care.
+ 
+They want to use "UTM" as a single zone (Zone 15) for the entire Gulf of Mexico, and they want the numbers in the coordinates to be able to repeat on themselves for the whole Gulf.  Period.  You can't find one in a hundred that knows about convergence angle or scale factor, muchless cares ... they're doing something else ... or so they say.
+ 
+There is a real need for computational precision for such applications.  Of course there's a need for education, but that's a windmill for all intents and purposes in the Oil Patch.  When it's really important, they'll have a Land Surveyor or Geodesist or classical Cartographer do the computations, but for day to day work it's the Technicians that do the GIS applications.
+ 
+Consider the rest of the world when you read above for merely the Gulf of Mexico.
+ 
+Dozier's paper does have a practical application for the neophyte.  It can keep them (slightly) out of trouble if the computational precison can be maintained.
+ 
+Cliff Mugnier
+LSU
+ 
+ 
+ 
+ 
+ 
+
+________________________________
+
+From: proj-bounces at lists.maptools.org on behalf of support.mn at elisanet.fi
+Sent: Sat 24-May-08 16:12
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] Transverse Mercator algorithm with good accuracy/speedtrade-off?
+
+
+
+> The tmerc of Proj4 is efficient. But it has millimeter accuracy only out to 6° of longitude from the central meridian...
+
+
+1) The most easy way is to make sure never be futher than 6° away from the central median.
+
+or
+
+2) You could implement a floating central median (let's call it "ftmerc"), which would automatically shift as your longitude shifts. Let's say in steps of 1 degree or less. Not at all difficult to implement. And most of "tmerc" routines can be reused.
+
+or
+
+3) Are we talking about UTM...
+
+Regards: Janne
+
+
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080524/89942c38/attachment.html>
+
+From knudsen.thomas at gmail.com  Sat May 24 18:44:18 2008
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Sun, 25 May 2008 03:44:18 +0200
+Subject: [Proj] Re: Transverse Mercator algorithm with good accuracy/speed
+	trade-off?
+Message-ID: <7e6835790805241844t33dd787ch38c41c25b3b522a6@mail.gmail.com>
+
+On 2008-05-24, Daan Strebe wrote:
+
+> You might investigate the series development of Karsten Engsager,
+> which is quite efficient and covers most of the globe with a
+> manageable number of terms. Dr. Engsager is with the Geodetic
+> Division of KMS, Denmark.
+
+Dr. Engsager's implementation is available under a very permissive
+licence (it can certainly be included in the proj library without any
+legal problems). Let me know if anyone is interested, and I'll make
+sure to get the (fairly brief) C code distributed as soon as possible.
+
+Thomas Knudsen, Reference Networks Division, KMS,
+Copenhagen Denmark
+
+
+From geraldi.evenden at gmail.com  Sun May 25 07:41:23 2008
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Sun, 25 May 2008 10:41:23 -0400
+Subject: [Proj] Re: Transverse Mercator algorithm with good accuracy/speed
+	trade-off?
+In-Reply-To: <7e6835790805241844t33dd787ch38c41c25b3b522a6@mail.gmail.com>
+References: <7e6835790805241844t33dd787ch38c41c25b3b522a6@mail.gmail.com>
+Message-ID: <200805251041.23514.geraldi.evenden@gmail.com>
+
+On Saturday 24 May 2008 9:44 pm, Thomas Knudsen wrote:
+
+I would be very interested in a copy if it could be included in the libproj4 
+lbrary.  Full source acknowledgements would be included with the library 
+distribution source code as well as documentation.  Libproj4 licencing 
+follows the MIT version---see header comments for any libproj4 file for 
+details (sample header at end of this email).
+
+Also, is there any development documentation for this method?
+
+Thank-you.
+
+> On 2008-05-24, Daan Strebe wrote:
+> > You might investigate the series development of Karsten Engsager,
+> > which is quite efficient and covers most of the globe with a
+> > manageable number of terms. Dr. Engsager is with the Geodetic
+> > Division of KMS, Denmark.
+>
+> Dr. Engsager's implementation is available under a very permissive
+> licence (it can certainly be included in the proj library without any
+> legal problems). Let me know if anyone is interested, and I'll make
+> sure to get the (fairly brief) C code distributed as soon as possible.
+>
+> Thomas Knudsen, Reference Networks Division, KMS,
+> Copenhagen Denmark
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+
+** libproj -- library of cartographic projections
+**
+** Copyright (c) 2003, 2006   Gerald I. Evenden
+*/
+static const char
+LIBPROJ_ID[] = "$Id$";
+/*
+** Permission is hereby granted, free of charge, to any person obtaining
+** a copy of this software and associated documentation files (the
+** "Software"), to deal in the Software without restriction, including
+** without limitation the rights to use, copy, modify, merge, publish,
+** distribute, sublicense, and/or sell copies of the Software, and to
+** permit persons to whom the Software is furnished to do so, subject to
+** the following conditions:
+**
+** The above copyright notice and this permission notice shall be
+** included in all copies or substantial portions of the Software.
+**
+** THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+** EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+** MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+** IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+** CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+** TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+** SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+#define PROJ_LIB__
+# include       <lib_proj.h>
+
+
+From Mikael.Rittri at carmenta.com  Mon May 26 04:24:43 2008
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Mon, 26 May 2008 13:24:43 +0200
+Subject: [Proj] Transverse Mercator algorithm with
+	goodaccuracy/speedtrade-off?
+In-Reply-To: <B597ADFC46B67741B18EA6AA13613FF7EC22A8@email002.lsu.edu>
+References: <3307491.112621211663554227.JavaMail.support.mn@elisanet.fi>
+	<B597ADFC46B67741B18EA6AA13613FF7EC22A8@email002.lsu.edu>
+Message-ID: <FAF6E56B26D2044696772EBE89B15351F27745@posty.carmenta.se>
+
+Many thanks for all good advice.  This is quite a friendly 
+and knowledgeable mailing list. 
+ 
+I have looked at Dozier's paper now (thanks to Melita Kennedy 
+for the link), and a summary of Poder-Engsager (thanks to 
+daan Strebe). 
+ 
+Actually, I had hoped that the Snyder/tmerc approach (or should 
+I say Gauss approach) could be improved with just one or two more
+extra terms in the series expansions.  But my understanding 
+from Dozier's background text (and from Clifford Mugnier's mails
+in the January 2003 archives), is now that it takes quite at lot 
+of extra terms to get just slightly wider zones of accuracy. 
+ 
+On the other hand, I find it hard to believe that Dozier's 
+iterative algorithm is faster than the Krüger formulas from 1912
+<http://www.lantmateriet.se/upload/filer/kartor/geodesi_gps_och_detaljmatning/geodesi/Formelsamling/Gauss_Conformal_Projection.pdf <http://www.lantmateriet.se/upload/filer/kartor/geodesi_gps_och_detaljmatning/geodesi/Formelsamling/Gauss_Conformal_Projection.pdf> >
+ 
+As a simple comparison, I tried to count the number of 
+transcendental function calls (TFCs) that will be made at 
+run-time.  I am counting sin() and cos() of the same argument
+as one TFC, and likewise for sinh() and cosh(). I have also assumed 
+a few simple optimizations (for example, multiple-angle formulas 
+can be used instead of evaluating sin(2t), sin(3t), sin(4t), ...).  
+My results are (no warranties expressed or implied): 
+ 
+Num. of TFCs  forw.  inverse 
+ 
+tmerc           1      1+m   (m = number of iterations in pj_inv_mlfn, usually 1 or 2). 
+Krüger          6       6
+Poder-Engsager  7       ?    (see footnote)
+Dozier         6+6n    6+4n  (n = number of iterations in cnewton, at least 1). 
+ 
+So I would expect Krüger and Poder-Engsager to have about the 
+same speed, and Dozier to be at least twice as slow. But of course, 
+the ESRI people may have done clever optimizations of Dozier's 
+algorithm. 
+ 
+For my own part, though, I think I may try to speed 
+up my Krüger implementation a little more. 
+ 
+Again, many thanks for all advice. 
+ 
+Footnote: For Poder-Engsager (recommended by daan Strebe), 
+I did not find the original source, only formulas for the 
+forward direction given in 
+http://www.fofodala.dk/projekter/9sem/2004_Flaadestyring_Himmerlands_Elforsyning.pdf <http://www.fofodala.dk/projekter/9sem/2004_Flaadestyring_Himmerlands_Elforsyning.pdf> , 
+where credit is given to 
+  Knud Poder and Karsten Engsager:
+  Some Conformal Mappings and Transformations 
+  for Geodesy and Topographic Cartography,
+  KMS (Kort & Matrikelstyrelsen, Denmark) 1998. 
+
+--
+Mikael Rittri
+Carmenta AB
+Box 11354
+SE-404 28 Göteborg
+Visitors: Sankt Eriksgatan 5
+SWEDEN
+Tel: +46-31-775 57 37
+Mob: +46-703-60 34 07
+mikael.rittri at carmenta.com
+www.carmenta.com 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080526/79ccbf9c/attachment.html>
+
+From al001 at uni-koeln.de  Tue May 27 01:57:52 2008
+From: al001 at uni-koeln.de (Irwin Scollar)
+Date: Tue, 27 May 2008 10:57:52 +0200
+Subject: [Proj] Transverse Mercator algorithm
+In-Reply-To: <200805261602.m4QG1rWu032669@duke.maptools.org>
+References: <200805261602.m4QG1rWu032669@duke.maptools.org>
+Message-ID: <200805270858.m4R8w3ku028838@smtp-auth.uni-koeln.de>
+
+A way to speed up TM calculation with enhanced accuracy was published 
+by Knud Poder in 1989:
+
+Implementation of Co-ordinate Transformations. NKG Nordiske 
+Forskarkurser, Ebeltoft September 1988, Moderne Teknik i Geodaesi og 
+Opmaling, 243 - 280. Kort & Matrikelstyrelsen, Copenhagen 1989.
+
+It uses Clenshaw summation for the series expansions. See also 
+Tscherning & Poder:
+
+http://cct.gfy.ku.dk/publ_cct/cct80.pdf
+
+Clenshaw summation can be applied to almost any algorithm containing 
+series expansions to gain speed.
+
+As far as accuracy is concerned, analysis of this should also take 
+into account the limitations of floating point processing when a 32 
+bit machine is being used.  This is not a problem with 64 bit 
+hardware and compilers.
+
+For a real-time tracking application, I coded with the native 10 byte 
+extended IEEE Floating Point representation available in Intel and 
+compatible processors and offered by some compilers rather than the 
+double precision used in much published code.  Howevere, the hardware 
+support in the processor may be slowed by cache misses due to non-4 
+byte boundary conditions on some machines. Higher speed at the 
+expense of accuracy might perhaps be obtained by using SSE 
+instructions via one of the Intel compilers or with hand-coded 
+assembler for SSE4, but I haven't tried it.
+
+Irwin Scollar
+
+
+
+From ovv at hetnet.nl  Tue May 27 04:18:44 2008
+From: ovv at hetnet.nl (Oscar van Vlijmen)
+Date: Tue, 27 May 2008 13:18:44 +0200
+Subject: [Proj] Transverse Mercator algorithm
+In-Reply-To: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+References: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+Message-ID: <483BEE14.4030708@hetnet.nl>
+
+Mikael Rittri wrote:
+> Hello,
+> I am thinking about extending the accuracy of our Transverse Mercator. 
+ > But is it worth the trouble?
+
+In my opinion, there are 2 possibilities:
+
+* High accuracy.
+It appears extremely difficult to obtain any accuracy at all in some 
+regions, especially around the poles and more than 80 degrees from the 
+central meridian.
+Then there is the difficulty of the bifurcation of the equator beyond 
+some point (dependent on the eccentricity, but usually beyond 85 deg. 
+or so from CM).
+It costs a lot of calculation time and it is difficult to find a good 
+working procedure. Several procedures work excellent to 60, 80 or even 
+89 deg. from CM, but fail miserably beyond that.
+
+* Speed.
+It is entirely possible to find one or more procedures that give a 
+reasonable speed, but only to about 60 deg. from the CM. If the latitude 
+is larger than about 20 deg. then the distance to CM can be extended to 
+let's say 80 deg. in some procedures.
+
+I find the series expansion with hyperbolic functions a good compromise 
+between speed and accuracy.
+This procedure is followed by the geodetic services of Finland, Sweden 
+and France. Publications with complete formulae (forward, inverse and 
+even including meridian convergence and point scale factor) can be found 
+on-line.
+If I remember correctly Gerald Evenden has implemented one of these 
+procedures as "ftmerc" in libproj - please ask him for details.
+
+The Taylor series expansion as used by the current tmerc-type 
+implementations leads to nowhere if you want to go farther than let's 
+say 1 radian (57 deg) from CM. Many derivatives (probably to the 26th 
+so) are needed, with extraordinary complexity and calculation times.
+
+It would be interesting if the Engsager/Poder scheme were on-line or 
+published through this list.
+
+Oscar van Vlijmen
+
+
+
+
+
+
+
+
+
+From warmerdam at pobox.com  Tue May 27 08:52:08 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 27 May 2008 11:52:08 -0400
+Subject: [Proj] Transverse Mercator algorithm
+In-Reply-To: <483BEE14.4030708@hetnet.nl>
+References: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+	<483BEE14.4030708@hetnet.nl>
+Message-ID: <483C2E28.3080202@pobox.com>
+
+Oscar van Vlijmen wrote:
+> In my opinion, there are 2 possibilities:
+> 
+> * High accuracy.
+> * Speed.
+
+Folks,
+
+To state the obvious, computers are pretty fast now, so for many purposes
+a TM variant that is quite a bit slower would be acceptable.
+
+I would like to see a TM version that is very reversable well outside the
+typical six degree swath around the central meridian.
+
+Mostly I wish I could have a highly reversable TM variant that was exactly
+the same as the existing TM approximation in at least one direction.  It is
+the failure to reverse that is a nightmare for me.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From geraldi.evenden at gmail.com  Tue May 27 10:28:28 2008
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Tue, 27 May 2008 13:28:28 -0400
+Subject: [Proj] Transverse Mercator algorithm
+In-Reply-To: <483C2E28.3080202@pobox.com>
+References: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+	<483BEE14.4030708@hetnet.nl> <483C2E28.3080202@pobox.com>
+Message-ID: <200805271328.29004.geraldi.evenden@gmail.com>
+
+On Tuesday 27 May 2008 11:52 am, Frank Warmerdam wrote:
+> Oscar van Vlijmen wrote:
+> > In my opinion, there are 2 possibilities:
+> >
+> > * High accuracy.
+> > * Speed.
+>
+> Folks,
+>
+> To state the obvious, computers are pretty fast now, so for many purposes
+> a TM variant that is quite a bit slower would be acceptable.
+>
+> I would like to see a TM version that is very reversable well outside the
+> typical six degree swath around the central meridian.
+>
+> Mostly I wish I could have a highly reversable TM variant that was exactly
+> the same as the existing TM approximation in at least one direction.  It is
+> the failure to reverse that is a nightmare for me.
+
+A minor nit-pick: "inverse" is a better term than "reverse."
+
+arcsine is the inverse of sine.
+
+Another minor aside: an earlier version of proj used with the mapgen program 
+used a Tchebyshev(sp) approximations to speed up the projections for larger 
+scale map regions (lesser lam-phi extents).  This also alowed the code in the 
+mapping program to only deal with bivariate polynomials for all projections 
+and not have to carry around the projection library.
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+
+
+From strebe at aol.com  Tue May 27 11:35:10 2008
+From: strebe at aol.com (strebe)
+Date: Tue, 27 May 2008 11:35:10 -0700
+Subject: [Proj] Re: Transverse Mercator algorithm
+In-Reply-To: <483C2E28.3080202@pobox.com>
+Message-ID: <8020F1B7.A094.4DC7.9DA5.5788D015893F@aol.com>
+
+Frank:
+
+I reviewed a promising paper on this topic two years ago. The author took the novel approach of leaving the series development on the complex plane instead of teasing apart the real and imaginary portions. This resulted in a much simpler expression of the series, including inverse. This leaves room for more terms without becoming unwieldy. Unfortunately the paper came with some important problems and did not see publication in that form. I do not know who the author was, or authors were, and I have not heard any more about it. 
+
+You might contact Elisabeth Nelson of CaGIS about manuscript MS06916, "The Formulation of Gauss Projection by Complex Numbers". It may be that the author has published by now, or that "he" would be willing to share details anyway.
+
+Regards,
+-- daan Strebe
+
+
+On May 27, 2008, at 8:52:08 AM, "Frank Warmerdam" <warmerdam at pobox.com> wrote:
+From:   "Frank Warmerdam" <warmerdam at pobox.com>
+Subject:    Re: [Proj] Transverse Mercator algorithm
+Date:   May 27, 2008 8:52:08 AM PDT
+To: "PROJ.4 and general Projections Discussions" <proj at lists.maptools.org>
+Oscar van Vlijmen wrote:
+> In my opinion, there are 2 possibilities:
+> 
+> * High accuracy.
+> * Speed.
+
+Folks,
+
+To state the obvious, computers are pretty fast now, so for many purposes
+a TM variant that is quite a bit slower would be acceptable.
+
+I would like to see a TM version that is very reversable well outside the
+typical six degree swath around the central meridian.
+
+Mostly I wish I could have a highly reversable TM variant that was exactly
+the same as the existing TM approximation in at least one direction. It is
+the failure to reverse that is a nightmare for me.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | President OSGeo, http://osgeo.org
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080527/ef5ef676/attachment.html>
+
+From Mikael.Rittri at carmenta.com  Thu May 29 06:12:38 2008
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Thu, 29 May 2008 15:12:38 +0200
+Subject: [Proj] Kruger 1912 inverse formulas are faster than I claimed. 
+In-Reply-To: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+References: <FAF6E56B26D2044696772EBE89B15351F2750E@posty.carmenta.se>
+Message-ID: <FAF6E56B26D2044696772EBE89B15351F27A2E@posty.carmenta.se>
+
+Hello,
+
+I must apologize.  My timings for the Krüger 
+formulas in the inverse direction were wrong.  
+
+It's embarassing, but when I generated a lot of test 
+points, I did not realize that they could get latitudes 
+far outside the range of -90 to 90.  I am not sure why 
+this affected my computations so much (since they are 
+not iterative), but it seems to have made the computation 
+about 10 times longer.
+
+I have also managed to do a few real improvements.  
+For example, it turned out that calling sinh(t) and cosh(t), 
+on the same t, was inefficient on my computer.  It was much 
+better to use the definition and write 
+
+	double exp_t = exp(t);
+	double exp_minust = 1.0 / exp_t;
+	double sinh_t = 0.5 * (exp_t - exp_minust); 
+	double cosh_t = 0.5 * (exp_t + exp_minust); 
+
+After these and a few other minor improvements, my current timings are
+
+                forward  inverse 
+  Snyder/tmerc    220      675
+  Krüger formulas 625      625
+
+where the numbers give the milliseconds needed to process a million points.
+So the Krüger inverse is not slower than tmerc. In the forward direction,
+Krüger is around 3 times slower than tmerc.  
+
+So, after I have seen these figures, I do not see much need for a 
+compromise algorithm.
+
+A clever algorithm could call the tmerc forward where this is accurate 
+enough for the application, perhaps out to 6 or 9 longitude degrees 
+from the central meridian.  Elsewhere, it would use the Krüger forward. 
+In the inverse direction, the algorithm could just as well use 
+Krüger formulas everywhere. 
+
+About the area of usefulness for the Krüger formulas, I do not see 
+any troubles around the north and south poles.  The worst error 
+I found was that the inverse rounded a latitude, which should 
+be 89.999999401 or 6.7 cm from the pole, was rounded to 90.0 exactly. 
+
+The Krüger formulas do not work near the "west pole" and "east pole",
+though (the points on the equator, 90 degrees from the central meridian.) 
+I am not sure yet exactly how near you can go.  As a rough estimate,
+I would say that the formulas work at least to 6000 km from the central 
+meridian and its antipodal meridian (true distance, not projected 
+distance), but I have not done enough tests yet. 
+
+I am sorry that I asked a question based on faulty data. 
+(I just hope that my figures are right this time!) 
+
+--
+Mikael Rittri
+Carmenta AB
+Box 11354
+SE-404 28 Göteborg
+Visitors: Sankt Eriksgatan 5
+SWEDEN
+Tel: +46-31-775 57 37
+Mob: +46-703-60 34 07 
+mikael.rittri at carmenta.com
+www.carmenta.com
+-----Original Message-----
+From: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] On Behalf Of Mikael Rittri
+Sent: den 22 maj 2008 11:04
+To: proj at lists.maptools.org
+Subject: [Proj] Transverse Mercator algorithm with good accuracy/speedtrade-off? 
+
+[--- Text deleted ---] 
+
+I have implemented the Swedish proposal[*], which was not too difficult, and I got it to agree with Oscar van Vlijmen's test point. But my implementation is about 4.5 times slower than tmerc in the forward direction, and about 15 times slower in the inverse direction. I doubt that I can improve the speed much. 
+
+[--- Text deleted ---] 
+
+
+
+From jorge.arevalo at gmail.com  Thu May 29 08:13:10 2008
+From: jorge.arevalo at gmail.com (Jorge)
+Date: Thu, 29 May 2008 17:13:10 +0200
+Subject: [Proj] Problem overlaying georeferenced images in Google Maps
+ (projection problem!)
+Message-ID: <483EC806.2010208@gmail.com>
+
+Hello everybody
+
+First of all, sorry for the length of the message, but it's necessary to 
+explain the problem.
+
+I've done a Java app that shows mobile coverage levels (codificated as 
+colours) in a zone using google maps api, but I have a problem that I 
+can't resolve. The app can be seen at 
+http://movil.orange.es/servicios/cobertura/mapa_de_cobertura/index.html
+
+If you select a spanish province's name in the select box, you can see 
+the coverage level in this province, with three values codificated as 
+colours: very good coverage (strongest orange), good coverage (less 
+strong orange) and average (weakest orange). You can move the map, and 
+zoom, if you want.
+
+Basically, the entries of my app are Mapinfo MIF/MID files, with 
+rectangles (MIF files) and associated coverage values, in dbM (MID 
+files), one pair per province. I tranform each pair of files in a single 
+raster file. Each byte of the raster is a coverage value.And I 
+georeference the raster with the northing and easting of the upper left 
+and lower right corners, based on the MIF file (yes, like using a World 
+File, not exactly the same, but it's ok).
+
+As you can imagine, when the raster file is transformed into an image to 
+be overlaid on the map, I can not zoom. I need to "decimate" (for the 
+higher zoom levels), and to "interpolate" (for the lower zoom levels). 
+This is, I need to sample the raster with a different freq for each zoom 
+level. When I do this, I transform each sampled portion of the raster in 
+a PNG file, and I store it in a database, with the northing, easting, 
+lat and long (obtained easily from northing, easting and utm zone) 
+coords to put the image in the map.
+
+So, the problems are two (you can check them in the map, for example, 
+selecting "Islas Baleares" in the select box):
+
+- There is an error, because the image does not overlay the province 
+correctly. Projection problem (I will explain it...)
+- When you move the map, the images move too. This has an explanaition:  
+I have the Google Maps' frame, I get the "more centered" image from the 
+database, and I put it on the map. I consider this image like "well 
+located". Then, I get the rest of the images that I have to put, and I 
+put them. If I move the map, maybe the "more centered" image is another. 
+This problem is due to the projection too.
+
+So, really I only have a problem: the projection. The input data 
+(MIF/MID files) are obtained from a tool that represents the data in UTM 
+format, with ED50 datum (and I can't change this). Google Maps uses a 
+projection based on mercator, and a datum based on WGS84. I spend a lot 
+of time reading about this, in sites like 
+http://cfis.savagexi.com/articles/2006/05/03/google-maps-deconstructed. 
+So, I thought "I need to reproject the raster". And I did it, using 
+gdalwarp. This is the order that I used:
+
+gdalwarp
+    -s_srs "+proj=utm +zone=31 +ellps=intl +units=m +no_defs"
+    -t_srs "+proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 
++a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs"
+    -co INTERLEAVE=PIXEL
+    <raster file name> <reprojected raster file name>
+
+Then, I did the reprojection, but I still have the problem... better 
+look, but still remains... Bad overlaid images
+
+I think that the proj.4 parameters are correct. I' ve read that since a 
+few days ago, there is an official EPSG code for the projection used by 
+Google Maps, the 3785, but I can't find the parameters :( Yes, there is 
+a EPSG code to the input projection too, the 23031, and I used it with 
+the same results... the problem remains
+
+¿What am I doing bad? I need additional data manipulation or something? 
+I'm lost...
+
+Thanks in advance to everybody
+
+
+
+From EMiller at dfg.ca.gov  Thu May 29 08:57:57 2008
+From: EMiller at dfg.ca.gov (Eric Miller)
+Date: Thu, 29 May 2008 08:57:57 -0700
+Subject: [Proj] Problem overlaying georeferenced images in Google
+	Maps(projection problem!)
+In-Reply-To: <483EC806.2010208@gmail.com>
+References: <483EC806.2010208@gmail.com>
+Message-ID: <483E7015.95FD.00E4.0@dfg.ca.gov>
+
+>>> On 5/29/2008 at 8:13 AM, Jorge <jorge.arevalo at gmail.com> wrote:
+[snip]
+> gdalwarp
+>     -s_srs "+proj=utm +zone=31 +ellps=intl +units=m +no_defs"
+>     -t_srs "+proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 
+> +a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs"
+>     -co INTERLEAVE=PIXEL
+>     <raster file name> <reprojected raster file name>
+> 
+> Then, I did the reprojection, but I still have the problem... better 
+> look, but still remains... Bad overlaid images
+> 
+> I think that the proj.4 parameters are correct. ...
+[snip]
+
+It looks like you are missing the datum transformation parameters to convert from ED50 to WGS84.  You need to add the +towgs84 parameter to your source projection.  However, I can't help you with suggested values for that parameter for your source coordinate system.  You'll have to do some research.
+-- 
+
+Eric G. Miller
+Staff Programmer
+CA Dept. of Fish & Game
+
+
+
+
+
+From jorge.arevalo at gmail.com  Thu May 29 09:18:27 2008
+From: jorge.arevalo at gmail.com (Jorge)
+Date: Thu, 29 May 2008 18:18:27 +0200
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+Message-ID: <483ED753.6020605@gmail.com>
+
+Hi Eric
+
+Mmm... just now I was reading about datum convert and +towgs84. But the GMaps datum is somehow different from WGS84, is'n it? Can I use +towgs84 instead of this?
+
+
+Thank you!
+
+
+
+>[snip]
+
+> > gdalwarp
+> >     -s_srs "+proj=utm +zone=31 +ellps=intl +units=m +no_defs"
+> >     -t_srs "+proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 
+> > +a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs"
+> >     -co INTERLEAVE=PIXEL
+> >     <raster file name> <reprojected raster file name>
+> > 
+> > Then, I did the reprojection, but I still have the problem... better 
+> > look, but still remains... Bad overlaid images
+> > 
+> > I think that the proj.4 parameters are correct. ...
+>   
+> [snip]
+
+> It looks like you are missing the datum transformation parameters to convert from ED50 to WGS84.  You need to add the +towgs84 
+> parameter to your source projection.  However, I can't help you with suggested values for that parameter for your source 
+> coordinate system.  You'll have to do some research.
+ > -- > > Eric G. Miller > Staff Programmer > CA Dept. of Fish & Game
+
+
+
+From EMiller at dfg.ca.gov  Thu May 29 09:49:15 2008
+From: EMiller at dfg.ca.gov (Eric Miller)
+Date: Thu, 29 May 2008 09:49:15 -0700
+Subject: [Proj] Problem overlaying georeferenced images in
+	Google,Maps(projection problem!)
+In-Reply-To: <483ED753.6020605@gmail.com>
+References: <483ED753.6020605@gmail.com>
+Message-ID: <483E7C1B.95FD.00E4.0@dfg.ca.gov>
+
+Yes, Google maps uses a spherical model rather than ellipsoidal (hence, +a == +b in the destination coordinate system).  So, it's not really WGS84.  However, my understanding is that GMaps projection assumes there isn't any difference.  So, source coordinates should be converted to Geodetic on the WGS84 ellipsoid/datum and then projected onto the Google Mercator "WGS84" sphere ignoring the fact that the models are really different.  So, the +towgs84 parameter on the destination should probably be defined as +towgs84=0,0,0.
+
+Good Luck,
+Eric
+
+>>> On 5/29/2008 at 9:18 AM, Jorge <jorge.arevalo at gmail.com> wrote:
+> Hi Eric
+> 
+> Mmm... just now I was reading about datum convert and +towgs84. But the 
+> GMaps datum is somehow different from WGS84, is'n it? Can I use +towgs84 
+> instead of this?
+> 
+> 
+> Thank you!
+> 
+> 
+> 
+>>[snip]
+> 
+>> > gdalwarp
+>> >     -s_srs "+proj=utm +zone=31 +ellps=intl +units=m +no_defs"
+>> >     -t_srs "+proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 
+>> > +a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs"
+>> >     -co INTERLEAVE=PIXEL
+>> >     <raster file name> <reprojected raster file name>
+>> > 
+>> > Then, I did the reprojection, but I still have the problem... better 
+>> > look, but still remains... Bad overlaid images
+>> > 
+>> > I think that the proj.4 parameters are correct. ...
+>>   
+>> [snip]
+> 
+>> It looks like you are missing the datum transformation parameters to convert 
+> from ED50 to WGS84.  You need to add the +towgs84 
+>> parameter to your source projection.  However, I can't help you with 
+> suggested values for that parameter for your source 
+>> coordinate system.  You'll have to do some research.
+>  > -- > > Eric G. Miller > Staff Programmer > CA Dept. of Fish & Game
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org 
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+
+From warmerdam at pobox.com  Thu May 29 10:19:50 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 29 May 2008 13:19:50 -0400
+Subject: [Proj] Problem overlaying georeferenced images in
+	Google,Maps(projection problem!)
+In-Reply-To: <483E7C1B.95FD.00E4.0@dfg.ca.gov>
+References: <483ED753.6020605@gmail.com> <483E7C1B.95FD.00E4.0@dfg.ca.gov>
+Message-ID: <483EE5B6.6050108@pobox.com>
+
+Eric Miller wrote:
+> Yes, Google maps uses a spherical model rather than ellipsoidal (hence, +a == +b in the destination coordinate system).  So, it's not really WGS84.  However, my understanding is that GMaps projection assumes there isn't any difference.  So, source coordinates should be converted to Geodetic on the WGS84 ellipsoid/datum and then projected onto the Google Mercator "WGS84" sphere ignoring the fact that the models are really different.  So, the +towgs84 parameter on the destination should probably be defined as +towgs84=0,0,0.
+
+Folks,
+
+I haven't followed this issue closely, but please be sure you are aware of:
+
+ 
+http://trac.osgeo.org/proj/wiki/FAQ#ChangingEllipsoidWhycantIconvertfromWGS84toVirtualEarthMercator
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From jorge.arevalo at gmail.com  Thu May 29 11:09:55 2008
+From: jorge.arevalo at gmail.com (Jorge)
+Date: Thu, 29 May 2008 20:09:55 +0200
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+Message-ID: <483EF173.308@gmail.com>
+
+Eric Miller wrote:
+>/ Yes, Google maps uses a spherical model rather than ellipsoidal (hence, +a == +b in the destination coordinate system).  
+So, it's not really WGS84.  However, my understanding is that GMaps projection assumes there isn't any difference.  
+So, source coordinates should be converted to Geodetic on the WGS84 ellipsoid/datum and then projected onto the Google Mercator 
+"WGS84" sphere ignoring the fact that the models are really different.  So, the +towgs84 parameter on the destination should 
+probably be defined as +towgs84=0,0,0.
+/
+Folks,
+
+I haven't followed this issue closely, but please be sure you are aware of:
+
+ 
+http://trac.osgeo.org/proj/wiki/FAQ#ChangingEllipsoidWhycantIconvertfromWGS84toVirtualEarthMercator
+
+Best regards
+----
+
+I'm aware of this problem. In fact, I've added a new EPSG code (3785) to the epsg file in order to use +init=epsg:3785 with these 
+parameters. Thanks for the advice!
+
+Now, I've tried to reproject a image using +towgs=-84,-107,-120,0,0,0,0 (to my Country) in the source image (UTM ED50) and +towgs84=0,0,0,0,0,0,0 
+in the target image (Google Maps), but I have the same reprojected image than when I wasn't using +towgs84 option :(. This is what
+I've done:
+
+gdalwarp 
+	-s_srs "+init=epsg:23031 +towgs84=-84,-107,-120,0,0,0,0" 
+	-t_srs "+init=epsg:3785 +towgs84=0,0,0,0,0,0,0" 
+	-co INTERLEAVE=PIXEL 
+	<input> <output>
+
+And I have the same result that doing:
+
+gdalwarp 
+	-s_srs "+init=epsg:23031" 
+	-t_srs "+init=epsg:3785" 
+	-co INTERLEAVE=PIXEL 
+	<input> <output>
+
+And "epsg:3785" in epsg file is defined as:
+
+# Spherical/Web Mercator
+<3785> +proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 +a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs <>
+
+Any mistakes?
+
+So, what does exactly mean the parameters of the +towgs84 option (/delta_x/, /delta_y/, /delta_z/, /Rx - rotation X/, /Ry - rotation Y/, 
+/Rz - rotation Z/, /M_BF - Scaling)/? I think that:
+
+(delta_x, delta_y, delta_z) = translation vector, to be added to each point of the data
+(Rx, Ry, Rz) = rotation vector, to be applied to each point of the data
+M_BF = the scale correction
+
+OK. But why "Rx - rotation X", or "M_BF - scaling"?, what does "rotation X" or "scaling" mean? Maybe I'm making a mistake with
+the calcs...
+
+Thanks again!
+/
+/
+
+
+
+From hamish_b at yahoo.com  Thu May 29 16:25:16 2008
+From: hamish_b at yahoo.com (Hamish)
+Date: Thu, 29 May 2008 16:25:16 -0700 (PDT)
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+In-Reply-To: <483EE5B6.6050108@pobox.com>
+Message-ID: <475969.41846.qm@web45816.mail.sp1.yahoo.com>
+
+> Eric Miller wrote:
+> > Yes, Google maps uses a spherical model rather than
+> > ellipsoidal (hence, +a == +b in the destination coordinate
+> > system).  So, it's not really WGS84.  However, my
+> > understanding is that GMaps projection assumes there
+> > isn't any difference.  So, source coordinates should be
+> > converted to Geodetic on the WGS84 ellipsoid/datum and then
+> > projected onto the Google Mercator "WGS84" sphere
+> > ignoring the fact that the models are really different.  So,
+> > the +towgs84 parameter on the destination should probably be
+> > defined as +towgs84=0,0,0.
+> 
+Frank wrote:
+> I haven't followed this issue closely, but please be
+> sure you are aware of:
+> http://trac.osgeo.org/proj/wiki/FAQ#ChangingEllipsoidWhycantIconvertfromWGS84toVirtualEarthMercator
+
+
+ah, ok. I happened to be looking at this problem yesterday WRT OpenStreetMap's PostgreSQL exporter -m flag (->Mapnik):
+http://trac.openstreetmap.org/browser/applications/utils/export/osm2pgsql/reprojection.c#L14
+
+One thing I don't understand in that is what the "+over" term is for.
+It is new to me.
+
+
+Also, Jorge- is that 3785 EPSG term for Google's merc a new official EPSG one or a custom thing? if a custom thing maybe it is better to stick with 
+<900913> "Chris' funny epsgish code for the google mercator"
+(from /usr/share/proj/esri.extra)
+?
+
+
+Hamish
+
+
+
+      
+
+
+
+From jorge.arevalo at gmail.com  Fri May 30 02:45:25 2008
+From: jorge.arevalo at gmail.com (Jorge)
+Date: Fri, 30 May 2008 11:45:25 +0200
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+References: 483EE5B6.6050108@pobox.com
+Message-ID: <483FCCB5.40808@gmail.com>
+
+>/ Eric Miller wrote:
+/>/ > Yes, Google maps uses a spherical model rather than
+/>/ > ellipsoidal (hence, +a == +b in the destination coordinate
+/>/ > system).  So, it's not really WGS84.  However, my
+/>/ > understanding is that GMaps projection assumes there
+/>/ > isn't any difference.  So, source coordinates should be
+/>/ > converted to Geodetic on the WGS84 ellipsoid/datum and then
+/>/ > projected onto the Google Mercator "WGS84" sphere
+/>/ > ignoring the fact that the models are really different.  So,
+/>/ > the +towgs84 parameter on the destination should probably be
+/>/ > defined as +towgs84=0,0,0.
+/>/ 
+/> Frank wrote:
+>/ > I haven't followed this issue closely, but please be
+/>/ > sure you are aware of:
+/>/ > http://trac.osgeo.org/proj/wiki/FAQ#ChangingEllipsoidWhycantIconvertfromWGS84toVirtualEarthMercator
+/
+Hamish wrote:
+> ah, ok. I happened to be looking at this problem yesterday WRT OpenStreetMap's PostgreSQL exporter -m flag (->Mapnik):
+> http://trac.openstreetmap.org/browser/applications/utils/export/osm2pgsql/reprojection.c#L14
+> 
+> One thing I don't understand in that is what the "+over" term is for.
+> It is new to me.
+> 
+> 
+> Also, Jorge- is that 3785 EPSG term for Google's merc a new official EPSG one or a custom thing? if a custom thing maybe it is better to stick with 
+> <900913> "Chris' funny epsgish code for the google mercator"
+> (from /usr/share/proj/esri.extra)
+> ?
+> 
+>
+> Hamish
+
+The EPSG code 3785 is a custom one, but the same of 900913 (I didn't know it thanks), except for the "+wktext" term. What does it mean?
+
+OK, I'm lost with this issue. Could my calcs be wrong? I have, for example, this image:
+http://www.nebulared.com/tmp_geo/UTM_ED50_Balearic_Island.png
+
+And is georeferenced by this world file:
+http://www.nebulared.com/tmp_geo/UTM_ED50_Balearic_Island.wld
+
+The image is obtained for a MIF/MID couple of files with UTM projection, zone 30, ED50 datum (Mapinfo said... I don't know what 
+are the dX, dY, dZ parameters, buth they must be -84, -107, -120). Really, the raster file obtained from MIF/MID files isn't a
+PNG file, but I did the transform to "see" what I was doing.
+
+OK, I need to reproject the image, and the output image must be used to overlay it in a GMaps' frame. This is my last attempt:
+
+gdalwarp 
+	-s_srs "+init=epsg:23030 +towgs84=-84,-107,-120,0,0,0,0" 
+	-t_srs "+init=epsg:3785 +towgs84=0,0,0,0,0,0,0" 
+	-tr 250 250 
+	-co INTERLEAVE=PIXEL 
+	UTM_ED50_Balearic_Island.png
+	GMaps_Balearic_Island.tif
+
+Then, I transform the TIFF file in a PNG (transformation OK) and I have this image:
+http://www.nebulared.com/tmp_geo/GMaps_Balearic_Island.png
+
+But the image doesn't fit exactly in the map... Is there any error in this reprojection? If the projection is OK, I need to review
+the rest of the code...
+
+Thanks a lot!
+
+
+
+
+
+
+
+From neteler at osgeo.org  Fri May 30 02:49:48 2008
+From: neteler at osgeo.org (Markus Neteler)
+Date: Fri, 30 May 2008 11:49:48 +0200
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+In-Reply-To: <475969.41846.qm@web45816.mail.sp1.yahoo.com>
+References: <483EE5B6.6050108@pobox.com>
+	<475969.41846.qm@web45816.mail.sp1.yahoo.com>
+Message-ID: <86782b610805300249x3d8a0e90kfc13ba90745619e@mail.gmail.com>
+
+On Fri, May 30, 2008 at 1:25 AM, Hamish <hamish_b at yahoo.com> wrote:
+> Also, Jorge- is that 3785 EPSG term for Google's merc a new official EPSG one or a
+> custom thing? if a custom thing maybe it is better to stick with
+> <900913> "Chris' funny epsgish code for the google mercator"
+> (from /usr/share/proj/esri.extra)
+
+See also here:
+http://spatialreference.org/ref/user/6/
+
+Markus
+
+
+From jorge.arevalo at gmail.com  Fri May 30 04:12:20 2008
+From: jorge.arevalo at gmail.com (Jorge)
+Date: Fri, 30 May 2008 13:12:20 +0200
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+References: 483EE5B6.6050108@pobox.com
+Message-ID: <483FE114.1070902@gmail.com>
+
+Now, the results in Google Earth:
+
+The image before reproyecting (UTM zone 30 datum ED50)
+http://www.nebulared.com/tmp_geo/Balearic_Island_UTM_ED50.png
+
+The image reproyected
+http://www.nebulared.com/tmp_geo/Balearic_Island_Reprojected.png
+
+What's the problem?:
+- The input image's projection really isn't UTM ED50 (Mapinfo lies??), or is bad georeferenced (low probability...)
+- The output image's projection really isn't GMaps projection (assuming GMaps projection = GEarth projection)
+- GMaps projection not equal GEarth projection (I think so...)
+- Any other?
+
+The line executed:
+gdalwarp 
+	-s_srs "+init=epsg:23030 +towgs84=-84,-107,-120,0,0,0,0" 
+	-t_srs "+init=epsg:3785 +towgs84=0,0,0,0,0,0,0" 
+	-tr 250 250 
+	-co INTERLEAVE=PIXEL 
+	Balearic_Island_UTM_ED50.png
+	Balearic_Island_Reprojected.png
+
+The epsg codes:
+Input code (23030):
+# ED50 / UTM zone 30N
+<23030> +proj=utm +zone=30 +ellps=intl +units=m +no_defs  <>
+
+
+Output code (3785):
+# Spherical/Web Mercator
+<3785> +proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 +a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs <>
+
+
+Sorry for the insistence, and thanks a lot
+Jorge
+
+Jorge wrote:
+> The EPSG code 3785 is a custom one, but the same of 900913 (I didn't know it thanks), except for the "+wktext" term. What does it mean?
+> 
+> OK, I'm lost with this issue. Could my calcs be wrong? I have, for example, this image:
+> http://www.nebulared.com/tmp_geo/UTM_ED50_Balearic_Island.png
+>
+> And is georeferenced by this world file:
+> http://www.nebulared.com/tmp_geo/UTM_ED50_Balearic_Island.wld
+>
+> The image is obtained for a MIF/MID couple of files with UTM projection, zone 30, ED50 datum (Mapinfo said... I don't know what 
+> are the dX, dY, dZ parameters, buth they must be -84, -107, -120). Really, the raster file obtained from MIF/MID files isn't a
+> PNG file, but I did the transform to "see" what I was doing.
+> 
+> OK, I need to reproject the image, and the output image must be used to overlay it in a GMaps' frame. This is my last attempt:
+>
+> gdalwarp 
+>	-s_srs "+init=epsg:23030 +towgs84=-84,-107,-120,0,0,0,0" 
+>	-t_srs "+init=epsg:3785 +towgs84=0,0,0,0,0,0,0" 
+>	-tr 250 250 
+>	-co INTERLEAVE=PIXEL 
+>	UTM_ED50_Balearic_Island.png
+>	GMaps_Balearic_Island.tif
+>
+> Then, I transform the TIFF file in a PNG (transformation OK) and I have this image:
+> http://www.nebulared.com/tmp_geo/GMaps_Balearic_Island.png
+>
+> But the image doesn't fit exactly in the map... Is there any error in this reprojection? If the projection is OK, I need to review
+> the rest of the code...
+
+
+
+From support.mn at elisanet.fi  Sat May 31 01:20:11 2008
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Sat, 31 May 2008 11:20:11 +0300 (EEST)
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+Message-ID: <14556219.531801212222011136.JavaMail.support.mn@elisanet.fi>
+
+Hmmm....
+
+are you sure the "gdalwarp" you are using uses the latest proj-4 libraries?
+Are you sure all programs are doing what thye should? If so, it is maybe the
+input data (assumptions) then?
+
+Regards: Janne
+
+------------------------------ 
+
+Jorge <jorge.arevalo at gmail.com> kirjoitti: 
+> Now, the results in Google Earth:
+> 
+> The image before reproyecting (UTM zone 30 datum ED50)
+> http://www.nebulared.com/tmp_geo/Balearic_Island_UTM_ED50.png
+> 
+> The image reproyected
+> http://www.nebulared.com/tmp_geo/Balearic_Island_Reprojected.png
+> 
+> What's the problem?:
+> - The input image's projection really isn't UTM ED50 (Mapinfo lies??), or is bad georeferenced (low probability...)
+> - The output image's projection really isn't GMaps projection (assuming GMaps projection = GEarth projection)
+> - GMaps projection not equal GEarth projection (I think so...)
+> - Any other?
+> 
+> The line executed:
+> gdalwarp 
+> 	-s_srs "+init=epsg:23030 +towgs84=-84,-107,-120,0,0,0,0" 
+> 	-t_srs "+init=epsg:3785 +towgs84=0,0,0,0,0,0,0" 
+> 	-tr 250 250 
+> 	-co INTERLEAVE=PIXEL 
+> 	Balearic_Island_UTM_ED50.png
+> 	Balearic_Island_Reprojected.png
+> 
+> The epsg codes:
+> Input code (23030):
+> # ED50 / UTM zone 30N
+> <23030> +proj=utm +zone=30 +ellps=intl +units=m +no_defs  <>
+> 
+> 
+> Output code (3785):
+> # Spherical/Web Mercator
+> <3785> +proj=merc +lat_ts=0.0 +lon_0=0.0 +k=1.0 +x_0=0.0 +y_0=0.0 +a=6378137.0 +b=6378137.0 +units=m +nadgrids=@null +no_defs <>
+> 
+> 
+> Sorry for the insistence, and thanks a lot
+> Jorge
+> 
+> Jorge wrote:
+> > The EPSG code 3785 is a custom one, but the same of 900913 (I didn't know it thanks), except for the "+wktext" term. What does it mean?
+> > 
+> > OK, I'm lost with this issue. Could my calcs be wrong? I have, for example, this image:
+> > http://www.nebulared.com/tmp_geo/UTM_ED50_Balearic_Island.png
+> >
+> > And is georeferenced by this world file:
+> > http://www.nebulared.com/tmp_geo/UTM_ED50_Balearic_Island.wld
+> >
+> > The image is obtained for a MIF/MID couple of files with UTM projection, zone 30, ED50 datum (Mapinfo said... I don't know what 
+> > are the dX, dY, dZ parameters, buth they must be -84, -107, -120). Really, the raster file obtained from MIF/MID files isn't a
+> > PNG file, but I did the transform to "see" what I was doing.
+> > 
+> > OK, I need to reproject the image, and the output image must be used to overlay it in a GMaps' frame. This is my last attempt:
+> >
+> > gdalwarp 
+> >	-s_srs "+init=epsg:23030 +towgs84=-84,-107,-120,0,0,0,0" 
+> >	-t_srs "+init=epsg:3785 +towgs84=0,0,0,0,0,0,0" 
+> >	-tr 250 250 
+> >	-co INTERLEAVE=PIXEL 
+> >	UTM_ED50_Balearic_Island.png
+> >	GMaps_Balearic_Island.tif
+> >
+> > Then, I transform the TIFF file in a PNG (transformation OK) and I have this image:
+> > http://www.nebulared.com/tmp_geo/GMaps_Balearic_Island.png
+> >
+> > But the image doesn't fit exactly in the map... Is there any error in this reprojection? If the projection is OK, I need to review
+> > the rest of the code...
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+
+
+
+From support.mn at elisanet.fi  Sat May 31 01:44:48 2008
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Sat, 31 May 2008 11:44:48 +0300 (EEST)
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+Message-ID: <276104.527251212223489161.JavaMail.support.mn@elisanet.fi>
+
+More ideas...
+
+The huge north shift, which is visible in your pictures,  is usually due
+to the conversion between spherical and elliptical. There is a way to
+go around that, but how it should be done in your case.... ???
+
+Regards: Janne
+
+------------------
+
+>Now, the results in Google Earth:
+
+>The image before reproyecting (UTM zone 30 datum ED50)
+>http://www.nebulared.com/tmp_geo/Balearic_Island_UTM_ED50.png
+
+>The image reproyected
+>http://www.nebulared.com/tmp_geo/Balearic_Island_Reprojected.png
+
+>What's the problem?:
+
+
+
+From cjmce at lsu.edu  Sat May 31 09:30:20 2008
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Sat, 31 May 2008 11:30:20 -0500
+Subject: [Proj] Problem overlaying georeferenced images in Google,
+	Maps(projection problem!)
+References: <276104.527251212223489161.JavaMail.support.mn@elisanet.fi>
+Message-ID: <B597ADFC46B67741B18EA6AA13613FF7EC22BC@email002.lsu.edu>
+
+I believe the easiest solution to that would be to correct that north shift by utilizing Rectifying Latitude for the International ellipsoid at the center of the area.  Don't know if that's in the PROJ4 Toolkit, though ...
+ 
+Cliff Mugnier
+LSU
+
+________________________________
+
+From: proj-bounces at lists.maptools.org on behalf of support.mn at elisanet.fi
+Sent: Sat 31-May-08 03:44
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] Problem overlaying georeferenced images in Google,Maps(projection problem!)
+
+
+
+More ideas...
+
+The huge north shift, which is visible in your pictures,  is usually due
+to the conversion between spherical and elliptical. There is a way to
+go around that, but how it should be done in your case.... ???
+
+Regards: Janne
+
+------------------
+
+>Now, the results in Google Earth:
+
+>The image before reproyecting (UTM zone 30 datum ED50)
+>http://www.nebulared.com/tmp_geo/Balearic_Island_UTM_ED50.png
+
+>The image reproyected
+>http://www.nebulared.com/tmp_geo/Balearic_Island_Reprojected.png
+
+>What's the problem?:
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20080531/effe2464/attachment.html>
+

@@ -1,0 +1,527 @@
+From albert.godfrind at oracle.com  Mon Jan  4 03:47:33 2016
+From: albert.godfrind at oracle.com (Albert Godfrind)
+Date: Mon, 4 Jan 2016 12:47:33 +0100
+Subject: [pdal] Unable to build PDAL 1.1.0: "Could NOT find GDAL
+	(missing: GDAL_INCLUDE_DIR) "
+In-Reply-To: <3EB09664-991C-402F-A1EB-19562A63E3B7@oracle.com>
+References: <23BABF91-F3E2-4337-B104-D0A696DD7C8A@oracle.com>
+ <967CFAC2-B0F3-409A-BA7B-EA9ACB784540@hobu.co>
+ <3EB09664-991C-402F-A1EB-19562A63E3B7@oracle.com>
+Message-ID: <809F836D-56E3-42A2-BC31-517BE93D3FFB@oracle.com>
+
+I was finally able to progress by setting the variables explicitly on the cmake call:
+
+cmake -DGDAL_CONFIG=$GDAL_HOME/bin/gdal-config -DGDAL_INCLUDE_DIR=$GDAL_HOME/include -DGDAL_LIBRARY=$GDAL_HOME/lib/libgdal.so ..
+
+That now completes successfully, and all the paths are correct.
+
+IMO using gdal-config to find about the gdal environment is not the right approac. The information it provides (prefix, library etc) come all from the server where gdal was built. That information it totally different from the one where gdal is installed. A better approach would be to use “gdalinfo —version” to find out the version being used, and extract the directory location for include and lib from the full path of the gdalinfo command (or from the GDAL_HOME environment variable if one is set). 
+
+Albert
+
+> On 28-Dec-2015, at 17:30, Albert Godfrind <albert.godfrind at oracle.com> wrote:
+> 
+> Thanks Howard.
+> 
+> Removing he dependency on boost would be great. The only package I found in the rpm repositories is 1.41 which pdal says is too old. So I had to build it from sources and just picked up the latest (1.60) …
+> 
+>> PDAL's configure-time GDAL detection needs to support GDAL 2.0. Software-wise, GDAL 2.0 should be no problem except for maybe some deprecation warnings. PDAL currently only supports 1.11.x., however. I will make a patch to fix this and let you know.
+> 
+> There may be something else. I just tried again after setting GDAL_HOME to 1.10, and I still fail the same way:
+> 
+> $ export GDAL_HOME=/opt/gdal/gdal-1.10
+> $ cmake ..
+> -- Boost version: 1.60.0
+> -- Found the following Boost libraries:
+> --   program_options
+> --   iostreams
+> --   filesystem
+> --   system
+> --   thread
+> -- Could NOT find GDAL (missing:  GDAL_INCLUDE_DIR) (Required is at least version "1.9.0")
+> CMake Error at cmake/gdal.cmake:12 (message):
+>   GDAL support is required
+> Call Stack (most recent call first):
+>   CMakeLists.txt:219 (include)
+> 
+> Looking at the code in FindGDAL.cmake and adding a bit of debugging, I see that it does find GDAL (sets GDAL_FOUND to TRUE), but it still uses the gdal-config from my default environment (i.e. version 2.0).
+> 
+> This block of code does not perform as expected:
+> 
+>     # Try to use GDAL_HOME location if specified
+>     IF($ENV{GDAL_HOME})
+>         SET(GDAL_CONFIG_PREFER_PATH
+>             "$ENV{GDAL_HOME}/bin" CACHE STRING "Search for gdal-config program in preferred location")
+>     ENDIF()
+> 
+> That is because of the incorrect way of testing environment variables. It should properly read:
+> 
+>     # Try to use GDAL_HOME location if specified
+>     IF(DEFINED ENV{GDAL_HOME})
+>         SET(GDAL_CONFIG_PREFER_PATH
+>             "$ENV{GDAL_HOME}/bin" CACHE STRING "Search for gdal-config program in preferred location")
+>     ENDIF()
+> 
+> Then GDAL_CONFIG_PREFEER_PATH gets correctly set.
+> 
+> Then again the real cause of the error is here:
+> 
+>         FIND_PATH(GDAL_INCLUDE_DIR
+>             gdal.h 
+>             PATH_PREFIXES gdal
+>             PATHS
+>             ${GDAL_PREFIX}/include/gdal
+>             ${GDAL_PREFIX}/include
+>             /usr/local/include 
+>             /usr/include)
+> 
+> None of the gdal builds I have come with the includes (gdal.h is nowhere to be found). All I have is the shared libraries (also for the plugins) and the command-line tools (and also the data bit).
+> 
+> Another point: the goal-config tool contains the configuration when and where gdal was built. In other words "gdal-config —libs” returns the location of the libraries as they were on the system where GDAL was built, and subsequently GDAL_LIBRARY is set to an invalid location too, definitely not the one used in the current GDAL installation.
+> 
+> Albert
+> 
+> 
+>> On 28-Dec-2015, at 15:59, Howard Butler <howard at hobu.co <mailto:howard at hobu.co>> wrote:
+>> 
+>> 
+>>> On Dec 28, 2015, at 8:22 AM, Albert Godfrind <albert.godfrind at oracle.com <mailto:albert.godfrind at oracle.com>> wrote:
+>>> 
+>>> I am trying to build the latest GDAL on Linux. The cmake stage fails like this:
+>>> 
+>>> $ cmake -G "Unix Makefiles"  ../
+>>> -- Boost version: 1.60.0
+>> 
+>> /me groans. There's a boost 1.60 now? Consider this notice that it is a medium term goal of the PDAL project to eliminate its dependence on externally available Boost before its 2.0 release. Now that C++11 is quite stable just about everywhere, the impetus to reach for Boost for everything is not there anymore for PDAL. Their project release management leaves much to be desired, and because of it, packaging maintainers lag many versions behind current releases. 
+>> 
+>>> -- Could NOT find GDAL (missing:  GDAL_INCLUDE_DIR) (Required is at least version "1.9.0")
+>>> CMake Error at cmake/gdal.cmake:13 (message):
+>> 
+>>> I have gdal installed (version 2.0). It looks like it wants me to define GDAL_INCLUDE_DIR but to what location ? I tried setting up to the lib directory in my installation. I also tried defining GDAL_HOME and even GDAL_LIBRARY all to no effect.
+>> 
+>>> Any idea what I am doing wrong ?
+>> 
+>> PDAL's configure-time GDAL detection needs to support GDAL 2.0. Software-wise, GDAL 2.0 should be no problem except for maybe some deprecation warnings. PDAL currently only supports 1.11.x., however. I will make a patch to fix this and let you know.
+>> 
+>> Howard
+>> 
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org <mailto:pdal at lists.osgeo.org>
+>> http://lists.osgeo.org/mailman/listinfo/pdal
+> 
+> --
+>  <http://www.oracle.com/>
+> Albert Godfrind | Geospatial technologies | Tel: +33 4 93 00 80 67 | Mobile: +33 6 09 97 27 23 | Skype: albert-godfrind <skype:albert-godfrind>
+> Oracle Server Technologies
+> 400 Av. Roumanille, BP 309  | 06906 Sophia Antipolis cedex | France
+> Everything you ever wanted to know about Oracle Spatial <http://www.apress.com/9781590598993>
+>  <http://www.locationintelligence.net/dc/>
+> 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+--
+ <http://www.oracle.com/>
+Albert Godfrind | Geospatial technologies | Tel: +33 4 93 00 80 67 | Mobile: +33 6 09 97 27 23 | Skype: albert-godfrind <skype:albert-godfrind>
+Oracle Server Technologies
+400 Av. Roumanille, BP 309  | 06906 Sophia Antipolis cedex | France
+Everything you ever wanted to know about Oracle Spatial <http://www.apress.com/9781590598993>
+ <http://www.locationintelligence.net/dc/>
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160104/38a9788b/attachment-0001.html>
+
+From howard at hobu.co  Mon Jan  4 11:58:30 2016
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 4 Jan 2016 13:58:30 -0600
+Subject: [pdal] Unable to build PDAL 1.1.0: "Could NOT find GDAL
+	(missing: GDAL_INCLUDE_DIR) "
+In-Reply-To: <809F836D-56E3-42A2-BC31-517BE93D3FFB@oracle.com>
+References: <23BABF91-F3E2-4337-B104-D0A696DD7C8A@oracle.com>
+ <967CFAC2-B0F3-409A-BA7B-EA9ACB784540@hobu.co>
+ <3EB09664-991C-402F-A1EB-19562A63E3B7@oracle.com>
+ <809F836D-56E3-42A2-BC31-517BE93D3FFB@oracle.com>
+Message-ID: <2F348208-9B5A-4029-8431-C9F5965AABFB@hobu.co>
+
+Albert,
+
+If you can make a patch to the FindGDAL.cmake that does this, I'm happy to include it. We should also upstream it to Kitware, as I think they use our FindGDAL.cmake that was originally written by Mateusz.
+
+gdalinfo --version doesn't seem to output any install location information for me for either GDAL 1.11.x or GDAL 2.0.x, so I'm not sure about how to implement this patch myself.
+
+Howard
+
+> On Jan 4, 2016, at 5:47 AM, Albert Godfrind <albert.godfrind at oracle.com> wrote:
+> 
+> I was finally able to progress by setting the variables explicitly on the cmake call:
+> 
+> cmake -DGDAL_CONFIG=$GDAL_HOME/bin/gdal-config -DGDAL_INCLUDE_DIR=$GDAL_HOME/include -DGDAL_LIBRARY=$GDAL_HOME/lib/libgdal.so ..
+> 
+> That now completes successfully, and all the paths are correct.
+> 
+> IMO using gdal-config to find about the gdal environment is not the right approac. The information it provides (prefix, library etc) come all from the server where gdal was built. That information it totally different from the one where gdal is installed. A better approach would be to use “gdalinfo —version” to find out the version being used, and extract the directory location for include and lib from the full path of the gdalinfo command (or from the GDAL_HOME environment variable if one is set). 
+> 
+> Albert
+> 
+>> On 28-Dec-2015, at 17:30, Albert Godfrind <albert.godfrind at oracle.com> wrote:
+>> 
+>> Thanks Howard.
+>> 
+>> Removing he dependency on boost would be great. The only package I found in the rpm repositories is 1.41 which pdal says is too old. So I had to build it from sources and just picked up the latest (1.60) …
+>> 
+>>> PDAL's configure-time GDAL detection needs to support GDAL 2.0. Software-wise, GDAL 2.0 should be no problem except for maybe some deprecation warnings. PDAL currently only supports 1.11.x., however. I will make a patch to fix this and let you know.
+>> 
+>> There may be something else. I just tried again after setting GDAL_HOME to 1.10, and I still fail the same way:
+>> 
+>> $ export GDAL_HOME=/opt/gdal/gdal-1.10
+>> $ cmake ..
+>> -- Boost version: 1.60.0
+>> -- Found the following Boost libraries:
+>> --   program_options
+>> --   iostreams
+>> --   filesystem
+>> --   system
+>> --   thread
+>> -- Could NOT find GDAL (missing:  GDAL_INCLUDE_DIR) (Required is at least version "1.9.0")
+>> CMake Error at cmake/gdal.cmake:12 (message):
+>>   GDAL support is required
+>> Call Stack (most recent call first):
+>>   CMakeLists.txt:219 (include)
+>> 
+>> Looking at the code in FindGDAL.cmake and adding a bit of debugging, I see that it does find GDAL (sets GDAL_FOUND to TRUE), but it still uses the gdal-config from my default environment (i.e. version 2.0).
+>> 
+>> This block of code does not perform as expected:
+>> 
+>>     # Try to use GDAL_HOME location if specified
+>>     IF($ENV{GDAL_HOME})
+>>         SET(GDAL_CONFIG_PREFER_PATH
+>>             "$ENV{GDAL_HOME}/bin" CACHE STRING "Search for gdal-config program in preferred location")
+>>     ENDIF()
+>> 
+>> That is because of the incorrect way of testing environment variables. It should properly read:
+>> 
+>>     # Try to use GDAL_HOME location if specified
+>>     IF(DEFINED ENV{GDAL_HOME})
+>>         SET(GDAL_CONFIG_PREFER_PATH
+>>             "$ENV{GDAL_HOME}/bin" CACHE STRING "Search for gdal-config program in preferred location")
+>>     ENDIF()
+>> 
+>> Then GDAL_CONFIG_PREFEER_PATH gets correctly set.
+>> 
+>> Then again the real cause of the error is here:
+>> 
+>>         FIND_PATH(GDAL_INCLUDE_DIR
+>>             gdal.h 
+>>             PATH_PREFIXES gdal
+>>             PATHS
+>>             ${GDAL_PREFIX}/include/gdal
+>>             ${GDAL_PREFIX}/include
+>>             /usr/local/include 
+>>             /usr/include)
+>> 
+>> None of the gdal builds I have come with the includes (gdal.h is nowhere to be found). All I have is the shared libraries (also for the plugins) and the command-line tools (and also the data bit).
+>> 
+>> Another point: the goal-config tool contains the configuration when and where gdal was built. In other words "gdal-config —libs” returns the location of the libraries as they were on the system where GDAL was built, and subsequently GDAL_LIBRARY is set to an invalid location too, definitely not the one used in the current GDAL installation.
+>> 
+>> Albert
+>> 
+>> 
+>>> On 28-Dec-2015, at 15:59, Howard Butler <howard at hobu.co> wrote:
+>>> 
+>>> 
+>>>> On Dec 28, 2015, at 8:22 AM, Albert Godfrind <albert.godfrind at oracle.com> wrote:
+>>>> 
+>>>> I am trying to build the latest GDAL on Linux. The cmake stage fails like this:
+>>>> 
+>>>> $ cmake -G "Unix Makefiles"  ../
+>>>> -- Boost version: 1.60.0
+>>> 
+>>> /me groans. There's a boost 1.60 now? Consider this notice that it is a medium term goal of the PDAL project to eliminate its dependence on externally available Boost before its 2.0 release. Now that C++11 is quite stable just about everywhere, the impetus to reach for Boost for everything is not there anymore for PDAL. Their project release management leaves much to be desired, and because of it, packaging maintainers lag many versions behind current releases. 
+>>> 
+>>>> -- Could NOT find GDAL (missing:  GDAL_INCLUDE_DIR) (Required is at least version "1.9.0")
+>>>> CMake Error at cmake/gdal.cmake:13 (message):
+>>> 
+>>>> I have gdal installed (version 2.0). It looks like it wants me to define GDAL_INCLUDE_DIR but to what location ? I tried setting up to the lib directory in my installation. I also tried defining GDAL_HOME and even GDAL_LIBRARY all to no effect.
+>>> 
+>>>> Any idea what I am doing wrong ?
+>>> 
+>>> PDAL's configure-time GDAL detection needs to support GDAL 2.0. Software-wise, GDAL 2.0 should be no problem except for maybe some deprecation warnings. PDAL currently only supports 1.11.x., however. I will make a patch to fix this and let you know.
+>>> 
+>>> Howard
+>>> 
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/pdal
+>> 
+>> --
+>> 
+>> Albert Godfrind | Geospatial technologies | Tel: +33 4 93 00 80 67 | Mobile: +33 6 09 97 27 23 | Skype: albert-godfrind
+>> Oracle Server Technologies
+>> 400 Av. Roumanille, BP 309  | 06906 Sophia Antipolis cedex | France
+>> Everything you ever wanted to know about Oracle Spatial
+>> 
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/pdal
+> 
+> --
+> 
+> Albert Godfrind | Geospatial technologies | Tel: +33 4 93 00 80 67 | Mobile: +33 6 09 97 27 23 | Skype: albert-godfrind
+> Oracle Server Technologies
+> 400 Av. Roumanille, BP 309  | 06906 Sophia Antipolis cedex | France
+> Everything you ever wanted to know about Oracle Spatial
+> 
+> 
+> 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From kreve at sdfe.dk  Tue Jan  5 06:20:12 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Tue, 5 Jan 2016 14:20:12 +0000
+Subject: [pdal] Compiling with Visual Studio 2015
+Message-ID: <2E885BB293AF0448A0181138489E9A0E527312BB@S000014.PROD.SITAD.DK>
+
+Hello,
+
+I am trying to build PDAL with Visual Studio 2015 Community version. I am aware that it is recommended to build with VS2012, but since there's a newer and fully featured version freely available I believe that's the better choice.
+ So far I haven't been able to get build the code. I've been following the build howto on the pdal website (http://www.pdal.io/compilation/windows.html). Unfortunately it is a bit outdated but despite a few discrepancies in the text I've managed to create a VS2015 solution with cmake. When trying to build the solution I get a lot of errors related to C++11 data types (int32_t etc.). Here's an example:
+
+13>C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\cstdint(38): error C2039: 'int32_t': is not a member of '`global namespace''
+13>C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\cstdint(38): error C2873: 'int32_t': symbol cannot be used in a using-declaration
+
+Basically the errors state that data types defined in cstdint are not accessible in the global namespace. Adding 'using namespace std' at the top of a .cpp-file doesn't change this. Neither does including stdint.h instead of cstdint.
+There's an error for each data type defined in the cstdint header. It would seem that the errors are raised (for each type) every time cstdint is included. Errors are also raised when declaring variables with cstdint-types. I haven't been able to pinpoint where the problem starts, but since cstdint was first introduced in Visual Studio 2012 there is probably a few lines  of code that handles this situation. My guess is that the most recent version isn't taken care of in that bit of code. Either in the source code or the makefiles.
+
+Any ideas on how to resolve this problem?
+
+Best regards,
+Kristian Evers
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160105/559d91d2/attachment.html>
+
+From howard at hobu.co  Tue Jan  5 06:26:00 2016
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 5 Jan 2016 08:26:00 -0600
+Subject: [pdal] Compiling with Visual Studio 2015
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0E527312BB@S000014.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0E527312BB@S000014.PROD.SITAD.DK>
+Message-ID: <9495A4BB-3F6B-404D-AEB0-B1DFA24511CF@hobu.co>
+
+
+> On Jan 5, 2016, at 8:20 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+> 
+> Hello,
+> 
+> I am trying to build PDAL with Visual Studio 2015 Community version. I am aware that it is recommended to build with VS2012, but since there’s a newer and fully featured version freely available I believe that’s the better choice.
+>  So far I haven’t been able to get build the code. I’ve been following the build howto on the pdal website (http://www.pdal.io/compilation/windows.html). Unfortunately it is a bit outdated but despite a few discrepancies in the text I’ve managed to create a VS2015 solution with cmake. When trying to build the solution I get a lot of errors related to C++11 data types (int32_t etc.). Here’s an example:
+> 
+> 13>C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\cstdint(38): error C2039: 'int32_t': is not a member of '`global namespace''
+> 13>C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\cstdint(38): error C2873: 'int32_t': symbol cannot be used in a using-declaration
+> 
+> Basically the errors state that data types defined in cstdint are not accessible in the global namespace. Adding ‘using namespace std’ at the top of a .cpp-file doesn’t change this. Neither does including stdint.h instead of cstdint.
+> There’s an error for each data type defined in the cstdint header. It would seem that the errors are raised (for each type) every time cstdint is included. Errors are also raised when declaring variables with cstdint-types. I haven’t been able to pinpoint where the problem starts, but since cstdint was first introduced in Visual Studio 2012 there is probably a few lines  of code that handles this situation. My guess is that the most recent version isn’t taken care of in that bit of code. Either in the source code or the makefiles.
+> 
+> Any ideas on how to resolve this problem?
+
+Kristian,
+
+I don't have a quick solution for you, but I presume it is some kind of MSVC definition that must be switched on or some mix of include file operations to allow things to work. It does work on MSVC 2012, which is what we use to build OSGeo4W64 and AppVeyor continuous integration builds.
+
+PDAL is built with AppVeyor on MSVC 2012 every time code is pushed to the repository. See https://ci.appveyor.com/project/hobu/pdal/history for details.
+
+Howard
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 495 bytes
+Desc: Message signed with OpenPGP using GPGMail
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160105/457d22c3/attachment.sig>
+
+From kreve at sdfe.dk  Tue Jan  5 07:33:26 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Tue, 5 Jan 2016 15:33:26 +0000
+Subject: [pdal] Compiling with Visual Studio 2015
+In-Reply-To: <CACJ51z2GjreD_eWZGsozHn7v=Z1hpB5D+wcQw96WC+6Y4oKBDQ@mail.gmail.com>
+References: <2E885BB293AF0448A0181138489E9A0E527312BB@S000014.PROD.SITAD.DK>
+ <CACJ51z2GjreD_eWZGsozHn7v=Z1hpB5D+wcQw96WC+6Y4oKBDQ@mail.gmail.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E52731328@S000014.PROD.SITAD.DK>
+
+Good suggestion, Andrew.
+
+Here’s what I’ve found so far. cstdint is including stdint.h. As C:\OSGeo4W64\include is one of the include-directories, the stdint.h in that folder is including instead of the visual studio version of the same file. The build proceeds when I rename the osgeo4w-version to something else. So that would be the culprit.
+
+Now I need to figure out why the problem shows up in the first place. The definitions in the osgeo4w stdint.h should be ignored when _MCS_VER >= 1600. I’ll dig a bit deeper and hopefully figure out what’s happening. Might also be a missing definition in boost/ctdint…
+
+Kristian
+
+Fra: Andrew Bell [mailto:andrew.bell.ia at gmail.com]
+Sendt: tirsdag 05. januar 2016 16:00
+Til: Kristian Evers
+Emne: Re: [pdal] Compiling with Visual Studio 2015
+
+On Tue, Jan 5, 2016 at 8:20 AM, Kristian Evers <kreve at sdfe.dk<mailto:kreve at sdfe.dk>> wrote:
+Hello,
+
+I am trying to build PDAL with Visual Studio 2015 Community version. I am aware that it is recommended to build with VS2012, but since there’s a newer and fully featured version freely available I believe that’s the better choice.
+ So far I haven’t been able to get build the code. I’ve been following the build howto on the pdal website (http://www.pdal.io/compilation/windows.html). Unfortunately it is a bit outdated but despite a few discrepancies in the text I’ve managed to create a VS2015 solution with cmake. When trying to build the solution I get a lot of errors related to C++11 data types (int32_t etc.). Here’s an example:
+
+13>C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\cstdint(38): error C2039: 'int32_t': is not a member of '`global namespace''
+13>C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\include\cstdint(38): error C2873: 'int32_t': symbol cannot be used in a using-declaration
+
+http://stackoverflow.com/questions/23907008/compilation-error-error-c2039-clock-t-is-not-a-member-of-global-namespace
+
+I assume that this is the same issue.  Some other file is getting included that's defining int32_t that's conflicting with cstdint.  You could run the preprocessor on the file without compilation and then inspect the output to see what's going on.
+
+--
+Andrew Bell
+andrew.bell.ia at gmail.com<mailto:andrew.bell.ia at gmail.com>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160105/3f2386b3/attachment.html>
+
+From howard at hobu.co  Sun Jan 10 17:30:38 2016
+From: howard at hobu.co (Howard Butler)
+Date: Sun, 10 Jan 2016 19:30:38 -0600
+Subject: [pdal] PDAL Docker Tutorial
+Message-ID: <75C1CC39-7FB1-48E3-82D7-82F5EC3FF710@hobu.co>
+
+All,
+
+The development team has been jumping on the Docker bandwagon, and it has been an efficient ride considering the extensive list of dependencies that a fully featured PDAL can have. I have written a tutorial that can get you quickly going with PDAL on Windows using Docker. See http://www.pdal.io/tutorial/docker.html 
+
+Additionally, we have switched to using Docker along with Travis for our continuous integration builds. There is a a Docker image containing our full set of dependencies too, and this is located on Docker Hub at https://hub.docker.com/u/pdal/ A very nice benefit of the Docker approach is if you have a bug that you are trying to get the development team to replicate, it will be very convenient for all parties to demonstrate it using the PDAL Docker builds.
+
+If there are things the tutorial covers poorly or should cover but doesn't, please file a ticket.
+
+Howard
+
+
+
+From flatearth at gmx.net  Sat Jan 30 00:58:34 2016
+From: flatearth at gmx.net (FE)
+Date: Sat, 30 Jan 2016 09:58:34 +0100
+Subject: [pdal] Build pdal with python 3
+Message-ID: <trinity-595503a1-c75f-4b43-a7fe-3269a98fb858-1454144314677@3capp-gmx-bs44>
+
+Hi,
+ 
+I've managed to build pdal 1.1.0 on OS X using cmake-gui and makefiles. It was build with python 2 by default. Python modules installed via 'pip install pdal' work (after several pathes in the libraries have been corrected manually with 'install_name_tool').
+ 
+However, since I work with python 3 I would like to build pdal with python 3 (it seems impossible to install pdal python modules in a python 3 environment having pdal build with python 2 -> causes various error messages).
+Would anybody like to explain how to build pdal with python 3 on OS X? I am not very deep into these techniques and did not manage until now.
+ 
+How can I tell cmake to use python 3? It is unclear to me which python is used by cmake.
+I have three pythons on the computer. The system python is python 2, Homebrew python is python 2 (and python 3 could be installed easily), finally I use Anaconda with a python 3 environment.
+Does cmake only requires the python include directories? How to tell cmake which python to use?
+ 
+Thank you in advance!
+ 
+
+From howard at hobu.co  Sat Jan 30 07:46:46 2016
+From: howard at hobu.co (Howard Butler)
+Date: Sat, 30 Jan 2016 09:46:46 -0600
+Subject: [pdal] Build pdal with python 3
+In-Reply-To: <trinity-595503a1-c75f-4b43-a7fe-3269a98fb858-1454144314677@3capp-gmx-bs44>
+References: <trinity-595503a1-c75f-4b43-a7fe-3269a98fb858-1454144314677@3capp-gmx-bs44>
+Message-ID: <C3655291-F59D-45AE-B38A-239D39226123@hobu.co>
+
+
+> On Jan 30, 2016, at 2:58 AM, FE <flatearth at gmx.net> wrote:
+> 
+> Hi,
+>  
+> I've managed to build pdal 1.1.0 on OS X using cmake-gui and makefiles. It was build with python 2 by default. Python modules installed via 'pip install pdal' work (after several pathes in the libraries have been corrected manually with 'install_name_tool').
+
+Please provide more detail on this one. If you install PDAL to its CMAKE_INSTALL_PREFIX path, install_name_tool and stuff should all be done for you.
+
+>  
+> However, since I work with python 3 I would like to build pdal with python 3 (it seems impossible to install pdal python modules in a python 3 environment having pdal build with python 2 -> causes various error messages).
+> Would anybody like to explain how to build pdal with python 3 on OS X? I am not very deep into these techniques and did not manage until now.
+>  
+> How can I tell cmake to use python 3? It is unclear to me which python is used by cmake.
+> I have three pythons on the computer. The system python is python 2, Homebrew python is python 2 (and python 3 could be installed easily), finally I use Anaconda with a python 3 environment.
+> Does cmake only requires the python include directories? How to tell cmake which python to use?
+
+We need specific error information and notes about where you had trouble. I build PDAL with embedded Python 3 as a normal part of development almost daily. See my cmake example configuration at [1] for inspiration.
+
+I do see an error with the Python extension at the moment. It has been fixed in https://github.com/PDAL/PDAL/pull/1096 and confirmed to work with Python 3 for me.
+
+Howard
+
+[1] https://github.com/PDAL/PDAL/blob/master/cmake/examples/hobu-config.sh
+
+
+From stephen at smathermather.com  Thu Jan 28 19:57:11 2016
+From: stephen at smathermather.com (Stephen Mather)
+Date: Thu, 28 Jan 2016 22:57:11 -0500
+Subject: [pdal] PCL filters in PDAL
+Message-ID: <CAPkJWLVz0Z-uDGXsYkdn7ZVUGjUTh6QKpr3jUy244Au8r77CYw@mail.gmail.com>
+
+I am wondering if PCL filters in PDAL can be used on alternate dimensions?
+In my case, Height (above ground) as calculated with the height filter is
+the dimension in question.
+
+This is my passthrough JSON:
+
+```
+{
+    "pipeline":
+    {
+        "name": "PassThroughExample",
+        "filters":
+        [
+            {
+                "name": "PassThrough",
+                "setFilterFieldName": "Height",
+                "setFilterLimits":
+                {
+                    "min": 0.5,
+                    "max": 5
+                }
+            }
+        ]
+    }
+}
+```
+
+And I am running in docker. Here's my crude and confused BASH wrapper
+script to which I pass all files matching a find:
+
+```
+#!/bin/bash
+pathname="${1%/*}"
+name=`basename $1 .bpf`
+
+docker run -v $pathname:/data pdal/master pdal pcl -i //data/"$name".bpf -p
+//data/5.0.filter.json -o //data/"$name"_5.0.bpf;
+```
+This will work of course if my setFilterFieldName is Z, but not Height (no
+matter the capitalization.
+
+Thanks in advance,
+Best,
+Steve
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160128/61604a29/attachment.html>
+

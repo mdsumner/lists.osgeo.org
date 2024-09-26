@@ -1,0 +1,1850 @@
+From pingyang.whu at gmail.com  Tue Oct  4 22:52:33 2011
+From: pingyang.whu at gmail.com (ping yang)
+Date: Tue Oct  4 23:52:58 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>
+	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+Message-ID: <CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+
+Hi Mike,
+
+I have some questions on how to get the X,Y,Z value from the PDAL, I saw
+last time you sent me code like this:
+
+Schema schema = reader.getSchema();
+
+SchemaLayout layout = new SchemaLayout(schema);
+
+PointBuffer data = new PointBuffer(layout, 128);
+
+// get the dimensions (fields) of the point record for the X, Y, and Z
+values
+
+int offsetX = schema.getDimensionIndex(Dimension.Field.Field_X,
+Dimension.DataType.Int32);
+
+int offsetY = schema.getDimensionIndex(Dimension.Field.Field_Y,
+Dimension.DataType.Int32);
+
+int offsetZ = schema.getDimensionIndex(Dimension.Field.Field_Z,
+Dimension.DataType.Int32);
+
+Dimension dimensionX = schema.getDimension((uint)offsetX);
+
+Dimension dimensionY = schema.getDimension((uint)offsetY);
+
+Dimension dimensionZ = schema.getDimension((uint)offsetZ);
+
+You were using the Dimension, would you please let me know how can I get the
+X,Y,Z value of each point?
+Is there a LasPoint structure in the PDAL?
+ Is the PointBuffer can be used for loading all the points into memory at
+one time?
+
+
+On Thu, Sep 8, 2011 at 5:28 PM, Michael P. Gerlek <mpg@flaxen.com> wrote:
+
+> Ping:
+>
+> Grab these two updated DLLs:
+>
+>  http://dl.dropbox.com/u/17690616/pdal_swig_cpp.dll
+>  http://dl.dropbox.com/u/17690616/pdal_swig_cs.dll
+>
+> and then the below program should work fine.  If you need a more complex
+> workflow, just let us know and we'll talk you through it.
+>
+> -mpg
+>
+>
+>
+>
+>
+>
+>        private void Test1()
+>        {
+>            Console.WriteLine("Starting LasWriter test1");
+>
+>            {
+>                // create the reader
+>                Options readerOpts = new Options();
+>                Option readerOpt1 = new Option();
+>
+> readerOpt1.setValue_String("../../test/data/1.2-with-color.las");
+>                readerOpt1.setName("filename");
+>
+>                readerOpts.add(readerOpt1);
+>                LasReader reader = new LasReader(readerOpts);
+>
+>                Options writerOpts = new Options();
+>                Option writerOpt1 = new Option();
+>                writerOpt1.setValue_String("foo.laz");
+>                writerOpt1.setName("filename");
+>                writerOpts.add(writerOpt1);
+>                LasWriter writer = new LasWriter(reader, writerOpts);
+>                writer.initialize();
+>
+>                writer.setCompressed(true);
+>                writer.setDate(0, 0);
+>                writer.setPointFormat(PointFormat.PointFormat3);
+>                writer.setSystemIdentifier("");
+>                writer.setGeneratingSoftware("TerraScan");
+>
+>                // how many points do we have?
+>                ulong numPoints = reader.getNumPoints();
+>                Debug.Assert(numPoints == 1065);
+>
+>                ulong numWritten = writer.write(numPoints);
+>                Debug.Assert(numWritten == 1065);
+>            }
+>
+>            Console.WriteLine("checking output...");
+>
+>            {
+>                Options opts = new Options();
+>                Option opt = new Option();
+>                opt.setValue_String("foo.laz");
+>                opt.setName("filename");
+>                opts.add(opt);
+>
+>                LasReader reader = new LasReader(opts);
+>                reader.initialize();
+>
+>                Debug.Assert(reader.isCompressed() == true);
+>
+>                ulong numPoints = reader.getNumPoints();
+>                Debug.Assert(numPoints == 1065);
+>            }
+>
+>            Console.WriteLine("done!");
+>
+>            return;
+>        }
+>
+>
+
+
+-- 
+Ping Yang, Ph.D.
+Postdoctoral Research Associate
+Idaho State University-Idaho Falls
+yangping@isu.edu
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111004/46e9d2a0/attachment.html
+From hobu.inc at gmail.com  Wed Oct  5 10:54:24 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed Oct  5 12:35:10 2011
+Subject: [pdal] Alignment issues of getField and friends
+Message-ID: <9284C1BE-06EC-4D37-94C4-4312F9C0F451@gmail.com>
+
+Michael,
+
+I was testing out compiling PDAL with clang and it throws a number of cast alignment warnings related to our templated getField calls:
+
+> In file included from /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:35:
+> /Users/hobu/dev/git/pdal/src/../include/pdal/PointBuffer.hpp:239:13: warning: cast from 'boost::uint8_t *'
+>       (aka 'unsigned char *') to 'short *' increases required alignment from 1 to 2 [-Wcast-align]
+>     return *(T*)p;
+>             ^~~~~
+> /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:198:31: note: in instantiation of function template specialization
+>       'pdal::PointBuffer::getField<short>' requested here
+>                     output += STRINGIFY(GETFIELDAS(boost::int16_t));
+>                               ^
+> /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:198:41: note: instantiated from:
+>                     output += STRINGIFY(GETFIELDAS(boost::int16_t));
+>                                         ^
+> /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:173:23: note: instantiated from:
+> #define GETFIELDAS(T) getField<T>(pointIndex, fieldIndex)
+>                       ^
+> In file included from /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:35:
+> /Users/hobu/dev/git/pdal/src/../include/pdal/PointBuffer.hpp:239:13: warning: cast from 'boost::uint8_t *'
+>       (aka 'unsigned char *') to 'unsigned short *' increases required alignment from 1 to 2 [-Wcast-align]
+>     return *(T*)p;
+>             ^~~~~
+> /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:208:31: note: in instantiation of function template specialization
+>       'pdal::PointBuffer::getField<unsigned short>' requested here
+>                     output += STRINGIFY(GETFIELDAS(boost::uint16_t));
+>                               ^
+> /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:208:41: note: instantiated from:
+>                     output += STRINGIFY(GETFIELDAS(boost::uint16_t));
+>                                         ^
+> /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:173:23: note: instantiated from:
+> #define GETFIELDAS(T) getField<T>(pointIndex, fieldIndex)
+>                       ^
+> In file included from /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:35:
+> /Users/hobu/dev/git/pdal/src/../include/pdal/PointBuffer.hpp:239:13: warning: cast from 'boost::uint8_t *'
+>       (aka 'unsigned char *') to 'int *' increases required alignment from 1 to 4 [-Wcast-align]
+>     return *(T*)p;
+
+
+ http://stackoverflow.com/questions/2741787/warning-cast-increases-required-alignment has something to say about this, but the memcpy has the potential to be a performance killer unless the implementation is smart in some way. These alignment issues would be real if we were to move to a Power7 or something (not outside the realm of possibility for this kind of software/problem domain).  What should we do?
+
+Howard
+From mpg at flaxen.com  Wed Oct  5 12:52:37 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Wed Oct  5 14:39:36 2011
+Subject: [pdal] Alignment issues of getField and friends
+In-Reply-To: <9284C1BE-06EC-4D37-94C4-4312F9C0F451@gmail.com>
+References: <9284C1BE-06EC-4D37-94C4-4312F9C0F451@gmail.com>
+Message-ID: <00ec01cc837f$31049190$930db4b0$@flaxen.com>
+
+The general problem is we've got an array of bytes from which we're extracting out an int, and there's no assurance that the int happens to be 4-byte aligned.
+
+The Right Thing To Do would be to make sure that our schemas get constructed with proper alignment.  That is, every time we append a Dimension to the schema, we add the needed padding to make sure each type lies on its natural boundary -- and when we allocate a PointBuffer it should be aligned to the largest such boundary.
+
+(And even then, I'm not sure how to tell the compiler that we know we're safe in these cases, short of a #pragma.)
+
+On the x86, of course, it doesn't matter, so I'd prefer not to worry about it.  But on the other hand I'm very fussy about stomping compiler warnings too...
+-mpg
+
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Howard Butler
+> Sent: Wednesday, October 05, 2011 7:54 AM
+> To: pdal@lists.osgeo.org
+> Subject: [pdal] Alignment issues of getField and friends
+> 
+> Michael,
+> 
+> I was testing out compiling PDAL with clang and it throws a number of cast alignment warnings related to our templated getField calls:
+> 
+> > In file included from /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:35:
+> > /Users/hobu/dev/git/pdal/src/../include/pdal/PointBuffer.hpp:239:13: warning: cast from 'boost::uint8_t *'
+> >       (aka 'unsigned char *') to 'short *' increases required alignment from 1 to 2 [-Wcast-align]
+> >     return *(T*)p;
+> >             ^~~~~
+> > /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:198:31: note: in instantiation of function template specialization
+> >       'pdal::PointBuffer::getField<short>' requested here
+> >                     output += STRINGIFY(GETFIELDAS(boost::int16_t));
+> >                               ^
+> > /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:198:41: note: instantiated from:
+> >                     output += STRINGIFY(GETFIELDAS(boost::int16_t));
+> >                                         ^
+> > /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:173:23: note: instantiated from:
+> > #define GETFIELDAS(T) getField<T>(pointIndex, fieldIndex)
+> >                       ^
+> > In file included from /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:35:
+> > /Users/hobu/dev/git/pdal/src/../include/pdal/PointBuffer.hpp:239:13: warning: cast from 'boost::uint8_t *'
+> >       (aka 'unsigned char *') to 'unsigned short *' increases required alignment from 1 to 2 [-Wcast-align]
+> >     return *(T*)p;
+> >             ^~~~~
+> > /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:208:31: note: in instantiation of function template specialization
+> >       'pdal::PointBuffer::getField<unsigned short>' requested here
+> >                     output += STRINGIFY(GETFIELDAS(boost::uint16_t));
+> >                               ^
+> > /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:208:41: note: instantiated from:
+> >                     output += STRINGIFY(GETFIELDAS(boost::uint16_t));
+> >                                         ^
+> > /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:173:23: note: instantiated from:
+> > #define GETFIELDAS(T) getField<T>(pointIndex, fieldIndex)
+> >                       ^
+> > In file included from /Users/hobu/dev/git/pdal/src/PointBuffer.cpp:35:
+> > /Users/hobu/dev/git/pdal/src/../include/pdal/PointBuffer.hpp:239:13: warning: cast from 'boost::uint8_t *'
+> >       (aka 'unsigned char *') to 'int *' increases required alignment from 1 to 4 [-Wcast-align]
+> >     return *(T*)p;
+> 
+> 
+>  http://stackoverflow.com/questions/2741787/warning-cast-increases-required-alignment has something to say about this, but the
+> memcpy has the potential to be a performance killer unless the implementation is smart in some way. These alignment issues would
+> be real if we were to move to a Power7 or something (not outside the realm of possibility for this kind of software/problem domain).
+> What should we do?
+> 
+> Howard_______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mpg at flaxen.com  Wed Oct  5 12:56:32 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Wed Oct  5 14:43:46 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+Message-ID: <00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>
+
+If you look at the example code (TestLasReader.cs) off the latest git, you'll see I have code that does exactly what you want - it extracts out the X,Y,Z fields and then (un)scales them appropriately.
+
+ 
+
+[Note too that the latest version of pdal doesn't use SchemaLayouts anymore.]
+
+ 
+
+-mpg
+
+ 
+
+ 
+
+From: ping yang [mailto:pingyang.whu@gmail.com] 
+Sent: Tuesday, October 04, 2011 7:53 PM
+To: mpg@flaxen.com
+Cc: pdal@lists.osgeo.org
+Subject: Re: [pdal] Write and zip function based on PDAL
+
+ 
+
+Hi Mike,
+
+ 
+
+I have some questions on how to get the X,Y,Z value from the PDAL, I saw last time you sent me code like this:
+
+ 
+
+Schema schema = reader.getSchema();
+
+SchemaLayout layout = new SchemaLayout(schema);
+
+PointBuffer data = new PointBuffer(layout, 128);
+
+// get the dimensions (fields) of the point record for the X, Y, and Z values
+
+int offsetX = schema.getDimensionIndex(Dimension.Field.Field_X, Dimension.DataType.Int32);
+
+int offsetY = schema.getDimensionIndex(Dimension.Field.Field_Y, Dimension.DataType.Int32);
+
+int offsetZ = schema.getDimensionIndex(Dimension.Field.Field_Z, Dimension.DataType.Int32);
+
+Dimension dimensionX = schema.getDimension((uint)offsetX);
+
+Dimension dimensionY = schema.getDimension((uint)offsetY);
+
+Dimension dimensionZ = schema.getDimension((uint)offsetZ);
+
+
+You were using the Dimension, would you please let me know how can I get the X,Y,Z value of each point?
+
+Is there a LasPoint structure in the PDAL?
+
+ Is the PointBuffer can be used for loading all the points into memory at one time?
+
+
+
+On Thu, Sep 8, 2011 at 5:28 PM, Michael P. Gerlek <mpg@flaxen.com> wrote:
+
+Ping:
+
+Grab these two updated DLLs:
+
+ http://dl.dropbox.com/u/17690616/pdal_swig_cpp.dll
+ http://dl.dropbox.com/u/17690616/pdal_swig_cs.dll
+
+and then the below program should work fine.  If you need a more complex
+workflow, just let us know and we'll talk you through it.
+
+-mpg
+
+
+
+
+
+
+       private void Test1()
+       {
+           Console.WriteLine("Starting LasWriter test1");
+
+           {
+               // create the reader
+               Options readerOpts = new Options();
+               Option readerOpt1 = new Option();
+
+readerOpt1.setValue_String("../../test/data/1.2-with-color.las");
+               readerOpt1.setName("filename");
+
+               readerOpts.add(readerOpt1);
+               LasReader reader = new LasReader(readerOpts);
+
+               Options writerOpts = new Options();
+               Option writerOpt1 = new Option();
+               writerOpt1.setValue_String("foo.laz");
+               writerOpt1.setName("filename");
+               writerOpts.add(writerOpt1);
+               LasWriter writer = new LasWriter(reader, writerOpts);
+               writer.initialize();
+
+               writer.setCompressed(true);
+               writer.setDate(0, 0);
+               writer.setPointFormat(PointFormat.PointFormat3);
+               writer.setSystemIdentifier("");
+               writer.setGeneratingSoftware("TerraScan");
+
+               // how many points do we have?
+               ulong numPoints = reader.getNumPoints();
+               Debug.Assert(numPoints == 1065);
+
+               ulong numWritten = writer.write(numPoints);
+               Debug.Assert(numWritten == 1065);
+           }
+
+           Console.WriteLine("checking output...");
+
+           {
+               Options opts = new Options();
+               Option opt = new Option();
+               opt.setValue_String("foo.laz");
+               opt.setName("filename");
+               opts.add(opt);
+
+               LasReader reader = new LasReader(opts);
+               reader.initialize();
+
+               Debug.Assert(reader.isCompressed() == true);
+
+               ulong numPoints = reader.getNumPoints();
+               Debug.Assert(numPoints == 1065);
+           }
+
+           Console.WriteLine("done!");
+
+           return;
+       }
+
+
+
+
+-- 
+Ping Yang, Ph.D.
+Postdoctoral Research Associate
+Idaho State University-Idaho Falls
+yangping@isu.edu
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111005/620dc5c1/attachment.html
+From pingyang.whu at gmail.com  Mon Oct 10 18:58:12 2011
+From: pingyang.whu at gmail.com (ping yang)
+Date: Tue Oct 11 03:43:56 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>
+	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+	<00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>
+Message-ID: <CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>
+
+Hi Mike,
+
+I am trying to compile the mpg-config file, I set the parameter as follows:
+****************************************************************************************
+@echo off
+
+:: Pick your architecture, 32 or 64 bits
+set COMPILER="Visual Studio 10 Win64"
+set COMPILER="Visual Studio 10"
+
+:: Pick your build type
+set BUILD_TYPE=Release
+set BUILD_TYPE=Debug
+
+:: Set some useful path variables
+::    "utils" is where you might have libraries installed, like Boost
+::    "dev" is where you build things yourself, like PDAL and laszip
+set UTILS_DIR=c:\utils
+set DEV_DIR=c:\dev
+
+:: Where is your OSGeo4W installed?
+set OSGEO4W_DIR=C:\OSGeo4W
+
+:: Where is boost installed?
+set BOOST_DIR=C:\boost\boost_1_47
+
+:: Where are the GLUT libs installed?
+::  (only needed if you want to build pcview)
+set FREEGLUT_DIR=%DEV_DIR%\freeglut-2.6.0-3.mp
+set GLUT_DIR=%DEV_DIR%\freeglut-2.6.0-3.mp
+
+:: Where is LASZIP?  (can be either from OSGeo4W or your own build tree)
+rem  set LASZIP_LIBRARY=%OSGEO4W_DIR%\laszip\laszip.lib
+rem  set LASZIP_INCLUDE_DIR=%OSGEO4W_DIR%\laszip\include
+set LASZIP_LIBRARY=%DEV_DIR%\laszip\bin\Debug\Debug\laszip.lib
+set LASZIP_INCLUDE_DIR=%DEV_DIR%\laszip\include
+
+
+:: Where is LIBLAS?  (can be either from OSGeo4W or your own build tree)
+rem  set LIBLAS_LIBRARY=%OSGEO4W_DIR%\lib\liblas.lib
+rem  set LIBLAS_INCLUDE_DIR=%OSGEO4W_DIR%\include
+set LIBLAS_LIBRARY=%DEV_DIR%\liblas\bin\Debug\Debug\liblas.lib
+set LIBLAS_INCLUDE_DIR=%DEV_DIR%\liblas\include
+
+
+:: Where is your PDAL build tree?
+set PDAL_DIR=%DEV_DIR%\pdal
+
+:: Where are the OCI libraries installed?
+set ORACLE_HOME=%OSGEO4W_DIR%
+
+:: (not needed?)
+rem set PDAL_SWIG_BOOST_HOME=%BOOST_DIR%
+
+:: If you set the above stuff correctly, then you should only need to
+:: modify the "WITH" (on/off) settings in the following CMAKE invocation.
+::
+:: For most people, you should have these turned ON:
+::    GDAL
+::    GEOTIFF
+::    ORACLE
+::    LASZIP
+::    LIBXML2
+:: and these turned OFF:
+::    LIBLAS
+::    FREEGLUT
+::    SWIG_CSHARP
+cmake -G %COMPILER% ^
+    -DBOOST_INCLUDEDIR=%BOOST_DIR% ^
+    -DWITH_GDAL=ON ^
+    -DWITH_GEOTIFF=ON ^
+    -DWITH_ORACLE=ON ^
+    -DWITH_LASZIP=OFF ^
+    -DWITH_LIBLAS=OFF ^
+    -DWITH_FREEGLUT=OFF ^
+    -DWITH_LIBXML2=ON ^
+    -DWITH_SWIG_CSHARP=ON ^
+    -DFREEGLUT_LIBRARY=%FREEGLUT_DIR%\lib\freeglut.lib ^
+    -DFREEGLUT_INCLUDE_DIR=%FREEGLUT_DIR%\include ^
+    -DGLUT_LIBRARY=%FREEGLUT_DIR%\lib ^
+    -DGLUT_INCLUDE_DIR=%FREEGLUT_DIR%\include ^
+    -DTIFF_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DTIFF_LIBRARY=%OSGEO4W_DIR%\lib\libtiff_i.lib ^
+    -DGEOTIFF_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DGEOTIFF_LIBRARY=%OSGEO4W_DIR%\lib\geotiff_i.lib ^
+    -DGDAL_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DGDAL_LIBRARY=%OSGEO4W_DIR%\lib\gdal_i.lib ^
+    -DORACLE_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DORACLE_OCI_LIBRARY=%OSGEO4W_DIR%\lib\oci.lib ^
+    -DLASZIP_INCLUDE_DIR=%LASZIP_INCLUDE_DIR% ^
+    -DLASZIP_LIBRARY=%LASZIP_LIBRARY% ^
+    -DLIBLAS_INCLUDE_DIR=%LIBLAS_INCLUDE_DIR% ^
+    -DLIBLAS_LIBRARY=%LIBLAS_LIBRARY% ^
+    -DLIBXML2_LIBRARIES=%OSGEO4W_DIR%\lib\libxml2.lib ^
+    -DLIBXML2_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+-DICONV_LIBRARY=%OSGEO4W_DIR%\lib\iconv.lib ^
+-DICONV_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
+    -DCMAKE_VERBOSE_MAKEFILE=OFF ^
+    %PDAL_DIR%
+******************************************************************************
+however, I don't know whether it has been successfully compiled? here is the
+information copy from the DOS command line:
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+c:\dev\PDAL>mpg-config.bat
+-- Searching for GDAL 1.6.0+ library
+--    NOTE: Required version is not checked - to be implemented
+-- Searching for GeoTIFF 1.2.5+ library
+-- Found GeoTIFF version: 1.3.0
+-- Could NOT find SWIG (missing:  SWIG_EXECUTABLE SWIG_DIR)
+CMake Error at CMakeLists.txt:271 (include):
+  include called with wrong number of arguments.  Include only takes one
+  file.
+-- Found Swig version
+-- Enabling swig for csharp
+-- Searching for Oracle + OCI client library
+-- Enable PDAL unit tests to build - done
+-- Configuring incomplete, errors occurred!
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+Could you please help me on this?
+
+Regards,
+
+Ping
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111010/e3aeab64/attachment.html
+From mpg at flaxen.com  Mon Oct 10 19:01:31 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Tue Oct 11 03:47:30 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>
+	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+	<00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>
+	<CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>
+Message-ID: <-4094473032505733369@unknownmsgid>
+
+It says it couldn't find swig. Do you have swig in your path?
+
+.mpg
+
+On Oct 10, 2011, at 3:58 PM, ping yang <pingyang.whu@gmail.com> wrote:
+
+Hi Mike,
+
+I am trying to compile the mpg-config file, I set the parameter as follows:
+****************************************************************************************
+@echo off
+
+:: Pick your architecture, 32 or 64 bits
+set COMPILER="Visual Studio 10 Win64"
+set COMPILER="Visual Studio 10"
+
+:: Pick your build type
+set BUILD_TYPE=Release
+set BUILD_TYPE=Debug
+
+:: Set some useful path variables
+::    "utils" is where you might have libraries installed, like Boost
+::    "dev" is where you build things yourself, like PDAL and laszip
+set UTILS_DIR=c:\utils
+set DEV_DIR=c:\dev
+
+:: Where is your OSGeo4W installed?
+set OSGEO4W_DIR=C:\OSGeo4W
+
+:: Where is boost installed?
+set BOOST_DIR=C:\boost\boost_1_47
+
+:: Where are the GLUT libs installed?
+::  (only needed if you want to build pcview)
+set FREEGLUT_DIR=%DEV_DIR%\freeglut-2.6.0-3.mp
+set GLUT_DIR=%DEV_DIR%\freeglut-2.6.0-3.mp
+
+:: Where is LASZIP?  (can be either from OSGeo4W or your own build tree)
+rem  set LASZIP_LIBRARY=%OSGEO4W_DIR%\laszip\laszip.lib
+rem  set LASZIP_INCLUDE_DIR=%OSGEO4W_DIR%\laszip\include
+set LASZIP_LIBRARY=%DEV_DIR%\laszip\bin\Debug\Debug\laszip.lib
+set LASZIP_INCLUDE_DIR=%DEV_DIR%\laszip\include
+
+
+:: Where is LIBLAS?  (can be either from OSGeo4W or your own build tree)
+rem  set LIBLAS_LIBRARY=%OSGEO4W_DIR%\lib\liblas.lib
+rem  set LIBLAS_INCLUDE_DIR=%OSGEO4W_DIR%\include
+set LIBLAS_LIBRARY=%DEV_DIR%\liblas\bin\Debug\Debug\liblas.lib
+set LIBLAS_INCLUDE_DIR=%DEV_DIR%\liblas\include
+
+
+:: Where is your PDAL build tree?
+set PDAL_DIR=%DEV_DIR%\pdal
+
+:: Where are the OCI libraries installed?
+set ORACLE_HOME=%OSGEO4W_DIR%
+
+:: (not needed?)
+rem set PDAL_SWIG_BOOST_HOME=%BOOST_DIR%
+
+:: If you set the above stuff correctly, then you should only need to
+:: modify the "WITH" (on/off) settings in the following CMAKE invocation.
+::
+:: For most people, you should have these turned ON:
+::    GDAL
+::    GEOTIFF
+::    ORACLE
+::    LASZIP
+::    LIBXML2
+:: and these turned OFF:
+::    LIBLAS
+::    FREEGLUT
+::    SWIG_CSHARP
+cmake -G %COMPILER% ^
+    -DBOOST_INCLUDEDIR=%BOOST_DIR% ^
+    -DWITH_GDAL=ON ^
+    -DWITH_GEOTIFF=ON ^
+    -DWITH_ORACLE=ON ^
+    -DWITH_LASZIP=OFF ^
+    -DWITH_LIBLAS=OFF ^
+    -DWITH_FREEGLUT=OFF ^
+    -DWITH_LIBXML2=ON ^
+    -DWITH_SWIG_CSHARP=ON ^
+    -DFREEGLUT_LIBRARY=%FREEGLUT_DIR%\lib\freeglut.lib ^
+    -DFREEGLUT_INCLUDE_DIR=%FREEGLUT_DIR%\include ^
+    -DGLUT_LIBRARY=%FREEGLUT_DIR%\lib ^
+    -DGLUT_INCLUDE_DIR=%FREEGLUT_DIR%\include ^
+    -DTIFF_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DTIFF_LIBRARY=%OSGEO4W_DIR%\lib\libtiff_i.lib ^
+    -DGEOTIFF_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DGEOTIFF_LIBRARY=%OSGEO4W_DIR%\lib\geotiff_i.lib ^
+    -DGDAL_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DGDAL_LIBRARY=%OSGEO4W_DIR%\lib\gdal_i.lib ^
+    -DORACLE_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DORACLE_OCI_LIBRARY=%OSGEO4W_DIR%\lib\oci.lib ^
+    -DLASZIP_INCLUDE_DIR=%LASZIP_INCLUDE_DIR% ^
+    -DLASZIP_LIBRARY=%LASZIP_LIBRARY% ^
+    -DLIBLAS_INCLUDE_DIR=%LIBLAS_INCLUDE_DIR% ^
+    -DLIBLAS_LIBRARY=%LIBLAS_LIBRARY% ^
+    -DLIBXML2_LIBRARIES=%OSGEO4W_DIR%\lib\libxml2.lib ^
+    -DLIBXML2_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+ -DICONV_LIBRARY=%OSGEO4W_DIR%\lib\iconv.lib ^
+ -DICONV_INCLUDE_DIR=%OSGEO4W_DIR%\include ^
+    -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
+    -DCMAKE_VERBOSE_MAKEFILE=OFF ^
+    %PDAL_DIR%
+******************************************************************************
+however, I don't know whether it has been successfully compiled? here is the
+information copy from the DOS command line:
+
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+c:\dev\PDAL>mpg-config.bat
+-- Searching for GDAL 1.6.0+ library
+--    NOTE: Required version is not checked - to be implemented
+-- Searching for GeoTIFF 1.2.5+ library
+-- Found GeoTIFF version: 1.3.0
+-- Could NOT find SWIG (missing:  SWIG_EXECUTABLE SWIG_DIR)
+CMake Error at CMakeLists.txt:271 (include):
+  include called with wrong number of arguments.  Include only takes one
+  file.
+-- Found Swig version
+-- Enabling swig for csharp
+-- Searching for Oracle + OCI client library
+-- Enable PDAL unit tests to build - done
+-- Configuring incomplete, errors occurred!
+&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+Could you please help me on this?
+
+Regards,
+
+Ping
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111010/ecd72a86/attachment-0001.html
+From mpg at flaxen.com  Tue Oct 11 13:19:24 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Oct 11 23:05:25 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <CAK8gSG-zN=DgSEYsd6-N5N9Gf2-s5vTurVdMo-YVV2Kk-d+zKA@mail.gmail.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>	<00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>	<CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>	<-4094473032505733369@unknownmsgid>	<CAK8gSG-ZKuW3hO07c2vLf3XoXBCGxONg8MeO84Tb7NAcVhar=A@mail.gmail.com>	<1854745321325111075@unknownmsgid>
+	<CAK8gSG-zN=DgSEYsd6-N5N9Gf2-s5vTurVdMo-YVV2Kk-d+zKA@mail.gmail.com>
+Message-ID: <00b601cc8839$ed067ac0$c7137040$@flaxen.com>
+
+You can ignore those warnings probably for now.
+
+ 
+
+After you build pdal itself (PDAL.sln), you then build the SWIG bindings (csharp/pdal_swig.sln).  As part of that build process, those .cs files are all automatically generated - they serve as stubs for the real C++ classes.
+
+ 
+
+-mpg
+
+ 
+
+ 
+
+From: ping yang [mailto:pingyang.whu@gmail.com] 
+Sent: Tuesday, October 11, 2011 10:12 AM
+To: Michael Gerlek
+Subject: Re: [pdal] Write and zip function based on PDAL
+
+ 
+
+Hi Mike,
+
+ 
+
+Eventually I successfully run the mpg-config.bat by many tries last night and after I restarted my computer this morning. However, I got some warning like this:
+
+CMake Warning:
+
+ 
+
+  Manually-specified variables were not used by the project:
+
+    BOOST_INCLUDEDIR
+
+    FREEGLUT_INCLUDE_DIR
+
+    FREEGLUT_LIBRARY
+
+    GLUT_INCLUDE_DIR
+
+    GLUT_LIBRARY
+
+    ICONV_INCLUDE_DIR
+
+    ICONV_LIBRARY
+
+    LASZIP_INCLUDE_DIR
+
+    LIBLAS_INCLUDE_DIR
+
+ 
+
+I am going to compile the project, but I found a lot of files are missing:
+
+ 
+
+Error  1          error : Syntax error in input(3).           C:\swigwin-2.0.4\Lib\std\std_basic_string.i   48        1          pdal_swig_cpp
+
+Error  2          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Bounds_double.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  41        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Dimension.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  38        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\DimensionId.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  21        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\DimensionLayout.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  19        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\EndianType.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  39        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Filter.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  42        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ios.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  43        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ios_base.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  22        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\iostream.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  51        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\istream.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  14        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\LasReader.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  15        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\LasWriter.cs' could not be opened ('Unspecified error ')        pdal_swig_cs
+
+Error  48        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\MultiFilter.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  12        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Option.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  4          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Options.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  8          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ostream.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  23        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\pdal_swig_cpp.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  26        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\pdal_swig_cppPINVOKE.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  35        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\PointBuffer.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  31        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\PointCountType.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  52        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\PointFormat.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  3          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Range_double.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  5          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Reader.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  30        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ReaderBase.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  20        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Schema.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  24        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SpatialReference.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  32        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Stage.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  36        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageBase.cs' could not be opened ('Unspecified error ')        pdal_swig_cs
+
+Error  53        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageBlockIterator.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  44        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageIterator.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  27        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageIteratorType.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  45        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageRandomIterator.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  25        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageSequentialIterator.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  29        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_Dimension.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  13        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_double.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  16        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_Range_double.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  33        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_u8.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  46        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_boost__property_tree__ptree.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  9          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_char.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  28        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_f_enum_std__ios_base__event_r_std__ios_base_int__void.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  47        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_long.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  40        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_p_unsigned_char.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  55        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_p_void.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  17        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_pdal__external__boost__uuids__uuid.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  10        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__basic_streambufT_char_std__char_traitsT_char_t_t.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  34        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__locale.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  6          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__vectorT_pdal__drivers__las__VariableLengthRecord_t.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  49        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_streamoff.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  11        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_streampos.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  54        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_unsigned_char.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  50        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_unsigned_int.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  18        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\VariableLengthRecord.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  37        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Vector_double.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  7          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Writer.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+ 
+
+I tried to search all the places, I found some of them, but some(like Bounds_double.cs) are still missing, do you have some idea of this?
+
+ 
+
+Ping
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111011/f096fc01/attachment-0001.html
+From yangping at isu.edu  Tue Oct 11 13:50:37 2011
+From: yangping at isu.edu (ping yang)
+Date: Tue Oct 11 23:38:19 2011
+Subject: [pdal] Re: pdal Digest, Vol 5, Issue 4
+In-Reply-To: <20111012030524.76C8FE022FE@lists.osgeo.org>
+References: <20111012030524.76C8FE022FE@lists.osgeo.org>
+Message-ID: <CAK8gSG927ra_WWVvx4w-NEPeyMP1UGYM-Nq6CeY8aKNQi7GoFA@mail.gmail.com>
+
+Hi Mike,
+
+I open the PDAL.sln and hit ALL_BUILD however, I found errors:
+
+Error 1 error C1083: Cannot open include file: 'libxml/parser.h': No such
+file or directory C:\dev\PDAL\include\pdal\XMLSchema.hpp 46 1 pdal
+Error 2 error C1083: Cannot open include file: 'libxml/parser.h': No such
+file or directory C:\dev\PDAL\include\pdal\XMLSchema.hpp 46 1 pdal
+Error 6 error C1083: Cannot open include file: 'libxml/parser.h': No such
+file or directory C:\dev\PDAL\include\pdal\XMLSchema.hpp 46 1 pdal_test
+Error 3 error LNK1104: cannot open file '..\bin\Debug\pdal.lib'
+C:\dev\PDAL\apps\LINK pcpipeline
+Error 4 error LNK1104: cannot open file '..\bin\Debug\pdal.lib'
+C:\dev\PDAL\apps\LINK pcinfo
+Error 5 error LNK1104: cannot open file '..\bin\Debug\pdal.lib'
+C:\dev\PDAL\apps\LINK pc2pc
+
+Have you experienced this before?
+
+Ping
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111011/74d6ade1/attachment.html
+From mpg at flaxen.com  Tue Oct 11 13:57:29 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Oct 11 23:45:39 2011
+Subject: [pdal] RE: pdal Digest, Vol 5, Issue 4
+In-Reply-To: <CAK8gSG927ra_WWVvx4w-NEPeyMP1UGYM-Nq6CeY8aKNQi7GoFA@mail.gmail.com>
+References: <20111012030524.76C8FE022FE@lists.osgeo.org>
+	<CAK8gSG927ra_WWVvx4w-NEPeyMP1UGYM-Nq6CeY8aKNQi7GoFA@mail.gmail.com>
+Message-ID: <00c401cc883f$3f2f6690$bd8e33b0$@flaxen.com>
+
+You need to have libxml2 installed (you can get this as part of OSGeo4W) and modify the config.bat file accordingly.
+
+ 
+
+-mpg
+
+ 
+
+ 
+
+From: pingyang.whu@gmail.com [mailto:pingyang.whu@gmail.com] On Behalf Of ping yang
+Sent: Tuesday, October 11, 2011 10:51 AM
+To: pdal@lists.osgeo.org
+Cc: Michael Gerlek
+Subject: Re: pdal Digest, Vol 5, Issue 4
+
+ 
+
+Hi Mike,
+
+ 
+
+I open the PDAL.sln and hit ALL_BUILD however, I found errors:
+
+ 
+
+Error  1          error C1083: Cannot open include file: 'libxml/parser.h': No such file or directory          C:\dev\PDAL\include\pdal\XMLSchema.hpp           46        1          pdal
+
+Error  2          error C1083: Cannot open include file: 'libxml/parser.h': No such file or directory          C:\dev\PDAL\include\pdal\XMLSchema.hpp           46        1          pdal
+
+Error  6          error C1083: Cannot open include file: 'libxml/parser.h': No such file or directory          C:\dev\PDAL\include\pdal\XMLSchema.hpp           46        1          pdal_test
+
+Error  3          error LNK1104: cannot open file '..\bin\Debug\pdal.lib'        C:\dev\PDAL\apps\LINK      pcpipeline
+
+Error  4          error LNK1104: cannot open file '..\bin\Debug\pdal.lib'        C:\dev\PDAL\apps\LINK      pcinfo
+
+Error  5          error LNK1104: cannot open file '..\bin\Debug\pdal.lib'        C:\dev\PDAL\apps\LINK      pc2pc
+
+ 
+
+Have you experienced this before?
+
+ 
+
+Ping
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111011/b2413132/attachment.html
+From yangping at isu.edu  Tue Oct 11 18:51:44 2011
+From: yangping at isu.edu (ping yang)
+Date: Wed Oct 12 04:56:28 2011
+Subject: [pdal] Re: pdal Digest, Vol 5, Issue 4
+In-Reply-To: <00c401cc883f$3f2f6690$bd8e33b0$@flaxen.com>
+References: <20111012030524.76C8FE022FE@lists.osgeo.org>
+	<CAK8gSG927ra_WWVvx4w-NEPeyMP1UGYM-Nq6CeY8aKNQi7GoFA@mail.gmail.com>
+	<00c401cc883f$3f2f6690$bd8e33b0$@flaxen.com>
+Message-ID: <CAK8gSG9i3PhknHCdQBQNYZHdDec_gN-7wWtKFdzuXj34MLSd7A@mail.gmail.com>
+
+Hi Mike,
+
+I built the PDAL.sln and there was an error:
+Error 2 error C1083: Cannot open include file: 'GL/freeglut.h': No such file
+or directory C:\dev\PDAL\apps\pcview\Engine.cpp 48 1 pcview
+and I found that pdal.dll were generated. however, I still couldn't compile
+pdal-swig.sln because missing the files that I mentioned last time.
+Would you please give me comments?
+
+Ping
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111011/4c99ce22/attachment.html
+From mpg at flaxen.com  Tue Oct 11 19:04:41 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Wed Oct 12 05:10:02 2011
+Subject: [pdal] RE: pdal Digest, Vol 5, Issue 4
+In-Reply-To: <CAK8gSG9i3PhknHCdQBQNYZHdDec_gN-7wWtKFdzuXj34MLSd7A@mail.gmail.com>
+References: <20111012030524.76C8FE022FE@lists.osgeo.org>	<CAK8gSG927ra_WWVvx4w-NEPeyMP1UGYM-Nq6CeY8aKNQi7GoFA@mail.gmail.com>	<00c401cc883f$3f2f6690$bd8e33b0$@flaxen.com>
+	<CAK8gSG9i3PhknHCdQBQNYZHdDec_gN-7wWtKFdzuXj34MLSd7A@mail.gmail.com>
+Message-ID: <00cc01cc886a$29588600$7c099200$@flaxen.com>
+
+Looks like you're trying to build the pcview app - do you have the cmake option for freeglut turned off?
+
+ 
+
+If you've got pdal.dll, do the unit tests pass?
+
+ 
+
+-mpg
+
+ 
+
+ 
+
+ 
+
+From: pingyang.whu@gmail.com [mailto:pingyang.whu@gmail.com] On Behalf Of ping yang
+Sent: Tuesday, October 11, 2011 3:52 PM
+To: mpg@flaxen.com
+Cc: pdal@lists.osgeo.org
+Subject: Re: pdal Digest, Vol 5, Issue 4
+
+ 
+
+Hi Mike,
+
+ 
+
+I built the PDAL.sln and there was an error:
+
+Error    2          error C1083: Cannot open include file: 'GL/freeglut.h': No such file or directory            C:\dev\PDAL\apps\pcview\Engine.cpp          48        1          pcview
+
+and I found that pdal.dll were generated. however, I still couldn't compile pdal-swig.sln because missing the files that I mentioned last time.
+
+Would you please give me comments?
+
+ 
+
+Ping
+
+ 
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111011/8b8d44c9/attachment.html
+From pingyang.whu at gmail.com  Wed Oct 12 19:25:26 2011
+From: pingyang.whu at gmail.com (ping yang)
+Date: Thu Oct 13 06:49:45 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <00b601cc8839$ed067ac0$c7137040$@flaxen.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>
+	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+	<00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>
+	<CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>
+	<-4094473032505733369@unknownmsgid>
+	<CAK8gSG-ZKuW3hO07c2vLf3XoXBCGxONg8MeO84Tb7NAcVhar=A@mail.gmail.com>
+	<1854745321325111075@unknownmsgid>
+	<CAK8gSG-zN=DgSEYsd6-N5N9Gf2-s5vTurVdMo-YVV2Kk-d+zKA@mail.gmail.com>
+	<00b601cc8839$ed067ac0$c7137040$@flaxen.com>
+Message-ID: <CAK8gSG-EuRi0m-2GQBJ9+1f5npnAthWcgEvXKXgkm_rke8K27g@mail.gmail.com>
+
+Hi Mike,
+
+In the PDAL.sln, I had successfully built the ALL_BUILD project with no
+error, and I built pdal_test with no error, but I didn't build RUN_TEST
+successfully, the errors are:
+
+Error 1 error MSB3073: The command "setlocal
+"C:\Program Files (x86)\CMake 2.8\bin\ctest.exe" --force-new-ctest-process
+-C Debug
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+:VCEnd" exited with code 8. C:\Program Files
+(x86)\MSBuild\Microsoft.Cpp\v4.0\Microsoft.CppCommon.targets 113 6 RUN_TESTS
+
+and I still didn't get the pdal_swig.sln build successfully because the
+missing file in the pdal_swig_cs project, can we schedule a time for the
+problem solving?
+
+Ping
+
+On Tue, Oct 11, 2011 at 11:19 AM, Michael P. Gerlek <mpg@flaxen.com> wrote:
+
+> You can ignore those warnings probably for now.****
+>
+> ** **
+>
+> After you build pdal itself (PDAL.sln), you then build the SWIG bindings
+> (csharp/pdal_swig.sln).  As part of that build process, those .cs files are
+> all automatically generated ? they serve as stubs for the real C++ classes.
+> ****
+>
+> ** **
+>
+> -mpg****
+>
+> ****
+>
+> ** **
+>
+> ** **
+>
+> *From:* ping yang [mailto:pingyang.whu@gmail.com]
+> *Sent:* Tuesday, October 11, 2011 10:12 AM
+> *To:* Michael Gerlek
+>
+> *Subject:* Re: [pdal] Write and zip function based on PDAL****
+>
+> ** **
+>
+> Hi Mike,****
+>
+> ** **
+>
+> Eventually I successfully run the mpg-config.bat by many tries last night
+> and after I restarted my computer this morning. However, I got some warning
+> like this:****
+>
+> CMake Warning:****
+>
+> ** **
+>
+>   Manually-specified variables were not used by the project:****
+>
+>     BOOST_INCLUDEDIR****
+>
+>     FREEGLUT_INCLUDE_DIR****
+>
+>     FREEGLUT_LIBRARY****
+>
+>     GLUT_INCLUDE_DIR****
+>
+>     GLUT_LIBRARY****
+>
+>     ICONV_INCLUDE_DIR****
+>
+>     ICONV_LIBRARY****
+>
+>     LASZIP_INCLUDE_DIR****
+>
+>     LIBLAS_INCLUDE_DIR****
+>
+> ** **
+>
+> I am going to compile the project, but I found a lot of files are missing:
+> ****
+>
+> ** **
+>
+> Error  1          error : Syntax error in input(3).
+> C:\swigwin-2.0.4\Lib\std\std_basic_string.i   48        1
+> pdal_swig_cpp****
+>
+> Error  2          Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\Bounds_double.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  41        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\Dimension.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  38        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\DimensionId.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  21        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\DimensionLayout.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  19        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\EndianType.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  39        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Filter.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  42        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ios.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  43        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ios_base.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  22        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\iostream.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  51        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\istream.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  14        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\LasReader.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  15        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\LasWriter.cs' could not be opened
+> ('Unspecified error ')        pdal_swig_cs****
+>
+> Error  48        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\MultiFilter.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  12        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Option.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  4          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Options.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  8          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ostream.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  23        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\pdal_swig_cpp.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  26        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\pdal_swig_cppPINVOKE.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  35        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\PointBuffer.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  31        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\PointCountType.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  52        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\PointFormat.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  3          Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\Range_double.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  5          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Reader.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  30        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\ReaderBase.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  20        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Schema.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  24        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SpatialReference.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  32        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Stage.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> Error  36        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\StageBase.cs' could not be opened
+> ('Unspecified error ')        pdal_swig_cs****
+>
+> Error  53        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\StageBlockIterator.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  44        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\StageIterator.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  27        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\StageIteratorType.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  45        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\StageRandomIterator.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  25        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\StageSequentialIterator.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  29        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_Dimension.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  13        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_double.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  16        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_Range_double.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  33        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_u8.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  46        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_boost__property_tree__ptree.cs'
+> could not be opened ('Unspecified error ')    pdal_swig_cs****
+>
+> Error  9          Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_char.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  28        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_f_enum_std__ios_base__event_r_std__ios_base_int__void.cs'
+> could not be opened ('Unspecified error ')    pdal_swig_cs****
+>
+> Error  47        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_long.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  40        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_p_unsigned_char.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  55        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_p_void.cs' could not be opened
+> ('Unspecified error ') pdal_swig_cs****
+>
+> Error  17        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_pdal__external__boost__uuids__uuid.cs'
+> could not be opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  10        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__basic_streambufT_char_std__char_traitsT_char_t_t.cs'
+> could not be opened ('Unspecified error ')    pdal_swig_cs****
+>
+> Error  34        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__locale.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  6          Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__vectorT_pdal__drivers__las__VariableLengthRecord_t.cs'
+> could not be opened ('Unspecified error ')    pdal_swig_cs****
+>
+> Error  49        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_streamoff.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  11        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_streampos.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  54        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_unsigned_char.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  50        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_unsigned_int.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  18        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\VariableLengthRecord.cs' could not be
+> opened ('Unspecified error ') pdal_swig_cs****
+>
+> Error  37        Source file
+> 'C:\dev\PDAL\csharp\pdal_swig_cs\Vector_double.cs' could not be opened
+> ('Unspecified error ')            pdal_swig_cs****
+>
+> Error  7          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Writer.cs'
+> could not be opened ('Unspecified error ')          pdal_swig_cs****
+>
+> ** **
+>
+> I tried to search all the places, I found some of them, but some(like
+> Bounds_double.cs) are still missing, do you have some idea of this?****
+>
+> ** **
+>
+> Ping****
+>
+
+
+
+-- 
+Ping Yang, Ph.D.
+Postdoctoral Research Associate
+Idaho State University-Idaho Falls
+yangping@isu.edu
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111012/5d3b126d/attachment-0001.html
+From mpg at flaxen.com  Wed Oct 12 22:31:40 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Oct 13 10:09:19 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <CAK8gSG-EuRi0m-2GQBJ9+1f5npnAthWcgEvXKXgkm_rke8K27g@mail.gmail.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>	<00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>	<CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>	<-4094473032505733369@unknownmsgid>	<CAK8gSG-ZKuW3hO07c2vLf3XoXBCGxONg8MeO84Tb7NAcVhar=A@mail.gmail.com>	<1854745321325111075@unknownmsgid>	<CAK8gSG-zN=DgSEYsd6-N5N9Gf2-s5vTurVdMo-YVV2Kk-d+zKA@mail.gmail.com>	<00b601cc8839$ed067ac0$c7137040$@flaxen.com>
+	<CAK8gSG-EuRi0m-2GQBJ9+1f5npnAthWcgEvXKXgkm_rke8K27g@mail.gmail.com>
+Message-ID: <003901cc8950$3e79cb20$bb6d6160$@flaxen.com>
+
+Try setting the Start Project to pdal_test directly, don't use the cmake testing tool - that's how I do it.
+
+ 
+
+-mpg
+
+ 
+
+ 
+
+From: ping yang [mailto:pingyang.whu@gmail.com] 
+Sent: Wednesday, October 12, 2011 4:25 PM
+To: mpg@flaxen.com
+Cc: pdal@lists.osgeo.org
+Subject: Re: [pdal] Write and zip function based on PDAL
+
+ 
+
+Hi Mike,
+
+ 
+
+In the PDAL.sln, I had successfully built the ALL_BUILD project with no error, and I built pdal_test with no error, but I didn't build RUN_TEST successfully, the errors are:
+
+ 
+
+Error    1          error MSB3073: The command "setlocal
+
+"C:\Program Files (x86)\CMake 2.8\bin\ctest.exe" --force-new-ctest-process -C Debug
+
+if %errorlevel% neq 0 goto :cmEnd
+
+:cmEnd
+
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+
+:cmErrorLevel
+
+exit /b %1
+
+:cmDone
+
+if %errorlevel% neq 0 goto :VCEnd
+
+:VCEnd" exited with code 8. C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\Microsoft.CppCommon.targets            113      6          RUN_TESTS
+
+ 
+
+and I still didn't get the pdal_swig.sln build successfully because the missing file in the pdal_swig_cs project, can we schedule a time for the problem solving?
+
+ 
+
+Ping
+
+On Tue, Oct 11, 2011 at 11:19 AM, Michael P. Gerlek <mpg@flaxen.com> wrote:
+
+You can ignore those warnings probably for now.
+
+ 
+
+After you build pdal itself (PDAL.sln), you then build the SWIG bindings (csharp/pdal_swig.sln).  As part of that build process, those .cs files are all automatically generated - they serve as stubs for the real C++ classes.
+
+ 
+
+-mpg
+
+ 
+
+ 
+
+From: ping yang [mailto:pingyang.whu@gmail.com] 
+Sent: Tuesday, October 11, 2011 10:12 AM
+To: Michael Gerlek
+
+
+Subject: Re: [pdal] Write and zip function based on PDAL
+
+ 
+
+Hi Mike,
+
+ 
+
+Eventually I successfully run the mpg-config.bat by many tries last night and after I restarted my computer this morning. However, I got some warning like this:
+
+CMake Warning:
+
+ 
+
+  Manually-specified variables were not used by the project:
+
+    BOOST_INCLUDEDIR
+
+    FREEGLUT_INCLUDE_DIR
+
+    FREEGLUT_LIBRARY
+
+    GLUT_INCLUDE_DIR
+
+    GLUT_LIBRARY
+
+    ICONV_INCLUDE_DIR
+
+    ICONV_LIBRARY
+
+    LASZIP_INCLUDE_DIR
+
+    LIBLAS_INCLUDE_DIR
+
+ 
+
+I am going to compile the project, but I found a lot of files are missing:
+
+ 
+
+Error  1          error : Syntax error in input(3).           C:\swigwin-2.0.4\Lib\std\std_basic_string.i   48        1          pdal_swig_cpp
+
+Error  2          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Bounds_double.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  41        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Dimension.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  38        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\DimensionId.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  21        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\DimensionLayout.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  19        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\EndianType.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  39        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Filter.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  42        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ios.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  43        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ios_base.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  22        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\iostream.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  51        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\istream.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  14        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\LasReader.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  15        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\LasWriter.cs' could not be opened ('Unspecified error ')        pdal_swig_cs
+
+Error  48        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\MultiFilter.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  12        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Option.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  4          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Options.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  8          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ostream.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  23        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\pdal_swig_cpp.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  26        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\pdal_swig_cppPINVOKE.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  35        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\PointBuffer.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  31        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\PointCountType.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  52        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\PointFormat.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  3          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Range_double.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  5          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Reader.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  30        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\ReaderBase.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  20        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Schema.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  24        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SpatialReference.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  32        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Stage.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+Error  36        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageBase.cs' could not be opened ('Unspecified error ')        pdal_swig_cs
+
+Error  53        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageBlockIterator.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  44        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageIterator.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  27        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageIteratorType.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  45        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageRandomIterator.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  25        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\StageSequentialIterator.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  29        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_Dimension.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  13        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_double.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  16        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_Range_double.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  33        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\std_vector_u8.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  46        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_boost__property_tree__ptree.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  9          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_char.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  28        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_f_enum_std__ios_base__event_r_std__ios_base_int__void.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  47        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_long.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  40        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_p_unsigned_char.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  55        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_p_void.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  17        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_pdal__external__boost__uuids__uuid.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  10        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__basic_streambufT_char_std__char_traitsT_char_t_t.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  34        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__locale.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  6          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_std__vectorT_pdal__drivers__las__VariableLengthRecord_t.cs' could not be opened ('Unspecified error ')    pdal_swig_cs
+
+Error  49        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_streamoff.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  11        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_streampos.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  54        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_unsigned_char.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  50        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\SWIGTYPE_p_unsigned_int.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  18        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\VariableLengthRecord.cs' could not be opened ('Unspecified error ') pdal_swig_cs
+
+Error  37        Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Vector_double.cs' could not be opened ('Unspecified error ')            pdal_swig_cs
+
+Error  7          Source file 'C:\dev\PDAL\csharp\pdal_swig_cs\Writer.cs' could not be opened ('Unspecified error ')          pdal_swig_cs
+
+ 
+
+I tried to search all the places, I found some of them, but some(like Bounds_double.cs) are still missing, do you have some idea of this?
+
+ 
+
+Ping
+
+
+
+
+
+ 
+
+-- 
+Ping Yang, Ph.D.
+Postdoctoral Research Associate
+Idaho State University-Idaho Falls
+yangping@isu.edu
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111012/68098bf4/attachment-0001.html
+From pingyang.whu at gmail.com  Wed Oct 12 23:10:33 2011
+From: pingyang.whu at gmail.com (ping yang)
+Date: Thu Oct 13 10:47:34 2011
+Subject: [pdal] Write and zip function based on PDAL
+In-Reply-To: <003901cc8950$3e79cb20$bb6d6160$@flaxen.com>
+References: <CAK8gSG86hGH9U1qBiNNaxePAVcUDieuo82RWbUp3uuin0+coFA@mail.gmail.com>
+	<02f601cc6e7f$03a68b50$0af3a1f0$@flaxen.com>
+	<CAK8gSG9Q7oB-8Rc_j6xAZyUwEwGbFPmomLWXUBm-w8ym000qUQ@mail.gmail.com>
+	<00ed01cc837f$bc9ef100$35dcd300$@flaxen.com>
+	<CAK8gSG_2R-UsPqoSXw11iMNo+kDGy_gaChn-JcBM3pQy_uTQng@mail.gmail.com>
+	<-4094473032505733369@unknownmsgid>
+	<CAK8gSG-ZKuW3hO07c2vLf3XoXBCGxONg8MeO84Tb7NAcVhar=A@mail.gmail.com>
+	<1854745321325111075@unknownmsgid>
+	<CAK8gSG-zN=DgSEYsd6-N5N9Gf2-s5vTurVdMo-YVV2Kk-d+zKA@mail.gmail.com>
+	<00b601cc8839$ed067ac0$c7137040$@flaxen.com>
+	<CAK8gSG-EuRi0m-2GQBJ9+1f5npnAthWcgEvXKXgkm_rke8K27g@mail.gmail.com>
+	<003901cc8950$3e79cb20$bb6d6160$@flaxen.com>
+Message-ID: <CAK8gSG9JVA85PLj6sDQ0_Rs1_o9YtnT7X9RtGyf=birFzWB7gQ@mail.gmail.com>
+
+Hi Mike,
+
+this is some information from the output of building of pdal_test project:
+
+2>------ Rebuild All started: Project: pdal, Configuration: Debug Win32
+------
+2>  Building Custom Rule C:/dev/PDAL/src/CMakeLists.txt
+
+How can I configure building without using of cmake testing tool?
+
+Ping
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20111012/9321481b/attachment.html
+From hobu.inc at gmail.com  Mon Oct 17 16:35:13 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Oct 18 10:27:32 2011
+Subject: [pdal] logging
+Message-ID: <FC2F28C1-C5F7-4598-929E-8D36891C3E28@gmail.com>
+
+All,
+
+I have committed a patch to PDAL to do provide debug logging output.  We previously had the switches in place, but not the actual logging mechanism.  Here is a short summary of how it works:
+
+- StageBase has an implemented virtual log(std::ostringstream& input) (and another method that takes in a std::string and forwards it for you) that issues the logging operation
+- At initialize() time, a log is opened using the "log" option of the stage. For "stdlog" (std::clog), "stdout", (std::cout), and "stderr" (std::cerr) options, these are simply initialized to be the streams for these standard outputs.
+  * For "log" options that were specified as a file, the log file is opened as an ostream *only* if the stage has no inputs -- i.e. it is a Reader.  All other stages ask down the pipeline to getLogger(), which just forwards the pointer to the ostream.
+  * What should we do for MultiFilters?
+  * if isDebug is not true for the stage, no debug info is output for that specific stage.  We may want some sort of "globalDebug" option to turn isDebug on for every stage.
+
+I initially was going to let stages themselves worry about verbosity and isDebug, but now that I write this email, I see that's not such a good way to go.  Expect the the method to change to log(std::ostringstream& input, int nVerbosity), and it will make sure to test the stage's isDebug before actually writing data to the log.  This way we don't have to litter the stage(s) with isDebug tests.
+
+Howard
+From mpg at flaxen.com  Mon Oct 17 21:17:02 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Oct 18 15:24:27 2011
+Subject: [pdal] logging
+In-Reply-To: <FC2F28C1-C5F7-4598-929E-8D36891C3E28@gmail.com>
+References: <FC2F28C1-C5F7-4598-929E-8D36891C3E28@gmail.com>
+Message-ID: <016701cc8d33$a5004a90$ef00dfb0$@flaxen.com>
+
+I'm not quite sure I understand the last paragraph...  Will I be able to tell the reprojector to log very verbosely, but the stages before and after it to be relatively quiet?
+
+As for the MultiFilter: if merging two datasets wasn't such a common operation, I'd never have written that cursed filter...  Perhaps you could take the average of all the inputs :-)
+
+-mpg
+
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Howard Butler
+> Sent: Monday, October 17, 2011 1:35 PM
+> To: pdal@lists.osgeo.org
+> Subject: [pdal] logging
+> 
+> All,
+> 
+> I have committed a patch to PDAL to do provide debug logging output.  We previously had the switches in place, but not the actual
+> logging mechanism.  Here is a short summary of how it works:
+> 
+> - StageBase has an implemented virtual log(std::ostringstream& input) (and another method that takes in a std::string and forwards it
+> for you) that issues the logging operation
+> - At initialize() time, a log is opened using the "log" option of the stage. For "stdlog" (std::clog), "stdout", (std::cout), and "stderr"
+> (std::cerr) options, these are simply initialized to be the streams for these standard outputs.
+>   * For "log" options that were specified as a file, the log file is opened as an ostream *only* if the stage has no inputs -- i.e. it is a
+> Reader.  All other stages ask down the pipeline to getLogger(), which just forwards the pointer to the ostream.
+>   * What should we do for MultiFilters?
+>   * if isDebug is not true for the stage, no debug info is output for that specific stage.  We may want some sort of "globalDebug" option
+> to turn isDebug on for every stage.
+> 
+> I initially was going to let stages themselves worry about verbosity and isDebug, but now that I write this email, I see that's not such a
+> good way to go.  Expect the the method to change to log(std::ostringstream& input, int nVerbosity), and it will make sure to test the
+> stage's isDebug before actually writing data to the log.  This way we don't have to litter the stage(s) with isDebug tests.
+> 
+> Howard_______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From pete.gadomski at gmail.com  Mon Oct 17 23:44:26 2011
+From: pete.gadomski at gmail.com (Pete Gadomski)
+Date: Tue Oct 18 18:00:01 2011
+Subject: [pdal] logging
+In-Reply-To: <016701cc8d33$a5004a90$ef00dfb0$@flaxen.com>
+References: <FC2F28C1-C5F7-4598-929E-8D36891C3E28@gmail.com>
+	<016701cc8d33$a5004a90$ef00dfb0$@flaxen.com>
+Message-ID: <CAOY6Aa3COaz+_=16xN__9K=s2iBztyFcgRdHDSEvc8FCvHXUpw@mail.gmail.com>
+
+>  * if isDebug is not true for the stage, no debug info is output for that specific stage.  We may want some sort of "globalDebug" option to turn isDebug on for every stage.
+
++1
+
+On Mon, Oct 17, 2011 at 18:17, Michael P. Gerlek <mpg@flaxen.com> wrote:
+> I'm not quite sure I understand the last paragraph... ?Will I be able to tell the reprojector to log very verbosely, but the stages before and after it to be relatively quiet?
+>
+> As for the MultiFilter: if merging two datasets wasn't such a common operation, I'd never have written that cursed filter... ?Perhaps you could take the average of all the inputs :-)
+>
+> -mpg
+>
+>
+>
+>> -----Original Message-----
+>> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Howard Butler
+>> Sent: Monday, October 17, 2011 1:35 PM
+>> To: pdal@lists.osgeo.org
+>> Subject: [pdal] logging
+>>
+>> All,
+>>
+>> I have committed a patch to PDAL to do provide debug logging output. ?We previously had the switches in place, but not the actual
+>> logging mechanism. ?Here is a short summary of how it works:
+>>
+>> - StageBase has an implemented virtual log(std::ostringstream& input) (and another method that takes in a std::string and forwards it
+>> for you) that issues the logging operation
+>> - At initialize() time, a log is opened using the "log" option of the stage. For "stdlog" (std::clog), "stdout", (std::cout), and "stderr"
+>> (std::cerr) options, these are simply initialized to be the streams for these standard outputs.
+>> ? * For "log" options that were specified as a file, the log file is opened as an ostream *only* if the stage has no inputs -- i.e. it is a
+>> Reader. ?All other stages ask down the pipeline to getLogger(), which just forwards the pointer to the ostream.
+>> ? * What should we do for MultiFilters?
+>> ? * if isDebug is not true for the stage, no debug info is output for that specific stage. ?We may want some sort of "globalDebug" option
+>> to turn isDebug on for every stage.
+>>
+>> I initially was going to let stages themselves worry about verbosity and isDebug, but now that I write this email, I see that's not such a
+>> good way to go. ?Expect the the method to change to log(std::ostringstream& input, int nVerbosity), and it will make sure to test the
+>> stage's isDebug before actually writing data to the log. ?This way we don't have to litter the stage(s) with isDebug tests.
+>>
+>> Howard_______________________________________________
+>> pdal mailing list
+>> pdal@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/pdal
+>
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+>
+From mpg at flaxen.com  Thu Oct 27 14:16:39 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Oct 27 20:45:24 2011
+Subject: [pdal] build errors on head (win32)
+Message-ID: <070f01cc94d4$928c7d40$b7a577c0$@flaxen.com>
+
+The OCI stuff isn't building under win32 right now, for two reasons:
+
+* Cloud:: Cloud() and Cloud::~ Cloud() are declared and used, but not defined
+
+* the new "bind" code totally fails to compile under win32 with boost 1.46.1 (lines 67 and 71 in oci Reader.cpp, and two more in the Writer), see below
+
+I've locally commented out those 4 bind lines and stubbed in empty definitions for Cloud() and ~Cloud(), and everything builds and passes okay.
+
+-mpg
+
+
+
+
+2>  Reader.cpp
+2>c:\Utils\boost_pro_1_46_1\boost/bind/bind.hpp(69): error C2825: 'F': must be a class or namespace when followed by '::'
+2>          c:\Utils\boost_pro_1_46_1\boost/bind/bind_template.hpp(15) : see reference to class template instantiation 'boost::_bi::result_traits<R,F>' being compiled
+2>          with
+2>          [
+2>              R=boost::_bi::unspecified,
+2>              F=void (__stdcall pdal::drivers::oci::Reader::* )(CPLErr,int,const char *)
+2>          ]
+2>          drivers\oci\Reader.cpp(71) : see reference to class template instantiation 'boost::_bi::bind_t<R,F,L>' being compiled
+2>          with
+2>          [
+2>              R=boost::_bi::unspecified,
+2>              F=void (__stdcall pdal::drivers::oci::Reader::* )(CPLErr,int,const char *),
+2>              L=boost::_bi::list4<boost::_bi::value<pdal::drivers::oci::Reader *>,boost::arg<1>,boost::arg<2>,boost::arg<3>>
+2>          ]
+2>c:\Utils\boost_pro_1_46_1\boost/bind/bind.hpp(69): error C2039: 'result_type' : is not a member of '`global namespace''
+2>c:\Utils\boost_pro_1_46_1\boost/bind/bind.hpp(69): error C2146: syntax error : missing ';' before identifier 'type'
+2>c:\Utils\boost_pro_1_46_1\boost/bind/bind.hpp(69): error C2208: 'boost::_bi::type' : no members defined using this type
+2>c:\Utils\boost_pro_1_46_1\boost/bind/bind.hpp(69): fatal error C1903: unable to recover from previous error(s); stopping compilation
+
+

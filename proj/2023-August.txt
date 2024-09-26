@@ -1,0 +1,1049 @@
+From support at mnspoint.com  Fri Aug  4 08:27:18 2023
+From: support at mnspoint.com (support at mnspoint.com)
+Date: Fri, 04 Aug 2023 18:27:18 +0300
+Subject: [PROJ] Fixing Old Code
+In-Reply-To: <3d37a782-69d3-4490-8f91-b0edad548654@lincolnagritech.co.nz>
+References: <5622bd90-4312-4cb1-b73e-7262acb553f1@lincolnagritech.co.nz>
+ <2b0997541d9b5773134f1e62bbc67468@mnspoint.com>
+ <3d37a782-69d3-4490-8f91-b0edad548654@lincolnagritech.co.nz>
+Message-ID: <1b37f212e8050cbdf8d146634576a86c@mnspoint.com>
+
+Hi,
+
+we just traced the TIF tags with our own tracer for GeoTIFF tags and 
+built first an examiner program to see what is in those files. Then when 
+noticing that at least some files used "just number" to ESRI/EPGS we had 
+to add the database to fill those references. But as I said the system 
+only works as long as nobody adds new definitions and uses references to 
+them in GeoTIFF files. If I remember correctly there is a way to include 
+the full definition in the TIF file but the reality seemed to be that 
+most GeoTIFF files just had that "number" reference.
+
+Most likely your CSV files have some database but is it the one that 
+includes all what is needed will always be a question (one should at 
+least be aware that the possibility exists that the conversion later 
+falls due to missing information in the outdated definitions database).
+
+So the transformations are only as good as the data included is. But 
+most likely there is an error message that the reference is unknown if 
+that happens?! But that definitely adds some work since one has to 
+always make sure to include the most resent definitions with the 
+package. And sure ESRI/EPSG gets updates all the time since that is why 
+it is built like that in the first place.
+
+So the GeoTFF file format standard is not good. (Referencing any 
+projection-datum definition without fully defining and including it in 
+the file should be forbidden. So to make the GeoTIFF file fully 
+independent. Now it is not.)
+
+Janne.
+
+----------------------------------------------
+Dan Crosby kirjoitti 2023-07-31 00:10:
+> Hi Janne,
+> 
+> Yes we did have to include all the libgeotiff accompanying CSV files
+> in our distribution to get ours sort-of functional. But using
+> libgeotiff functions like GTIFImageToPCS and GTIFProj4ToLatLong should
+> mean any transformations are as good as they can be. Right?
+> 
+> Dan
+> 
+> -----Original Message-----
+> From: support at mnspoint.com <support at mnspoint.com>
+> Sent: Sunday, 30 July 2023 23:30
+> To: Dan Crosby <dan.crosby at lincolnagritech.co.nz>
+> Cc: proj at lists.osgeo.org
+> Subject: Re: [PROJ] Fixing Old Code
+> 
+> Hello,
+> 
+> we wrote a working GeoTIFF loader a few years ago using Proj4 library.
+> 
+> The worts problem with GeoTIFF format is that it uses relative links
+> to EPSG or ESRI definitions just with a number!! AND if somebody adds
+> new definitions LATER the original database cannot solve them
+> anymore!! REAL IDIOTS!! They should have ALWAYS included the FULL
+> definition instead of just the "number"!! That way the GeoTIFF format
+> would have worked forever! Now it just works until somebody adds a new
+> entry to the database and some other idiot chooses to reference it in
+> a GeoTIFF file!
+> 
+> But what so ever, you can try to live with this error by always using
+> the latest ESRI/EPSG database with your GeoTIFF loader! (So, your
+> GeoTIFF loader needs an ESRI/EPSG definition database to work.)
+> 
+> Regards: Janne
+> 
+> ------------------------------------------
+> Dan Crosby kirjoitti 2023-07-26 06:19:
+>> 
+>> One thing I tried to get working at the time, but never really did,
+>> was to read to geo-data from a GeoTIFF and convert
+>> 
+>> steps I should take to get the correct projection info out of a
+>> GeoTIFF and convert it?
+>> 
+>> Thanks,
+>> 
+>> Dan
+
+From peter.townsend at maplarge.com  Fri Aug 11 10:49:07 2023
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Fri, 11 Aug 2023 12:49:07 -0500
+Subject: [PROJ] "Over flag" for grid shifts
+Message-ID: <CAMQBGmX+pYjAiOwLTtjDTEJAHw_2k4KJkmDT43-2k1ZHgS3p6A@mail.gmail.com>
+
+I had a bit of an unusual situation pop up and wondered if anyone here had
+any ideas.
+
+Long story short, if you transform from EPSG:4326 to EPSG:4267 (wgs84 to
+NAD27) using longitude 180 and latitude 50, you wind up with a longitude of
+-179.997. Think of splitting a box across the antimeridian, like a big
+bounding box over Russia. Coming from the left, you'd have a longitude of
+around 25 to 180, then -180 to about -170. And if you were transforming
+them, you'd go 25 to -179.997, which would be the wrong way for the first
+section. (The second section would go from -179.997 to -170 in the correct
+direction.)
+
+PROJ has that +over flag that generally works as expected, but in this case
+the transform's sign change is happening entirely in the hgridshift code
+(pj_hgrid_apply_internal to be exact). When it gets to "in.lam =
+adjlon(t.lam + extent->west);" it has become -179.997.
+
+adjlon(t.lam + extent->west) * 180 / 3.14159265359
+-179.99748513695496
+
+Adding a P->over check around the adjlon call would still result in the
+same value.
+
+(t.lam + extent->west)
+-3.1415487609496271
+(t.lam + extent->west)* 180 / 3.14159265359
+-179.99748513695496
+
+Is there any sort of change that could happen inside of that function that
+might keep it from changing its sign? Ideally it would be returning 180.003
+instead of -179.997.
+
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230811/660cc183/attachment.htm>
+
+From j1 at jimenezshaw.com  Mon Aug 14 15:18:12 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 15 Aug 2023 00:18:12 +0200
+Subject: [PROJ] Danish_System_34_Sjaelland
+Message-ID: <CADRrdKvd1MNyqqcUAjMRi-m1WvKe9tbmAhMnt9zrQqWoiU=sQQ@mail.gmail.com>
+
+Hi
+
+I got this wkt, which projection "Transverse Mercator Sjaelland" is not
+supported by PROJ
+
+PROJCS["Danish_System_34_Sjaelland", GEOGCS["GCS_European 1950",
+DATUM["D_European 1950",
+SPHEROID["International_1924",6378388.000000,297.000000]],
+PRIMEM["Greenwich",0.000000], UNIT["Degree",0.017453292519943295]],
+PROJECTION["Transverse Mercator Sjaelland"],
+PARAMETER["Scale_Factor",0.999600], PARAMETER["Central_Meridian",9.000000],
+PARAMETER["False_Easting",500000.000000], UNIT["Meter",1.000000000000]]
+
+Seems to be something very Danish specific, and quite old. Do you know any
+equivalent wkt that may work in PROJ? There were some Danish grid files
+added recently for S34
+
+Thanks
+Javier
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230815/8b036a2c/attachment.htm>
+
+From knudsen.thomas at gmail.com  Mon Aug 14 19:46:18 2023
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Tue, 15 Aug 2023 04:46:18 +0200
+Subject: [PROJ] Danish_System_34_Sjaelland
+In-Reply-To: <CADRrdKvd1MNyqqcUAjMRi-m1WvKe9tbmAhMnt9zrQqWoiU=sQQ@mail.gmail.com>
+References: <CADRrdKvd1MNyqqcUAjMRi-m1WvKe9tbmAhMnt9zrQqWoiU=sQQ@mail.gmail.com>
+Message-ID: <CAH0YoEOezc7VEzBr8kGP63Uum0XC-HLXcN+vAkc=y-KurMnuLw@mail.gmail.com>
+
+That definition definitely looks odd. The correct EPSG id for System 34
+Sj?lland
+is 10250 (and its companion for the western part of Denmark, "System 34
+Jylland"
+is EPSG:10160).
+
+For historical reasons, those systems are utterly odd: They originated as
+cadastral
+systems, and the cadastre did not really care about the absolute
+orientation of
+the systems, hence ignoring (at that time, i.e. 1930-ish), existing
+astro-geodetic
+observations, to the effect that what was specified as a transverse cylinder
+projection actually ended up as oblique.
+
+Which also means, as noted by Mikael Rittri a decade ago on this mailing
+list, that System 34 can be approximated at the metre level by an oblique
+mercator
+(proj=omerc).
+
+The reconstructions we recently submitted to the EPSG, are based on
+transverse
+mercator, but use grid based datum shifts to correct for the
+mis-orientation and
+network tensions.
+
+
+Den tirs. 15. aug. 2023 kl. 00.18 skrev Javier Jimenez Shaw <
+j1 at jimenezshaw.com>:
+
+> Hi
+>
+> I got this wkt, which projection "Transverse Mercator Sjaelland" is not
+> supported by PROJ
+>
+> PROJCS["Danish_System_34_Sjaelland", GEOGCS["GCS_European 1950",
+> DATUM["D_European 1950",
+> SPHEROID["International_1924",6378388.000000,297.000000]],
+> PRIMEM["Greenwich",0.000000], UNIT["Degree",0.017453292519943295]],
+> PROJECTION["Transverse Mercator Sjaelland"],
+> PARAMETER["Scale_Factor",0.999600],
+> PARAMETER["Central_Meridian",9.000000],
+> PARAMETER["False_Easting",500000.000000], UNIT["Meter",1.000000000000]]
+>
+> Seems to be something very Danish specific, and quite old. Do you know any
+> equivalent wkt that may work in PROJ? There were some Danish grid files
+> added recently for S34
+>
+> Thanks
+> Javier
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230815/2d6caab9/attachment.htm>
+
+From j1 at jimenezshaw.com  Tue Aug 15 00:40:28 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 15 Aug 2023 09:40:28 +0200
+Subject: [PROJ] Danish_System_34_Sjaelland
+In-Reply-To: <CAH0YoEOezc7VEzBr8kGP63Uum0XC-HLXcN+vAkc=y-KurMnuLw@mail.gmail.com>
+References: <CADRrdKvd1MNyqqcUAjMRi-m1WvKe9tbmAhMnt9zrQqWoiU=sQQ@mail.gmail.com>
+ <CAH0YoEOezc7VEzBr8kGP63Uum0XC-HLXcN+vAkc=y-KurMnuLw@mail.gmail.com>
+Message-ID: <CADRrdKtu7Pz8QKF6GR1XAnSG8awz=mJG7bV+A+2p05f65Qej-w@mail.gmail.com>
+
+Thanks!
+
+On Tue, 15 Aug 2023 at 04:46, Thomas Knudsen <knudsen.thomas at gmail.com>
+wrote:
+
+> That definition definitely looks odd. The correct EPSG id for System 34
+> Sj?lland
+> is 10250 (and its companion for the western part of Denmark, "System 34
+> Jylland"
+> is EPSG:10160).
+>
+> For historical reasons, those systems are utterly odd: They originated as
+> cadastral
+> systems, and the cadastre did not really care about the absolute
+> orientation of
+> the systems, hence ignoring (at that time, i.e. 1930-ish), existing
+> astro-geodetic
+> observations, to the effect that what was specified as a transverse
+> cylinder
+> projection actually ended up as oblique.
+>
+> Which also means, as noted by Mikael Rittri a decade ago on this mailing
+> list, that System 34 can be approximated at the metre level by an oblique
+> mercator
+> (proj=omerc).
+>
+> The reconstructions we recently submitted to the EPSG, are based on
+> transverse
+> mercator, but use grid based datum shifts to correct for the
+> mis-orientation and
+> network tensions.
+>
+>
+> Den tirs. 15. aug. 2023 kl. 00.18 skrev Javier Jimenez Shaw <
+> j1 at jimenezshaw.com>:
+>
+>> Hi
+>>
+>> I got this wkt, which projection "Transverse Mercator Sjaelland" is not
+>> supported by PROJ
+>>
+>> PROJCS["Danish_System_34_Sjaelland", GEOGCS["GCS_European 1950",
+>> DATUM["D_European 1950",
+>> SPHEROID["International_1924",6378388.000000,297.000000]],
+>> PRIMEM["Greenwich",0.000000], UNIT["Degree",0.017453292519943295]],
+>> PROJECTION["Transverse Mercator Sjaelland"],
+>> PARAMETER["Scale_Factor",0.999600],
+>> PARAMETER["Central_Meridian",9.000000],
+>> PARAMETER["False_Easting",500000.000000], UNIT["Meter",1.000000000000]]
+>>
+>> Seems to be something very Danish specific, and quite old. Do you know
+>> any equivalent wkt that may work in PROJ? There were some Danish grid files
+>> added recently for S34
+>>
+>> Thanks
+>> Javier
+>> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230815/d88fdd16/attachment.htm>
+
+From j1 at jimenezshaw.com  Thu Aug 17 15:33:16 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 18 Aug 2023 00:33:16 +0200
+Subject: [PROJ] open_license column in proj.db
+Message-ID: <CADRrdKsrzJ1rCvab=Vgdk8u9t=p+oT2i5+6QH+LpEGbgKEvUdA@mail.gmail.com>
+
+Hi
+
+Having a look at proj.db, I have seen a column in the table
+"grid_alternatives" called "open_license"
+What is the purpose of this field? (apart from allowing a meaningless "url")
+I guess it is not effectively used in the code.
+
+The three entries with this field to "0" are a bit redundant, right?
+"original_grid_name" and "old_proj_grid_name" are the same. Are those
+entries needed?
+
+Thanks.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230818/d31f8cf0/attachment.htm>
+
+From even.rouault at spatialys.com  Fri Aug 18 01:45:38 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 18 Aug 2023 10:45:38 +0200
+Subject: [PROJ] open_license column in proj.db
+In-Reply-To: <CADRrdKsrzJ1rCvab=Vgdk8u9t=p+oT2i5+6QH+LpEGbgKEvUdA@mail.gmail.com>
+References: <CADRrdKsrzJ1rCvab=Vgdk8u9t=p+oT2i5+6QH+LpEGbgKEvUdA@mail.gmail.com>
+Message-ID: <3a752909-0f14-8e44-a172-078046d95e40@spatialys.com>
+
+Hi Javier,
+
+>
+> Having a look at proj.db, I have seen a column in the table 
+> "grid_alternatives" called "open_license"
+> What is the purpose of this field? (apart from allowing a meaningless 
+> "url")
+> I guess it is not effectively used in the code.
+>
+It is reported as a metadata information in 
+proj_grid_get_info_from_database(), so users can make an informed 
+choice. It is used only for the following 2 grids which are publicly 
+available but whose license terms are not considered open data:
+
+('naptrans2008.gtx','','naptrans2008.gtx','GTX','geoid_like',0,NULL,'https://salsa.debian.org/debian-gis-team/proj-rdnap/raw/upstream/2008/naptrans2008.gtx',1,0,NULL),
+('rdtrans2008.gsb','','rdtrans2008.gsb','NTv2','hgridshift',0,NULL,'https://salsa.debian.org/debian-gis-team/proj-rdnap/raw/upstream/2008/rdtrans2008.gsb',1,0,NULL),
+('netherlands/rdtrans2008','','rdtrans2008.gsb','NTv2','hgridshift',0,NULL,'https://salsa.debian.org/debian-gis-team/proj-rdnap/raw/upstream/2008/rdtrans2008.gsb',1,0,NULL),
+
+> The three entries with this field to "0" are a bit redundant, right?
+
+No I don't think so. There are 2 different grids. And the rdtrans2008 
+one has a different name if it is used by EPSG records or ESRI records, 
+hence 2 records for it as original_grid_name is the key.
+
+
+> "original_grid_name" and "old_proj_grid_name" are the same. Are those 
+> entries needed?
+
+There are tons of records where they are different like:
+
+INSERT INTO grid_alternatives(original_grid_name,
+ ????????????????????????????? proj_grid_name,
+ ????????????????????????????? old_proj_grid_name,
+ ????????????????????????????? proj_grid_format,
+ ????????????????????????????? proj_method,
+ ????????????????????????????? inverse_direction,
+ ????????????????????????????? package_name,
+ ????????????????????????????? url, direct_download, open_license, 
+directory)
+ ????????????????????? VALUES ('conus.las',
+ ????????????????????????????? 'us_noaa_conus.tif',
+ ????????????????????????????? 'conus',
+ ????????????????????????????? 'GTiff',
+ ????????????????????????????? 'hgridshift',
+ ????????????????????????????? 0,
+ ????????????????????????????? NULL,
+'https://cdn.proj.org/us_noaa_conus.tif', 1, 1, NULL);
+
+
+old_proj_grid_name corresponds to known grid names by PROJ before PROJ 7 
+and the migration to GeoTIFF, so NTv2, CTable2 and GTX files
+
+original_grid_name corresponds to the """"official"""" name in the 
+registry imported by PROJ, so most of the time the one used by EPSG (and 
+a few ones from ESRI or IGNF)
+
+Even
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From j1 at jimenezshaw.com  Fri Aug 18 02:53:01 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 18 Aug 2023 11:53:01 +0200
+Subject: [PROJ] open_license column in proj.db
+In-Reply-To: <3a752909-0f14-8e44-a172-078046d95e40@spatialys.com>
+References: <CADRrdKsrzJ1rCvab=Vgdk8u9t=p+oT2i5+6QH+LpEGbgKEvUdA@mail.gmail.com>
+ <3a752909-0f14-8e44-a172-078046d95e40@spatialys.com>
+Message-ID: <CADRrdKsunZ0q0K+6BXi=MA95Y=29XQJ=5aryVb2EPYORCkhd-A@mail.gmail.com>
+
+Thanks!
+
+On Fri, 18 Aug 2023 at 10:45, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Hi Javier,
+>
+> >
+> > Having a look at proj.db, I have seen a column in the table
+> > "grid_alternatives" called "open_license"
+> > What is the purpose of this field? (apart from allowing a meaningless
+> > "url")
+> > I guess it is not effectively used in the code.
+> >
+> It is reported as a metadata information in
+> proj_grid_get_info_from_database(), so users can make an informed
+> choice. It is used only for the following 2 grids which are publicly
+> available but whose license terms are not considered open data:
+>
+> ('naptrans2008.gtx','','naptrans2008.gtx','GTX','geoid_like',0,NULL,'
+> https://salsa.debian.org/debian-gis-team/proj-rdnap/raw/upstream/2008/naptrans2008.gtx
+> ',1,0,NULL),
+> ('rdtrans2008.gsb','','rdtrans2008.gsb','NTv2','hgridshift',0,NULL,'
+> https://salsa.debian.org/debian-gis-team/proj-rdnap/raw/upstream/2008/rdtrans2008.gsb
+> ',1,0,NULL),
+>
+> ('netherlands/rdtrans2008','','rdtrans2008.gsb','NTv2','hgridshift',0,NULL,'
+> https://salsa.debian.org/debian-gis-team/proj-rdnap/raw/upstream/2008/rdtrans2008.gsb
+> ',1,0,NULL),
+>
+> > The three entries with this field to "0" are a bit redundant, right?
+>
+> No I don't think so. There are 2 different grids. And the rdtrans2008
+> one has a different name if it is used by EPSG records or ESRI records,
+> hence 2 records for it as original_grid_name is the key.
+>
+>
+> > "original_grid_name" and "old_proj_grid_name" are the same. Are those
+> > entries needed?
+>
+> There are tons of records where they are different like:
+>
+> INSERT INTO grid_alternatives(original_grid_name,
+>                                proj_grid_name,
+>                                old_proj_grid_name,
+>                                proj_grid_format,
+>                                proj_method,
+>                                inverse_direction,
+>                                package_name,
+>                                url, direct_download, open_license,
+> directory)
+>                        VALUES ('conus.las',
+>                                'us_noaa_conus.tif',
+>                                'conus',
+>                                'GTiff',
+>                                'hgridshift',
+>                                0,
+>                                NULL,
+> 'https://cdn.proj.org/us_noaa_conus.tif', 1, 1, NULL);
+>
+>
+> old_proj_grid_name corresponds to known grid names by PROJ before PROJ 7
+> and the migration to GeoTIFF, so NTv2, CTable2 and GTX files
+>
+> original_grid_name corresponds to the """"official"""" name in the
+> registry imported by PROJ, so most of the time the one used by EPSG (and
+> a few ones from ESRI or IGNF)
+>
+> Even
+>
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230818/78f36a1a/attachment.htm>
+
+From maarten.plieger at knmi.nl  Mon Aug 21 04:46:15 2023
+From: maarten.plieger at knmi.nl (Plieger, Maarten (KNMI))
+Date: Mon, 21 Aug 2023 11:46:15 +0000
+Subject: [PROJ] Would a proj string ever contain a double quote?
+Message-ID: <f9ba578d61a4443a8e19e50f08b86d48@knmi.nl>
+
+Hi!
+
+We have some datasets where the proj string starts and ends with a double quote ("). We want to trim these off in our application (adaguc-server).
+
+Do you think a double quote will ever be used in the proj string? E.g. can we simply remove all " signs in the proj string?
+
+Best regards,
+Maarten Plieger
+
+From gdt at lexort.com  Mon Aug 21 05:18:07 2023
+From: gdt at lexort.com (Greg Troxel)
+Date: Mon, 21 Aug 2023 08:18:07 -0400
+Subject: [PROJ] Would a proj string ever contain a double quote?
+In-Reply-To: <f9ba578d61a4443a8e19e50f08b86d48@knmi.nl> (Maarten via PROJ
+ Plieger's message of "Mon, 21 Aug 2023 11:46:15 +0000")
+References: <f9ba578d61a4443a8e19e50f08b86d48@knmi.nl>
+Message-ID: <rmi350ctwqo.fsf@s1.lexort.com>
+
+"Plieger, Maarten (KNMI) via PROJ" <proj at lists.osgeo.org> writes:
+
+> We have some datasets where the proj string starts and ends with a double quote ("). We want to trim these off in our application (adaguc-server).
+
+Do you mean "in some place where we store proj strings, they have
+leading and trailing quotes"?    Or are you really invoking proj
+command-line tools or libraries and passing the quotes?
+
+> Do you think a double quote will ever be used in the proj string? E.g. can we simply remove all " signs in the proj string?
+
+Did you read the documentation, and is there a specification?
+
+Removing all " seems like quite a leap and asking for trouble, when you
+don't know, and you either haven't read the specification or there isn't
+such a rule.  Remember that specifications control what happens in the
+future without a breaking change announceent, so how it works today is
+only part of the question.
+
+Instead, I would add a rule on reading them that says if leading " and
+trailing ", remove those two.
+
+And then look at anything else with a " and think about it.  Please
+report back with what you found as it may help others.
+
+
+From gramos at yahoo.com  Wed Aug 23 14:59:30 2023
+From: gramos at yahoo.com (brown wrap)
+Date: Wed, 23 Aug 2023 21:59:30 +0000 (UTC)
+Subject: [PROJ] trying to build proj-9.2.1 from source
+References: <863548761.2800255.1692827970377.ref@mail.yahoo.com>
+Message-ID: <863548761.2800255.1692827970377@mail.yahoo.com>
+
+I am trying to build Proj from source. I have built earlier version, but this one won't configure.
+
+In can't find "pthreads", though it is installed.
+
+/software7/depot/cmake-3.18.2/bin/cmake -E cmake_link_script CMakeFiles/cmTC_f0393.dir/link.txt --verbose=1/software/depot/gcc-9.3.0/bin/gcc? -DCHECK_FUNCTION_EXISTS=pthread_create CMakeFiles/cmTC_f0393.dir/CheckFunctionExists.c.o -o cmTC_f0393? -lpthreads/usr/bin/ld: cannot find -lpthreads
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230823/962f2688/attachment.htm>
+
+From kristianevers at gmail.com  Sun Aug 27 12:03:46 2023
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Sun, 27 Aug 2023 21:03:46 +0200
+Subject: [PROJ] PROJ 9.3.0RC1 & PROJ-data 1.15RC1
+Message-ID: <B94749DF-8AFC-4E8F-9BA0-E7347F502EA4@gmail.com>
+
+All,
+
+in preparation for a new round of PROJ and PROJ-data release I have uploaded release candidates for both packages.
+
+Download the archives here: 
+
+https://download.osgeo.org/proj/proj-9.3.0RC1.tar.gz
+https://download.osgeo.org/proj/proj-9.3.0RC1.zip
+
+https://download.osgeo.org/proj/proj-data-1.15RC1.tar.gz
+https://download.osgeo.org/proj/proj-data-1.15RC1.zip
+
+The PROJ release includes various updates and bug fixes. See the release notes below.
+
+The PROJ-data release adds the following transformations grids:
+
+- Argentinian GEOIDE-Ar16geoid model
+- Polish geoid model PL-geoid2021
+- Canadian HT2_1997, HT2_1997_CGG2013a, HT2_2002v70 and HT2_2002v70_CGG2013a vertical grids
+
+Please test the release candidates and report any issues you may find with them.
+Either here on the mailing list or on GitHub.
+
+/Kristian
+
+?????????????????????????????????????????????
+
+
+9.3.0 Release Notes
+-------------------
+
+ Updates
+ -------
+
+ o Add C++ API to transform coordinate (#3705)
+
+ o CMake: add PROJ_DB_CACHE_DIR (#3711)
+
+ o Implement EPSG:1026 Mercator (Spherical) method (#3741)
+
+ o CMake: remove useless cross-compiling related checks (#3747)
+
+ o Add mapping of Equidistant Conic to new EPSG:1119 method (#3812)
+
+ o Implement proposal001 from Planetary DWG from OGC (#3816)
+
+ o Add option in proj CLI to use a CRS (#3825)
+
+ o proj_factors(): make it work with projected CRS with non-metre unit and/or
+   northing/easting axis order (#3826)
+
+ o PROJ_DEBUG: make ON an alias of 2, and OFF of 1 (#3835)
+
+ o Database: update to EPSG 10.094 (#3847)
+
+ Bug fixes
+ ---------
+
+ o GeographicBoundingBox::intersection(): avoid infinite recursion and stack
+   overflow on invalid bounding boxes (#3748)
+
+ o Various fixes related to concatenated operations (#3820)
+
+ o Projected CRS identification: fix crash when the base CRS is a
+   non-geographic geodetic CRS (#3830)
+
+ o Avoid C++ exceptions to be thrown (and caught) when parsing strings
+   like '+proj=longlat +datum=WGS84 +type=crs' (#3834)
+
+ o BUG: Handle prefix whitespace when guessing WKT dialiect (#3841)
+
+ o proj_alter_id(): make it replace an existing ID instead
+   of appending a new one (#3846)
+
+ o bonne: fix inverse map projection computations when lat_1 < 0 (#3849)
+
+ o WKT1 ESRI import/export: fix GCS name for EPSG:8353 S-JTSK_[JTSK03]_Krovak_East_North (#3851)
+
+
+From kristianevers at gmail.com  Wed Aug 30 11:23:13 2023
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Wed, 30 Aug 2023 20:23:13 +0200
+Subject: [PROJ] PROJ 9.3.0RC1 & PROJ-data 1.15RC1
+In-Reply-To: <B94749DF-8AFC-4E8F-9BA0-E7347F502EA4@gmail.com>
+References: <B94749DF-8AFC-4E8F-9BA0-E7347F502EA4@gmail.com>
+Message-ID: <6EBFDAF0-709F-489A-A0F6-605A928A0C14@gmail.com>
+
+All,
+
+A few minor issues were found in PROJ-9.3.0RC1. They have been fixed and a second release candidate
+is now available. Download it here:
+
+https://download.osgeo.org/proj/proj-9.3.0RC2.tar.gz <https://download.osgeo.org/proj/proj-9.3.0RC2.tar.gz>
+https://download.osgeo.org/proj/proj-9.3.0RC2.zip <https://download.osgeo.org/proj/proj-9.3.0RC2.zip>
+
+/Kristian
+
+> On 27 Aug 2023, at 21.03, Kristian Evers <kristianevers at gmail.com> wrote:
+> 
+> All,
+> 
+> in preparation for a new round of PROJ and PROJ-data release I have uploaded release candidates for both packages.
+> 
+> Download the archives here: 
+> 
+> https://download.osgeo.org/proj/proj-9.3.0RC1.tar.gz
+> https://download.osgeo.org/proj/proj-9.3.0RC1.zip
+> 
+> https://download.osgeo.org/proj/proj-data-1.15RC1.tar.gz
+> https://download.osgeo.org/proj/proj-data-1.15RC1.zip
+> 
+> The PROJ release includes various updates and bug fixes. See the release notes below.
+> 
+> The PROJ-data release adds the following transformations grids:
+> 
+> - Argentinian GEOIDE-Ar16geoid model
+> - Polish geoid model PL-geoid2021
+> - Canadian HT2_1997, HT2_1997_CGG2013a, HT2_2002v70 and HT2_2002v70_CGG2013a vertical grids
+> 
+> Please test the release candidates and report any issues you may find with them.
+> Either here on the mailing list or on GitHub.
+> 
+> /Kristian
+> 
+> ?????????????????????????????????????????????
+> 
+> 
+> 9.3.0 Release Notes
+> -------------------
+> 
+> Updates
+> -------
+> 
+> o Add C++ API to transform coordinate (#3705)
+> 
+> o CMake: add PROJ_DB_CACHE_DIR (#3711)
+> 
+> o Implement EPSG:1026 Mercator (Spherical) method (#3741)
+> 
+> o CMake: remove useless cross-compiling related checks (#3747)
+> 
+> o Add mapping of Equidistant Conic to new EPSG:1119 method (#3812)
+> 
+> o Implement proposal001 from Planetary DWG from OGC (#3816)
+> 
+> o Add option in proj CLI to use a CRS (#3825)
+> 
+> o proj_factors(): make it work with projected CRS with non-metre unit and/or
+>   northing/easting axis order (#3826)
+> 
+> o PROJ_DEBUG: make ON an alias of 2, and OFF of 1 (#3835)
+> 
+> o Database: update to EPSG 10.094 (#3847)
+> 
+> Bug fixes
+> ---------
+> 
+> o GeographicBoundingBox::intersection(): avoid infinite recursion and stack
+>   overflow on invalid bounding boxes (#3748)
+> 
+> o Various fixes related to concatenated operations (#3820)
+> 
+> o Projected CRS identification: fix crash when the base CRS is a
+>   non-geographic geodetic CRS (#3830)
+> 
+> o Avoid C++ exceptions to be thrown (and caught) when parsing strings
+>   like '+proj=longlat +datum=WGS84 +type=crs' (#3834)
+> 
+> o BUG: Handle prefix whitespace when guessing WKT dialiect (#3841)
+> 
+> o proj_alter_id(): make it replace an existing ID instead
+>   of appending a new one (#3846)
+> 
+> o bonne: fix inverse map projection computations when lat_1 < 0 (#3849)
+> 
+> o WKT1 ESRI import/export: fix GCS name for EPSG:8353 S-JTSK_[JTSK03]_Krovak_East_North (#3851)
+> 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230830/31b2ff88/attachment.htm>
+
+From rhea.moubarak at gmail.com  Thu Aug 31 03:29:46 2023
+From: rhea.moubarak at gmail.com (Rhea)
+Date: Thu, 31 Aug 2023 12:29:46 +0200
+Subject: [PROJ] ST_Transform returning different results in PostGIS 2.x and
+ PostGIS 3.x
+Message-ID: <01EE86EA-2DB9-409E-AE61-DB96B52D78A0@gmail.com>
+
+Hello,
+
+I am facing a problem with the function st_transform()and here is my analysis of this pb:
+
+Example of SQL query with different results depending on PostGIS version:
+select st_astext(st_transform(st_setsrid(st_point(398845.80866241, 6822815.8927889), 2154), 932001))
+
+Projection 932001 to insert in spatial_ref_sys for testing :
+
+INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 932001, 'IGNF' , 320002101 , '+proj=lcc +nadgrids=ntf_r93.gsb,null +a=6378249.2000 +rf=293.4660210000000 +pm=2.337229167 +lat_0=49.500000000 +lon_0=0.000000000 +k_0=0.99987734 +lat_1=49.500000000 +x_0=600000.000 +y_0=200000.000 +units=m +no_defs' , 'PROJCS["Lambert I",GEOGCS["Nouvelle Triangulation Fran?aise Paris grades",DATUM["NTF",SPHEROID["Clarke 1880 IGN",6378249.2000,293.4660210000000,AUTHORITY["IGNF","ELG010"]],TOWGS84[-168.0000,-60.0000,320.0000,0,0,0,0],AUTHORITY["IGNF","REG002"]],PRIMEM["Paris",2.337229167,AUTHORITY["IGNF","LGO02"]],UNIT["grad",0.01570796326794897],AXIS["Longitude",EAST],AXIS["Latitude",NORTH],AUTHORITY["IGNF","NTFP"]],PROJECTION["Lambert_Conformal_Conic_1SP",AUTHORITY["IGNF","PRC0101"]],PARAMETER["semi_major",6378249.2000],PARAMETER["semi_minor",6356515.0000],PARAMETER["latitude_of_origin",49.500000000],PARAMETER["central_meridian",0.000000000],PARAMETER["scale_factor",0.99987734],PARAMETER["false_easting",600000.000],PARAMETER["false_northing",200000.000],UNIT["metre",1],AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["IGNF","LAMB1"]]?);
+
+
+This projection 932001 corresponds to Lambert Zone 1 corrected with the IGN grid.
+
+On our PostgreSQL 10 / PostGIS 2.4 machine, we get:
+POINT(347762.11171084 87364.0318659853)
+
+While in PostgresQL 13 / PostGIS 3.0, we get this (result which is incorrect):
+POINT(347200.5307476731 637506.2948565462)
+
+Result of the query select postgis_full_version(); on our 2 environments:
+PostgreSQL 10 : POSTGIS="2.4.7 r17330" PGSQL="100" GEOS="3.7.1-CAPI-1.11.1 27a5e771" PROJ="Rel. 4.9.3, 15 August 2016" GDAL="GDAL 2.3.2, released 2018/09/21" LIBXML="2.9.1" LIBJSON="0.11" RASTER
+
+
+PostgresSQL 13 : POSTGIS="3.1.8 c5ebc1f" [EXTENSION] PGSQL="130" GEOS="3.10.3-CAPI-1.16.1" PROJ="8.2.1" LIBXML="2.9.7" LIBJSON="0.13.1" LIBPROTOBUF="1.3.0" WAGYU="0.5.0 (Internal)? TOPOLOGY
+
+What solution can make this work with PostGIS 3.x? 
+
+I already created an issue on gis.stackexchange and one contributor tried to help me but his recommendations did not work for me. And he recommended that i?d subscribe to the mailing list and try here.
+(ref: https://gis.stackexchange.com/questions/465055/st-transform-returning-different-results-in-postgis-2-4-and-postgis-3-0?noredirect=1#comment760991_465055)
+
+Thank you so much for your time ! appreciated.
+
+Regards,
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230831/6d0e848e/attachment.htm>
+
+From kristianevers at gmail.com  Thu Aug 31 22:16:15 2023
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 1 Sep 2023 07:16:15 +0200
+Subject: [PROJ] PROJ 9.3.0RC1 & PROJ-data 1.15RC1
+In-Reply-To: <6EBFDAF0-709F-489A-A0F6-605A928A0C14@gmail.com>
+References: <B94749DF-8AFC-4E8F-9BA0-E7347F502EA4@gmail.com>
+ <6EBFDAF0-709F-489A-A0F6-605A928A0C14@gmail.com>
+Message-ID: <05C48AD2-C8F7-4C23-A91A-5C4207A834BA@gmail.com>
+
+PCS members,
+
+No issues have been reported with PROJ 9.3.0RC2 or PROJ-data 1.15RC1, so I
+hereby motion that they are promoted to their final releases.
+
+I?ll start with my +1.
+
+/Kristian
+
+> On 30 Aug 2023, at 20.23, Kristian Evers <kristianevers at gmail.com> wrote:
+> 
+> All,
+> 
+> A few minor issues were found in PROJ-9.3.0RC1. They have been fixed and a second release candidate
+> is now available. Download it here:
+> 
+> https://download.osgeo.org/proj/proj-9.3.0RC2.tar.gz <https://download.osgeo.org/proj/proj-9.3.0RC2.tar.gz>
+> https://download.osgeo.org/proj/proj-9.3.0RC2.zip <https://download.osgeo.org/proj/proj-9.3.0RC2.zip>
+> 
+> /Kristian
+> 
+>> On 27 Aug 2023, at 21.03, Kristian Evers <kristianevers at gmail.com <mailto:kristianevers at gmail.com>> wrote:
+>> 
+>> All,
+>> 
+>> in preparation for a new round of PROJ and PROJ-data release I have uploaded release candidates for both packages.
+>> 
+>> Download the archives here: 
+>> 
+>> https://download.osgeo.org/proj/proj-9.3.0RC1.tar.gz <https://download.osgeo.org/proj/proj-9.3.0RC1.tar.gz>
+>> https://download.osgeo.org/proj/proj-9.3.0RC1.zip
+>> 
+>> https://download.osgeo.org/proj/proj-data-1.15RC1.tar.gz
+>> https://download.osgeo.org/proj/proj-data-1.15RC1.zip
+>> 
+>> The PROJ release includes various updates and bug fixes. See the release notes below.
+>> 
+>> The PROJ-data release adds the following transformations grids:
+>> 
+>> - Argentinian GEOIDE-Ar16geoid model
+>> - Polish geoid model PL-geoid2021
+>> - Canadian HT2_1997, HT2_1997_CGG2013a, HT2_2002v70 and HT2_2002v70_CGG2013a vertical grids
+>> 
+>> Please test the release candidates and report any issues you may find with them.
+>> Either here on the mailing list or on GitHub.
+>> 
+>> /Kristian
+>> 
+>> ?????????????????????????????????????????????
+>> 
+>> 
+>> 9.3.0 Release Notes
+>> -------------------
+>> 
+>> Updates
+>> -------
+>> 
+>> o Add C++ API to transform coordinate (#3705)
+>> 
+>> o CMake: add PROJ_DB_CACHE_DIR (#3711)
+>> 
+>> o Implement EPSG:1026 Mercator (Spherical) method (#3741)
+>> 
+>> o CMake: remove useless cross-compiling related checks (#3747)
+>> 
+>> o Add mapping of Equidistant Conic to new EPSG:1119 method (#3812)
+>> 
+>> o Implement proposal001 from Planetary DWG from OGC (#3816)
+>> 
+>> o Add option in proj CLI to use a CRS (#3825)
+>> 
+>> o proj_factors(): make it work with projected CRS with non-metre unit and/or
+>>   northing/easting axis order (#3826)
+>> 
+>> o PROJ_DEBUG: make ON an alias of 2, and OFF of 1 (#3835)
+>> 
+>> o Database: update to EPSG 10.094 (#3847)
+>> 
+>> Bug fixes
+>> ---------
+>> 
+>> o GeographicBoundingBox::intersection(): avoid infinite recursion and stack
+>>   overflow on invalid bounding boxes (#3748)
+>> 
+>> o Various fixes related to concatenated operations (#3820)
+>> 
+>> o Projected CRS identification: fix crash when the base CRS is a
+>>   non-geographic geodetic CRS (#3830)
+>> 
+>> o Avoid C++ exceptions to be thrown (and caught) when parsing strings
+>>   like '+proj=longlat +datum=WGS84 +type=crs' (#3834)
+>> 
+>> o BUG: Handle prefix whitespace when guessing WKT dialiect (#3841)
+>> 
+>> o proj_alter_id(): make it replace an existing ID instead
+>>   of appending a new one (#3846)
+>> 
+>> o bonne: fix inverse map projection computations when lat_1 < 0 (#3849)
+>> 
+>> o WKT1 ESRI import/export: fix GCS name for EPSG:8353 S-JTSK_[JTSK03]_Krovak_East_North (#3851)
+>> 
+> 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230901/cb58c36e/attachment.htm>
+
+From charles.karney at gmail.com  Thu Aug 31 22:34:40 2023
+From: charles.karney at gmail.com (Charles Karney)
+Date: Fri, 1 Sep 2023 06:34:40 +0100
+Subject: [PROJ] PROJ 9.3.0RC1 & PROJ-data 1.15RC1
+In-Reply-To: <05C48AD2-C8F7-4C23-A91A-5C4207A834BA@gmail.com>
+References: <B94749DF-8AFC-4E8F-9BA0-E7347F502EA4@gmail.com>
+ <6EBFDAF0-709F-489A-A0F6-605A928A0C14@gmail.com>
+ <05C48AD2-C8F7-4C23-A91A-5C4207A834BA@gmail.com>
+Message-ID: <CAH36mb8MSg1FLCgOKao-Qc47nVan3F+n0RCzbHk5W2WTQRbB4w@mail.gmail.com>
+
++1
+
+  --Charles
+
+On Fri, Sep 1, 2023 at 6:16?AM Kristian Evers <kristianevers at gmail.com> wrote:
+>
+> PCS members,
+>
+> No issues have been reported with PROJ 9.3.0RC2 or PROJ-data 1.15RC1, so I
+> hereby motion that they are promoted to their final releases.
+>
+> I?ll start with my +1.
+>
+> /Kristian
+>
+> On 30 Aug 2023, at 20.23, Kristian Evers <kristianevers at gmail.com> wrote:
+>
+> All,
+>
+> A few minor issues were found in PROJ-9.3.0RC1. They have been fixed and a second release candidate
+> is now available. Download it here:
+>
+> https://download.osgeo.org/proj/proj-9.3.0RC2.tar.gz
+> https://download.osgeo.org/proj/proj-9.3.0RC2.zip
+>
+> /Kristian
+>
+> On 27 Aug 2023, at 21.03, Kristian Evers <kristianevers at gmail.com> wrote:
+>
+> All,
+>
+> in preparation for a new round of PROJ and PROJ-data release I have uploaded release candidates for both packages.
+>
+> Download the archives here:
+>
+> https://download.osgeo.org/proj/proj-9.3.0RC1.tar.gz
+> https://download.osgeo.org/proj/proj-9.3.0RC1.zip
+>
+> https://download.osgeo.org/proj/proj-data-1.15RC1.tar.gz
+> https://download.osgeo.org/proj/proj-data-1.15RC1.zip
+>
+> The PROJ release includes various updates and bug fixes. See the release notes below.
+>
+> The PROJ-data release adds the following transformations grids:
+>
+> - Argentinian GEOIDE-Ar16geoid model
+> - Polish geoid model PL-geoid2021
+> - Canadian HT2_1997, HT2_1997_CGG2013a, HT2_2002v70 and HT2_2002v70_CGG2013a vertical grids
+>
+> Please test the release candidates and report any issues you may find with them.
+> Either here on the mailing list or on GitHub.
+>
+> /Kristian
+>
+> ?????????????????????????????????????????????
+>
+>
+> 9.3.0 Release Notes
+> -------------------
+>
+> Updates
+> -------
+>
+> o Add C++ API to transform coordinate (#3705)
+>
+> o CMake: add PROJ_DB_CACHE_DIR (#3711)
+>
+> o Implement EPSG:1026 Mercator (Spherical) method (#3741)
+>
+> o CMake: remove useless cross-compiling related checks (#3747)
+>
+> o Add mapping of Equidistant Conic to new EPSG:1119 method (#3812)
+>
+> o Implement proposal001 from Planetary DWG from OGC (#3816)
+>
+> o Add option in proj CLI to use a CRS (#3825)
+>
+> o proj_factors(): make it work with projected CRS with non-metre unit and/or
+>   northing/easting axis order (#3826)
+>
+> o PROJ_DEBUG: make ON an alias of 2, and OFF of 1 (#3835)
+>
+> o Database: update to EPSG 10.094 (#3847)
+>
+> Bug fixes
+> ---------
+>
+> o GeographicBoundingBox::intersection(): avoid infinite recursion and stack
+>   overflow on invalid bounding boxes (#3748)
+>
+> o Various fixes related to concatenated operations (#3820)
+>
+> o Projected CRS identification: fix crash when the base CRS is a
+>   non-geographic geodetic CRS (#3830)
+>
+> o Avoid C++ exceptions to be thrown (and caught) when parsing strings
+>   like '+proj=longlat +datum=WGS84 +type=crs' (#3834)
+>
+> o BUG: Handle prefix whitespace when guessing WKT dialiect (#3841)
+>
+> o proj_alter_id(): make it replace an existing ID instead
+>   of appending a new one (#3846)
+>
+> o bonne: fix inverse map projection computations when lat_1 < 0 (#3849)
+>
+> o WKT1 ESRI import/export: fix GCS name for EPSG:8353 S-JTSK_[JTSK03]_Krovak_East_North (#3851)
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+
+-- 
+Charles Karney <karney at alum.mit.edu>
+702 Prospect Ave
+Princeton, NJ 08540
+

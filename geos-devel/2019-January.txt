@@ -1,0 +1,1188 @@
+From bontepaarden at gmail.com  Wed Jan  2 07:48:17 2019
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Wed, 2 Jan 2019 16:48:17 +0100
+Subject: [geos-devel] Possible difference anomaly
+Message-ID: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+
+Hi List,
+
+I'm creating irregular polygons and I don't want to let them overlap.
+So before adding the polygon to my list of 'good' polygons, I do an overlap
+check first.
+When the polygon overlaps with an existing polygon I do a clip difference
+and add the clipped polygon to my good list.
+
+Sometimes two polygons still overlap after a clip difference.
+
+I managed to extract two sets that barely overlap. The first set doesn't
+overlap anymore after clipping the second one is still overlapping.
+
+Set 1:
+shp = POLYGON ((259449.071118579 543868.469050065,259460.460699968
+543878.23006619,259463.245769758 543873.768560297,259455.578068317
+543860.876455946,259449.071118579 543868.469050065))
+shp2 = POLYGON ((259463.243735243 543856.317227775,259458.0148573
+543864.973555723,259462.906856719 543873.198728218,259471.741696109
+543861.450443661,259463.243735243 543856.317227775))
+shp3 (clipped result) = POLYGON ((259463.243735243
+543856.317227775,259458.014857301 543864.973555722,259462.906856719
+543873.198728217,259471.741696109 543861.450443661,259463.243735243
+543856.317227775))
+
+Set 2:
+shp = POLYGON ((259073.014081524 544320.092508488,259085.267633063
+544321.677731439,259085.942168897 544320.308101652,259074.192475622
+544310.983687036,259073.014081524 544320.092508488))
+shp2 = POLYGON ((259087.677538158 544333.393525226,259097.260135269
+544321.853428493,259090.546766392 544316.354731347,259079.984140336
+544327.005127152,259087.677538158 544333.393525226))
+shp3 (clipped result) = POLYGON ((259087.677538158
+544333.393525226,259097.260135269 544321.853428493,259090.546766392
+544316.354731347,259085.267633064 544321.677731438,259085.267633063
+544321.677731439,259085.267633062 544321.677731439,259079.984140336
+544327.005127152,259087.677538158 544333.393525226))
+
+I'm using C# with MapWinGIS to do the actions:
+            if (shp.Overlaps(shp2))
+            {
+                var shp3 = shp2.Clip(shp, tkClipOperation.clDifference);
+                Assert.IsFalse(shp.Overlaps(shp3), "New shape still
+overlaps");
+            }
+
+MapWinGIS is using the GDAL v2.3.3 binaries from GisInternals which in turn
+is using geos-3.4
+MapWinGIS is directly porting its functions to the GEOS functions:
+https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1194
+https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1302
+
+Before I report this as a defect I want to know if my workflow and
+expectations are correct.
+
+Thanks,
+
+Paul
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190102/a3846086/attachment.html>
+
+From pramsey at cleverelephant.ca  Wed Jan  2 08:33:25 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 2 Jan 2019 08:33:25 -0800
+Subject: [geos-devel] Possible difference anomaly
+In-Reply-To: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+References: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+Message-ID: <56EB66A8-EA76-405C-9C6F-27BCF397486F@cleverelephant.ca>
+
+No, assumptions are not quite correct.
+It’s possible you’ll get an introduced vertex in the clipped geometry that is not a component of the clipping geometry and is also slightly inside one of the clipping geometry’s edges… I think in order to handle this we’d need to have a function that takes in both geometries and adjusts them both. If you’re only generating one geometry, it seems like it is always possible to have cases with edge mismatches. Maybe for your case if you difference to to get your input geometry, and then difference *that* from all the stored polygons you already have, which would hopefully result in an output collection in which all neighbours have the same vertices in the same places.
+
+P
+
+> On Jan 2, 2019, at 7:48 AM, Paul Meems <bontepaarden at gmail.com> wrote:
+> 
+> Hi List,
+> 
+> I'm creating irregular polygons and I don't want to let them overlap.
+> So before adding the polygon to my list of 'good' polygons, I do an overlap check first.
+> When the polygon overlaps with an existing polygon I do a clip difference and add the clipped polygon to my good list.
+> 
+> Sometimes two polygons still overlap after a clip difference.
+> 
+> I managed to extract two sets that barely overlap. The first set doesn't overlap anymore after clipping the second one is still overlapping.
+> 
+> Set 1:
+> shp = POLYGON ((259449.071118579 543868.469050065,259460.460699968 543878.23006619,259463.245769758 543873.768560297,259455.578068317 543860.876455946,259449.071118579 543868.469050065))
+> shp2 = POLYGON ((259463.243735243 543856.317227775,259458.0148573 543864.973555723,259462.906856719 543873.198728218,259471.741696109 543861.450443661,259463.243735243 543856.317227775))
+> shp3 (clipped result) = POLYGON ((259463.243735243 543856.317227775,259458.014857301 543864.973555722,259462.906856719 543873.198728217,259471.741696109 543861.450443661,259463.243735243 543856.317227775))
+> 
+> Set 2:
+> shp = POLYGON ((259073.014081524 544320.092508488,259085.267633063 544321.677731439,259085.942168897 544320.308101652,259074.192475622 544310.983687036,259073.014081524 544320.092508488))
+> shp2 = POLYGON ((259087.677538158 544333.393525226,259097.260135269 544321.853428493,259090.546766392 544316.354731347,259079.984140336 544327.005127152,259087.677538158 544333.393525226))
+> shp3 (clipped result) = POLYGON ((259087.677538158 544333.393525226,259097.260135269 544321.853428493,259090.546766392 544316.354731347,259085.267633064 544321.677731438,259085.267633063 544321.677731439,259085.267633062 544321.677731439,259079.984140336 544327.005127152,259087.677538158 544333.393525226))
+> 
+> I'm using C# with MapWinGIS to do the actions:
+>             if (shp.Overlaps(shp2))
+>             {
+>                 var shp3 = shp2.Clip(shp, tkClipOperation.clDifference);
+>                 Assert.IsFalse(shp.Overlaps(shp3), "New shape still overlaps");
+>             }
+> 
+> MapWinGIS is using the GDAL v2.3.3 binaries from GisInternals which in turn is using geos-3.4 
+> MapWinGIS is directly porting its functions to the GEOS functions:
+> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1194 <https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1194>
+> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1302 <https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1302>
+> 
+> Before I report this as a defect I want to know if my workflow and expectations are correct.
+> 
+> Thanks,
+> 
+> Paul
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190102/84e515e4/attachment.html>
+
+From me at komzpa.net  Wed Jan  2 08:36:26 2019
+From: me at komzpa.net (=?UTF-8?Q?Darafei_=22Kom=D1=8Fpa=22_Praliaskouski?=)
+Date: Wed, 2 Jan 2019 19:36:26 +0300
+Subject: [geos-devel] Possible difference anomaly
+In-Reply-To: <56EB66A8-EA76-405C-9C6F-27BCF397486F@cleverelephant.ca>
+References: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+ <56EB66A8-EA76-405C-9C6F-27BCF397486F@cleverelephant.ca>
+Message-ID: <CAC8Q8tKADxFWan-BXqgLDM6H8JVjjV8PksFgpA-KEqY42wdc4Q@mail.gmail.com>
+
+Hi,
+
+last time I researched the topic generating a set of administrative
+boundaries from different tataset pprepair was a lifesaver, patching up the
+planar partition of my heterogeneous coverage:
+https://github.com/tudelft3d/pprepair
+
+
+ср, 2 янв. 2019 г. в 19:33, Paul Ramsey <pramsey at cleverelephant.ca>:
+
+> No, assumptions are not quite correct.
+> It’s possible you’ll get an introduced vertex in the clipped geometry that
+> is not a component of the clipping geometry and is also slightly inside one
+> of the clipping geometry’s edges… I think in order to handle this we’d need
+> to have a function that takes in both geometries and adjusts them both. If
+> you’re only generating one geometry, it seems like it is always possible to
+> have cases with edge mismatches. Maybe for your case if you difference to
+> to get your input geometry, and then difference *that* from all the stored
+> polygons you already have, which would hopefully result in an output
+> collection in which all neighbours have the same vertices in the same
+> places.
+>
+> P
+>
+>
+> On Jan 2, 2019, at 7:48 AM, Paul Meems <bontepaarden at gmail.com> wrote:
+>
+> Hi List,
+>
+> I'm creating irregular polygons and I don't want to let them overlap.
+> So before adding the polygon to my list of 'good' polygons, I do an
+> overlap check first.
+> When the polygon overlaps with an existing polygon I do a clip difference
+> and add the clipped polygon to my good list.
+>
+> Sometimes two polygons still overlap after a clip difference.
+>
+> I managed to extract two sets that barely overlap. The first set doesn't
+> overlap anymore after clipping the second one is still overlapping.
+>
+> Set 1:
+> shp = POLYGON ((259449.071118579 543868.469050065,259460.460699968
+> 543878.23006619,259463.245769758 543873.768560297,259455.578068317
+> 543860.876455946,259449.071118579 543868.469050065))
+> shp2 = POLYGON ((259463.243735243 543856.317227775,259458.0148573
+> 543864.973555723,259462.906856719 543873.198728218,259471.741696109
+> 543861.450443661,259463.243735243 543856.317227775))
+> shp3 (clipped result) = POLYGON ((259463.243735243
+> 543856.317227775,259458.014857301 543864.973555722,259462.906856719
+> 543873.198728217,259471.741696109 543861.450443661,259463.243735243
+> 543856.317227775))
+>
+> Set 2:
+> shp = POLYGON ((259073.014081524 544320.092508488,259085.267633063
+> 544321.677731439,259085.942168897 544320.308101652,259074.192475622
+> 544310.983687036,259073.014081524 544320.092508488))
+> shp2 = POLYGON ((259087.677538158 544333.393525226,259097.260135269
+> 544321.853428493,259090.546766392 544316.354731347,259079.984140336
+> 544327.005127152,259087.677538158 544333.393525226))
+> shp3 (clipped result) = POLYGON ((259087.677538158
+> 544333.393525226,259097.260135269 544321.853428493,259090.546766392
+> 544316.354731347,259085.267633064 544321.677731438,259085.267633063
+> 544321.677731439,259085.267633062 544321.677731439,259079.984140336
+> 544327.005127152,259087.677538158 544333.393525226))
+>
+> I'm using C# with MapWinGIS to do the actions:
+>             if (shp.Overlaps(shp2))
+>             {
+>                 var shp3 = shp2.Clip(shp, tkClipOperation.clDifference);
+>                 Assert.IsFalse(shp.Overlaps(shp3), "New shape still
+> overlaps");
+>             }
+>
+> MapWinGIS is using the GDAL v2.3.3 binaries from GisInternals which in
+> turn is using geos-3.4
+> MapWinGIS is directly porting its functions to the GEOS functions:
+>
+> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1194
+>
+> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1302
+>
+> Before I report this as a defect I want to know if my workflow and
+> expectations are correct.
+>
+> Thanks,
+>
+> Paul
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+Darafei Praliaskouski
+Support me: http://patreon.com/komzpa
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190102/0709c938/attachment-0001.html>
+
+From mtnclimb at gmail.com  Wed Jan  2 09:26:26 2019
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 2 Jan 2019 09:26:26 -0800
+Subject: [geos-devel] Possible difference anomaly
+In-Reply-To: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+References: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+Message-ID: <CAK2ens2h-OTqdPRRMf4vQH3T1QNdb0BN=0cKz7ANweEvDDMq6Q@mail.gmail.com>
+
+As Paul says, this is expected behaviour, due to the fact that in general
+constructed intersection vertices do not lie exactly on the line segments
+which intersect.  Furthermore, this can't be solved by using a coarser
+precision model - that just makes the problem worse!
+
+So the only way to "solve" this is to ask a different question.  One
+possibility is to to process all or some of the input polygons to form a
+properly noded coverage.  Or, use a tolerance value in the overlaps
+predicate, and accept that the output coverage will only be approximately
+accurate.
+
+Both of these solutions will require some new algorithms in GEOS...
+
+On Wed, Jan 2, 2019 at 7:48 AM Paul Meems <bontepaarden at gmail.com> wrote:
+
+> Hi List,
+>
+> I'm creating irregular polygons and I don't want to let them overlap.
+> So before adding the polygon to my list of 'good' polygons, I do an
+> overlap check first.
+> When the polygon overlaps with an existing polygon I do a clip difference
+> and add the clipped polygon to my good list.
+>
+> Sometimes two polygons still overlap after a clip difference.
+>
+> I managed to extract two sets that barely overlap. The first set doesn't
+> overlap anymore after clipping the second one is still overlapping.
+>
+> Set 1:
+> shp = POLYGON ((259449.071118579 543868.469050065,259460.460699968
+> 543878.23006619,259463.245769758 543873.768560297,259455.578068317
+> 543860.876455946,259449.071118579 543868.469050065))
+> shp2 = POLYGON ((259463.243735243 543856.317227775,259458.0148573
+> 543864.973555723,259462.906856719 543873.198728218,259471.741696109
+> 543861.450443661,259463.243735243 543856.317227775))
+> shp3 (clipped result) = POLYGON ((259463.243735243
+> 543856.317227775,259458.014857301 543864.973555722,259462.906856719
+> 543873.198728217,259471.741696109 543861.450443661,259463.243735243
+> 543856.317227775))
+>
+> Set 2:
+> shp = POLYGON ((259073.014081524 544320.092508488,259085.267633063
+> 544321.677731439,259085.942168897 544320.308101652,259074.192475622
+> 544310.983687036,259073.014081524 544320.092508488))
+> shp2 = POLYGON ((259087.677538158 544333.393525226,259097.260135269
+> 544321.853428493,259090.546766392 544316.354731347,259079.984140336
+> 544327.005127152,259087.677538158 544333.393525226))
+> shp3 (clipped result) = POLYGON ((259087.677538158
+> 544333.393525226,259097.260135269 544321.853428493,259090.546766392
+> 544316.354731347,259085.267633064 544321.677731438,259085.267633063
+> 544321.677731439,259085.267633062 544321.677731439,259079.984140336
+> 544327.005127152,259087.677538158 544333.393525226))
+>
+> I'm using C# with MapWinGIS to do the actions:
+>             if (shp.Overlaps(shp2))
+>             {
+>                 var shp3 = shp2.Clip(shp, tkClipOperation.clDifference);
+>                 Assert.IsFalse(shp.Overlaps(shp3), "New shape still
+> overlaps");
+>             }
+>
+> MapWinGIS is using the GDAL v2.3.3 binaries from GisInternals which in
+> turn is using geos-3.4
+> MapWinGIS is directly porting its functions to the GEOS functions:
+>
+> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1194
+>
+> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1302
+>
+> Before I report this as a defect I want to know if my workflow and
+> expectations are correct.
+>
+> Thanks,
+>
+> Paul
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190102/14dbdc5d/attachment.html>
+
+From bontepaarden at gmail.com  Mon Jan  7 00:36:27 2019
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Mon, 7 Jan 2019 09:36:27 +0100
+Subject: [geos-devel] Possible difference anomaly
+In-Reply-To: <CAK2ens2h-OTqdPRRMf4vQH3T1QNdb0BN=0cKz7ANweEvDDMq6Q@mail.gmail.com>
+References: <CAHNf2YTFHFLcGHzxeaQaVcJSLQZGMXtSL5Ft7zVJxt_B5vtHDg@mail.gmail.com>
+ <CAK2ens2h-OTqdPRRMf4vQH3T1QNdb0BN=0cKz7ANweEvDDMq6Q@mail.gmail.com>
+Message-ID: <CAHNf2YQN3S_1vx0LsX0DDy7PsT9qLtgBqe=P7MOz0hE3SpbyxA@mail.gmail.com>
+
+Thanks all for the quick reply and sorry for my late response.
+
+Thanks, Paul and Martin for clarifying the behavior to me. I'll see if I
+can change my workflow to handle these edge cases.
+
+Also thanks to Darafei for the link to pprepair. I'll have a look at it,
+but I'm running Windows so it is a bit more complex to quickly test ;)
+
+Regards,
+
+Paul
+
+*Paul Meems *
+Release manager, configuration manager
+and forum moderator of MapWindow GIS.
+www.mapwindow.org
+
+Owner of MapWindow.nl - Support for
+Dutch speaking users.
+www.mapwindow.nl
+
+
+*The MapWindow GIS project has moved to GitHub
+<https://github.com/MapWindow>!*
+
+
+Download the latest MapWinGIS mapping engine.
+<https://github.com/MapWindow/MapWinGIS/releases>
+
+Download the latest MapWindow 5 open source desktop application.
+<https://github.com/MapWindow/MapWindow5/releases>
+
+
+Op wo 2 jan. 2019 om 18:26 schreef Martin Davis <mtnclimb at gmail.com>:
+
+> As Paul says, this is expected behaviour, due to the fact that in general
+> constructed intersection vertices do not lie exactly on the line segments
+> which intersect.  Furthermore, this can't be solved by using a coarser
+> precision model - that just makes the problem worse!
+>
+> So the only way to "solve" this is to ask a different question.  One
+> possibility is to to process all or some of the input polygons to form a
+> properly noded coverage.  Or, use a tolerance value in the overlaps
+> predicate, and accept that the output coverage will only be approximately
+> accurate.
+>
+> Both of these solutions will require some new algorithms in GEOS...
+>
+> On Wed, Jan 2, 2019 at 7:48 AM Paul Meems <bontepaarden at gmail.com> wrote:
+>
+>> Hi List,
+>>
+>> I'm creating irregular polygons and I don't want to let them overlap.
+>> So before adding the polygon to my list of 'good' polygons, I do an
+>> overlap check first.
+>> When the polygon overlaps with an existing polygon I do a clip difference
+>> and add the clipped polygon to my good list.
+>>
+>> Sometimes two polygons still overlap after a clip difference.
+>>
+>> I managed to extract two sets that barely overlap. The first set doesn't
+>> overlap anymore after clipping the second one is still overlapping.
+>>
+>> Set 1:
+>> shp = POLYGON ((259449.071118579 543868.469050065,259460.460699968
+>> 543878.23006619,259463.245769758 543873.768560297,259455.578068317
+>> 543860.876455946,259449.071118579 543868.469050065))
+>> shp2 = POLYGON ((259463.243735243 543856.317227775,259458.0148573
+>> 543864.973555723,259462.906856719 543873.198728218,259471.741696109
+>> 543861.450443661,259463.243735243 543856.317227775))
+>> shp3 (clipped result) = POLYGON ((259463.243735243
+>> 543856.317227775,259458.014857301 543864.973555722,259462.906856719
+>> 543873.198728217,259471.741696109 543861.450443661,259463.243735243
+>> 543856.317227775))
+>>
+>> Set 2:
+>> shp = POLYGON ((259073.014081524 544320.092508488,259085.267633063
+>> 544321.677731439,259085.942168897 544320.308101652,259074.192475622
+>> 544310.983687036,259073.014081524 544320.092508488))
+>> shp2 = POLYGON ((259087.677538158 544333.393525226,259097.260135269
+>> 544321.853428493,259090.546766392 544316.354731347,259079.984140336
+>> 544327.005127152,259087.677538158 544333.393525226))
+>> shp3 (clipped result) = POLYGON ((259087.677538158
+>> 544333.393525226,259097.260135269 544321.853428493,259090.546766392
+>> 544316.354731347,259085.267633064 544321.677731438,259085.267633063
+>> 544321.677731439,259085.267633062 544321.677731439,259079.984140336
+>> 544327.005127152,259087.677538158 544333.393525226))
+>>
+>> I'm using C# with MapWinGIS to do the actions:
+>>             if (shp.Overlaps(shp2))
+>>             {
+>>                 var shp3 = shp2.Clip(shp, tkClipOperation.clDifference);
+>>                 Assert.IsFalse(shp.Overlaps(shp3), "New shape still
+>> overlaps");
+>>             }
+>>
+>> MapWinGIS is using the GDAL v2.3.3 binaries from GisInternals which in
+>> turn is using geos-3.4
+>> MapWinGIS is directly porting its functions to the GEOS functions:
+>>
+>> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1194
+>>
+>> https://github.com/MapWindow/MapWinGIS/blob/master/src/COM%20classes/Shape.cpp#L1302
+>>
+>> Before I report this as a defect I want to know if my workflow and
+>> expectations are correct.
+>>
+>> Thanks,
+>>
+>> Paul
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190107/89b4a499/attachment.html>
+
+From strk at kbt.io  Sun Jan 20 01:43:54 2019
+From: strk at kbt.io (Sandro Santilli)
+Date: Sun, 20 Jan 2019 10:43:54 +0100
+Subject: [geos-devel] Budget for 2019
+Message-ID: <20190120094354.GA5182@liz>
+
+Hello developers,
+OSGeo, our kind mother organization, asked us if we need fundings
+for activities in 2019. Do you have ideas about improving the way
+we work for growing GEOS sane and healthy ?
+
+Tomorrow there'll be a meeting to discuss this, sorry for being
+late with this communication but I just got aware of it.
+So if you have ideas please send them to this list ASAP and I'll
+try to bring the voice to the meeting.
+
+--strk;
+
+From geos-trac at osgeo.org  Mon Jan 28 09:53:42 2019
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 28 Jan 2019 17:53:42 -0000
+Subject: [geos-devel] [GEOS] #936: fail with cmake
+	-DGEOS_ENABLE_MACOSX_FRAMEWORK=ON
+In-Reply-To: <045.4adfa8bb2d06f6d488e198c65ca0f833@osgeo.org>
+References: <045.4adfa8bb2d06f6d488e198c65ca0f833@osgeo.org>
+Message-ID: <060.3c6bc06603cdb99a637e3d17bf0cb98b@osgeo.org>
+
+#936: fail with cmake -DGEOS_ENABLE_MACOSX_FRAMEWORK=ON
+-----------------------------------+---------------------------
+ Reporter:  xzcvczx                |       Owner:  geos-devel@…
+     Type:  defect                 |      Status:  closed
+ Priority:  minor                  |   Milestone:  3.7.2
+Component:  Build/Install (cmake)  |     Version:  3.7.0
+ Severity:  Unassigned             |  Resolution:  fixed
+ Keywords:                         |
+-----------------------------------+---------------------------
+Changes (by Paul Ramsey <pramsey@…>):
+
+ * status:  new => closed
+ * resolution:   => fixed
+
+
+Comment:
+
+ In [changeset:"1c72b2e2372d4b7f2875e6841034c54aee1dc984/git" 1c72b2e/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="1c72b2e2372d4b7f2875e6841034c54aee1dc984"
+ fail with cmake -DGEOS_ENABLE_MACOSX_FRAMEWORK=NO
+ Closes #936
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/936#comment:7>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From pramsey at cleverelephant.ca  Tue Jan 29 10:24:35 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 29 Jan 2019 10:24:35 -0800
+Subject: [geos-devel] Ownership of userData
+Message-ID: <CACowWR3HLQUE65A8aoZK7W+NuS+sJ6LU_sdU135t1xw5HN8z8g@mail.gmail.com>
+
+I am going through the various tickets and PRs and trying to clean
+them up. This one seemed straightforward at first, but the issue of
+ownership of userData is pretty ugly in GEOS land.
+
+https://github.com/libgeos/geos/pull/115#issuecomment-458649362
+
+Basically we seem to currently assume that whomever assigned userData
+will clean up said userData. But in the case of this ticket, the GEOS
+engine itself is assigning it. I think we just cannot do that. It's
+not userData any more, it's geosData, and users cannot be expected to
+clean it up.
+
+We could further enhance geometry to also have geosData, maybe
+something like a python dictionary of extra "stuff" that can be added
+to geometry optionally, but in the short term I'd rather just not
+follow the contract of including the cell coordinates in the returned
+voronoi polygons.
+
+P
+
+From pramsey at cleverelephant.ca  Tue Jan 29 11:18:26 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 29 Jan 2019 11:18:26 -0800
+Subject: [geos-devel] Reformat Commit
+Message-ID: <CACowWR1NCL0ibmkskVggWk4DHGm=f6C8cr3Y9HGc4VxFBC+-aQ@mail.gmail.com>
+
+I'd like to apply the approved format [1] in a single pass so that
+ongoing work with editorconfig-enabled tools don't apply inconsistent
+and extra whitespace changes going forward.
+
+The one offending commit will be recorded in .git-blame-ignore-revs so
+that future advanced blame tools [2] can easily look past it.
+
+Since this change is already approved, I will wait two days for any
+screams and then just do it.
+
+P.
+
+[1] https://lists.osgeo.org/pipermail/geos-devel/2018-September/008539.html
+[2] https://commondatastorage.googleapis.com/chrome-infra-docs/flat/depot_tools/docs/html/git-hyper-blame.html
+
+From pramsey at cleverelephant.ca  Tue Jan 29 11:19:33 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 29 Jan 2019 11:19:33 -0800
+Subject: [geos-devel] Death to auto_ptr?
+Message-ID: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+
+Any reason not to renovate the code base and remote the various uses
+of auto_ptr in favour of unique_ptr and strip out the various typedefs
+at the same time so that we uniformly just use std::unique_ptr<> right
+in code where folks can see it?
+
+P.
+
+From pramsey at cleverelephant.ca  Tue Jan 29 11:19:47 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 29 Jan 2019 11:19:47 -0800
+Subject: [geos-devel] *.vc files
+In-Reply-To: <CACowWR0PQq2==K9d9XwXDDuxxTu16zsKPXzW7PF9AGCLccBF4A@mail.gmail.com>
+References: <CACowWR2MLTeAUxeH+9Lnsim5BdQqoi02gKcJJ0LsW_1gJaJi6g@mail.gmail.com>
+ <001901d498a1$baa35550$2fe9fff0$@pcorp.us>
+ <CACowWR0PQq2==K9d9XwXDDuxxTu16zsKPXzW7PF9AGCLccBF4A@mail.gmail.com>
+Message-ID: <CACowWR2yp09jC7R7rdW2Ja0w=-qMs-mp9Eh9wNj3OXFURHVzCQ@mail.gmail.com>
+
+This has been applied.
+
+On Thu, Dec 20, 2018 at 12:25 PM Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>
+> Here's a PR for comment
+>
+> https://git.osgeo.org/gitea/geos/geos/pulls/60
+>
+>
+> On Thu, Dec 20, 2018 at 12:22 PM Regina Obe <lr at pcorp.us> wrote:
+>>
+>> +1
+>>
+>>
+>>
+>> Wipe out all the VC build files.  I think we said in 3.8 we would officially no longer support VS and windows users should use cmake.
+>>
+>>
+>>
+>> There are way too many versions of VS to keep track of. Even a windows user is not going to test all permutations and each always seems to require a slightly different diet.
+>>
+>>
+>>
+>> You'll have to kill the appveyor testing of NMake etc. though.  I think both dan and I have appveyor jobs things since I get alerted when it breaks.
+>>
+>>
+>>
+>> But you can take those out of the appveyor testing suite.
+>>
+>>
+>>
+>> From: geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of Paul Ramsey
+>> Sent: Thursday, December 20, 2018 2:51 PM
+>> To: GEOS Development List <geos-devel at lists.osgeo.org>
+>> Subject: [geos-devel] *.vc files
+>>
+>>
+>>
+>> Are the *.vc files still maintained at all? I'm guessing not. Can we expect VC builds to use cmake now?
+>>
+>>
+>>
+>> I'm attempting to integrate all version information to one place for all builds, but the manual maintenance of the *.vc files remains a sticking point.
+>>
+>>
+>>
+>> If they are dead I'd like to remove them from master.
+>>
+>>
+>>
+>> I'm also willing to remove them from 3.7 if there's a desire to backport one-point-of-truth versioning to that branch.
+>>
+>>
+>> P
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From geos-trac at osgeo.org  Tue Jan 29 11:28:28 2019
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 29 Jan 2019 19:28:28 -0000
+Subject: [geos-devel] [GEOS] #745: [PATCH] finishGEOS() doesn't free the
+ default GeometryFactory instance
+In-Reply-To: <045.ce5199ff651c4410192f67763eb61987@osgeo.org>
+References: <045.ce5199ff651c4410192f67763eb61987@osgeo.org>
+Message-ID: <060.a26bba0861f677bd1d93f99e11ad834e@osgeo.org>
+
+#745: [PATCH] finishGEOS() doesn't free the default GeometryFactory instance
+------------------------+---------------------------
+ Reporter:  rouault     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.5.3
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by pramsey):
+
+ I'm not sure how to find the problem... there is no patch and I cannot see
+ an obvious error in 3.5 or higher.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/745#comment:4>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From dbaston at gmail.com  Tue Jan 29 11:53:29 2019
+From: dbaston at gmail.com (Daniel Baston)
+Date: Tue, 29 Jan 2019 14:53:29 -0500
+Subject: [geos-devel] Death to auto_ptr?
+In-Reply-To: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+References: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+Message-ID: <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+
+I think auto_ptr has been removed from master already, no? I'd prefer to
+lose the typedefs as well, but last time we brought that up I recall there
+being some disagreement.
+
+Dan
+
+On Tue, Jan 29, 2019 at 2:19 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> Any reason not to renovate the code base and remote the various uses
+> of auto_ptr in favour of unique_ptr and strip out the various typedefs
+> at the same time so that we uniformly just use std::unique_ptr<> right
+> in code where folks can see it?
+>
+> P.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190129/ba966731/attachment.html>
+
+From pramsey at cleverelephant.ca  Tue Jan 29 11:56:54 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 29 Jan 2019 11:56:54 -0800
+Subject: [geos-devel] Death to auto_ptr?
+In-Reply-To: <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+References: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+ <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+Message-ID: <82B4FB47-D141-4588-9CCF-5873154CCDD8@cleverelephant.ca>
+
+Ah, yes, I had svn-3.5 checked out when I was running those searches. Whooops. 
+
+Not much objection to getting rid of the typedefs [2] that I can see. Unless we really thing c++ is going to change the smart pointer implementations yet again. (an open question, I suppose)
+
+P
+
+[2] https://lists.osgeo.org/pipermail/geos-devel/2018-December/008750.html
+
+> On Jan 29, 2019, at 11:53 AM, Daniel Baston <dbaston at gmail.com> wrote:
+> 
+> I think auto_ptr has been removed from master already, no? I'd prefer to lose the typedefs as well, but last time we brought that up I recall there being some disagreement.
+> 
+> Dan
+> 
+> On Tue, Jan 29, 2019 at 2:19 PM Paul Ramsey <pramsey at cleverelephant.ca <mailto:pramsey at cleverelephant.ca>> wrote:
+> Any reason not to renovate the code base and remote the various uses
+> of auto_ptr in favour of unique_ptr and strip out the various typedefs
+> at the same time so that we uniformly just use std::unique_ptr<> right
+> in code where folks can see it?
+> 
+> P.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org <mailto:geos-devel at lists.osgeo.org>
+> https://lists.osgeo.org/mailman/listinfo/geos-devel <https://lists.osgeo.org/mailman/listinfo/geos-devel>_______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190129/e55b002e/attachment-0001.html>
+
+From mtnclimb at gmail.com  Tue Jan 29 17:06:06 2019
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 29 Jan 2019 17:06:06 -0800
+Subject: [geos-devel] Ownership of userData
+In-Reply-To: <CACowWR3HLQUE65A8aoZK7W+NuS+sJ6LU_sdU135t1xw5HN8z8g@mail.gmail.com>
+References: <CACowWR3HLQUE65A8aoZK7W+NuS+sJ6LU_sdU135t1xw5HN8z8g@mail.gmail.com>
+Message-ID: <CAK2ens0CC5JsVcuQ4OTZkgFDWHVOPJxyxGEUM1CDtR08kn+pqg@mail.gmail.com>
+
+FWIW I sympathize with the problem.  This actually felt like a bit of a
+hack when I implemented it, but since it's not much of an issue in
+Java-land I ploughed ahead.
+
+Isn't there *always* going to be an ownship problem for anything returned?
+The user knows they own any returned geometry, which is why that seems ok.
+If they want extra information they are going to have to own that as well.
+It's just that GEOS-created userData is a bit unexpected (only in this one
+place AFAIK).
+
+Maybe the coordinates could be kept in another list, and only handed off to
+the user if they ask for them?  The fully geometric way of doing this would
+be to return a MultiPoint with the points in the same order as the
+polygons.  (SIgh... would be nice if MultiPoints had a more compact
+structure).
+
+On Tue, Jan 29, 2019 at 10:24 AM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> I am going through the various tickets and PRs and trying to clean
+> them up. This one seemed straightforward at first, but the issue of
+> ownership of userData is pretty ugly in GEOS land.
+>
+> https://github.com/libgeos/geos/pull/115#issuecomment-458649362
+>
+> Basically we seem to currently assume that whomever assigned userData
+> will clean up said userData. But in the case of this ticket, the GEOS
+> engine itself is assigning it. I think we just cannot do that. It's
+> not userData any more, it's geosData, and users cannot be expected to
+> clean it up.
+>
+> We could further enhance geometry to also have geosData, maybe
+> something like a python dictionary of extra "stuff" that can be added
+> to geometry optionally, but in the short term I'd rather just not
+> follow the contract of including the cell coordinates in the returned
+> voronoi polygons.
+>
+> P
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190129/1dd3d654/attachment.html>
+
+From mtnclimb at gmail.com  Tue Jan 29 17:19:54 2019
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 29 Jan 2019 17:19:54 -0800
+Subject: [geos-devel] Death to auto_ptr?
+In-Reply-To: <82B4FB47-D141-4588-9CCF-5873154CCDD8@cleverelephant.ca>
+References: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+ <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+ <82B4FB47-D141-4588-9CCF-5873154CCDD8@cleverelephant.ca>
+Message-ID: <CAK2ens0xXekOVx5sDLQbpN11Jf6d2TUjUSikn5hORMgnCaXp6w@mail.gmail.com>
+
+Well, I raised a slightly dissenting opinion to removing the typedefs, and
+so did strk.
+
+Why not use a nice short name like GeomPtr to hide those ugly and
+hard-to-type <> ?
+
+@dbaston: there are many reasons for encapsulation.  One worthy goal is to
+provide a simpler mental model...
+
+
+
+On Tue, Jan 29, 2019 at 11:56 AM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> Ah, yes, I had svn-3.5 checked out when I was running those searches.
+> Whooops.
+>
+> Not much objection to getting rid of the typedefs [2] that I can see.
+> Unless we really thing c++ is going to change the smart pointer
+> implementations yet again. (an open question, I suppose)
+>
+> P
+>
+> [2] https://lists.osgeo.org/pipermail/geos-devel/2018-December/008750.html
+>
+> On Jan 29, 2019, at 11:53 AM, Daniel Baston <dbaston at gmail.com> wrote:
+>
+> I think auto_ptr has been removed from master already, no? I'd prefer to
+> lose the typedefs as well, but last time we brought that up I recall there
+> being some disagreement.
+>
+> Dan
+>
+> On Tue, Jan 29, 2019 at 2:19 PM Paul Ramsey <pramsey at cleverelephant.ca>
+> wrote:
+>
+>> Any reason not to renovate the code base and remote the various uses
+>> of auto_ptr in favour of unique_ptr and strip out the various typedefs
+>> at the same time so that we uniformly just use std::unique_ptr<> right
+>> in code where folks can see it?
+>>
+>> P.
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190129/24bb5090/attachment.html>
+
+From pramsey at cleverelephant.ca  Tue Jan 29 18:12:30 2019
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 29 Jan 2019 18:12:30 -0800
+Subject: [geos-devel] Death to auto_ptr?
+In-Reply-To: <CAK2ens0xXekOVx5sDLQbpN11Jf6d2TUjUSikn5hORMgnCaXp6w@mail.gmail.com>
+References: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+ <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+ <82B4FB47-D141-4588-9CCF-5873154CCDD8@cleverelephant.ca>
+ <CAK2ens0xXekOVx5sDLQbpN11Jf6d2TUjUSikn5hORMgnCaXp6w@mail.gmail.com>
+Message-ID: <00FAFABB-A48B-4B8E-9D8E-6D6B799795F8@cleverelephant.ca>
+
+Because you don’t always just use the Ptr, because you’re in a crazy mixed code base and you might need to call the get() method or use std::move() or any number of things that require knowing that, yes, actually you’re using a unique_ptr<>
+
+P
+
+> On Jan 29, 2019, at 5:19 PM, Martin Davis <mtnclimb at gmail.com> wrote:
+> 
+> Well, I raised a slightly dissenting opinion to removing the typedefs, and so did strk.  
+> 
+> Why not use a nice short name like GeomPtr to hide those ugly and hard-to-type <> ?
+> 
+> @dbaston: there are many reasons for encapsulation.  One worthy goal is to provide a simpler mental model...  
+> 
+> 
+> 
+> On Tue, Jan 29, 2019 at 11:56 AM Paul Ramsey <pramsey at cleverelephant.ca <mailto:pramsey at cleverelephant.ca>> wrote:
+> Ah, yes, I had svn-3.5 checked out when I was running those searches. Whooops. 
+> 
+> Not much objection to getting rid of the typedefs [2] that I can see. Unless we really thing c++ is going to change the smart pointer implementations yet again. (an open question, I suppose)
+> 
+> P
+> 
+> [2] https://lists.osgeo.org/pipermail/geos-devel/2018-December/008750.html <https://lists.osgeo.org/pipermail/geos-devel/2018-December/008750.html>
+> 
+>> On Jan 29, 2019, at 11:53 AM, Daniel Baston <dbaston at gmail.com <mailto:dbaston at gmail.com>> wrote:
+>> 
+>> I think auto_ptr has been removed from master already, no? I'd prefer to lose the typedefs as well, but last time we brought that up I recall there being some disagreement.
+>> 
+>> Dan
+>> 
+>> On Tue, Jan 29, 2019 at 2:19 PM Paul Ramsey <pramsey at cleverelephant.ca <mailto:pramsey at cleverelephant.ca>> wrote:
+>> Any reason not to renovate the code base and remote the various uses
+>> of auto_ptr in favour of unique_ptr and strip out the various typedefs
+>> at the same time so that we uniformly just use std::unique_ptr<> right
+>> in code where folks can see it?
+>> 
+>> P.
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org <mailto:geos-devel at lists.osgeo.org>
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel <https://lists.osgeo.org/mailman/listinfo/geos-devel>_______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org <mailto:geos-devel at lists.osgeo.org>
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel <https://lists.osgeo.org/mailman/listinfo/geos-devel>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org <mailto:geos-devel at lists.osgeo.org>
+> https://lists.osgeo.org/mailman/listinfo/geos-devel <https://lists.osgeo.org/mailman/listinfo/geos-devel>_______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190129/ec408ce6/attachment.html>
+
+From mtnclimb at gmail.com  Tue Jan 29 18:27:09 2019
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 29 Jan 2019 18:27:09 -0800
+Subject: [geos-devel] Death to auto_ptr?
+In-Reply-To: <00FAFABB-A48B-4B8E-9D8E-6D6B799795F8@cleverelephant.ca>
+References: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+ <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+ <82B4FB47-D141-4588-9CCF-5873154CCDD8@cleverelephant.ca>
+ <CAK2ens0xXekOVx5sDLQbpN11Jf6d2TUjUSikn5hORMgnCaXp6w@mail.gmail.com>
+ <00FAFABB-A48B-4B8E-9D8E-6D6B799795F8@cleverelephant.ca>
+Message-ID: <CAK2ens2JNLkKMVVsqLAa8cWVKENZT6s=n5tyUzL8kyCZESHJHw@mail.gmail.com>
+
+Yes...  was just thinking that the most common case should be
+highlighted/encouraged by making a typedef.
+
+Whatever the most common case is...
+
+On Tue, Jan 29, 2019 at 6:12 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> Because you don’t always just use the Ptr, because you’re in a crazy mixed
+> code base and you might need to call the get() method or use std::move() or
+> any number of things that require knowing that, yes, actually you’re using
+> a unique_ptr<>
+>
+> P
+>
+> On Jan 29, 2019, at 5:19 PM, Martin Davis <mtnclimb at gmail.com> wrote:
+>
+> Well, I raised a slightly dissenting opinion to removing the typedefs, and
+> so did strk.
+>
+> Why not use a nice short name like GeomPtr to hide those ugly and
+> hard-to-type <> ?
+>
+> @dbaston: there are many reasons for encapsulation.  One worthy goal is to
+> provide a simpler mental model...
+>
+>
+>
+> On Tue, Jan 29, 2019 at 11:56 AM Paul Ramsey <pramsey at cleverelephant.ca>
+> wrote:
+>
+>> Ah, yes, I had svn-3.5 checked out when I was running those searches.
+>> Whooops.
+>>
+>> Not much objection to getting rid of the typedefs [2] that I can see.
+>> Unless we really thing c++ is going to change the smart pointer
+>> implementations yet again. (an open question, I suppose)
+>>
+>> P
+>>
+>> [2]
+>> https://lists.osgeo.org/pipermail/geos-devel/2018-December/008750.html
+>>
+>> On Jan 29, 2019, at 11:53 AM, Daniel Baston <dbaston at gmail.com> wrote:
+>>
+>> I think auto_ptr has been removed from master already, no? I'd prefer to
+>> lose the typedefs as well, but last time we brought that up I recall there
+>> being some disagreement.
+>>
+>> Dan
+>>
+>> On Tue, Jan 29, 2019 at 2:19 PM Paul Ramsey <pramsey at cleverelephant.ca>
+>> wrote:
+>>
+>>> Any reason not to renovate the code base and remote the various uses
+>>> of auto_ptr in favour of unique_ptr and strip out the various typedefs
+>>> at the same time so that we uniformly just use std::unique_ptr<> right
+>>> in code where folks can see it?
+>>>
+>>> P.
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190129/6e6206ea/attachment-0001.html>
+
+From geos-trac at osgeo.org  Wed Jan 30 10:35:17 2019
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 30 Jan 2019 18:35:17 -0000
+Subject: [geos-devel] [GEOS] #949: static link of geos_unit test app fails
+	under CMake
+Message-ID: <047.d62373115b1220f7f8273e498c6e3529@osgeo.org>
+
+#949: static link of geos_unit  test app fails under CMake
+-----------------------------------+--------------------------
+ Reporter:  darkblueb              |      Owner:  geos-devel@…
+     Type:  defect                 |     Status:  new
+ Priority:  minor                  |  Milestone:  3.8.0
+Component:  Build/Install (cmake)  |    Version:  master
+ Severity:  Unassigned             |   Keywords:  test
+-----------------------------------+--------------------------
+ using CMake build, in master branch (3.8x), set the flag GEOS_BUILD_SHARED
+ to OFF
+
+ build; notice that `geos_unit` fails to link
+
+ It would be useful to have a large test app that links statically, for
+ some kinds of analysis.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/949>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From schwehr at gmail.com  Wed Jan 30 13:39:26 2019
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Wed, 30 Jan 2019 13:39:26 -0800
+Subject: [geos-devel] Death to auto_ptr?
+In-Reply-To: <00FAFABB-A48B-4B8E-9D8E-6D6B799795F8@cleverelephant.ca>
+References: <CACowWR2=b06Q1v6UfkYjOTOJ83zyqBGMQw7Si2x=+s695JVMGA@mail.gmail.com>
+ <CA+K_q_qj736SPvW6E7gEep-=8zVftc6GeX7mdBxuik4RLf7JEg@mail.gmail.com>
+ <82B4FB47-D141-4588-9CCF-5873154CCDD8@cleverelephant.ca>
+ <CAK2ens0xXekOVx5sDLQbpN11Jf6d2TUjUSikn5hORMgnCaXp6w@mail.gmail.com>
+ <00FAFABB-A48B-4B8E-9D8E-6D6B799795F8@cleverelephant.ca>
+Message-ID: <CACmBxyuQ-tyYC5L-DbtP1LnweAcpOF6W2=+crNgxdTexWcWVJw@mail.gmail.com>
+
++1 to not hiding behind typedefs.  careful use of auto can reduce noise
+
+When I hit a typedef, I have to think about which source I'm in and how
+that source does things.  And it gets better when you get make_unique
+
+auto foo = std::make_unqiue<Thing>(yada);
+
+Once you've seen a lot of these, you stop having to think much about it.
+
+On Tue, Jan 29, 2019 at 6:12 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> Because you don’t always just use the Ptr, because you’re in a crazy mixed
+> code base and you might need to call the get() method or use std::move() or
+> any number of things that require knowing that, yes, actually you’re using
+> a unique_ptr<>
+>
+> P
+>
+> On Jan 29, 2019, at 5:19 PM, Martin Davis <mtnclimb at gmail.com> wrote:
+>
+> Well, I raised a slightly dissenting opinion to removing the typedefs, and
+> so did strk.
+>
+> Why not use a nice short name like GeomPtr to hide those ugly and
+> hard-to-type <> ?
+>
+> @dbaston: there are many reasons for encapsulation.  One worthy goal is to
+> provide a simpler mental model...
+>
+>
+>
+> On Tue, Jan 29, 2019 at 11:56 AM Paul Ramsey <pramsey at cleverelephant.ca>
+> wrote:
+>
+>> Ah, yes, I had svn-3.5 checked out when I was running those searches.
+>> Whooops.
+>>
+>> Not much objection to getting rid of the typedefs [2] that I can see.
+>> Unless we really thing c++ is going to change the smart pointer
+>> implementations yet again. (an open question, I suppose)
+>>
+>> P
+>>
+>> [2]
+>> https://lists.osgeo.org/pipermail/geos-devel/2018-December/008750.html
+>>
+>> On Jan 29, 2019, at 11:53 AM, Daniel Baston <dbaston at gmail.com> wrote:
+>>
+>> I think auto_ptr has been removed from master already, no? I'd prefer to
+>> lose the typedefs as well, but last time we brought that up I recall there
+>> being some disagreement.
+>>
+>> Dan
+>>
+>> On Tue, Jan 29, 2019 at 2:19 PM Paul Ramsey <pramsey at cleverelephant.ca>
+>> wrote:
+>>
+>>> Any reason not to renovate the code base and remote the various uses
+>>> of auto_ptr in favour of unique_ptr and strip out the various typedefs
+>>> at the same time so that we uniformly just use std::unique_ptr<> right
+>>> in code where folks can see it?
+>>>
+>>> P.
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20190130/133a576b/attachment.html>
+

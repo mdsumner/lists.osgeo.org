@@ -1,0 +1,1079 @@
+From martin.kofahl at gmail.com  Fri Feb  1 01:09:33 2013
+From: martin.kofahl at gmail.com (Martin Kofahl)
+Date: Fri, 1 Feb 2013 10:09:33 +0100
+Subject: [Proj] axis order included in epsg file
+Message-ID: <CAB+ETQc1ypFGOGhu+NzCXoAax=geBkyX_d-eNQYFPp_DK7st3w@mail.gmail.com>
+
+Hello,
+
+I am happy to see an axis order parameter in the proj lib. In the shipped
+epsg file there are already a few axis order settings, but a few hundreds
+are missing. As this also effects commonly used codes such as 4326 (which
+has, by crs definition, northing/easting order) it's worthwhile to revise
+the epsg file regarding the axis order parameter.
+
+Are there already plans to do so? Or should this be complement by
+individual tickets?
+
+Kind regards,
+Martin
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130201/3c392a3e/attachment.html>
+
+From martin.desruisseaux at geomatys.fr  Fri Feb  1 01:49:45 2013
+From: martin.desruisseaux at geomatys.fr (Martin Desruisseaux)
+Date: Fri, 01 Feb 2013 10:49:45 +0100
+Subject: [Proj] axis order included in epsg file
+In-Reply-To: <CAB+ETQc1ypFGOGhu+NzCXoAax=geBkyX_d-eNQYFPp_DK7st3w@mail.gmail.com>
+References: <CAB+ETQc1ypFGOGhu+NzCXoAax=geBkyX_d-eNQYFPp_DK7st3w@mail.gmail.com>
+Message-ID: <510B8FB9.2060608@geomatys.fr>
+
+Le 01/02/13 10:09, Martin Kofahl a écrit :
+> I am happy to see an axis order parameter in the proj lib. In the 
+> shipped epsg file there are already a few axis order settings, but a 
+> few hundreds are missing. As this also effects commonly used codes 
+> such as 4326 (which has, by crs definition, northing/easting order) 
+> it's worthwhile to revise the epsg file regarding the axis order 
+> parameter.
+>
+> Are there already plans to do so? Or should this be complement by 
+> individual tickets?
+
+Hello Martin
+
+I don't know if Proj.4 provides axis order information directly. However 
+this information is provided in the GeoAPI wrappers for Proj.4. Since 
+those wrappers are in public domain, they could be copied in any project 
+under any license of your choice. The file is there:
+
+http://svn.code.sf.net/p/geoapi/code/trunk/geoapi-proj4/src/main/resources/org/opengis/wrapper/proj4/axis-orientations.txt
+
+For example the line "ne:" lists the EPSG codes of all geographic CRS 
+using the "North, East" axis order. The line "sw,ne" lists the EPSG 
+codes of all projected CRS using the "South,West" axis order and based 
+on a geographic CRS using the "North,East" axis order.
+
+Note that this directory provides also other information that may be 
+useful, like a mapping from Proj.4 projection names to EPSG and OGC 
+projection names.
+
+     Martin
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130201/1958c679/attachment.html>
+
+From Mikael.Rittri at carmenta.com  Tue Feb  5 05:03:17 2013
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Tue, 5 Feb 2013 13:03:17 +0000
+Subject: [Proj] Intersection test for two geodesics goes wrong for very long
+ distances
+Message-ID: <E4AB3DD44D22854B819908379DE4AD49392F39E3@SETHNWS023.carmenta.se>
+
+Hello all,
+
+I have had a strange problem with geodesics. While I think I have
+solved it in a practical sense, by saying: "don't go too near the 
+antipode", I wonder exactly how near the antipode it is safe to go,
+and why. 
+    I post here in the hope that someone would enjoy working on
+this kind of problem (hi, Charles). 
+
+The problem was to find the intersection of two radials, where 
+a radial is a geodetic line that starts at a given point with 
+a given azimuth, but doesn't have a definite end point.
+
+While Carmenta Engine doesn't support this computation directly,
+there is support for intersecting two geodetic lines defined by
+their start and end points. So, my idea was to compute an arbitrary
+end point for each radial, by going forward long enough on the radial.
+(This is just the forward or direct geodetic problem.) 
+
+The question then was, how far to go forward? Obviously, one cannot
+go longer than 180 degrees or about 20 000 km on the Earth, since
+there would then be a shorter geodetic route from start to end on
+the backside of the Earth. In fact, since we want to compute on
+an ellipsoid, one cannot go quite 180 degrees either. I thought the
+maximal safe distance would be  pi * a * (1 - f), where a is the
+equatorial radius and f is the flattening. On the WGS84 ellipsoid,
+this would be pi * 6378137 * (1 - 1/298.257223563) = 19 970 326 meters. 
+(Because, if one starts somewhere on the equator, and goes east
+ along the equator to an end point longer than this distance, but 
+ shorter than 180 degrees, then the shortest route from start to end
+ doesn't follow the equator but takes a shortcut nearer a pole, 
+ exploiting the flattening of the ellipsoid.)
+
+So, we tried to let "forward distance" = 19 950 000 meters, and it seemed 
+to work for a while. But then we found an example where the intersecting
+method wrongly claimed that there was no intersection. It turned out
+that this wasn't caused by numerical instability, but by something more
+fundamental. 
+
+You see, we have some initial tests in the intersecting method, which
+should say when there is definitely no intersection. One condition
+is like this, in ASCII graphics:
+
+B1
+| .
+|   .
+|     .
+|       . A2             A1
+|         -----------------
+|       .
+|     .
+|   .
+| .
+|
+B2 
+
+One geodesic goes from A1 to A2, the other goes from B1 to B2. From
+A2, take the azimuths toward A1, B1 and B2. Then if the azimuth
+toward A1 doesn't go between the two azimuths toward B1 and B2, 
+an intersection would be impossible, I thought. Because A1 and A2
+would be on the same side of the geodesic B1B2. 
+   Of course, one has to define "between-ness" of azimuths modulo
+360 degrees. But the idea is that the "inside" of the angle B1 A2 B2 
+would be the side that is less than 180 degrees, and if the line 
+from A2 toward A1 doesn't go on the inside, there can be no intersection.
+
+I still feel that this _ought_ to be true. However, here is a counterexample:
+
+The first radial is defined by 
+A1 = 17.58139°S 40.17167°W
+A1_faz = -90° // A1 forward azimuth
+
+The second radial is defined by 
+
+B1 = 22.23556°S 49.91139°W
+B1_faz = 30° // B1 forward azimuth 
+
+They do intersect quite near the start points. 
+
+However, with "forward distance" = 19 950 000 m, the forward computation
+gives the end points:
+
+A2 = 17.58126738°N 140.62400233°E
+
+B2 = 22.60088604°N 129.58209305°E
+
+Now, 
+Azimuth at A2 toward B1 = 117.78924816°
+Azimuth at A2 toward B2 = -62.47659403°
+
+And 117.78924816° - (-62.47659403°) = 180.26584219° which is larger than 180°.
+This means that the inside of the angle B1 A2 B2 is south of the angle edges.
+But
+
+Azimuth at A2 toward A1 = 90.06652107°
+
+which is north of the A2-toward-B1 azimuth. So, the initial test will say
+(wrongly) that there is no intersection.  
+
+In this particular example, I have found that the code finds the intersection
+if I lower the forward distance to 19 940 632 m. But there must be some worst
+case that requires an even shorter distance, and I don't know how to find
+the worst case (except by a lot of trial-and-error). 
+
+I have visualized the counterexample in several map projections and waited
+for my brain to say "Aha!", but in vain. I think the intuition behind the
+initial test is that the line A1A2 is on one (oblique) hemisphere, and the
+triangle B1B2A2 is on the other hemisphere. It feels right, but clearly it
+isn't true. 
+
+The pragmatic solution seems to be to use a much shorter forward distance,
+something like 15 000 000 m perhaps, but I would really like to understand
+what's going on here. 
+
+Credit: the values above have been computed on the GeographicLib site,
+http://geographiclib.sourceforge.net/cgi-bin/Geod
+
+Regards,
+
+Mikael Rittri
+Carmenta
+Sweden
+http://www.carmenta.com
+
+
+From charles.karney at sri.com  Tue Feb  5 08:10:36 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Tue, 5 Feb 2013 11:10:36 -0500
+Subject: [Proj] Intersection test for two geodesics goes wrong for very
+ long distances
+In-Reply-To: <E4AB3DD44D22854B819908379DE4AD49392F39E3@SETHNWS023.carmenta.se>
+References: <E4AB3DD44D22854B819908379DE4AD49392F39E3@SETHNWS023.carmenta.se>
+Message-ID: <51112EFC.3050003@sri.com>
+
+Mikael:
+
+Here are a few quick observations...
+
+(1) For an oblate ellipsoid, a geodesic starting at lat1, lon1, azi1
+stops being a shortest path when the spherical arc length is 180d.  The
+Geod utility (with the -a flag) can compute this point with
+
+   echo lat1 lon1 azi1 180 | Geod -a
+
+(2) The geodesic with the supplementary azimuth 180-azi1 stops being a
+short geodesic at the same point.
+
+(3) For a given lat1 lon1 the locus of "end points" as azi1 is varied
+[-180,180] is a line segment at latitude -lat1 centered on lon1+180d.
+The end-points of this segment are given by azi1 = +/- 90d.  (The jargon
+for this locus in the differential geometry community is "the cut
+locus".)
+
+(4) The intersection point for two geodesics (defined by their starting
+points and azimuths) might be at a point where neither of the resulting
+geodesic segments is a shortest path.  Here's an example with an
+ellipsoid f = 1/2 (presumably similar examples occur for f = 1/300)
+
+              lat1 lon1  azi1   lat2 lon2 azi2
+geodesic a    0  -180  89.9999  0    0  89.9999
+geodesic b    0   180 -89.9999  0    0 -89.9999
+
+You can compute these geodesics with, e.g. (the -E is needed because f
+is not small),
+
+   echo 0 -180 89.9999 360 | Geod -a -e 6.4e6 1/2 -E
+   0.00000000 0.00000000 89.99990000
+
+Neither of these geodesics is a shortest path, because an equatorial
+geodesics ceases being the shortest path when the longitude difference
+exceeds (b/a)*180d = 90d (in this example).
+
+(5) I've only thought about the intersection problem in the simple case
+where the end points and the intersection point all lie in a single
+[shd]emi-ellipsoid (for f small).  In that case, the ellipsoidal
+gnomonic projection allows you to find the intersection point in a few
+iterations (I think the convergence is quadratic, a la Newton).
+
+(6) I suspect that solving the general problem will end up being fairly
+complicated.
+
+   --Charles
+
+
+On 2013-02-05 08:03, Mikael Rittri wrote:
+> Hello all,
+>
+> I have had a strange problem with geodesics. While I think I have
+> solved it in a practical sense, by saying: "don't go too near the
+> antipode", I wonder exactly how near the antipode it is safe to go,
+> and why.
+>      I post here in the hope that someone would enjoy working on
+> this kind of problem (hi, Charles).
+>
+> The problem was to find the intersection of two radials, where
+> a radial is a geodetic line that starts at a given point with
+> a given azimuth, but doesn't have a definite end point.
+>
+> While Carmenta Engine doesn't support this computation directly,
+> there is support for intersecting two geodetic lines defined by
+> their start and end points. So, my idea was to compute an arbitrary
+> end point for each radial, by going forward long enough on the radial.
+> (This is just the forward or direct geodetic problem.)
+>
+> The question then was, how far to go forward? Obviously, one cannot
+> go longer than 180 degrees or about 20 000 km on the Earth, since
+> there would then be a shorter geodetic route from start to end on
+> the backside of the Earth. In fact, since we want to compute on
+> an ellipsoid, one cannot go quite 180 degrees either. I thought the
+> maximal safe distance would be  pi * a * (1 - f), where a is the
+> equatorial radius and f is the flattening. On the WGS84 ellipsoid,
+> this would be pi * 6378137 * (1 - 1/298.257223563) = 19 970 326 meters.
+> (Because, if one starts somewhere on the equator, and goes east
+>   along the equator to an end point longer than this distance, but
+>   shorter than 180 degrees, then the shortest route from start to end
+>   doesn't follow the equator but takes a shortcut nearer a pole,
+>   exploiting the flattening of the ellipsoid.)
+>
+> So, we tried to let "forward distance" = 19 950 000 meters, and it seemed
+> to work for a while. But then we found an example where the intersecting
+> method wrongly claimed that there was no intersection. It turned out
+> that this wasn't caused by numerical instability, but by something more
+> fundamental.
+>
+> You see, we have some initial tests in the intersecting method, which
+> should say when there is definitely no intersection. One condition
+> is like this, in ASCII graphics:
+>
+> B1
+> | .
+> |   .
+> |     .
+> |       . A2             A1
+> |         -----------------
+> |       .
+> |     .
+> |   .
+> | .
+> |
+> B2
+>
+> One geodesic goes from A1 to A2, the other goes from B1 to B2. From
+> A2, take the azimuths toward A1, B1 and B2. Then if the azimuth
+> toward A1 doesn't go between the two azimuths toward B1 and B2,
+> an intersection would be impossible, I thought. Because A1 and A2
+> would be on the same side of the geodesic B1B2.
+>     Of course, one has to define "between-ness" of azimuths modulo
+> 360 degrees. But the idea is that the "inside" of the angle B1 A2 B2
+> would be the side that is less than 180 degrees, and if the line
+> from A2 toward A1 doesn't go on the inside, there can be no intersection.
+>
+> I still feel that this _ought_ to be true. However, here is a counterexample:
+>
+> The first radial is defined by
+> A1 = 17.58139°S 40.17167°W
+> A1_faz = -90° // A1 forward azimuth
+>
+> The second radial is defined by
+>
+> B1 = 22.23556°S 49.91139°W
+> B1_faz = 30° // B1 forward azimuth
+>
+> They do intersect quite near the start points.
+>
+> However, with "forward distance" = 19 950 000 m, the forward computation
+> gives the end points:
+>
+> A2 = 17.58126738°N 140.62400233°E
+>
+> B2 = 22.60088604°N 129.58209305°E
+>
+> Now,
+> Azimuth at A2 toward B1 = 117.78924816°
+> Azimuth at A2 toward B2 = -62.47659403°
+>
+> And 117.78924816° - (-62.47659403°) = 180.26584219° which is larger than 180°.
+> This means that the inside of the angle B1 A2 B2 is south of the angle edges.
+> But
+>
+> Azimuth at A2 toward A1 = 90.06652107°
+>
+> which is north of the A2-toward-B1 azimuth. So, the initial test will say
+> (wrongly) that there is no intersection.
+>
+> In this particular example, I have found that the code finds the intersection
+> if I lower the forward distance to 19 940 632 m. But there must be some worst
+> case that requires an even shorter distance, and I don't know how to find
+> the worst case (except by a lot of trial-and-error).
+>
+> I have visualized the counterexample in several map projections and waited
+> for my brain to say "Aha!", but in vain. I think the intuition behind the
+> initial test is that the line A1A2 is on one (oblique) hemisphere, and the
+> triangle B1B2A2 is on the other hemisphere. It feels right, but clearly it
+> isn't true.
+>
+> The pragmatic solution seems to be to use a much shorter forward distance,
+> something like 15 000 000 m perhaps, but I would really like to understand
+> what's going on here.
+>
+> Credit: the values above have been computed on the GeographicLib site,
+> http://geographiclib.sourceforge.net/cgi-bin/Geod
+>
+> Regards,
+>
+> Mikael Rittri
+> Carmenta
+> Sweden
+> http://www.carmenta.com
+>
+
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+
+
+From Mikael.Rittri at carmenta.com  Wed Feb  6 08:17:32 2013
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Wed, 6 Feb 2013 16:17:32 +0000
+Subject: [Proj] Breaking change for +proj=omerc +no_rot in Proj version 4.8
+Message-ID: <E4AB3DD44D22854B819908379DE4AD49392F769B@SETHNWS023.carmenta.se>
+
+Hello,
+
+The Malayan Monster is back!
+
+I know that in Proj version 4.8, the implementation of Hotine Oblique Mercator was replaced
+by the version from libproj4. And I know one of the compatibility issues: the +rot_conv flag
+is gone and replaced by the more general +gamma parameter.
+
+But the behaviour of the "no_rot" flag also seems to have changed. (We happened to use it
+internally.)
+
+Here is an example in Proj 4.7:
+
+proj +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4 +alpha=53.3158204722222 +no_rot +x_0=0 +y_0=0 +k_0=0.99984 +no_defs -v
+#Oblique Mercator
+#       Cyl, Sph&Ell
+#        no_rot rot_conv no_uoff and
+#       alpha= lonc= or
+#        lon_1= lat_1= lon_2= lat_2=
+# +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4
+# +alpha=53.3158204722222 +no_rot +x_0=0 +y_0=0 +k_0=0.99984 +no_defs
+115d48'19.8196"E 5d23'14.1129"N
+163238.16       -69702.79
+
+Using the same definition in Proj 4.8 gives
+
+proj +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4 +alpha=53.3158204722222 +no_rot +x_0=0 +y_0=0 +k_0=0.99984 +no_defs -v
+#Oblique Mercator
+#       Cyl, Sph&Ell no_rot
+#       alpha= [gamma=] [no_off] lonc= or
+#        lon_1= lat_1= lon_2= lat_2=
+# +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4
+# +alpha=53.3158204722222 +x_0=0 +y_0=0 +k_0=0.99984 +no_defs
+#--- following specified but NOT used
+# +no_rot
+115d48'19.8196"E 5d23'14.1129"N
+901334.26       -69702.79
+
+The second coordinate is the same, but the first is quite different.
+And the verbose output says that +no_rot is not used.
+But that's a lie: if we remove +no_rot in 4.8, we get
+
+proj +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4 +alpha=53.3158204722222 +x_0=0 +y_0=0 +k_0=0.99984 +no_defs -v
+#Oblique Mercator
+#       Cyl, Sph&Ell no_rot
+#       alpha= [gamma=] [no_off] lonc= or
+#        lon_1= lat_1= lon_2= lat_2=
+# +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4
+# +alpha=53.3158204722222 +x_0=0 +y_0=0 +k_0=0.99984 +no_defs
+115d48'19.8196"E 5d23'14.1129"N
+89266.61        153416.59
+
+So +no_rot does have an effect; the question is just what it does
+in 4.8. I figured out that I could nearly reproduce the 4.7 behaviour
+by omitting +no_rot and using +gamma=0.0; this gives:
+
+proj +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4 +alpha=53.3158204722222 +gamma=0.0 +x_0=0 +y_0=0 +k_0=0.99984 +no_defs -v
+#Oblique Mercator
+#       Cyl, Sph&Ell no_rot
+#       alpha= [gamma=] [no_off] lonc= or
+#        lon_1= lat_1= lon_2= lat_2=
+# +proj=omerc +a=6377298.556 +f=0.00332444929666288 +lonc=115 +lat_0=4
+# +alpha=53.3158204722222 +gamma=0.0 +x_0=0 +y_0=0 +k_0=0.99984 +no_defs
+115d48'19.8196"E 5d23'14.1129"N
+-69702.79       163238.16
+
+The result is the same coordinates as in the 4.7 example, but in the opposite order.
+Maybe this makes some sense: +no_rot in 4.7 says no rotation, and since we have a general
+rotation parameter +gamma in 4.8, it is natural to specify no rotation by setting +gamma=0.0.
+And the coordinate order is probably weird in 4.7: the unrotated coordinates are called u and v,
+and I believe Martin Hotine defined the u,v coordinate system to be left-handed, so it seems
+that Gerald Evenden followed that design in the +no_rot of Proj 4.x (where x <= 7).
+
+My conclusion is that +no_rot is not needed in 4.8, but it does have some effect (not sure what),
+despite the denial of the verbose output.
+
+If someone understands more about this, I'd like to hear about it.
+Otherwise, you are warned: don't use +no_rot in Proj 4.8.
+
+Best regards,
+
+Mikael Rittri
+Carmenta
+Sweden
+http://www.carmenta.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130206/2db98a65/attachment.html>
+
+From Mikael.Rittri at carmenta.com  Thu Feb  7 05:45:44 2013
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Thu, 7 Feb 2013 13:45:44 +0000
+Subject: [Proj] Intersection test for two geodesics goes wrong for very
+ long distances
+In-Reply-To: <51112EFC.3050003@sri.com>
+References: <E4AB3DD44D22854B819908379DE4AD49392F39E3@SETHNWS023.carmenta.se>
+	<51112EFC.3050003@sri.com>
+Message-ID: <E4AB3DD44D22854B819908379DE4AD49392F786E@SETHNWS023.carmenta.se>
+
+Thanks, Charles!
+
+> (5) I've only thought about the intersection problem in the simple case
+> where the end points and the intersection point all lie in a single
+> [shd]emi-ellipsoid (for f small).  In that case, the ellipsoidal
+> gnomonic projection allows you to find the intersection point in a few
+> iterations (I think the convergence is quadratic, a la Newton).
+
+Yes, that's a nice application of your accurate gnomonic.
+
+> [shd]emi-ellipsoid 
+
+:-) 
+
+> (6) I suspect that solving the general problem will end up being fairly
+> complicated.
+
+I was afraid of that. 
+I suppose you are familiar with the article 
+
+    L. E. Sjöberg,
+    Intersections on the sphere and ellipsoid,
+    Journal of Geodesy (2002) 76: 115-120.
+
+He writes: "each of the problems of intersection ... is solved without any limitation of arc length." I tried to read it, but the math was beyond me.
+
+Anyway, maybe I will write a program that searches for the worst case
+(longest permissible lines) for Carmenta's intersection method. 
+
+Regards,
+
+Mikael Rittri
+Carmenta
+Sweden
+http://www.carmenta.com
+
+-----Original Message-----
+From: Charles Karney [mailto:charles.karney at sri.com] 
+Sent: Tuesday, February 05, 2013 5:11 PM
+To: Mikael Rittri
+Cc: proj at lists.maptools.org
+Subject: Re: Intersection test for two geodesics goes wrong for very long distances
+
+Mikael:
+
+Here are a few quick observations...
+
+[-- text deleted; see http://lists.maptools.org/pipermail/proj/2013-February/006574.html --]
+
+
+
+
+From charles.karney at sri.com  Thu Feb  7 06:45:01 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Thu, 7 Feb 2013 09:45:01 -0500
+Subject: [Proj] Intersection test for two geodesics goes wrong for very
+ long distances
+In-Reply-To: <E4AB3DD44D22854B819908379DE4AD49392F786E@SETHNWS023.carmenta.se>
+References: <E4AB3DD44D22854B819908379DE4AD49392F39E3@SETHNWS023.carmenta.se>
+	<51112EFC.3050003@sri.com>
+	<E4AB3DD44D22854B819908379DE4AD49392F786E@SETHNWS023.carmenta.se>
+Message-ID: <5113BDED.1090506@sri.com>
+
+On 2013-02-07 08:45, Mikael Rittri wrote:
+> I suppose you are familiar with the article
+>
+>      L. E. Sjöberg,
+>      Intersections on the sphere and ellipsoid,
+>      Journal of Geodesy (2002) 76: 115-120.
+>
+> He writes: "each of the problems of intersection ... is solved without any limitation of arc length." I tried to read it, but the math was beyond me.
+>
+
+Yes, I'm familiar with this paper.  His basic technique for solving for
+the intersection point is sound (see my comments in Sec 11 of
+http://arxiv.org/abs/1102.1215 ).  But it requires that you've got a
+reasonable first estimate of the intersection latitude and that you know
+how many times each geodesic crosses that latitude before the
+intersection.  Thus, the business about "without any limitation of arc
+length" is merely an "aspirational" statement.
+
+If you're going to start worrying about all the weird cases, you will
+need to tighten up the definition of the intersection point.  Aside from
+some degenerate cases, two 2 geodesics from points 1 and 2 with
+prescribed azimuths intersect each other infinitely many times.
+Presumably you're interested in a "first" intersection which I would
+propose you define by requiring that the the intersection point 3
+minimize
+
+   abs(s_13) + abs(s_23)
+
+Depending on the application you might want to stipulate that s_13 >= 0
+and s_23 >= 0 (i.e., you don't consider going backwards on the
+geodesics).  One of the points of my previous E-mail is that there's no
+guarantee that either of the geodesics 13 and 23, individually, be a
+shortest path.
+
+   --Charles
+
+
+From Mikael.Rittri at carmenta.com  Thu Feb  7 07:04:06 2013
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Thu, 7 Feb 2013 15:04:06 +0000
+Subject: [Proj] Intersection test for two geodesics goes wrong for very
+ long distances
+In-Reply-To: <5113BDED.1090506@sri.com>
+References: <E4AB3DD44D22854B819908379DE4AD49392F39E3@SETHNWS023.carmenta.se>
+	<51112EFC.3050003@sri.com>
+	<E4AB3DD44D22854B819908379DE4AD49392F786E@SETHNWS023.carmenta.se>
+	<5113BDED.1090506@sri.com>
+Message-ID: <E4AB3DD44D22854B819908379DE4AD49392F78C6@SETHNWS023.carmenta.se>
+
+
+> If you're going to start worrying about all the weird cases,
+
+Right, I probably shouldn't. 
+
+The problem did come up in a real application; I wasn't
+directly involved but I think it is about defining waypoints
+in aeronautics. But I think that in actual practice, the two
+start points are fairly near each other, and any useful
+intersection is also in the vicinity.
+
+I suspect the reason to try to use such a long forward
+distance as 19 950 km was just to emulate a set of test
+results from an older implementation that calculated on
+a sphere. 
+
+Regards,
+
+Mikael Rittri
+Carmenta
+Sweden
+http://www.carmenta.com
+
+-----Original Message-----
+From: Charles Karney [mailto:charles.karney at sri.com] 
+Sent: Thursday, February 07, 2013 3:45 PM
+To: Mikael Rittri
+Cc: proj at lists.maptools.org
+Subject: Re: Intersection test for two geodesics goes wrong for very long distances
+
+On 2013-02-07 08:45, Mikael Rittri wrote:
+> I suppose you are familiar with the article
+>
+>      L. E. Sjöberg,
+>      Intersections on the sphere and ellipsoid,
+>      Journal of Geodesy (2002) 76: 115-120.
+>
+> He writes: "each of the problems of intersection ... is solved without any limitation of arc length." I tried to read it, but the math was beyond me.
+>
+
+Yes, I'm familiar with this paper.  His basic technique for solving for
+the intersection point is sound (see my comments in Sec 11 of
+http://arxiv.org/abs/1102.1215 ).  But it requires that you've got a
+reasonable first estimate of the intersection latitude and that you know
+how many times each geodesic crosses that latitude before the
+intersection.  Thus, the business about "without any limitation of arc
+length" is merely an "aspirational" statement.
+
+If you're going to start worrying about all the weird cases, you will
+need to tighten up the definition of the intersection point.  Aside from
+some degenerate cases, two 2 geodesics from points 1 and 2 with
+prescribed azimuths intersect each other infinitely many times.
+Presumably you're interested in a "first" intersection which I would
+propose you define by requiring that the the intersection point 3
+minimize
+
+   abs(s_13) + abs(s_23)
+
+Depending on the application you might want to stipulate that s_13 >= 0
+and s_23 >= 0 (i.e., you don't consider going backwards on the
+geodesics).  One of the points of my previous E-mail is that there's no
+guarantee that either of the geodesics 13 and 23, individually, be a
+shortest path.
+
+   --Charles
+
+
+From martin.kofahl at gmail.com  Thu Feb  7 12:47:54 2013
+From: martin.kofahl at gmail.com (Martin Kofahl)
+Date: Thu, 7 Feb 2013 21:47:54 +0100
+Subject: [Proj] axis order included in epsg file
+In-Reply-To: <510B8FB9.2060608@geomatys.fr>
+References: <CAB+ETQc1ypFGOGhu+NzCXoAax=geBkyX_d-eNQYFPp_DK7st3w@mail.gmail.com>
+	<510B8FB9.2060608@geomatys.fr>
+Message-ID: <CAB+ETQf7DDA2V34see3PANcfV6RBL4WDQweQUsFARuPyC8dEDA@mail.gmail.com>
+
+Hello Martin,
+
+thanks for pointing me to the geoapi project. At MapServer we have a
+similar built-in list, which isn't realy nice to maintain. Replacing it by
+the list from geoapi is an alternative. But I know people occasionally add
+own codes to the proj epsg file, which will result in troubles if
+north-east exis order is required.
+
+Are there chances to generally add the axis order parameter in the proj
+epsg file? Independent of how proj itself evalutates the parameter, there's
+a single configuration file for the crs' and other software can rely on it
+without mixing diffenernt configurations.
+
+Martin
+
+2013/2/1 Martin Desruisseaux <martin.desruisseaux at geomatys.fr>
+
+>  Le 01/02/13 10:09, Martin Kofahl a écrit :
+>
+>  I am happy to see an axis order parameter in the proj lib. In the
+> shipped epsg file there are already a few axis order settings, but a few
+> hundreds are missing. As this also effects commonly used codes such as 4326
+> (which has, by crs definition, northing/easting order) it's worthwhile
+> to revise the epsg file regarding the axis order parameter.
+>
+>  Are there already plans to do so? Or should this be complement by
+> individual tickets?
+>
+>
+> Hello Martin
+>
+> I don't know if Proj.4 provides axis order information directly. However
+> this information is provided in the GeoAPI wrappers for Proj.4. Since those
+> wrappers are in public domain, they could be copied in any project under
+> any license of your choice. The file is there:
+>
+>
+> http://svn.code.sf.net/p/geoapi/code/trunk/geoapi-proj4/src/main/resources/org/opengis/wrapper/proj4/axis-orientations.txt
+>
+> For example the line "ne:" lists the EPSG codes of all geographic CRS
+> using the "North, East" axis order. The line "sw,ne" lists the EPSG codes
+> of all projected CRS using the "South,West" axis order and based on a
+> geographic CRS using the "North,East" axis order.
+>
+> Note that this directory provides also other information that may be
+> useful, like a mapping from Proj.4 projection names to EPSG and OGC
+> projection names.
+>
+>     Martin
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130207/325055aa/attachment.html>
+
+From domenico.nappo at gmail.com  Fri Feb 15 11:39:04 2013
+From: domenico.nappo at gmail.com (Domenico Nappo)
+Date: Fri, 15 Feb 2013 20:39:04 +0100
+Subject: [Proj] proj4 strings from lat lon pcraster maps
+Message-ID: <CAFKUhBmmW8Tcsoie3oz-KeHBA6-Mvu_W9rWr+ZjTb1XGrHoaZA@mail.gmail.com>
+
+Hi folks,
+I'm quite newbie in proj4 (and geo world in general) so sorry if it seems a
+dummy question (I was sure to find a faq on this but maybe I miss something
+crucial here).
+
+I'm using some geo interpolation libraries (python) which require proj4
+strings and area extents for interpolation methods.
+As target grids, I got fixed pcraster maps, representing (I suppose...)
+regular gaussian grids as 2 maps (lats and lons).
+
+How to define proj4 strings out of this information?
+
+Thanks in advance!
+
+-- 
+d
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130215/25951c93/attachment.html>
+
+From warmerdam at pobox.com  Fri Feb 15 12:22:32 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 15 Feb 2013 12:22:32 -0800
+Subject: [Proj] proj4 strings from lat lon pcraster maps
+In-Reply-To: <CAFKUhBmmW8Tcsoie3oz-KeHBA6-Mvu_W9rWr+ZjTb1XGrHoaZA@mail.gmail.com>
+References: <CAFKUhBmmW8Tcsoie3oz-KeHBA6-Mvu_W9rWr+ZjTb1XGrHoaZA@mail.gmail.com>
+Message-ID: <CA+YzLBepbA2H_n=7RjBhB+38rUbk7tDbKzMteowTXLtQ9FJxTQ@mail.gmail.com>
+
+On Feb 15, 2013 11:41 AM, "Domenico Nappo" <domenico.nappo at gmail.com> wrote:
+>
+> I'm using some geo interpolation libraries (python) which require proj4
+strings and area extents for interpolation methods.
+> As target grids, I got fixed pcraster maps, representing (I suppose...)
+regular gaussian grids as 2 maps (lats and lons).
+>
+> How to define proj4 strings out of this information?
+
+I do not think PROJ.4 is going to help you unless you can determine that
+the lat and long arrays represent a regular cartographic coordinate system.
+
+Best regards,
+
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130215/c02aef2a/attachment.html>
+
+From cgodkin at gmail.com  Mon Feb 18 19:29:07 2013
+From: cgodkin at gmail.com (Carl Godkin)
+Date: Mon, 18 Feb 2013 19:29:07 -0800
+Subject: [Proj] EPSG codes for regional maps..
+Message-ID: <CAE=8kmneGmy1pSYcsC1Rij5j0X+v=rUZhQPUm57QmD-dZ26Xtw@mail.gmail.com>
+
+Hi,
+
+EPSG codes provide a very concise representation for coordinate systems but
+I don't know how to look up EPSG-defined coordinate systems for large
+regional maps such as North America or Europe.  Are there any?
+
+The only one I've found for North America is the US National Atlas Equal
+Area which is 2163.  But it's based on an unknown datum so it's not always
+very useful.  I also know about 3857 (aka 900913) which is a pseudo
+Mercator projection of the whole world
+
+Are there others in the EPSG database for continent-scale maps?  How do I
+search for them?
+
+Thanks very much,
+
+carl
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130218/b68c3804/attachment.html>
+
+From andre+joost at nurfuerspam.de  Mon Feb 18 21:10:59 2013
+From: andre+joost at nurfuerspam.de (Andre Joost)
+Date: Tue, 19 Feb 2013 06:10:59 +0100
+Subject: [Proj] EPSG codes for regional maps..
+In-Reply-To: <CAE=8kmneGmy1pSYcsC1Rij5j0X+v=rUZhQPUm57QmD-dZ26Xtw@mail.gmail.com>
+References: <CAE=8kmneGmy1pSYcsC1Rij5j0X+v=rUZhQPUm57QmD-dZ26Xtw@mail.gmail.com>
+Message-ID: <kfv1ia$r9o$1@ger.gmane.org>
+
+Am 19.02.2013 04:29, schrieb Carl Godkin:
+
+>
+> Are there others in the EPSG database for continent-scale maps?  How do I
+> search for them?
+>
+
+For Europe, you can try EPSG:3034 ETRS89/LCC
+
+Greetings,
+André Joost
+
+
+
+
+From neteler at osgeo.org  Tue Feb 19 00:25:51 2013
+From: neteler at osgeo.org (Markus Neteler)
+Date: Tue, 19 Feb 2013 09:25:51 +0100
+Subject: [Proj] EPSG codes for regional maps..
+In-Reply-To: <kfv1ia$r9o$1@ger.gmane.org>
+References: <CAE=8kmneGmy1pSYcsC1Rij5j0X+v=rUZhQPUm57QmD-dZ26Xtw@mail.gmail.com>
+	<kfv1ia$r9o$1@ger.gmane.org>
+Message-ID: <CALFmHhsOi3PwKp_=bvrF0phnri1BbDSTQPEztyHXGvgfTZ6kWA@mail.gmail.com>
+
+On Tue, Feb 19, 2013 at 6:10 AM, Andre Joost <andre+joost at nurfuerspam.de> wrote:
+> Am 19.02.2013 04:29, schrieb Carl Godkin:
+>
+>>
+>> Are there others in the EPSG database for continent-scale maps?  How do I
+>> search for them?
+>>
+> For Europe, you can try EPSG:3034 ETRS89/LCC
+
+Also EPSG:3035 is pretty much used, by EEA and other
+institutions.
+http://spatialreference.org/ref/epsg/3035/
+
+Best
+Markus
+
+
+From Mikael.Rittri at carmenta.com  Tue Feb 19 05:41:40 2013
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Tue, 19 Feb 2013 13:41:40 +0000
+Subject: [Proj] EPSG codes for regional maps..
+Message-ID: <E4AB3DD44D22854B819908379DE4AD49392FB785@SETHNWS023.carmenta.se>
+
+Carl Godkin wrote:
+
+> EPSG codes provide a very concise representation
+> For coordinate systems but I don't know how to
+> look up EPSG-defined coordinate systems for large
+> regional maps such as North America or Europe.
+> Are there any?
+
+Not as many as one would expect. And I don't know
+any good way to search for them. 
+
+Apart from the ones already mentioned, here are a few: 
+
+EPSG:3572   "WGS 84 / North Pole LAEA Alaska"	Northern hemisphere - north of 45°N, including Arctic. 
+EPSG:3574   "WGS 84 / North Pole LAEA Atlantic"	Northern hemisphere - north of 45°N, including Arctic.   
+EPSG:3571   "WGS 84 / North Pole LAEA Bering Sea"	Northern hemisphere - north of 45°N, including Arctic.   
+EPSG:3573   "WGS 84 / North Pole LAEA Canada"	Northern hemisphere - north of 45°N, including Arctic.   
+EPSG:3575   "WGS 84 / North Pole LAEA Europe"	Northern hemisphere - north of 45°N, including Arctic.
+EPSG:3576   "WGS 84 / North Pole LAEA Russia"	Northern hemisphere - north of 45°N, including Arctic.
+EPSG:3832   "WGS 84 / PDC Mercator"		Pacific Ocean
+EPSG:3973   "WGS 84 / NSIDC EASE-Grid North"	World - north of 0°N
+EPSG:3974   "WGS 84 / NSIDC EASE-Grid South"	World - south of 0°N
+EPSG:3975   "WGS 84 / NSIDC EASE-Grid Global"	World - 86°S to 86°N
+EPSG:5041   "WGS 84 / UPS North (E,N)"		Northern hemisphere - north of 60°N onshore and offshore, including Arctic.
+EPSG:5042   "WGS 84 / UPS South (E,N)"		Southern hemisphere - south of 60°S onshore and offshore - Antarctica.
+
+If you can use ESRI codes as well, there are more to 
+choose from (some of these may exist in EPSG, too):
+
+ESRI:102001   "Canada_Albers_Equal_Area_Conic"
+ESRI:102002   "Canada_Lambert_Conformal_Conic"
+ESRI:102003   "USA_Contiguous_Albers_Equal_Area_Conic"
+ESRI:102004   "USA_Contiguous_Lambert_Conformal_Conic"
+ESRI:102005   "USA_Contiguous_Equidistant_Conic"
+ESRI:102008   "North_America_Albers_Equal_Area_Conic"
+ESRI:102009   "North_America_Lambert_Conformal_Conic"
+ESRI:102010   "North_America_Equidistant_Conic"
+ESRI:102011   "Africa_Sinusoidal"
+ESRI:102012   "Asia_Lambert_Conformal_Conic"
+ESRI:102013   "Europe_Albers_Equal_Area_Conic"
+ESRI:102014   "Europe_Lambert_Conformal_Conic"
+ESRI:102015   "South_America_Lambert_Conformal_Conic"
+ESRI:102016   "North_Pole_Azimuthal_Equidistant"
+ESRI:102017   "North_Pole_Lambert_Azimuthal_Equal_Area"
+ESRI:102018   "North_Pole_Stereographic"
+ESRI:102019   "South_Pole_Azimuthal_Equidistant"
+ESRI:102020   "South_Pole_Lambert_Azimuthal_Equal_Area"
+ESRI:102021   "South_Pole_Stereographic"
+ESRI:102022   "Africa_Albers_Equal_Area_Conic"
+ESRI:102023   "Africa_Equidistant_Conic"
+ESRI:102024   "Africa_Lambert_Conformal_Conic"
+ESRI:102025   "Asia_North_Albers_Equal_Area_Conic"
+ESRI:102026   "Asia_North_Equidistant_Conic"
+ESRI:102027   "Asia_North_Lambert_Conformal_Conic"
+ESRI:102028   "Asia_South_Albers_Equal_Area_Conic"
+ESRI:102029   "Asia_South_Equidistant_Conic"
+ESRI:102030   "Asia_South_Lambert_Conformal_Conic"
+ESRI:102031   "Europe_Equidistant_Conic"
+ESRI:102032   "South_America_Equidistant_Conic"
+ESRI:102033   "South_America_Albers_Equal_Area_Conic"
+ESRI:102034   "North_Pole_Gnomonic"
+ESRI:102035   "North_Pole_Orthographic"
+ESRI:102036   "South_Pole_Gnomonic"
+ESRI:102037   "South_Pole_Orthographic"
+
+You can find the definitions at http://help.arcgis.com/en/arcims/10.0/mainhelp/mergedProjects/ArcXMLGuide/elements/pcs.htm
+(And the ESRI codes 53001 to 54053 give various world maps.)
+
+A map projection for Russia can be found here http://nsidc.org/data/docs/fgdc/ggd601_russia_soil_maps/index.html
+I don't know if it has any official status. If it is important to keep north up,
+one would instead use some Mercator with central meridian in the middle of Russia. 
+
+Best regards,
+
+Mikael Rittri
+Carmenta
+Sweden
+http://www.carmenta.com
+            
+
+
+From cgodkin at gmail.com  Tue Feb 19 06:17:11 2013
+From: cgodkin at gmail.com (Carl Godkin)
+Date: Tue, 19 Feb 2013 06:17:11 -0800
+Subject: [Proj] EPSG codes for regional maps..
+In-Reply-To: <E4AB3DD44D22854B819908379DE4AD49392FB785@SETHNWS023.carmenta.se>
+References: <E4AB3DD44D22854B819908379DE4AD49392FB785@SETHNWS023.carmenta.se>
+Message-ID: <CAE=8kmmdjLih3-FCMB191o5uKZga+s7ohXbq_dhcM=haMZe=sg@mail.gmail.com>
+
+On Tue, Feb 19, 2013 at 5:41 AM, Mikael Rittri
+<Mikael.Rittri at carmenta.com>wrote:
+
+> Carl Godkin wrote:
+>
+> > EPSG codes provide a very concise representation
+> > For coordinate systems but I don't know how to
+> > look up EPSG-defined coordinate systems for large
+> > regional maps such as North America or Europe.
+> > Are there any?
+>
+> Not as many as one would expect. And I don't know
+> any good way to search for them.
+>
+>
+Thank you all for the help.
+
+(I feel better that I wasn't missing some obvious way of searching for them
+too.)
+
+carl
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130219/133885bb/attachment.html>
+
+From john.lilley at redpoint.net  Mon Feb 25 15:25:53 2013
+From: john.lilley at redpoint.net (John Lilley)
+Date: Mon, 25 Feb 2013 23:25:53 +0000
+Subject: [Proj] [proj4] beginner questions
+Message-ID: <869970D71E26D7498BDAC4E1CA92226B41189C32@MBX021-E3-NJ-2.exch021.domain.local>
+
+Greetings,
+We are getting started with proj4 and I am after some fairly basic things to being, I was hoping you could help me get started.  Our basic need is:
+* Reading the datum specification from ShapeFiles, TAB, MID/MIF.
+* Converting an arbitrary datum to WGS84 for internal processing.
+* Presenting user with a pick list of datum for output.
+* Converting from WGS84 back to user-chosen datum.
+
+I suppose it is never that simple, but if you can point me in the right direction, that would be much appreciated.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130225/bd24c95f/attachment.html>
+
+From warmerdam at pobox.com  Mon Feb 25 16:16:37 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 25 Feb 2013 16:16:37 -0800
+Subject: [Proj] [proj4] beginner questions
+In-Reply-To: <869970D71E26D7498BDAC4E1CA92226B41189C32@MBX021-E3-NJ-2.exch021.domain.local>
+References: <869970D71E26D7498BDAC4E1CA92226B41189C32@MBX021-E3-NJ-2.exch021.domain.local>
+Message-ID: <CA+YzLBeAS5J5a9-eEe+X1crLC+iTmDOm0DLBEwPPsymd4GxdRw@mail.gmail.com>
+
+On Mon, Feb 25, 2013 at 3:25 PM, John Lilley <john.lilley at redpoint.net> wrote:
+> Greetings,
+>
+> We are getting started with proj4 and I am after some fairly basic things to
+> being, I was hoping you could help me get started.  Our basic need is:
+>
+> * Reading the datum specification from ShapeFiles, TAB, MID/MIF.
+
+John,
+
+This is not a task that PROJ.4 does.  You might want to use a library
+like GDAL/OGR (http://www.gdal.org) which reads a variety of raster
+and vector file formats and has support to convert the coordinate
+system definitions into a variety of formats including OGC WKT and
+PROJ.4.
+
+> * Converting an arbitrary datum to WGS84 for internal processing.
+
+There are lots of issues with datum conversions.
+
+First, keep in mind for some datums you need grid shift files to be
+findable and they aren't in the default PROJ.4 build.  There are notes
+on the PROJ.4 main page and FAQ.
+
+Second, for datums where a TOWGS84 3/7 parameter transformation is
+appropriate it is not always readily found in the source coordinate
+system definition (for instance shapefiles will not have this).   On
+the other hand when working with EPSG datums there are often several
+shifts available and selecting the most appropriate is challenging.
+An attempt is made in the PROJ.4 "epsg" init database to pick
+something appropriate by default.
+
+> * Presenting user with a pick list of datum for output.
+
+Neither PROJ.4 nor GDAL/OGR offer particularly wonderful ways of
+browsing a list of datums or coordinate systems in a decent way.  The
+EPSG dictionary is one (long) list.  If you just want datums (or
+perhaps geographic coordinate systems) you could examine the GDAL
+gcs.csv and/or datums.csv files for lists.
+
+> * Converting from WGS84 back to user-chosen datum.
+>
+> I suppose it is never that simple, but if you can point me in the right
+> direction, that would be much appreciated.
+
+Definitely not simple.
+
+Best regards,
+Frank
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+
+

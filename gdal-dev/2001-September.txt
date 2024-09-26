@@ -1,0 +1,1822 @@
+From Andrew.Loughhead at f...  Tue Sep 11 03:54:15 2001
+From: Andrew.Loughhead at f... (Andrew.Loughhead@f...)
+Date: Wed Nov 21 11:49:14 2007
+Subject: NoData support in GIO
+Message-ID: <C1324DB9FA4AD31190D500902786B5E6C3CF4A@x...>
+
+hi, 
+
+GDAL, or more precisely GDALRasterBand::GetNoDataValue, does not 
+currently get the NoData value associated with ESRI grids using 
+the GIO / avgridio.dll driver. I'm hoping for a pointer towards 
+what needs to be implemented where in order for a NoData value 
+to be returned. 
+
+An associated issue is that GDAL seems to disregard the type of 
+ESRI grid that is being opened. So the GDALRasterBand member 
+eDataType is always set to GDT_Float32. That is appropriate for 
+ESRI floating point grids, but not really for integer grids. 
+
+I am struggling to see where to modify GDAL to address these issues 
+so would appreciate pointers. I am fairly familiar with the 
+avgridio library. 
+
+Thanks
+Andrew.
+
+
+
+From warmerdam at p...  Tue Sep 11 09:53:25 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] NoData support in GIO
+References: <C1324DB9FA4AD31190D500902786B5E6C3CF4A@x...>
+Message-ID: <3B9E1755.2020201@p...>
+
+Andrew.Loughhead@f... wrote:
+> hi,
+> 
+> GDAL, or more precisely GDALRasterBand::GetNoDataValue, does not
+> currently get the NoData value associated with ESRI grids using
+> the GIO / avgridio.dll driver. I'm hoping for a pointer towards
+> what needs to be implemented where in order for a NoData value
+> to be returned. 
+
+Andrew,
+
+I have just added nodata support to the AIGDataset code (in
+aigdataset.cpp). Please feel free to do the same for giodataset.cpp.
+
+Basically, you need to implement the GetNoDataValue() method on
+GIORasterBand. Look at the implementation in aigdataset.cpp, and
+copy it. You will need to return a different value for the nodata
+value though. I am not exactly sure what it is supposed to be
+when directly accessing through avgridio.dll. I guess you will
+have to read up on it, or experiment.
+
+> An associated issue is that GDAL seems to disregard the type of
+> ESRI grid that is being opened. So the GDALRasterBand member
+> eDataType is always set to GDT_Float32. That is appropriate for
+> ESRI floating point grids, but not really for integer grids. 
+> 
+> I am struggling to see where to modify GDAL to address these issues
+> so would appreciate pointers. I am fairly familiar with the
+> avgridio library. 
+
+In GIORasterBand::GIORasterBand() you will need to set eDataType to
+the appropriate value (ie. GDT_Float32, GDT_Int32, GDT_Byte, ...).
+Then update IReadBlock() to read appropriately. If you just support
+Float32 and Int32, it might be sufficient to use the non-float version
+of GetWindowRowFloat() if the layer is integer.
+
+If you find it too difficult to update my code, let me know and I will do
+the updates.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From warmerdam at p...  Fri Sep 14 13:10:45 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] IRIX build feedback
+References: <20010830164350.4480.qmail@w...>
+Message-ID: <3BA23A15.6080005@p...>
+
+
+Randall,
+
+I am sorry for not replying to these sooner.
+
+Randall Hopper wrote:
+> If you Ctrl-C configure, it nukes the "core" source directory, thanks to
+> this line in configure:
+>
+> trap 'rm -fr conftest* confdefs* core core.* *.core $ac_clean_files;
+> exit 1' 1
+> \
+> 2 15
+
+I am aware of this (ohh am I aware!) and I don't know how to fix this.
+If I modify configure my changes will just be wiped next time I regenerate
+it with autoconf. I suppose I really should just change the name of the
+directory. It seemed like a good idea at the time!
+
+> ------------------------------------------------------------------------------
+>
+> Please change all the "cd" lines in the build makefiles so they fail if the
+> directory doesn't exist. Otherwise they generate an infinite build loop:
+>
+> < (cd core; $(MAKE))
+> > (cd core && $(MAKE))
+
+Done.
+
+>
+> ------------------------------------------------------------------------------
+>
+> The BYTE_ORDER compile test in configure needs this code added to the
+> little test program:
+>
+> #ifdef sgi
+> # include <sys/endian.h>
+> #endif
+>
+> to successfully configure using gcc on IRIX. Note that configuring with
+> IRIX
+> cc works fine without this mod.
+
+I am not happy with the mechanism used by the default autoconf macro
+(AC_C_BIGENDIAN) for determining endianness. I think I will rewrite it today
+to run a little program to test the endianness instead of trying to find
+definitions in some include file.
+
+> ------------------------------------------------------------------------------
+>
+> I ran configure like this:
+>
+> env CC="cc -n32 -O2" CXX="CC -n32 -O2" \
+> CPPFLAGS="-I/usr/local/include/cfitsio" \
+> LDFLAGS="-n32 -rpath /usr/local/lib32" \
+> configure --prefix=/usr/local --with-libz=internal \
+> --with-png=internal --with-libtiff=internal --with-libgeotiff=internal \
+> --with-libjpeg=internal --with-libgif=internal --with-python
+>
+> however the build didn't include $CPPFLAGS on the $CC compilation command
+> lines as is typically done, so the fits code couldn't find it's headers.
+
+I was not familiar with this concept, but I have added @CPPFLAGS@ to
+the CFLAGS and CXXFLAGS definition in GDALmake.opt.in.
+
+> ------------------------------------------------------------------------------
+>
+> IRIX doesn't define rindex in string.h (it's in strings.h). However,
+> the more common strrchr is defined in string.h. Perhaps gdal could use that
+> instead. Here's the patch:
+>
+> frmts/fits/fitsdataset.cpp:
+> < if (rindex(newValue, '&') == newValue + strlen(newValue) - 1) {
+> ---
+> > if (strrchr(newValue, '&') == newValue + strlen(newValue) - 1) {
+
+I have fixed as suggested.
+
+> ------------------------------------------------------------------------------
+>
+> LDFLAGS is not being propagated to the LD_SHARED setting in the build, so
+> the gdal library fails to build. And the apps built in apps/ fail to run
+> for the same reason (can't find their libraries because they didn't get the
+> RPATH seting).
+
+My current approach to shared library building is to define the ld command
+with all arguments in the LD_SHARED variable. I would suggest modifying
+your environment before configuring accordingly.
+
+I suspect this is a non-standard approach but I am nervous about busting
+what is working with shared library building.
+
+> ------------------------------------------------------------------------------
+>
+> Not fatal, but when linking libgdal.1.1.so, I get a bunch of
+> multiply-defined symbol link warnings because the build is linking in both
+> the .o files and library which contains them. Here are a few sample:
+>
+> ld32: WARNING 15 : Multiply defined:(OGRRegisterAll) in
+> ./ogr/ogrsf_frmts/gener\
+> ic/ogrregisterall.o and
+> ./ogr/ogrsf_frmts/ogrsf_frmts.a(ogrregisterall.o) (2nd
+> \
+> definition ignored).
+> ...
+> ld32: WARNING 15 : Multiply defined:(DDFModule::DDFModule(void)) in
+> ./frmts/o/d\
+> dfmodule.o and ./ogr/ogrsf_frmts/ogrsf_frmts.a(ddfmodule.o) (2nd definition
+> ign\
+> ored).
+
+I am afraid to try and fix this, so for now I will ignore it. :-)
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From warmerdam at p...  Sat Sep 15 11:07:37 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: GDAL/OGR 1.1.5 Released
+Message-ID: <3BA36EB9.2000009@p...>
+
+Folks,
+
+I have finally prepared and released what I consider to be GDAL 1.1.5. I am
+attaching a lengthy list of features and bug fixes since the 1.1.4 release
+early in the year.
+
+With this release I am also considering the GDAL source releases to be the
+place to get OGR, and so I am including notes on OGR changes in the overall
+change document. By default OGR is now built into GDAL shared libraries
+(unless --without-ogr is selected at configure time).
+
+The source can be fetched from:
+
+ftp://ftp.remotesensing.org/gdal/gdal-1.1.5.tar.gz
+ftp://ftp.remotesensing.org/gdal/gdal115.zip
+
+It is my intention that this be the base release used by GRASS 5.0,
+and MapServer 3.5. I will likely announce this release (with more background
+info on GDAL) on some of the other related lists and news groups next week if
+people don't immediately start reporting problems.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+GDAL 1.1.5 New Features:
+
+o AIGrid:
+- Return nodata value.
+
+o OGDI:
+- Added format user documentation.
+- Added Sub Dataset support.
+- Utilize OGDI 3.1 style capabilities metadata.
+
+o SAR_CEOS:
+- Added support for Alaska SAR Toolbox naming convention.
+- Read map projection record for corner GCPs.
+
+o PNG Driver:
+- read/write support for transparency via colortable and nodata value.
+
+o Erdas Imagine (HFA) Driver:
+- Added support for reading external large image files.
+- Added support for uncompressed, but reduced precision blocks.
+
+o GIF Driver:
+- Added .wld world file support.
+- Added transparency read support.
+- Upgraded to libungif 4.x.
+
+o JPEG Driver:
+- Added .wld world file support.
+
+o PAux Driver:
+- Added limited gcp and projection read support.
+
+o GeoTIFF Driver:
+- Added specialized support for 1 bit files.
+- Upgraded world file reading (added .wld files), use
+GDALReadWorldFile().
+
+o JDEM Driver is new (Japanese DEM format).
+
+o FujiBAS Driver is new.
+
+o ERMapper ECW Driver is new.
+
+o GDAL Bridge: upgraded to include new entry points, like GCP access and
+nodata api.
+
+o gdal_translate: added the -not_scrict option.
+
+o GDALGetRandomRasterSample(): Return magnitude for random samples.
+
+o Added use of CPL_CVSID macro in most source files. Running the RCS ident
+command on any GDAL executable or shared library should now give a listing
+of most object file versions from which it was built.
+
+o Various improvements so that static builds will work under Cygwin.
+
+o Various improvements so that builds can be done on MacOS X.
+
+o Overviews: Implement AVERAGE_MAGPHASE option for complex image overviews.
+
+o Added support for sub datasets to gdalinfo, core api and OGDI raster driver.
+
+o The size of the GDAL cache can now be overridden with the GDAL_CACHEMAX
+environment variable (measured in MB).
+
+o Added Driver implementation tutorial to documentation.
+
+o Added apps/gdaltindex.c - application for building tile indexed raster
+datasets suitable for use with UMN MapServer.
+
+
+GDAL 1.1.5 Significant Bug Fixes:
+
+o SAR_CEOS:
+- Don't try to get GCPs from scanlines with no prefix data.
+
+o GeoTIFF:
+- Fixed handling of RGBA band ordering on big endian systems.
+- Fixed bugs in overview generation, especially when updating in place.
+
+o gdal-config should work properly in all situations now.
+
+o JPEG Driver: improved magic number tested to avoid ignoring some jpeg files.
+
+o FITS Driver: lots of fixes and improvements.
+
+
+OGR 1.1.5 New Features:
+
+o Implemented support for attribute query filters (SetAttributeFilter())
+on OGRLayer, provided SWQ based implementation, plugged into all
+drivers and added hooks to ogrinfo.
+
+o MapInfo Driver:
+- Added accelerated spatial query support.
+- Upgraded to current MITAB source as of GDAL release date.
+
+o S-57 Driver:
+- Added support for applying S-57 updates automatically.
+
+o SDTS Driver:
+- Added ENID and SNID to line features.
+- Return coordinate system in WKT instead of PROJ.4 format.
+
+o Shapefile Driver:
+- Auto determine shapefile type from first object written.
+- Added good support for NULL shapes, and NULL attribute fields.
+- Added support for .prj files (read and write).
+
+o PostgreSQL Driver:
+- Added PostGIS support.
+- Pass attribute queries through to PostgreSQL.
+
+o NTF Driver:
+- Added support for GTYPE 5 geometries (a type of arc).
+- Added support for GEOMETRY3D records in indexed (generic) datasets.
+
+o TIGER/Line Driver:
+- Added write support.
+- Improved read support for TIGER 2000.
+
+o OLE DB Provider:
+- Added support for spatial queries via ICommand parameters.
+- Added support for attribute queries by parsing out WHERE clause.
+- In general substantial rework and extentions were made to make it
+work with ESRI and AutoDesk clients.
+
+o Added gdal/data/stateplane.txt - a test file with one line per state plane
+zone for applications wanting to present options to users.
+
+o Install ogrsf_frmts.a on install if building with OGR support enabled.
+
+o Reports layer extents in ogrinfo.
+
+OGR 1.1.5 Significant Bugs:
+
+o OGRSpatialReference:
+- Fix bug with extracting linear units from EPSG derived definitions.
+- Fixed bug translating LCC from EPSG to WKT (importFromEPSG()).
+- Improved IsSame() test for GEOGCS now.
+- Fixed crash if PROJECTION missing from PROJCS definition.
+
+o S-57:
+- Improve recovery from corrupt line geometries.
+- Read objects as generic if the object class is not recognised.
+- Handle LIST attributes as a string, instead of as a single int.
+
+o NTF:
+- Fixed circle conversion to polylines to close the circle properly.
+- Upped MAX_LINK to 5000 to handle much more complex geometries.
+
+o DGN:
+- Don't include elements with the complex bit set in extents
+computations.
+
+o OGRGeometry:
+- Fixed WKT format (import and export) for various container types.
+- WKT import fixed for coordinates, and Z coordinates.
+
+
+
+
+
+
+
+From diana at m...  Mon Sep 17 14:37:54 2001
+From: diana at m... (diana@m...)
+Date: Wed Nov 21 11:49:14 2007
+Subject: new version
+Message-ID: <9o5fu2+neus@eGroups.com>
+
+per the new release:
+
+gifdataset.cpp:178: `struct ExtensionBlock' has no member named
+`Function'
+make[2]: *** [gifdataset.o] Error 1
+
+per previous and new release:
+
+Also, I have not found the c equiv routines GDALSetMetadata,
+GDALSetMetadataItem or GDALGetMetadataItem. I was hoping to see them
+in the newest version .....
+
+Thanks,
+
+Diana M. Esch-Mosher
+
+
+
+From ldjohn at u...  Wed Sep 19 13:34:49 2001
+From: ldjohn at u... (Lowell Johnson)
+Date: Wed Nov 21 11:49:14 2007
+Subject: Multiresolution images
+Message-ID: <01091912352105.09470@edclxw5>
+
+Hello,
+
+I'm just beginning to look at the possibilities of using the GDAL to
+support our image I/O needs. One concern is that we need to support image
+formats that contain bands with differing resolutions (e.g., 30m, 15m
+projection distances). If I have read correctly, the GDAL does not support
+multiresolution data formats. Is there a way (short of breaking the
+different resolutions into separate images) to handle multiresolution
+images? If not, is this something that is being considered for future
+development?
+
+Thanks.
+
+Lowell
+
+-- 
+Lowell D. Johnson
+Software Engineering
+Raytheon Systems
+EROS Data Center, USGS
+
+
+From warmerdam at p...  Wed Sep 19 14:29:14 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Multiresolution images
+References: <01091912352105.09470@edclxw5>
+Message-ID: <3BA8E3FA.10108@p...>
+
+Lowell Johnson wrote:
+> Hello,
+>
+> I'm just beginning to look at the possibilities of using the GDAL to
+> support our image I/O needs. One concern is that we need to support image
+> formats that contain bands with differing resolutions (e.g., 30m, 15m
+> projection distances). If I have read correctly, the GDAL does not support
+> multiresolution data formats. Is there a way (short of breaking the
+> different resolutions into separate images) to handle multiresolution
+> images? If not, is this something that is being considered for future
+> development?
+
+Lowell,
+
+There is no ability to have bands with different resolutions that are directly
+part of the same GDALDataset; however, I have recently introduced a concept of
+subdatasets. The idea here is that files that are aggregates of many
+images (such as HDF, database repositories and so forth) can be opened with
+the usual GDALOpen(), but instead of finding a bunch of bands the handle
+is also queries for subdatasets. These are just dataset names that can
+be passed to GDALOpen() against to open the subimages.
+
+I currently use this technique for the OGDI bridge. Something like an
+ADRG tree accessed through OGDI will appear as several different layers
+each with it's own resolution. They are returned from GDAL as subdatasets.
+
+eg.
+% gdalinfo gltp:/adrg/usr4/mpp1/adrg/TPUS0101
+Driver: OGDI/OGDI Bridge
+Size is 1000, 1000
+Coordinate System is `'
+Origin = (-88.000183,36.000089)
+Pixel Size = (0.007001,-0.004000)
+Subdatasets:
+SUBDATASET_1_NAME=gltp:/adrg/usr4/mpp1/adrg/TPUS0101:"TPUS0101.IMG":Matrix
+SUBDATASET_1_DESC=TPUS0101.IMG as Matrix
+SUBDATASET_2_NAME=gltp:/adrg/usr4/mpp1/adrg/TPUS0101:"TPUS0102.IMG":Matrix
+SUBDATASET_2_DESC=TPUS0102.IMG as Matrix
+SUBDATASET_3_NAME=gltp:/adrg/usr4/mpp1/adrg/TPUS0101:"TPUS0101.IMG":Image
+SUBDATASET_3_DESC=TPUS0101.IMG as Image
+SUBDATASET_4_NAME=gltp:/adrg/usr4/mpp1/adrg/TPUS0101:"TPUS0102.IMG":Image
+SUBDATASET_4_DESC=TPUS0102.IMG as Image
+...
+
+The subdatasets names end up going to the same driver in this case but
+the extra details (layer name, and access type in this case) are encoded
+into the dataset name in a manner particular to the driver. Then it is
+possible to act on this particular image name.
+
+eg.
+% gdalinfo gltp:/adrg/usr4/mpp1/adrg/TPUS0101:"TPUS0101.IMG":Matrix
+Driver: OGDI/OGDI Bridge
+Size is 14464, 1152
+Coordinate System is `'
+Origin = (-88.000183,32.460636)
+Pixel Size = (0.000484,-0.000400)
+Corner Coordinates:
+Upper Left ( -88.0001833, 32.4606361)
+Lower Left ( -88.0001833, 31.9998280)
+Upper Right ( -80.9996073, 32.4606361)
+Lower Right ( -80.9996073, 31.9998280)
+Center ( -84.4998953, 32.2302321)
+Band 1 Block=14464x1 Type=Byte, ColorInterp=Palette
+Min=0.000/0, Max=255.000/0
+Overviews: arbitrary
+Color Table (RGB with 217 entries)
+0: 0,0,0,0
+1: 0,0,0,255
+...
+
+
+Note that the subdataset mechanism just provides a standard way for
+applications to browse the file, and offer choices to the user. You
+can skip that and still implement a mechansim based on encoding extra
+information into the dataset name to get at particular images. However,
+it is only useful if the user knows what to type then.
+
+The subdatasets are returned as a particular kind of metadata. Let me know
+if you want to pursue this. BTW, the OpenEV application now knows how
+to prompt the user for a subdataset if subdatasets are available.
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From neteler at i...  Thu Sep 20 06:12:27 2001
+From: neteler at i... (Markus Neteler)
+Date: Wed Nov 21 11:49:14 2007
+Subject: ERS-SAR import: data east-west flipped?
+Message-ID: <20010920121226.I3856@i...>
+
+Hi all,
+
+using GDAL within GRASS (r.in.gdal), which generally works excellent,
+it seems to me that ERS-SAR data are flipped east-west during import.
+I am trying to import ESA ERS2 SLC data.
+
+Does anyone have experience? Since r.in.gdal import is rather trivial
+for a user, I have no idea what I have done wrongly.
+
+Thanks in advance,
+
+Markus Neteler
+
+
+
+From warmerdam at p...  Fri Sep 21 12:37:50 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: OGR Reprojection Features
+Message-ID: <3BAB6CDE.5010101@p...>
+
+Folks,
+
+I have added a few features to OGR:
+
+OGRSpatialReference:
+Added the SetFromUserInput() method which will attempt a variety of
+best guess strategies to determine a coordinate system. This includes
+support for direct WKT, EPSG:n values, and file names containing WKT. It
+will likely be extended in the future.
+
+OGRGeometry:
+Added the transform() method to transform the geometry using an
+OGRCoordinateTransform object. Also the transformTo() method which does
+the same but starts with just the desired output coordinate system and
+derives the coordinate transformation.
+
+ogr2ogr:
+The -a_srs option can now be used to assign a coordinate system
+to the output layers.
+The -t_srs option can now be used to reproject the geometry as it
+is transferred to the output file.
+
+It is thus now possible to reproject vectors as part of ogr2ogr. The
+following will transform from lat/long to UTM 11/WGS84 (EPSG:32612).
+
+% ogr2ogr -t_srs EPSG:32612 out canada.mif canada
+
+The -t_srs and -a_srs flags will accept any definition that works for
+the SetFromUserInput() method.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From petri.riipinen at n...  Mon Sep 24 12:39:12 2001
+From: petri.riipinen at n... (Petri J. Riipinen)
+Date: Wed Nov 21 11:49:14 2007
+Subject: Any hope of getting TAB-support on GDAL?
+Message-ID: <4.2.0.58.20010924193053.00a1cee0@g...>
+
+Hi folks,
+
+I got quite a load of TIFF files, which unfortunately don't contain 
+georeferencing inside the file, see:
+----------------------------
+Driver: GTiff/GeoTIFF
+Size is 4000, 4000
+Coordinate System is `'
+Corner Coordinates:
+Upper Left ( 0.0, 0.0)
+Lower Left ( 0.0, 4000.0)
+Upper Right ( 4000.0, 0.0)
+Lower Right ( 4000.0, 4000.0)
+Center ( 2000.0, 2000.0)
+Band 1 Block=4000x2 Type=Byte, ColorInterp=Palette
+Min=0.000/0, Max=255.000/0
+Color Table (RGB with 256 entries)
+0: 0,0,0,255
+<and more colors...>
+----------------------
+
+Fortunately with each file I got a corresponding .tab-file, see:
+----------------
+!table
+!version 300
+!charset WindowsLatin1
+
+Definition Table
+File "18M.tif"
+Type "RASTER"
+(3180000,6640000) (0,0) Label "Pt 1",
+(3260000,6640000) (3999,1) Label "Pt 2",
+(3260000,6560000) (3999,3999) Label "Pt 3",
+(3180000,6560000) (0,3999) Label "Pt 4"
+CoordSys Earth Projection 24, 28, "m", 27, 0, 1, 3500000, 0
+Units "m"
+----------------
+
+I would like to use GDAL to read the TIFF-files but it seems that it 
+doesn't know how to use the .tab-file to set up the georeferencing. So, I'm 
+thinking of just opening the TIFF-file with GDAL and then parsing the 
+.tab-file manually and using the GDALDataset->SetGeoTransform according to 
+the points that are given in the .tab-file.
+
+Do I really have to do that? I'm not sure about the other stuff in 
+GDAL-package, I've just used the GDALDataset and rasterbands so far, is 
+there some other stuff that I should be looking into?
+
+- Petri
+<><><><><><><><>
+Petri J. Riipinen
+petri.riipinen@n...
+<><><><><><><><>
+
+
+From warmerdam at p...  Mon Sep 24 13:33:22 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Any hope of getting TAB-support on GDAL?
+References: <4.2.0.58.20010924193053.00a1cee0@g...>
+Message-ID: <3BAF6E62.20405@p...>
+
+Petri J. Riipinen wrote:
+
+> Hi folks,
+...
+> I would like to use GDAL to read the TIFF-files but it seems that it
+> doesn't know how to use the .tab-file to set up the georeferencing. So, I'm
+> thinking of just opening the TIFF-file with GDAL and then parsing the
+> .tab-file manually and using the GDALDataset->SetGeoTransform according to
+> the points that are given in the .tab-file.
+> 
+> Do I really have to do that? I'm not sure about the other stuff in
+> GDAL-package, I've just used the GDALDataset and rasterbands so far, is
+> there some other stuff that I should be looking into?
+
+
+Petri,
+
+I am somewhat familiar with the MapInfo tab files for georeferencing tiff
+files, and obviously the best solution would be for the GDAL GeoTIFF code
+to be updated to use it in a similar manner to how .tfw files can be used.
+
+Reading the control points and setting the georeferencing internally wouldn't
+be that hard; however, translating the MapInfo projections properly is a
+bigger job. Luckily within gdal/ogr/ogrsf_frmts/mitab I already have code
+for translating MapInfo Coordsys statements into WKT format, but I am somewhat
+loath to make the GDAL GeoTIFF driver depend on the OGR MITAB library.
+
+Also, I am not sure I will want to take the time to implement this all in
+the near future.
+
+
+If you don't need the projection information, just georeferencing transform,
+my suggestion is that you write a small program or script to transform the
+.tab files into .tfw files with the appropriate information. The .tfw format
+is very simple, but I can provide pointers for it if needed.
+
+I would also note that calling SetGeoTransform() on an existing TIFF/GeoTIFF
+file will not likely have the desired effect. It is hard to update an existing
+TIFF file with new GeoTIFF information and I don't think it can be done through
+GDAL.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From warmerdam at p...  Tue Sep 25 09:23:35 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Any hope of getting TAB-support on GDAL?
+References: <Pine.GSO.4.31.0109251142130.1354-100000@n...>
+Message-ID: <3BB08557.40405@p...>
+
+Riipinen Petri wrote:
+
+>>Also, I am not sure I will want to take the time to implement this all in
+>>the near future.
+>>
+> 
+> Would you mind if I would add support for parsing the tab-file the same
+> way as the tfw is parsed? I haven't looked at the GDAL TIFF/GeoTIFF-driver
+> yet, but I'm guessing that it first checks whether a file with the same
+> name as the TIFF-file but with .tfw-extension exists and then reads the
+> coordinates from the .tfw-file. So, I guess that the processing of the
+> .tab-file would be quite analugous, except for the parsing part. I guess I
+> could just forget about the coordsys-clause.
+
+
+
+Petri,
+
+You are welcome to. Just send me the patches.
+
+The .tfw handling is done by a subroutine (GDALReadWorldFile()) found in
+gdal/core/gdal_misc.cpp. I would suggest you implement a static function
+GDALReadTabFile() within gdal/frmts/gtiff/geotiff.cpp that does something
+similar for mapinfo tab files. You can search geotiff.cpp for the existing
+calls to GDALReadWorldFile() to see where the tab call could be inserted.
+
+
+
+Once you are happy with the code, send me the patches and I will commit them
+to CVS.
+
+
+> By the way, if the coordinates in the GeoTIFF-file and .tfw-file mismatch,
+> which ones are used?
+
+
+Currently the GeoTIFF information takes precidence though I am not sure that
+is the best approach.
+
+
+
+> Ok, that's handled. Then I have another question. When I do rasterIO, does
+> GDAL always read the raster from the physical file or does it cache the
+> raster information once I do rasterIO the first time on a particular file?
+> Can I ask GDAL to cache a certain file, if I know that I will be reading
+> it again pretty soon, but a slighly different block? What if I copy
+> the file into ramdisk and open it from there, would that speed up the
+> rasterIO-operation?
+
+
+GDAL does caching for most formats on a GDALRasterBlock basis. The maximum
+amount of memory that will be used for caching raster data is 5MB by
+default, and may be altered by calling GDALSetCacheMax() or setting the
+GDAL_MAX environment variable.
+
+Note whether caching is used at all for a given format is controlled by the
+format, not by the application. Some formats (those that implement RasterIO()
+directly) do not cache. These are generally "bridge" mechanisms to other
+libraries which are presumed to do some caching.
+
+
+> By the way, my read region size and output region size are always 1:1, so
+> there will be no need for scaling.
+> 
+> Or maybe I'd be better off by reading the complete block at once with
+> rasterIO and handling the drawing of the image myself from the raster
+> blocks, this way I would need to use rasterIO only when reading a
+> completely new file, i.e. when user moves off the current map block.
+
+
+Accessing on block boundaries with RasterIO() is generally faster than
+accessing on non-block boundaries since it reduces the complexity of the
+copy (just a memcpy()). Fetch blocks directly is even more efficient
+since there is no overhead to copy from the block to the memory buffer.
+
+However, these sort of performance differences are generally very small.
+The most important issues are to ensure suitable cache memory (ie. as
+much as you can spare without it impacting other aspects of your application).
+
+
+> My issue with performance is that as GPS gives a new coordinates and
+> it's time to move the map one pixel on the screen, I need to redraw the
+> map and currently I do it by reading the whole visible area (800x550
+> pixels are shown, the complete map consists of 4000x4000 pixel block, over
+> 100 files, with total of over 150 megs) with rasterIO. Or would it be more
+> beneficial to just blit the bitmap with some fast operation and use
+> rasterIO for reading just the new strip (1 pixel wide) on the edge of the
+> screen? Actually, on pixel on the map is 20 meters in real world, so one
+> can imagine that a car (thats where the system will be running) moves
+> quickly that distance, hence causing the update to the map.
+
+
+Hmm. Well, I don't quite understand the structure of your application
+
+so it is hard to give good advice. Are you saying that you are doing 150
+RasterIO()s to fill your area on 150 different files? There will be a
+non-trivial performance hit in this!
+
+If you tend to do alot of "little" moves, I would be tempted to keep a backing
+store image that is significantly larger than the view window. That way
+small moves of the view can be just recreated from the backing store image.
+When the view moves off the edge of the backing store image you can re-create
+the backing store image through GDAL, recentered on the current view area.
+
+It sounds like a cool application!
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From petri.riipinen at n...  Tue Sep 25 10:59:23 2001
+From: petri.riipinen at n... (Petri J. Riipinen)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Any hope of getting TAB-support on GDAL?
+In-Reply-To: <3BB08557.40405@p...>
+References: <Pine.GSO.4.31.0109251142130.1354-100000@n...>
+Message-ID: <4.2.0.58.20010925174417.00a9e100@g...>
+
+Frank,
+
+>You are welcome to. Just send me the patches.
+
+Ok, I will do it.
+
+>Currently the GeoTIFF information takes precidence though I am not sure that
+>is the best approach.
+
+Well, here I see one problem already. The coordinates in the TIFF-file (as 
+shown by gdalinfo) are 0,0,4000,4000 for my files. Of course those are not 
+geographically correct, the correct coordinates are in the .tab-file.
+
+gdalinfo says:
+--------------
+Driver: GTiff/GeoTIFF
+Size is 4000, 4000
+Coordinate System is `'
+Corner Coordinates:
+Upper Left ( 0.0, 0.0)
+Lower Left ( 0.0, 4000.0)
+Upper Right ( 4000.0, 0.0)
+Lower Right ( 4000.0, 4000.0)
+Center ( 2000.0, 2000.0)
+Band 1 Block=4000x2 Type=Byte, ColorInterp=Palette
+Min=0.000/0, Max=255.000/0
+Color Table (RGB with 256 entries)
+0: 0,0,0,255
+<and more colors...>
+-----
+
+And tab-says
+(3180000,6640000) (0,0) Label "Pt 1",
+(3260000,6640000) (3999,1) Label "Pt 2",
+(3260000,6560000) (3999,3999) Label "Pt 3",
+(3180000,6560000) (0,3999) Label "Pt 4"
+---------------
+
+So, if I were to convert those coordinates from the tab-file into tfw (as 
+you suggested earlier), GDAL would still use the dummy 0,0,4000,4000 
+coordinates? Or does it understand that those are not really georeferenced 
+coordinates?
+
+>so it is hard to give good advice. Are you saying that you are doing 150
+>RasterIO()s to fill your area on 150 different files? There will be a
+>non-trivial performance hit in this!
+
+Nope, I have about 150 files in total, each covering an 80x80 km (4000x4000 
+pixels) square of Finland. As my view is roughly 800x550 pixels, I will be 
+using at most data from 4 blocks (consider the view showing the corners of 
+4 adjacent blocks).
+
+Currently I'm doing so that I use rasterIO to fetch always exactly a 
+800x550 pixel block from 1...4 files (depending on the "seam" between the 
+blocks being in the view).
+
+So, the if the user really rallies around Finland, he might be able to 
+cover all blocks, but most probably he will (at any one given driving 
+session) be touching at most 16-25 blocks (4x4 blocks would already cover 
+320x320 km).
+
+So, I guess that to get some performance improvement should really read 
+data into memory one file at a time and keep it there as long as needed and 
+then just update the screen by copying blocks from the memory object into 
+screen.
+
+Fortunately FLTK-widget kit offers a nice Fl_RGB_Image-widget that can act 
+as a container for an RGB-image and then it has a nice draw-method that 
+takes x,y,w,h on screen and then xOffset, yOffset of the memory buffer. 
+That is probably the best solution for quick screen updating. Caching will 
+also be nicely handled, I can just subclass the widget and perhaps update a 
+timestamp whenever the widget is drawn and then use some least-recent-used 
+mechanism to get rid of the widgets that haven't been used for a while.
+
+- Petri
+<><><><><><><><>
+Petri J. Riipinen
+petri.riipinen@n...
+<><><><><><><><>
+
+
+From ldjohn at u...  Tue Sep 25 10:22:07 2001
+From: ldjohn at u... (Lowell Johnson)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Multiresolution images
+In-Reply-To: <3BA8E3FA.10108@p...>
+References: <01091912352105.09470@edclxw5> <3BA8E3FA.10108@p...>
+Message-ID: <01092510075100.26576@edclxw5>
+
+On Wed, 19 Sep 2001, Frank Warmerdam wrote:
+> Lowell Johnson wrote:
+> > Hello,
+> >
+> > I'm just beginning to look at the possibilities of using the GDAL to
+> > support our image I/O needs. One concern is that we need to support image
+> > formats that contain bands with differing resolutions (e.g., 30m, 15m
+> > projection distances). If I have read correctly, the GDAL does not support
+> > multiresolution data formats. Is there a way (short of breaking the
+> > different resolutions into separate images) to handle multiresolution
+> > images? If not, is this something that is being considered for future
+> > development?
+> 
+> Lowell,
+> 
+> There is no ability to have bands with different resolutions that are directly
+> part of the same GDALDataset; however, I have recently introduced a concept of
+> subdatasets. The idea here is that files that are aggregates of many
+> images (such as HDF, database repositories and so forth) can be opened with
+> the usual GDALOpen(), but instead of finding a bunch of bands the handle
+> is also queries for subdatasets. These are just dataset names that can
+> be passed to GDALOpen() against to open the subimages.
+> 
+> I currently use this technique for the OGDI bridge. Something like an
+> ADRG tree accessed through OGDI will appear as several different layers
+> each with it's own resolution. They are returned from GDAL as subdatasets.
+> 
+> eg.
+[snip]
+
+Maybe I'm missing something, but it seems that it may be possible to
+interpret a given image as multi-resolution if each GDALRasterBand object
+has a different XSize, YSize.
+
+Say for a given image the GDALDataSet, RasterXsize and RasterYsize are 1000
+x 1000 and two associated bands have XSize, YSize of 1000 x 1000 and 500 x
+500. Also assume that GetGeoTransform returns a pixel size of 15 x 15
+(meters). Then we can interpret the first band as having 15 meter pixels
+and the second band as having 30 meter pixels.
+
+The fact that RasterIO will automatically decimate/replicate band data to
+fill a given buffer size also seems very useful for handling bands of
+differing resolution.
+
+I haven't looked into your subdataset technique to see how that may be
+applied, since at this time I'm not sure that the existing GDALDataSet and
+GDALRasterBand capabilities described above will not meet our needs.
+
+Overall, I've been quite impressed with the GDAL capabilities (as
+documented). We are in the process of replacing our existing image I/O
+library with one that is more flexible and portable. We have been planning
+to develop our own library because we didn't expect to find a good
+existing match for our requirements. At this point GDAL is looking very
+promising and our hope is that we can use it without the need for internal
+modifications to the core functionality. If so, we will be adding several
+image formats, including NDF, MODIS, Landsat 7, CIB, and undoubtedly others
+that I'm forgetting. Our efforts are government-sponsored and as such are
+released into the public domain. So we will have no problems sharing any
+code that we develop with the larger community.
+
+Whether we decide to use GDAL or not, thank you for developing, maintaining,
+and sharing your work.
+
+
+Lowell (LAS support team)
+
+-- 
+--------------------------------------------------
+Lowell D. Johnson
+Software Engineering
+Raytheon Systems
+EROS Data Center
+--------------------------------------------------
+
+
+From warmerdam at p...  Tue Sep 25 11:45:10 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Multiresolution images
+References: <01091912352105.09470@edclxw5> <3BA8E3FA.10108@p...> <01092510075100.26576@edclxw5>
+Message-ID: <3BB0A686.9070202@p...>
+
+Lowell Johnson wrote:
+
+> Maybe I'm missing something, but it seems that it may be possible to
+> interpret a given image as multi-resolution if each GDALRasterBand object
+> has a different XSize, YSize.
+
+
+Lowell,
+
+In theory that might be possible; however, GDAL was developed with the
+assumption that all bands on a given GDALDataset are of the same size and
+same geographic area. Any breaking of this assumption could have dramatic
+consequences.
+
+
+> Overall, I've been quite impressed with the GDAL capabilities (as
+> documented). We are in the process of replacing our existing image I/O
+> library with one that is more flexible and portable. We have been planning
+> to develop our own library because we didn't expect to find a good
+> existing match for our requirements. At this point GDAL is looking very
+> promising and our hope is that we can use it without the need for internal
+> modifications to the core functionality. If so, we will be adding several
+> image formats, including NDF, MODIS, Landsat 7, CIB, and undoubtedly others
+> that I'm forgetting. Our efforts are government-sponsored and as such are
+> released into the public domain. So we will have no problems sharing any
+> code that we develop with the larger community.
+
+I would be excited to have your team utilize GDAL and I am willing to do
+what I can to make that more practical, including providing CVS commit access
+to your developers.
+
+Note that GDAL already has slightly indirect support for CIB via the link to
+OGDI. OGDI has a pretty good seamless CIB reader. I have been using that via
+GDAL for a recent military pilot project run by OGC.
+
+Is modis data distributed in HDF-EOS format? I am very keen to build HDF-EOS
+support into GDAL and I am following a couple of contract possibilities to make
+that happen.
+
+What landsat 7 format are you looking to implement? Is this the FAST-L7A
+format? I have had some interest in it before, but never got around to
+implementing it.
+
+NDF is the NLAPS data format, right? That should be easy to implement. I
+did it once in PCIs GeoGateway.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From warmerdam at p...  Tue Sep 25 11:59:01 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] new version
+References: <9o5fu2+neus@eGroups.com>
+Message-ID: <3BB0A9C5.7040809@p...>
+
+diana@m... wrote:
+
+> per the new release:
+> 
+> gifdataset.cpp:178: `struct ExtensionBlock' has no member named
+> `Function'
+> make[2]: *** [gifdataset.o] Error 1
+> 
+> per previous and new release:
+> 
+> Also, I have not found the c equiv routines GDALSetMetadata,
+> GDALSetMetadataItem or GDALGetMetadataItem. I was hoping to see them
+> in the newest version .....
+
+
+
+Diana,
+
+Sorry for the delay in responding. I meant to implement the new functions
+before replying, and then your email dropped down in my queue.
+
+I have implemented the C entry points for the various metadata functions, and
+fleshed out the documentation that was missing on metadata functions. I am
+attaching gdalmajorobject.cpp which you should be able to drop into a 1.1.5
+source distribution to get the changes, or just updated from CVS.
+
+On the gifdataset.cpp problem, this seems to relate to differences between
+the functions I use and the version of libungif installed on your system.
+For the time being, use --with-gif=internal to use the internal GDAL
+copy of libungif. Perhaps I can fix up the configure logic to handle this
+better in the future.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From warmerdam at p...  Tue Sep 25 12:19:15 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] new version
+References: <9o5fu2+neus@eGroups.com>
+Message-ID: <3BB0AE83.4070407@p...>
+
+Diana,
+
+Sorry, I forgot the attachment in my last message. It should be there now.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+-------------- next part --------------
+name="gdalmajorobject.cpp"
+Content-Transfer-Encoding: 7bit
+Content-Disposition: inline;
+filename="gdalmajorobject.cpp"
+
+/******************************************************************************
+* $Id: gdalmajorobject.cpp,v 1.4 2001/09/25 15:56:37 warmerda Exp $
+*
+* Project: GDAL Core
+* Purpose: Base class for objects with metadata, etc.
+* Author: Frank Warmerdam, warmerda@h...
+*
+******************************************************************************
+* Copyright (c) 2000, Frank Warmerdam
+*
+* Permission is hereby granted, free of charge, to any person obtaining a
+* copy of this software and associated documentation files (the "Software"),
+* to deal in the Software without restriction, including without limitation
+* the rights to use, copy, modify, merge, publish, distribute, sublicense,
+* and/or sell copies of the Software, and to permit persons to whom the
+* Software is furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included
+* in all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+* OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+* THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+* DEALINGS IN THE SOFTWARE.
+******************************************************************************
+*
+* $Log: gdalmajorobject.cpp,v $
+* Revision 1.4 2001/09/25 15:56:37 warmerda
+* implemented rest of C entry points for metadata, document C++ methods
+*
+* Revision 1.3 2001/07/18 04:04:30 warmerda
+* added CPL_CVSID
+*
+* Revision 1.2 2000/06/26 15:26:21 warmerda
+* added GDALGetDescription
+*
+* Revision 1.1 2000/04/20 20:52:03 warmerda
+* New
+*
+*/
+
+#include "gdal_priv.h"
+#include "cpl_string.h"
+
+CPL_CVSID("$Id: gdalmajorobject.cpp,v 1.4 2001/09/25 15:56:37 warmerda Exp $");
+
+/************************************************************************/
+/* GDALMajorObject() */
+/************************************************************************/
+
+GDALMajorObject::GDALMajorObject()
+
+{
+pszDescription = NULL;
+papszMetadata = NULL;
+}
+
+/************************************************************************/
+/* ~GDALMajorObject() */
+/************************************************************************/
+
+GDALMajorObject::~GDALMajorObject()
+
+{
+CPLFree( pszDescription );
+CSLDestroy( papszMetadata );
+}
+
+/************************************************************************/
+/* GetDescription() */
+/************************************************************************/
+
+/**
+* Fetch object description. 
+*
+* The semantics of the returned description are specific to the derived
+* type. For GDALDatasets it is the dataset name, as could be (or perhaps
+* was) used with GDALOpen(). 
+* 
+* @return pointer to internal description string.
+*/
+
+const char *GDALMajorObject::GetDescription() const
+
+{
+if( pszDescription == NULL )
+return "";
+else
+return pszDescription;
+}
+
+/************************************************************************/
+/* GDALGetDescription() */
+/************************************************************************/
+
+const char *GDALGetDescription( GDALMajorObjectH hObject )
+
+{
+return ((GDALMajorObject *) hObject)->GetDescription();
+}
+
+/************************************************************************/
+/* SetDescription() */
+/************************************************************************/
+
+void GDALMajorObject::SetDescription( const char * pszNewDesc ) 
+
+{
+CPLFree( pszDescription );
+pszDescription = CPLStrdup( pszNewDesc );
+}
+
+/************************************************************************/
+/* GetMetadata() */
+/************************************************************************/
+
+/**
+* Fetch metadata.
+*
+* The returned string list is owned by the object, and may change at
+* any time. It is formated as a "Name=value" list with the last pointer
+* value being NULL. Use the the CPL StringList functions such as 
+* CSLFetchNameValue() to manipulate it. 
+*
+* Note that relatively few formats return any metadata at this time. 
+*
+* This method does the same thing as the C function GDALGetMetadata().
+*
+* @param pszDomain the domain of interest. Use "" or NULL for the default
+* domain.
+* 
+* @return NULL or a string list. 
+*/
+
+char **GDALMajorObject::GetMetadata( const char * pszDomain )
+
+{
+if( pszDomain == NULL || EQUAL(pszDomain,"") )
+return papszMetadata;
+else
+return NULL;
+}
+
+/************************************************************************/
+/* GDALGetMetadata() */
+/************************************************************************/
+
+char **GDALGetMetadata( GDALMajorObjectH hObject, const char * pszDomain )
+
+{
+return ((GDALMajorObject *) hObject)->GetMetadata(pszDomain);
+}
+
+/************************************************************************/
+/* SetMetadata() */
+/************************************************************************/
+
+/** 
+* Set metadata. 
+*
+* The C function GDALSetMetadata() does the same thing as this method.
+*
+* @param papszMetadata the metadata in name=value string list format to 
+* apply. 
+* @param pszDomain the domain of interest. Use "" or NULL for the default
+* domain. 
+* @return CE_None on success, CE_Failure on failure and CE_Warning if the
+* metadata has been accepted, but is likely not maintained persistently 
+* by the underlying object between sessions.
+*/
+
+CPLErr GDALMajorObject::SetMetadata( char ** papszMetadataIn, 
+const char * pszDomain )
+
+{
+if( pszDomain != NULL && !EQUAL(pszDomain,"") )
+{
+CPLError( CE_Failure, CPLE_NotSupported, 
+"Non-default domain not supported for this object." );
+return CE_Failure;
+}
+
+CSLDestroy( papszMetadata );
+papszMetadata = CSLDuplicate( papszMetadataIn );
+
+return CE_None;
+}
+
+/************************************************************************/
+/* GDALSetMetadata() */
+/************************************************************************/
+
+CPLErr GDALSetMetadata( GDALMajorObjectH hObject, char **papszMD, 
+const char *pszDomain )
+
+{
+return ((GDALMajorObject *) hObject)->SetMetadata( papszMD, pszDomain );
+}
+
+
+/************************************************************************/
+/* GetMetadataItem() */
+/************************************************************************/
+
+/**
+* Fetch single metadata item.
+*
+* The C function GDALGetMetadataItem() does the same thing as this method.
+*
+* @param pszName the key for the metadata item to fetch.
+* @param pszDomain the domain to fetch for, use NULL for the default domain.
+*
+* @return NULL on failure to find the key, or a pointer to an internal
+* copy of the value string on success.
+*/
+
+const char *GDALMajorObject::GetMetadataItem( const char * pszName, 
+const char * pszDomain )
+
+{
+char **papszMD = GetMetadata( pszDomain );
+
+return CSLFetchNameValue( papszMD, pszName );
+}
+
+/************************************************************************/
+/* GDALGetMetadataItem() */
+/************************************************************************/
+
+const char *GDALGetMetadataItem( GDALMajorObjectH hObject, 
+const char *pszName, 
+const char *pszDomain )
+
+{
+return ((GDALMajorObject *) hObject)->GetMetadataItem( pszName, pszDomain);
+}
+
+/************************************************************************/
+/* SetMetadataItem() */
+/************************************************************************/
+
+/**
+* Set single metadata item.
+*
+* The C function GDALSetMetadataItem() does the same thing as this method.
+*
+* @param pszName the key for the metadata item to fetch.
+* @param pszValue the value to assign to the key.
+* @param pszDomain the domain to set within, use NULL for the default domain.
+*
+* @return CE_None on success, or an error code on failure.
+*/
+
+CPLErr GDALMajorObject::SetMetadataItem( const char * pszName, 
+const char * pszValue, 
+const char * pszDomain )
+
+{
+if( pszDomain != NULL && !EQUAL(pszDomain,"") )
+{
+CPLError( CE_Failure, CPLE_NotSupported, 
+"Non-default domain not supported for this object." );
+return CE_Failure;
+}
+
+papszMetadata = CSLSetNameValue( papszMetadata, pszName, pszValue );
+
+return CE_None;
+}
+
+/************************************************************************/
+/* GDALSetMetadataItem() */
+/************************************************************************/
+
+CPLErr GDALSetMetadataItem( GDALMajorObjectH hObject, 
+const char *pszName, const char *pszValue, 
+const char *pszDomain )
+
+{
+return ((GDALMajorObject *) hObject)->SetMetadataItem( pszName, pszValue,
+pszDomain );
+}
+From warmerdam at p...  Tue Sep 25 12:28:49 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Any hope of getting TAB-support on GDAL?
+References: <Pine.GSO.4.31.0109251142130.1354-100000@n...> <4.2.0.58.20010925174417.00a9e100@g...>
+Message-ID: <3BB0B0C1.7010008@p...>
+
+Petri J. Riipinen wrote:
+
+> Well, here I see one problem already. The coordinates in the TIFF-file (as
+> shown by gdalinfo) are 0,0,4000,4000 for my files. Of course those are not
+> geographically correct, the correct coordinates are in the .tab-file.
+
+
+Petri,
+
+This default georeferencing transform is automatic, and not derived from
+GeoTIFF information. It will not take presidence over TFW or .tab info.
+
+
+
+> So, I guess that to get some performance improvement should really read
+> data into memory one file at a time and keep it there as long as needed and
+> then just update the screen by copying blocks from the memory object into
+> screen.
+
+
+I think the existing GDAL caching should give you good performance.
+You might want to play with GDAL's maximum memory for caching.
+
+Using the FLTK image widget as a backing store for a larger area than the
+display may help you reduce the amount of work you have to do reformatting
+the imagery for each pixel step.
+
+Good luck,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From ldjohn at u...  Tue Sep 25 12:03:58 2001
+From: ldjohn at u... (Lowell Johnson)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] Multiresolution images
+In-Reply-To: <3BB0A686.9070202@p...>
+References: <01091912352105.09470@edclxw5> <01092510075100.26576@edclxw5> <3BB0A686.9070202@p...>
+Message-ID: <01092511290101.26576@edclxw5>
+
+On Tue, 25 Sep 2001, Frank Warmerdam wrote:
+> Lowell Johnson wrote:
+> 
+> > Maybe I'm missing something, but it seems that it may be possible to
+> > interpret a given image as multi-resolution if each GDALRasterBand object
+> > has a different XSize, YSize.
+> 
+> 
+> Lowell,
+> 
+> In theory that might be possible; however, GDAL was developed with the
+> assumption that all bands on a given GDALDataset are of the same size and
+> same geographic area. Any breaking of this assumption could have dramatic
+> consequences.
+
+We do expect every band to have the same corner coordinates (same geographic
+size), but the pixel ground distance and data types may vary from band to
+band.
+
+> I would be excited to have your team utilize GDAL and I am willing to do
+> what I can to make that more practical, including providing CVS commit access
+> to your developers.
+
+Thank you. That may be very convenient.
+
+> Note that GDAL already has slightly indirect support for CIB via the link to
+> OGDI. OGDI has a pretty good seamless CIB reader. I have been using that via
+> GDAL for a recent military pilot project run by OGC.
+> 
+> Is modis data distributed in HDF-EOS format? I am very keen to build HDF-EOS
+> support into GDAL and I am following a couple of contract possibilities to make
+> that happen.
+
+I haven't worked directly on this, so I'm only passing on what I've been
+told. The MODIS data is "supposedly" in HDF-EOS format, but the developer
+that wrote the reader says that you can't expect to ingest a MODIS image
+with a standard HDF-EOS reader. The format has been tweaked in some
+fashion.
+
+> What landsat 7 format are you looking to implement? Is this the FAST-L7A
+> format? I have had some interest in it before, but never got around to
+> implementing it.
+
+The primary Landsat 7 format is straight HDF. We have a separate ingest
+routine for handling various Fast format datasets including Fast-L7A.
+
+> NDF is the NLAPS data format, right? That should be easy to implement. I
+> did it once in PCIs GeoGateway.
+
+Yes, NLAPS.
+
+Thanks for your response. As I implied earlier, we are still in the midst
+of our investigations and have not reached a decision regarding our new
+image I/O efforts, but your comments have fostered additional interest in
+GDAL.
+
+
+Lowell
+-- 
+--------------------------------------------------
+Lowell D. Johnson ldjohn@u...
+Software Engineering
+Raytheon Systems
+EROS Data Center
+47914 252nd Street, Mundt Federal Bldg
+Sioux Falls, SD 57198
+phone: (605)594-6872 fax: (605)594-6940
+--------------------------------------------------
+
+
+From warmerdam at p...  Tue Sep 25 15:31:07 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: TAB-support patches
+References: <Pine.GSO.4.31.0109251142130.1354-100000@n...> <4.2.0.58.20010925203705.00a24790@g...>
+Message-ID: <3BB0DB7B.1050500@p...>
+
+Petri J. Riipinen wrote:
+
+> Hi Frank,
+> 
+> Ok, here you go! Three patches that should add support for parsing the 
+> affine transformation coefficients from tab-files when opening 
+> TIFF/GeoTIFF-files.
+> 
+> I used pretty much the same mechanism as the tfw-file reading. I used 
+> only those tab-files that I have as an example, so I'm not sure how 
+> generic my tab-file parsing is. But it seems to work at least with my 
+> files!
+
+
+Petri,
+
+I have incorporated the code you provided directly into geotiff.cpp with
+a few minor modifications. It seems to work well!
+
+
+> I also discovered one bug/feature:
+> 
+> When doing 'make install' on GDAL-directory, it copies 'libgdal.1.1.so' 
+> into /usr/local/lib. Shouldn't that be libgdal.so.1.1 as all the other 
+> libs seem to have the version numbers after '.so'....?!? It seems also 
+> that ldconfig doesn't make the symlink at all, if the name is 
+> libgdal.1.1.so.
+
+This is my contrarian nature coming through. I don't want ldconfig or
+other things imagining they can deduce information from the version numbers
+in my library. I just want them treated as plain libraries. The version
+numbers are essentially only for user consumption, and I am not planning on
+changing the major version from 1.1. till there is a major loss of backwards
+compatibility.
+
+Perhaps one day I will allow GDAL to sink fully into the clutches of libtool
+and all the normal ways of handling shared libraries ... but not today. :-)
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From petri.riipinen at n...  Thu Sep 27 13:16:50 2001
+From: petri.riipinen at n... (Petri J. Riipinen)
+Date: Wed Nov 21 11:49:14 2007
+Subject: GDAL-Caching philosophy?
+In-Reply-To: <3BB0B0C1.7010008@p...>
+References: <Pine.GSO.4.31.0109251142130.1354-100000@n...>
+  <4.2.0.58.20010925174417.00a9e100@g...>
+Message-ID: <4.2.0.58.20010927191159.00aa1b70@g...>
+
+Hi Frank & folks,
+
+>I think the existing GDAL caching should give you good performance.
+>You might want to play with GDAL's maximum memory for caching.
+
+I want to clarify this a bit:
+
+Let's say that I have a TIFF-file with one rasterband of size 4000x4000 
+with 256-color palette.
+
+First I use RasterIO to read a block from (1000,1000)-(2000,2000), that is 
+1000x1000 pixels.
+
+What is left into the RasterIO cache after the operation, assuming that it 
+fits inside the maximum cache size?
+
+What if the display now shifts one pixel and I read a block 
+(1001,1001)-(2001,2001) with rasterIO from the same rasterband, does GDAL 
+use anything from the cache or does it read everything from file? I guess I 
+mean that is this always equally heavy operation or is there some 
+improvement, if the consequtive blocks overlap.
+
+What is actually left in the cache after those two rasterIO-operations?
+
+You know, I just calculated that one 4000x4000 pixel, RGB-image takes over 
+62 megs of memory!!! So, there is no way that I can actually cache 4 of 
+those (the worst case, when corners of four adjacent blocks are on the 
+viewport) in my 128 megs of memory, so I definitely need to be handling the 
+caching and screen updating in some pretty smart way if I want to do it 
+like that.
+
+I'm now also considering moving into vector images instead of raster 
+images. I'm discussing with Finnish National Landsurvey agency for 
+licensing a 1:250 000 scale complete Finnish map as vectors (ESRI 
+Shape-format) and I have the option whether to rasterize a suitable set of 
+vector layers or just use the vectors. It might be that I might get 
+somewhat more agile and responsibe software if I use quadtrees and vector 
+shapes, and also not having to worry about caching large image buffers into 
+memory.
+
+Say Frank (or anyone reading this!), you being a pro in GIS-stuff, if you 
+would have to do a GPS+map-navigation system, would you use raster or 
+vector format, assuming both cover the same area?
+
+- Petri
+<><><><><><><><>
+Petri J. Riipinen
+petri.riipinen@n...
+<><><><><><><><>
+
+
+From warmerdam at p...  Thu Sep 27 14:00:50 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: [gdal-dev] GDAL-Caching philosophy?
+References: <Pine.GSO.4.31.0109251142130.1354-100000@n...> <4.2.0.58.20010925174417.00a9e100@g...> <4.2.0.58.20010927191159.00aa1b70@g...>
+Message-ID: <3BB36952.2040404@p...>
+
+
+Petri J. Riipinen wrote:
+
+> Let's say that I have a TIFF-file with one rasterband of size 4000x4000
+> with 256-color palette.
+> 
+> First I use RasterIO to read a block from (1000,1000)-(2000,2000), that is
+> 1000x1000 pixels.
+> 
+> What is left into the RasterIO cache after the operation, assuming that it
+> fits inside the maximum cache size?
+
+
+Petri,
+
+It depends on the block size of the source image, since the caching is done
+on a block-by-block basis. If the block size was one scanline (a fairly
+common case), then after your read scanlines 1000-2000 would be cached by
+GDAL.
+
+
+> What if the display now shifts one pixel and I read a block
+> (1001,1001)-(2001,2001) with rasterIO from the same rasterband, does GDAL
+> use anything from the cache or does it read everything from file? I guess I
+> mean that is this always equally heavy operation or is there some
+> improvement, if the consequtive blocks overlap.
+
+
+Still assuming scanline oriented blocks, you would only have to read one
+more scanline from disk, but of course you would have a certain amount of
+overhead just copying the data from the 999 cached blocks into the output
+buffer.
+
+
+> What is actually left in the cache after those two rasterIO-operations?
+
+
+After the second read you would have 1001 scanline blocks cached assuming
+your cache limit was at least 4MB and a bit.
+
+
+> You know, I just calculated that one 4000x4000 pixel, RGB-image takes over
+> 62 megs of memory!!! So, there is no way that I can actually cache 4 of
+> those (the worst case, when corners of four adjacent blocks are on the
+> viewport) in my 128 megs of memory, so I definitely need to be handling the
+> caching and screen updating in some pretty smart way if I want to do it
+> like that.
+
+
+A 4K x 4K RGB image would be 48MB (RGBA would be 64MB). However if the
+image is paletted as suggested above it is only 16MB.
+
+
+> I'm now also considering moving into vector images instead of raster
+> images. I'm discussing with Finnish National Landsurvey agency for
+> licensing a 1:250 000 scale complete Finnish map as vectors (ESRI
+> Shape-format) and I have the option whether to rasterize a suitable set of
+> vector layers or just use the vectors. It might be that I might get
+> somewhat more agile and responsibe software if I use quadtrees and vector
+> shapes, and also not having to worry about caching large image buffers into
+> memory.
+
+
+Note that applications like MapServer do this sort of thing quite effectively,
+so if you want to go this way, there is no need to start from scratch.
+
+
+> Say Frank (or anyone reading this!), you being a pro in GIS-stuff, if you
+> would have to do a GPS+map-navigation system, would you use raster or
+> vector format, assuming both cover the same area?
+
+If I were doing it I would solve the problem with images. I would create
+the TIFF files in tiled format - likely 256x256 tiles, paletted images, and
+I would built overviews if I would ever be interested in different zoom levels.
+If you output view is 1000x1000 it should be sufficient to set your GDAL
+cache size to about 3-4MB to ensure no cache thrashing.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From warmerdam at p...  Fri Sep 28 17:24:17 2001
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:14 2007
+Subject: ECW
+Message-ID: <3BB4EA81.2080509@p...>
+
+Folks,
+
+I have discovered why I used to have such problems with ECW support. It
+requires NT 4 SP5 or better. I upgraded to NT4 SP6 and suddenly I have no
+problems with system hangs, nor slow processing.
+
+Incidently, my accelerated OpenGL support even works now in OpenEV!
+
+I will be doing a bit of work in the coming days to fine tune the ECW
+support in GDAL. Anyone interested in it is encouraged to try it and let
+me know any problems they encounter.
+
+Later,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+

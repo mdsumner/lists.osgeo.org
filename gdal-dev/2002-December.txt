@@ -1,0 +1,3228 @@
+From slepnev_v at newmail.ru  Sun Dec  1 04:03:00 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] gt_wkt_srs.cpp broken?
+Message-ID: <000001c29918$74affa70$394560c3@sst>
+
+Hello again.
+
+For some reason, the current version of GDAL taken from CVS doesn't build on
+my system.
+Here is the error:
+
+gt_wkt_srs.cpp(256) : error C2660: 'GTIFGetPCSInfo' : function does not take
+6 parameters
+
+Is it just me?
+
+Vladimir Slepnev
+Programmer, RDC ScanEx
+
+
+From warmerdam at pobox.com  Sun Dec  1 16:13:03 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] gt_wkt_srs.cpp broken?
+In-Reply-To: <000001c29918$74affa70$394560c3@sst>
+References: <000001c29918$74affa70$394560c3@sst>
+Message-ID: <3DEA7B5F.5030509@pobox.com>
+
+Vladimir Slepnev wrote:
+> Hello again.
+> 
+> For some reason, the current version of GDAL taken from CVS doesn't build on
+> my system.
+> Here is the error:
+> 
+> gt_wkt_srs.cpp(256) : error C2660: 'GTIFGetPCSInfo' : function does not take
+> 6 parameters
+> 
+> Is it just me?
+
+Vladimir,
+
+Have you done a CVS update of the whole GDAL tree?  The change in the
+argument list of GTIFGetPCSInfo() is part of the EPSG 6.2.2 change.  Note
+that you will also want to install the new EPSG support files via a
+make install of GDAL if you want GeoTIFF PCS lookup support to work.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From shimitz at usgs.gov  Mon Dec  2 12:20:07 2002
+From: shimitz at usgs.gov (April Shimitz)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] USGS projection class
+Message-ID: <OF1A14B7FF.0D15A7B5-ON86256C83.0057B5D3@cr.usgs.gov>
+
+Frank,
+
+We've run into several issues now with using an OGR spatial reference
+system to represent the projection system of a LAS image. Among others, the
+main issue with using it is the inability to carry along partially complete
+projection information (we need this ability to process some historical
+datasets). We've decided the best solution for the situation is to develop
+a new class for the GDAL core that will store the projection in USGS format
+so we do not have to go through OGR when just reading and writing imagery
+in the LAS format (for now until other drivers use the USGS class where
+desired). Here is the class description. The methods are very short, simply
+allowing the data members to be set and retrieved:
+
+class CPL_DLL GDALUSGSProj
+{
+  private:
+    /* Projection definition elements */
+    int     proj;             /* Map projection code */
+    int     datum;            /* Datum/Spheroid code */
+    int     zone;             /* Zone code */
+    double  proj_parms[15];   /* Projection parameters */
+    int     units;            /* Projection units */
+
+    /* Validity flags */
+    int     valid_proj;       /* Proj code valid: TRUE/FALSE */
+    int     valid_datum;      /* Datum valid: TRUE/FALSE */
+    int     valid_zone;       /* Zone valid: TRUE/FALSE */
+    int     valid_proj_parms; /* Proj parms valid: TRUE/FALSE */
+    int     valid_units;      /* Proj units valid: TRUE/FALSE */
+
+  public:
+            GDALUSGSProj();
+            GDALUSGSProj(const char *); /* create from an OGR spatial
+                                           reference system */
+
+    /* Methods to set and retrieve the projection information */
+    void    SetProjCode(int);
+    void    GetProjCode(int *, int *);
+    void    SetDatumCode(int);
+    void    GetDatumCode(int *, int *);
+    void    SetZoneCode(int);
+    void    GetZoneCode(int *, int *);
+    void    SetProjParms(double []);
+    void    GetProjParms(double *, int *);
+    void    SetProjUnits(int);
+    void    GetProjUnits(int *, int *);
+    CPLErr  toOGR(char **);  /* convert the GDALUSGSProj information
+                                to an OGR SRS */
+};
+
+I have the class completed and incorporated into GDAL locally. I'm still
+brainstorming, though, on how this can be made compatible with drivers that
+use the OGR container for the projection system. I've implemented some
+conversion routines to go between the two formats of representing a
+projection system, but so far I have not been able to determine when these
+conversions should take place, since I'm not familiar with how GDAL is used
+to convert between image formats, or how to detect, during that process,
+which projection system format is used by the new image format so we know
+if a projection system format conversion should happen as part of the image
+format conversion. I haven't determined where the projection system format
+conversion routines should reside yet either - as stand-alone support
+routines, or perhaps the GDALUSGSProj class and the OGRSpatialReference
+class should each implement a constructor that takes as input the
+projection system defined by the opposing class. I've also implemeted some
+overloaded routines for GetProjectionRef() and SetProjection() to get/set
+the projection in the proper format, but I'm not sure if there are more
+routines within GDAL that modify any of the projection infomation that need
+to be addressed as well. Since I am not as familiar with the GDAL core as
+you are, I wondered if you'd be willing to tackle what's still needed to
+incorporate this class into GDAL so I don't miss anything?
+
+If you'd be willing to do this (or anyone else???), let me know and I'll
+give you a patch for the changes I've made to the code so far and let you
+run with it.
+
+-April
+
+
+
+From slepnev_v at newmail.ru  Mon Dec  2 02:18:40 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] version of geo_normalize.c
+Message-ID: <000001c299d3$0b12dd10$304560c3@sst>
+
+Hello again.
+
+>Have you done a CVS update of the whole GDAL tree?  The change in the
+>argument list of GTIFGetPCSInfo() is part of the EPSG 6.2.2 change.  Note
+>that you will also want to install the new EPSG support files via a
+>make install of GDAL if you want GeoTIFF PCS lookup support to work.
+
+Yeah, I have done a CVS update of the whole GDAL tree.
+The function GTIFGetPCSInfo() resides in geo_normalize.c.
+I have the following version of this file:
+
+* Revision 1.32  2002/11/30 16:01:11  warmerda
+* fixed some problems in GTIFGetUOMAngleInfo
+
+Here is the function definition from there, copy-paste:
+
+int GTIFGetPCSInfo( int nPCSCode, char **ppszEPSGName,
+                    short *pnProjOp, short *pnUOMLengthCode,
+                    short *pnGeogCS )
+
+Here is the error I get again:
+
+gt_wkt_srs.cpp(256) : error C2660: 'GTIFGetPCSInfo' : function does not take
+6 parameters
+
+Here is the line from gt_wkt_srs.cpp that causes the error:
+
+GTIFGetPCSInfo( psDefn->PCS, &pszPCSName, NULL, NULL, NULL, NULL );
+
+Five minutes ago I ran "cvs checkout gdal" and checked all this information.
+I guess it should've updated the file.
+Just for fun, I also checked geo_normalize.c through the web interface to
+the GDAL CVS tree.
+GTIFGetPCSInfo() takes 5 parameters there too!
+Do you have any idea what the problem is? Maybe it's a CVS thing?
+
+Vladimir Slepnev
+Programmer, RDC ScanEx
+
+
+From warmerdam at pobox.com  Mon Dec  2 22:40:25 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] version of geo_normalize.c
+In-Reply-To: <000001c299d3$0b12dd10$304560c3@sst>
+References: <000001c299d3$0b12dd10$304560c3@sst>
+Message-ID: <3DEC27A9.3020206@pobox.com>
+
+Vladimir Slepnev wrote:
+> Here is the error I get again:
+> 
+> gt_wkt_srs.cpp(256) : error C2660: 'GTIFGetPCSInfo' : function does not take
+> 6 parameters
+> 
+> Here is the line from gt_wkt_srs.cpp that causes the error:
+> 
+> GTIFGetPCSInfo( psDefn->PCS, &pszPCSName, NULL, NULL, NULL, NULL );
+
+Vladimir,
+
+Sorry about that.  I have committed a fix for this.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Mon Dec  2 23:22:44 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] USGS projection class
+In-Reply-To: <OF1A14B7FF.0D15A7B5-ON86256C83.0057B5D3@cr.usgs.gov>
+References: <OF1A14B7FF.0D15A7B5-ON86256C83.0057B5D3@cr.usgs.gov>
+Message-ID: <3DEC3194.5090108@pobox.com>
+
+April Shimitz wrote:
+...
+> I haven't determined where the projection system format
+> conversion routines should reside yet either - as stand-alone support
+> routines, or perhaps the GDALUSGSProj class and the OGRSpatialReference
+> class should each implement a constructor that takes as input the
+> projection system defined by the opposing class. I've also implemeted some
+> overloaded routines for GetProjectionRef() and SetProjection() to get/set
+> the projection in the proper format, but I'm not sure if there are more
+> routines within GDAL that modify any of the projection infomation that need
+> to be addressed as well. Since I am not as familiar with the GDAL core as
+> you are, I wondered if you'd be willing to tackle what's still needed to
+> incorporate this class into GDAL so I don't miss anything?
+> 
+> If you'd be willing to do this (or anyone else???), let me know and I'll
+> give you a patch for the changes I've made to the code so far and let you
+> run with it.
+
+April,
+
+While I am not wildly enthusiastic about incorporating the GDALUSGSProj
+class, I am willing to have it in the source tree if that is what you
+need.  If so, I would likely suggest keeping it as a separate classes that
+knows how to convert to and from OGRSpatialReference format, but without
+the OGRSpatialReference format necessarily knowing anything about it.  In
+this case you can just check it into gdal/ogr and add to the appropriate
+makefiles, as well as having the class definition in it's own include file.
+Then it should be ready to use.
+
+However, I am not so keen on having any GDALUSGSProj related overloaded
+methods in gdal/gdal_priv.h.  Having overloaded methods is particular
+drivers is just fine of course.
+
+All that said, I think it is problematic transporting your projections
+object around as an object.  Within GDAL the unit passed around for
+coordinate system definitions is a string ... normally in WKT format.
+This is what the GetProjectionRef() returns, and what SetProjection()
+gives.  The translators assuming they are passing around a string as
+the coordinate system.  As long as you are only moving these around within
+a very view drivers using fairly custom code to do so, then you should
+be allright.
+
+However, I would like to suggest we consider making the OGRSpatialReference
+more ammenable to incompeteness, or perhaps add some sort of hack allowing
+us to transport your various data items in something that the system can
+think of as "sort-of-WKT".
+
+Let me first assume that USGS projections that are complete will just
+be transformed into WKT via the normal OGRSpatialReference mechanisms. So
+the issue is now to transport partial information when we have it available.
+My suggestion is that we "hack" it into a specific string format within
+an existing coordinate system type ... likely the LOCAL_CS[] type.  LOCAL_CS
+is a coordinate system that can't be related to word coordinates, but that
+may still have a helpful name indicating something about the coordinates.
+
+I suggest that the "name" we supply is actually an encoding of all the
+information in your GDALUSGSProj class.
+
+For example:
+
+  LOCAL_CS["USGSProj:proj=1:datum=NULL:zone=11:proj_parms=-117,0,0,500000:units=2"]
+
+The GDALUSGSProj class would continue to exist and would have a toWKT()
+and fromWKT() method on it, but when it can't properly define a GEOGCS
+or PROJCS style coordinate system it would just encode the parameters
+in a LOCAL_CS definition.  Only other GDALUSGSProj drivers would make
+any use of this coordinate system, but it can be safely transported
+through the various levels of GDAL.
+
+The main role of the GDALUSGSProj class then is as a helper for
+drivers to convert between USGS projection definitions, and a well
+known text format. But drivers wouldn't need overloaded GetProjectionRef()
+methods because they would still just be returning strings.
+
+Does this sound plausible?
+
+If you want to go ahead with this approach I would suggest you check
+in the appropriate changes but the let me know so I can ensure any
+new files have been added the in the right places, and that the
+resulting tree still builds cleanly.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From slepnev_v at newmail.ru  Mon Dec  2 17:43:03 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] reading linear units from GeoTIFF broken?
+Message-ID: <000001c29a54$2f06cb60$254560c3@sst>
+
+Hello.
+
+I'm really sorry about bugging you again...
+but linear units don't seem to be read correctly from the GeoTIFF format.
+
+Here's what I do.
+take a PROJ.4 string:
+
++proj=utm +zone=13 +datum=WGS84 +units=ft
+
+convert it to WKT via an OGRSpatialReference:
+
+PROJCS["UTM Zone 13, Northern Hemisphere",GEOGCS["WGS
+84",DATUM["WGS_1984",SPHEROID["WGS
+84",6378137,298.257223563,AUTHORITY["EPSG",7030]],TOWGS84[0,0,0,0,0,0,0],AUT
+HORITY["EPSG",6326]],PRIMEM["Greenwich",0,AUTHORITY["EPSG",8901]],UNIT["degr
+ee",0.0174532925199433,AUTHORITY["EPSG",9108]],AXIS["Lat","NORTH"],AXIS["Lon
+g","EAST"],AUTHORITY["EPSG",4326]],PROJECTION["Transverse_Mercator"],PARAMET
+ER["latitude_of_origin",0],PARAMETER["central_meridian",-105],PARAMETER["sca
+le_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northi
+ng",0],UNIT["Foot (International)",0.3048]]
+
+write it into a newly created GeoTIFF file through GDAL (SetProjection()),
+here's a piece of listgeo info for the newly written file:
+
+   Keyed_Information:
+      GTModelTypeGeoKey (Short,1): ModelTypeProjected
+      GTRasterTypeGeoKey (Short,1): RasterPixelIsArea
+      GTCitationGeoKey (Ascii,33): "UTM Zone 13, Northern Hemisphere"
+      GeographicTypeGeoKey (Short,1): GCS_WGS_84
+      ProjectedCSTypeGeoKey (Short,1): User-Defined
+      ProjectionGeoKey (Short,1): Proj_UTM_zone_13N
+      ProjLinearUnitsGeoKey (Short,1): Linear_Foot
+      End_Of_Keys.
+   End_Of_Geotiff.
+
+read the same file through GDAL, get the WKT projection string
+(GetProjectionRef()):
+
+PROJCS["unnamed",GEOGCS["WGS
+84",DATUM["WGS_1984",SPHEROID[,6378137,298.2572235630016,AUTHORITY["EPSG",70
+30]],AUTHORITY["EPSG",6326]],PRIMEM["Greenwich",0],UNIT["degree",0.017453292
+5199433],AUTHORITY["EPSG",4326]],PROJECTION["Transverse_Mercator"],PARAMETER
+["latitude_of_origin",0],PARAMETER["central_meridian",-105],PARAMETER["scale
+_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing
+",0],UNIT["unknown",1]]
+
+convert it to PROJ.4 via an OGRSpatialReference:
+
++proj=utm +zone=13 +ellps=WGS84 +datum=WGS84 +units=m
+
+That is, the units got written by GDAL, but not read back correctly.
+Do you have any idea what the matter is?
+(I am using today's version of GDAL from CVS.)
+
+Once again, sorry for the inconvenience...
+our correspondence seems to be a major part of gdal-dev by now :-)
+And thanks a lot for your help with all this stuff.
+
+Vladimir Slepnev
+Programmer, RDC ScanEx
+
+
+From warmerdam at pobox.com  Tue Dec  3 09:19:44 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] reading linear units from GeoTIFF broken?
+In-Reply-To: <000001c29a54$2f06cb60$254560c3@sst>
+References: <000001c29a54$2f06cb60$254560c3@sst>
+Message-ID: <3DECBD80.4080109@pobox.com>
+
+Vladimir Slepnev wrote:
+> write it into a newly created GeoTIFF file through GDAL (SetProjection()),
+> here's a piece of listgeo info for the newly written file:
+> 
+>    Keyed_Information:
+>       GTModelTypeGeoKey (Short,1): ModelTypeProjected
+>       GTRasterTypeGeoKey (Short,1): RasterPixelIsArea
+>       GTCitationGeoKey (Ascii,33): "UTM Zone 13, Northern Hemisphere"
+>       GeographicTypeGeoKey (Short,1): GCS_WGS_84
+>       ProjectedCSTypeGeoKey (Short,1): User-Defined
+>       ProjectionGeoKey (Short,1): Proj_UTM_zone_13N
+>       ProjLinearUnitsGeoKey (Short,1): Linear_Foot
+>       End_Of_Keys.
+>    End_Of_Geotiff.
+
+Vladimir,
+
+I get the same results in the GeoTIFF file.
+
+> read the same file through GDAL, get the WKT projection string
+> (GetProjectionRef()):
+> 
+> PROJCS["unnamed",GEOGCS["WGS
+> 84",DATUM["WGS_1984",SPHEROID[,6378137,298.2572235630016,AUTHORITY["EPSG",70
+> 30]],AUTHORITY["EPSG",6326]],PRIMEM["Greenwich",0],UNIT["degree",0.017453292
+> 5199433],AUTHORITY["EPSG",4326]],PROJECTION["Transverse_Mercator"],PARAMETER
+> ["latitude_of_origin",0],PARAMETER["central_meridian",-105],PARAMETER["scale
+> _factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing
+> ",0],UNIT["unknown",1]]
+
+For me the unit is read back properly.  I suspect the new EPSG 6.2.2 .csv
+files are not being found correctly.  Have you done a 'make install'?  If
+not, what is your GEOTIFF_CSV set to?   You can likely work around this
+by defining the GEOTIFF_CSV environment variable and pointing it to your
+gdal/data directory, but the default situation is that the .csv files
+should be installed in /usr/local/share/gdal and that the default search
+rules in GDAL should find them there.
+
+It would appear that isn't happening in your case.
+
+ > Once again, sorry for the inconvenience...
+ > our correspondence seems to be a major part of gdal-dev by now :-)
+ > And thanks a lot for your help with all this stuff.
+
+No sweat.  You are helping me fix bugs, and improve the driver with very
+cogent bug reports.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Tue Dec  3 16:45:30 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Re: cursor and a few questions
+In-Reply-To: <3DEBA98A.C028F831@atlsci.com>
+References: <3DEBA98A.C028F831@atlsci.com>
+Message-ID: <3DED25FA.3010909@pobox.com>
+
+gwalter@atlsci.com wrote:
+> My concerns are as follows:
+> Both methods: Rendering might become really slow
+
+Gillian,
+
+I am not sure why rendering would become really slow.  One thing to
+note is that updating the position of the symbol will invalidate
+the current view, resulting (eventually) in a redraw, but the redraw
+does not take place immediately. The redraw is delayed in the usual
+way after changes have been made.
+
+Of course, with software rendering it will still be kind of choppy
+but no more than any other interactive technique when using
+software rendering.
+
+> Method 2: I'd have to be careful to avoid problems with the
+> Selection/ROI tool etc in linked views- if the points layer accidentally
+> got on top of the layer being operated on, we could have difficulties
+> (active layer would have to remain the original layer).
+
+The tricky part is to ensure the cursor layer doesn't show up to the
+user as something to interactive with, and that it not become the selected
+layer.  I think we need some sort of flag we can set on a layer to "hide"
+it from the user.  Mostly this would ensure the user doesn't see it in
+the layer dialog but there might be other respects in which we need to
+be careful too.
+
+> Also, I was wondering about the timeframe you envisioned for the VRT
+> scaling/upside down symbol/flying label problems (which we hope to have
+> solved before our next release, sometime early next year).  I could also
+> work on some of these, but I'm not sure which would be the best one for
+> me to start on.
+
+I did most of the work on VRT support for scaling the weekend before last,
+but I had intended to some extra steps to make it more obvious how it worked,
+and to be able to crate VRT files "in memory" without having to write the
+VRT portion to disk.
+
+If you look at gdal_translate now you will see that the scaling is
+accomplished using VRT files now. You may note in the code that the
+AddComplexSource() method is called on poVRTBand to install scaling
+instead of AddSimpleSource.  You might want to use gdal_translate to
+scale an image and write the result to VRT format.  This should result
+in gdal_translate just writing the VRT file with the scaling enabled.
+
+ From that you can deduce how to create the VRT description yourself
+in Python.
+
+I would add that it is possible to pass the entire contents of the VRT
+file as a string to gdal.Open() and it will get opened "as if" it were
+reading the file from disk.
+
+The fixes for out-of-place labels should be done within the next three
+weeks as well as investigating the upsidedown raster problem.  It may
+well be that for your next release you should disable the display list
+support by default if we don't completely trust it yet.
+
+You might also want to look into the upside rasters yourself if you
+have time.  The raster symbol rendering support is in the
+gv_shapes_draw_symbol() function in gvshapeslayer.c.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Tue Dec  3 16:49:29 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Preliminary NITF Read Support
+Message-ID: <3DED26E9.2070705@pobox.com>
+
+Folks,
+
+I have committed my first pass at NITF read support.  NITF is the
+National Imagery Tranmission Format, and is the imagery format much of
+the US (and allied) military imagery is managed in.  It is the low level
+"tile" format for RPF products such as CIB and ADRG.
+
+The NITF reader just reads single NITF files not whole RPF products the
+way the OGDI RPF driver does.  The currently translator should support
+NITF 2.0 and 2.1 files with no compression or the VQ compression used
+for CIB data.  I hope to add support for jpeg and possible JPEG2000
+compressed NITF but that is by no means certain.  I will also be implementing
+NITF write support (uncompressed NITF 2.1) in the near future.
+
+Feedback and bug reports welcome.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From slepnev_v at newmail.ru  Wed Dec  4 16:01:02 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] geotiff.cpp broken?
+Message-ID: <000001c29bd8$42f2ba00$2e4560c3@sst>
+
+Hello,
+
+GDAL stopped building on my system again after I updated it from CVS some
+minutes ago.
+Here is the error:
+
+geotiff.cpp(1992) : error C2065: 'GDALReadTabFile' : undeclared identifier
+
+Vladimir Slepnev
+Programmer, RDC ScanEx
+
+
+From warmerdam at pobox.com  Thu Dec  5 10:48:00 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] geotiff.cpp broken?
+In-Reply-To: <000001c29bd8$42f2ba00$2e4560c3@sst>
+References: <000001c29bd8$42f2ba00$2e4560c3@sst>
+Message-ID: <3DEF7530.4030906@pobox.com>
+
+Vladimir Slepnev wrote:
+> Hello,
+> 
+> GDAL stopped building on my system again after I updated it from CVS some
+> minutes ago.
+> Here is the error:
+> 
+> geotiff.cpp(1992) : error C2065: 'GDALReadTabFile' : undeclared identifier
+
+Vladimir,
+
+Sorry about that.  I moved this function to gdal/core in preparation for
+it's wider use, but neglected to commit the change within gdal/core.  I have
+done so know, so a cvs update should produce a buildable tree.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From slepnev_v at newmail.ru  Wed Dec  4 23:07:35 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] the problem persists
+Message-ID: <000001c29c13$d9aab430$3d4560c3@sst>
+
+Hello,
+
+I've just updated GDAL from CVS, and it seems that not everything has been
+corrected with geotiff.cpp. Now the error is as follows:
+
+geotiff.obj : error LNK2001: unresolved external symbol _GDALReadTabFile
+gdal11.dll : fatal error LNK1120: 1 unresolved externals
+
+Vladimir Slepnev
+Programmer, RDC ScanEx
+
+
+From dron at at1895.spb.edu  Thu Dec  5 11:20:38 2002
+From: dron at at1895.spb.edu (Andrey Kiselev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] geotiff.cpp broken?
+In-Reply-To: <3DEF7530.4030906@pobox.com>
+References: <000001c29bd8$42f2ba00$2e4560c3@sst> <3DEF7530.4030906@pobox.com>
+Message-ID: <20021205162038.GA17196@at1895.spb.edu>
+
+Frank,
+
+Another one:
+
+../libgdal.1.1.so: undefined reference to `GDALDestroyReprojectionTransformer'
+
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone:  +7 812 2307834  ICQ UIN 26871517
+
+
+From warmerdam at pobox.com  Thu Dec  5 11:38:20 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] geotiff.cpp broken?
+In-Reply-To: <20021205162038.GA17196@at1895.spb.edu>
+References: <000001c29bd8$42f2ba00$2e4560c3@sst> <3DEF7530.4030906@pobox.com> <20021205162038.GA17196@at1895.spb.edu>
+Message-ID: <3DEF80FC.6080803@pobox.com>
+
+Andrey Kiselev wrote:
+> Frank,
+> 
+> Another one:
+> 
+> ../libgdal.1.1.so: undefined reference to `GDALDestroyReprojectionTransformer'
+
+
+Fixed is gdal/alg.  Sorry about that. I am not sure why it works for me!
+
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From gwalter at atlsci.com  Thu Dec  5 17:42:55 2002
+From: gwalter at atlsci.com (gwalter@atlsci.com)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Re: vrt loading as strings
+References: <3DEBA98A.C028F831@atlsci.com> <3DED25FA.3010909@pobox.com>
+Message-ID: <3DEFD66F.CFB334DA@atlsci.com>
+
+Hi Frank,
+
+I've just tried loading a vrt by passing gdal.Open() a string with the vrt
+contents, but it didn't work.  I get the error below.  Do I need to do something
+special in formatting the string?  I just read in all the lines and concatenated
+them by adding them to each other.
+
+ERROR 4: `<VRTDataset rasterXSize="256" rasterYSize="256">
+  <VRTRasterBand dataType="Byte" band="1">
+    <ColorInterp>Red</ColorInterp>
+    <SimpleSource>
+      <SourceFilename>mandrill.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="512" ySize="512"/>
+      <DstRect xOff="0" yOff="0" xSize="256" ySize="256"/>
+    </SimpleSource>
+  </VRTRasterBand>
+  <VRTRasterBand dataType="Byte" band="2">
+    <ColorInterp>Green</ColorInterp>
+    <SimpleSource>
+      <SourceFilename>mandrill.tif</SourceFilename>
+      <SourceBand>2</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="512" ySize="512"/>
+      <DstRect xOff="0" yOff="0" xSize="256" ySize="256"/>
+    </SimpleSource>
+  </VRTRasterBand>
+  <VRTRasterBand dataType="Byte" band="3">
+    <ColorInterp>Blue</ColorInterp>
+    <SimpleSource>
+      <SourceFilename>mandrill.tif</SourceFilename>
+      <SourceBand>3</SourceBand>
+      <SrcRect xOff="0" yOff="0" xSize="512" ySize="512"/>
+      <DstRect xOff="0" yOff="0" xSize="256" ySize="256"/>
+    </SimpleSource>
+  </VRTRasterBand>
+</VRTDataset>
+' does not exist in the file system,
+and is not recognised as a supported dataset name.
+
+Gillian
+
+
+Frank Warmerdam wrote:
+
+>
+> I would add that it is possible to pass the entire contents of the VRT
+> file as a string to gdal.Open() and it will get opened "as if" it were
+> reading the file from disk.
+>
+> The fixes for out-of-place labels should be done within the next three
+> weeks as well as investigating the upsidedown raster problem.  It may
+> well be that for your next release you should disable the display list
+> support by default if we don't completely trust it yet.
+>
+> You might also want to look into the upside rasters yourself if you
+> have time.  The raster symbol rendering support is in the
+> gv_shapes_draw_symbol() function in gvshapeslayer.c.
+>
+> Best regards,
+>
+> --
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+From warmerdam at pobox.com  Thu Dec  5 17:20:06 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Re: vrt loading as strings
+In-Reply-To: <3DEFD66F.CFB334DA@atlsci.com>
+References: <3DEBA98A.C028F831@atlsci.com> <3DED25FA.3010909@pobox.com> <3DEFD66F.CFB334DA@atlsci.com>
+Message-ID: <3DEFD116.4060600@pobox.com>
+
+gwalter@atlsci.com wrote:
+> Hi Frank,
+> 
+> I've just tried loading a vrt by passing gdal.Open() a string with the vrt
+> contents, but it didn't work.  I get the error below.  Do I need to do something
+> special in formatting the string?  I just read in all the lines and concatenated
+> them by adding them to each other.
+
+Gillian,
+
+Sorry ... I was wrong about that.  In fact it was the Create() method that I
+modified so you could pass an XML description directly as the name.  That could
+be useful to create a virtual dataset representing a view on to something
+without the XML having to actually be written to disk.  I have now also
+modified the Open() method to allowing passing in raw XML.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Mon Dec  9 12:09:11 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] MapInfo Raster .tab File Samples
+Message-ID: <3DF4CE37.3070202@pobox.com>
+
+Folks,
+
+I am attempting to implement good support raster files georeferenced
+with MapInfo .tab files in my GDAL library, and I find myself not having
+that great a collection of samples.
+
+I would appreciate it if anyone with raster files georeferenced via
+mapinfo .tab files could send me the .tab files.  No need to send the
+raster file, though if convenient it would be nice to know the size in pixels
+and lines of the raster file.
+
+The .tab files should be smallish, and contain the keyword 'type "RASTER"'
+like this:
+
+dc_quad.tab:
+!table
+!version 300
+!charset WindowsLatin1
+
+Definition Table
+   File "dc_quad.tif"
+   Type "RASTER"
+   (-77.0489,38.9112) (64,51) Label "Pt 1",
+   (-77.0048,38.9086) (827,108) Label "Pt 2",
+   (-77.003782,38.88729) (848,580) Label "Pt 3",
+   (-77.0501,38.888) (37,565) Label "Pt 4"
+   CoordSys Earth Projection 1, 0
+   Units "degree"
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From paul at toolscenter.org  Mon Dec  9 02:08:47 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] OT: Measure in shape file
+References: <000001c29bd8$42f2ba00$2e4560c3@sst>
+Message-ID: <000901c29f51$d41b9520$700201c0@MAPQUEST.local>
+
+Hello All,
+What really is the meaning of the "measure" part of the shapefile
+primitives?
+
+For instance, there is a primitive PointM, where the M denotes
+measure. 
+
+Best regards,
+Paul.
+
+
+
+From blazek at itc.it  Tue Dec 10 04:28:42 2002
+From: blazek at itc.it (Radim Blazek)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] OT: Measure in shape file
+In-Reply-To: <000901c29f51$d41b9520$700201c0@MAPQUEST.local>
+References: <000001c29bd8$42f2ba00$2e4560c3@sst> <000901c29f51$d41b9520$700201c0@MAPQUEST.local>
+Message-ID: <02121010284202.03704@janacek>
+
+On Monday 09 December 2002 08:08 am, Paul Selormey wrote:
+> Hello All,
+> What really is the meaning of the "measure" part of the shapefile
+> primitives?
+>
+> For instance, there is a primitive PointM, where the M denotes
+> measure.
+
+Quite a good document about LRS by ESRI is 
+http://www.esri.com/library/whitepapers/pdfs/lrds_arcgis.pdf
+
+PointM sounds strange in this context.
+
+Radim
+
+From paul at toolscenter.org  Tue Dec 10 05:10:40 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] OT: Measure in shape file
+References: <000001c29bd8$42f2ba00$2e4560c3@sst> <000901c29f51$d41b9520$700201c0@MAPQUEST.local> <02121010284202.03704@janacek>
+Message-ID: <002201c2a034$6703a1b0$700201c0@MAPQUEST.local>
+
+Hello Radim,
+Thanks for the documents. It does give a better picture of the whole M
+thing.
+
+Again, thanks for the support.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "Radim Blazek" <blazek@itc.it>
+To: <gdal-dev@remotesensing.org>; "Paul Selormey" <paul@toolscenter.org>
+Sent: Tuesday, December 10, 2002 6:28 PM
+Subject: Re: [Gdal-dev] OT: Measure in shape file
+
+
+> On Monday 09 December 2002 08:08 am, Paul Selormey wrote:
+> > Hello All,
+> > What really is the meaning of the "measure" part of the shapefile
+> > primitives?
+> >
+> > For instance, there is a primitive PointM, where the M denotes
+> > measure.
+>
+> Quite a good document about LRS by ESRI is
+> http://www.esri.com/library/whitepapers/pdfs/lrds_arcgis.pdf
+>
+> PointM sounds strange in this context.
+>
+> Radim
+> _______________________________________________
+> Gdal-dev mailing list
+> Gdal-dev@remotesensing.org
+> http://remotesensing.org/mailman/listinfo/gdal-dev
+
+
+From warmerdam at pobox.com  Tue Dec 10 10:45:54 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Re: Link error
+In-Reply-To: <20021210142101.GA31771@at1895.spb.edu>
+References: <20021210142101.GA31771@at1895.spb.edu>
+Message-ID: <3DF60C32.3020806@pobox.com>
+
+Andrey Kiselev wrote:
+> Frank,
+> 
+> There is link errors:
+> 
+> ../libgdal.1.1.so: undefined reference to `OGRSpatialReference::GetAuthorityName(char const *)'
+> ../libgdal.1.1.so: undefined reference to `OGRSpatialReference::GetAuthorityCode(char const *)'
+
+Andrey,
+
+Ensure you do a clean build.  I change the "const" signature of these methods
+so you need to do make clean, then make on the whole tree after a cvs update.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From andresjavier.garcia at wanadoo.es  Tue Dec 10 11:46:48 2002
+From: andresjavier.garcia at wanadoo.es (javier garcia)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Landsat 7 TM
+Message-ID: <200212101641.gBAGfDQ15393@natura.cebas.csic.es>
+
+Hi;
+I've compiled GRAS5.0 against gdal-1.1.7.1 (downloaded from binaries for 
+Linux); but I can't import FAST-L7A format (Landsat TM data). I obtain a 
+message that says that the format is not supported.
+
+It seems to be a problem of gdal. Isn't it?
+
+If so. Can we expect to import this shortly?
+
+Thank you very much.
+
+
+-- 
+A. Javier Garc?a
+Water and Soil Conservation Department
+CEBAS-CSIC
+Apartado 4195
+30080 Murcia
+Spain
+
+Tel.: +34 968 39 63 90
+Fax: +34 968 39 62 13
+
+From dron at at1895.spb.edu  Tue Dec 10 12:09:57 2002
+From: dron at at1895.spb.edu (Andrey Kiselev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Landsat 7 TM
+In-Reply-To: <200212101641.gBAGfDQ15393@natura.cebas.csic.es>
+References: <200212101641.gBAGfDQ15393@natura.cebas.csic.es>
+Message-ID: <20021210170957.GA19278@at1895.spb.edu>
+
+Hi, Javier,
+
+> I've compiled GRAS5.0 against gdal-1.1.7.1 (downloaded from binaries for 
+> Linux); but I can't import FAST-L7A format (Landsat TM data). I obtain a 
+> message that says that the format is not supported.
+> 
+> It seems to be a problem of gdal. Isn't it?
+> 
+> If so. Can we expect to import this shortly?
+
+What do you get with the
+
+gdalinfo --formats
+
+command? If output of this command do not contain string
+``FAST: EOSAT FAST Format'' then you need more up to date GDAL library.
+You should compile it from sources in this case. Latest source snapshot
+may be downloaded from
+
+ftp://ftp.remotesensing.org/gdal/daily
+
+				Regards,
+				Andrey
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone:  +7 812 2307834  ICQ UIN 26871517
+
+
+From andresjavier.garcia at wanadoo.es  Tue Dec 10 13:20:58 2002
+From: andresjavier.garcia at wanadoo.es (javier garcia)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Landsat 7 TM
+In-Reply-To: <20021210170957.GA19278@at1895.spb.edu>
+References: <200212101641.gBAGfDQ15393@natura.cebas.csic.es> <20021210170957.GA19278@at1895.spb.edu>
+Message-ID: <200212101815.gBAIFLQ16564@natura.cebas.csic.es>
+
+Hi, Andrey.
+
+gdalinfo --formats doesn't work for me. What I can do is:
+
+>gdalinfo --version
+GDAL 1.1.7, released 2002/04/16
+
+Do you think is it too old to support FAST: EOSAT FAST Format?
+Could you tell me if the output of your "gdalinfo --version" is different 
+than mine?
+
+Thanks,
+
+Javier 
+---------------------------
+El Mar 10 Dic 2002 18:09, escribi?:
+> Hi, Javier,
+>
+> > I've compiled GRAS5.0 against gdal-1.1.7.1 (downloaded from binaries for
+> > Linux); but I can't import FAST-L7A format (Landsat TM data). I obtain a
+> > message that says that the format is not supported.
+> >
+> > It seems to be a problem of gdal. Isn't it?
+> >
+> > If so. Can we expect to import this shortly?
+>
+> What do you get with the
+>
+> gdalinfo --formats
+>
+> command? If output of this command do not contain string
+> ``FAST: EOSAT FAST Format'' then you need more up to date GDAL library.
+> You should compile it from sources in this case. Latest source snapshot
+> may be downloaded from
+>
+> ftp://ftp.remotesensing.org/gdal/daily
+>
+> 				Regards,
+> 				Andrey
+
+From warmerdam at pobox.com  Tue Dec 10 13:28:25 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Landsat 7 TM
+In-Reply-To: <200212101815.gBAIFLQ16564@natura.cebas.csic.es>
+References: <200212101641.gBAGfDQ15393@natura.cebas.csic.es> <20021210170957.GA19278@at1895.spb.edu> <200212101815.gBAIFLQ16564@natura.cebas.csic.es>
+Message-ID: <3DF63249.4030106@pobox.com>
+
+javier garcia wrote:
+> Hi, Andrey.
+> 
+> gdalinfo --formats doesn't work for me. What I can do is:
+> 
+> 
+>>gdalinfo --version
+> 
+> GDAL 1.1.7, released 2002/04/16
+> 
+> Do you think is it too old to support FAST: EOSAT FAST Format?
+> Could you tell me if the output of your "gdalinfo --version" is different 
+> than mine?
+
+Javier,
+
+The FAST support was implemented in September.  You will need to upgrade,
+presumably to the daily snapshots as Andrey had suggested.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From nhv at cape.com  Tue Dec 10 13:35:44 2002
+From: nhv at cape.com (Norman Vine)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Landsat 7 TM
+References: <200212101641.gBAGfDQ15393@natura.cebas.csic.es> <20021210170957.GA19278@at1895.spb.edu> <200212101815.gBAIFLQ16564@natura.cebas.csic.es>
+Message-ID: <01ca01c2a07a$f4c34f50$a037ba8c@sfdev3>
+
+javier garcia writes:
+> 
+> gdalinfo --formats doesn't work for me. What I can do is:
+> 
+> >gdalinfo --version
+> GDAL 1.1.7, released 2002/04/16
+> 
+> Do you think is it too old to support FAST: EOSAT FAST Format?
+> Could you tell me if the output of your "gdalinfo --version" is different 
+> than mine?
+> 
+
+I am afraid so -- 
+here is the changelog entry for the EOSAT FAST format driver
+
+2002-07-16  Andrey Kiselev  <dron@remotesensing.org>
+ 
+ * /gdal/frmts/fast/{fastdataset.cpp, GNUmakefile, makefile.vc}:
+ New read only driver for EOSAT FAST format. Currently works for
+ Landsat TM only.
+
+Norman
+
+From dron at at1895.spb.edu  Tue Dec 10 13:38:23 2002
+From: dron at at1895.spb.edu (Andrey Kiselev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Landsat 7 TM
+In-Reply-To: <200212101815.gBAIFLQ16564@natura.cebas.csic.es>
+References: <200212101641.gBAGfDQ15393@natura.cebas.csic.es> <20021210170957.GA19278@at1895.spb.edu> <200212101815.gBAIFLQ16564@natura.cebas.csic.es>
+Message-ID: <20021210183823.GA32022@at1895.spb.edu>
+
+> gdalinfo --formats doesn't work for me. What I can do is:
+
+This is enough to determine that you need more recent GDAL.
+
+> >gdalinfo --version
+> GDAL 1.1.7, released 2002/04/16
+> 
+> Do you think is it too old to support FAST: EOSAT FAST Format?
+> Could you tell me if the output of your "gdalinfo --version" is different 
+> than mine?
+
+``FAST: EOSAT FAST Format'' should always present in ``gdalinfo --formats''
+output if you don't disable this driver manually. In my case it is:
+
+Supported Formats:
+  VRT: Virtual Raster
+  GTiff: GeoTIFF
+  NITF: National Imagery Transmission Format
+  HFA: Erdas Imagine Images (.img)
+  SAR_CEOS: CEOS SAR Image
+  CEOS: CEOS Image
+  ELAS: ELAS
+  AIG: Arc/Info Binary Grid
+  AAIGrid: Arc/Info ASCII Grid
+  SDTS: SDTS Raster
+  DTED: DTED Elevation Raster
+  PNG: Portable Network Graphics
+  JPEG: JPEG JFIF
+  MEM: In Memory Raster
+  JDEM: Japanese DEM (.mem)
+  GIF: Graphics Interchange Format (.gif)
+  ESAT: Envisat Image Format
+  BSB: Maptech BSB Nautical Charts
+  XPM: X11 PixMap Format
+  BMP: MS Windows Device Independent Bitmap
+  JPEG2000: JPEG-2000 part 1 (ISO/IEC 15444-1)
+  HDF4: Hierarchical Data Format Release 4
+  HDF4Image: HDF4 Dataset
+  L1B: NOAA Polar Orbiter Level 1b Data Set
+  PNM: Portable Pixmap Format (netpbm)
+  DOQ1: USGS DOQ (Old Style)
+  DOQ2: USGS DOQ (New Style)
+  ENVI: ENVI .hdr Labelled
+  EHdr: ESRI .hdr Labelled
+  PAux: PCI .aux Labelled
+  MFF: Atlantis MFF Raster
+  MFF2: Atlantis MFF2 (HKV) Raster
+  EFF: Eosat Fast Format
+  FujiBAS: Fuji BAS Scanner Image
+  GSC: GSC Geogrid
+  FAST: EOSAT FAST Format
+  FIT: FIT Image
+  USGSDEM: USGS Optional ASCII DEM
+  GXF: GeoSoft Grid Exchange Format
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone:  +7 812 2307834  ICQ UIN 26871517
+
+
+From andresjavier.garcia at wanadoo.es  Wed Dec 11 07:08:13 2002
+From: andresjavier.garcia at wanadoo.es (javier garcia)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] last cvs compilation problem
+Message-ID: <200212111202.gBBC2YQ26216@natura.cebas.csic.es>
+
+Hi,
+I've downloaded the last cvs
+
+gdal-cvs-021207.tar.gz
+
+But when I execute make, obtain:
+
+make[1]: *** No hay ninguna regla para construir el objetivo `gdalwarp.o', 
+necesario para `gdalwarp'.  Alto.
+make[1]: Saliendo directorio `/usr/local/descargas/gdal-cvs-021207/apps'
+make: *** [apps-target] Error 2
+
+Could you, please help?
+
+Javier
+------------
+
+From dron at at1895.spb.edu  Wed Dec 11 07:22:30 2002
+From: dron at at1895.spb.edu (Andrey Kiselev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] last cvs compilation problem
+In-Reply-To: <200212111202.gBBC2YQ26216@natura.cebas.csic.es>
+References: <200212111202.gBBC2YQ26216@natura.cebas.csic.es>
+Message-ID: <20021211122229.GA15100@at1895.spb.edu>
+
+> gdal-cvs-021207.tar.gz
+> But when I execute make, obtain:
+> 
+> make[1]: *** No hay ninguna regla para construir el objetivo `gdalwarp.o', 
+> necesario para `gdalwarp'.  Alto.
+> make[1]: Saliendo directorio `/usr/local/descargas/gdal-cvs-021207/apps'
+> make: *** [apps-target] Error 2
+> 
+> Could you, please help?
+
+This problem fixed in current CVS tree. Quick and dirty solution: in
+/apps/GNUakefile remove `gdalwarp$(EXE)' from the `BIN_LIST=' variable.
+
+				Regards,
+				Andrey
+
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone:  +7 812 2307834  ICQ UIN 26871517
+
+
+From schut at sarvision.com  Wed Dec 11 09:43:24 2002
+From: schut at sarvision.com (Vincent Schut)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] boolean data type?
+Message-ID: <1039617806.2600.4.camel@lowresbox>
+
+Does anybody know of a boolean data type supported by GDAL? I am making
+masks for several gigabytes of data (timeseries) and it would save me
+quite some diskspace if I could save them as bits instead of bytes...
+I think tiff theoretically could be b/w instead of grayscale, but I
+can't find a GDT_bool like datatype...
+
+I could of course just write the raw boolean data to disk as it will
+always be coupled with some georeferenced other data file, but it would
+be nicer to have it in some GDAL supported format.
+
+Thanks,
+Vincent Schut.
+
+
+
+From warmerdam at pobox.com  Wed Dec 11 09:52:43 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] boolean data type?
+In-Reply-To: <1039617806.2600.4.camel@lowresbox>
+References: <1039617806.2600.4.camel@lowresbox>
+Message-ID: <3DF7513B.8050800@pobox.com>
+
+Vincent Schut wrote:
+> Does anybody know of a boolean data type supported by GDAL? I am making
+> masks for several gigabytes of data (timeseries) and it would save me
+> quite some diskspace if I could save them as bits instead of bytes...
+> I think tiff theoretically could be b/w instead of grayscale, but I
+> can't find a GDT_bool like datatype...
+> 
+> I could of course just write the raw boolean data to disk as it will
+> always be coupled with some georeferenced other data file, but it would
+> be nicer to have it in some GDAL supported format.
+
+Vincent,
+
+There is no 1bit data type even though there is a decent case to be made for
+it's support.   Partly I avoid it because having a less-than-a-byte data
+type will complicate alot of code.
+
+I would suggest you save treat your masks as 8bit data, and save in a
+compressed format, such as COMPRESS=DEFLATE with GeoTIFF.  This should
+pack the data down to the minimum required, hopefully less than uncompressed
+1bit data.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From dron at at1895.spb.edu  Wed Dec 11 11:23:57 2002
+From: dron at at1895.spb.edu (Andrey Kiselev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] [ANNOUNCE]: MS Windows BMP files now supported
+Message-ID: <20021211162357.GA14097@at1895.spb.edu>
+
+Hello, all,
+
+Support for Microsoft Windows Device Independent Bitmaps (DIB) now
+available in GDAL (BMP driver). Any types of bitmaps could be imported.
+Driver supports creation of single band 8-bpp bitmaps or three-channel
+24-bpp bitmaps via the Create() and CreateCopy() methods. Worldfiles
+creation supported as well (option "WORLDFILE=YES"). Note, that BMP
+format do not supports grayscale images and all 8-bpp bitmaps will have
+colour table.
+
+				Best regards,
+				Andrey
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone:  +7 812 2307834  ICQ UIN 26871517
+
+
+From slepnev_v at newmail.ru  Wed Dec 11 00:55:58 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] another build error
+Message-ID: <000001c2a0d9$fbcf9d30$264560c3@sst>
+
+Hello!
+
+It seems that GDAL build errors come in all sizes and colors.
+Here's my last one, from a CVS update of five minutes ago or so:
+
+gt_wkt_srs.obj : error LNK2001: unresolved external symbol "public: char
+const * __thiscall OGRSpatialReference::GetAuthorityCode(char const *)"
+(?GetAuthorityCode@OGRSpatialReference@@QAEPBDPBD@Z)
+gt_wkt_srs.obj : error LNK2001: unresolved external symbol "public: char
+const * __thiscall OGRSpatialReference::GetAuthorityName(char const *)"
+(?GetAuthorityName@OGRSpatialReference@@QAEPBDPBD@Z)
+gdal11.dll : fatal error LNK1120: 2 unresolved externals
+
+And oh, how do I do a "make clean" under Windows 2000? To build gdal11.dll,
+I just run submake.bat.
+
+Vladimir Slepnev
+RDC ScanEx
+
+
+From warmerdam at pobox.com  Wed Dec 11 13:21:35 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] another build error
+In-Reply-To: <000001c2a0d9$fbcf9d30$264560c3@sst>
+References: <000001c2a0d9$fbcf9d30$264560c3@sst>
+Message-ID: <3DF7822F.4090304@pobox.com>
+
+Vladimir Slepnev wrote:
+> Hello!
+> 
+> It seems that GDAL build errors come in all sizes and colors.
+> Here's my last one, from a CVS update of five minutes ago or so:
+> 
+> gt_wkt_srs.obj : error LNK2001: unresolved external symbol "public: char
+> const * __thiscall OGRSpatialReference::GetAuthorityCode(char const *)"
+> (?GetAuthorityCode@OGRSpatialReference@@QAEPBDPBD@Z)
+> gt_wkt_srs.obj : error LNK2001: unresolved external symbol "public: char
+> const * __thiscall OGRSpatialReference::GetAuthorityName(char const *)"
+> (?GetAuthorityName@OGRSpatialReference@@QAEPBDPBD@Z)
+> gdal11.dll : fatal error LNK1120: 2 unresolved externals
+> 
+> And oh, how do I do a "make clean" under Windows 2000? To build gdal11.dll,
+> I just run submake.bat.
+
+Vladimir,
+
+This is an issue of a method signature changing.  In general I don't make
+the object files depend on the include files, so stuff doesn't properly get
+recompiled when an include file changes.  I do it this way to avoid alot
+of unnecessary recompiling for minor include file changes, but it means
+you have to do the "make clean" yourself.
+
+The submake.bat is not intended to be used by people ... it is intended to
+make it easier for the makefile.vc's in some directories (like gdal/frmts)
+to invoke submakes cleanly with good error handling.
+
+People should generally invoke make with a command like:
+
+nmake /f makefile.vc
+
+or
+
+nmake /f makefile.vc clean
+
+or
+
+nmake /f makefile.vc install
+
+in the main gdal directory.  It is sort of amusing that the submake.bat
+works as well as it does.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Wed Dec 11 15:20:10 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] JPEG Patent and GDAL
+Message-ID: <3DF79DFA.2000402@pobox.com>
+
+Folks,
+
+A client of mine that incorporates GDAL in its software products has
+received a letter from lawyers representing a firm claiming to hold
+patents which use of the JPEG format infringes.  While I doubt that the
+claims have merit in law, my client is taking the prudent step of removing
+JPEG support from their products.   Others may wish to do the same.
+
+Pursuiant to that I have verified that GDAL can be easily built with the
+configure option "--without-jpeg" to ensure that the JPEG software is not
+included.  This also automatically removes JPEG support from the libtiff
+component *if* you are using the internal version of libtiff.  If you want
+to ensure this the case use "--with-libtiff=internal" when configuring.
+
+On Windows, I added the JPEG_SUPPORTED macro in the nmake.opt file.  Comment
+this line out to disable JPEG support in a build.
+
+I will continue to distribute OpenEV builds, and other GDAL builds with
+JPEG support for the time being, but I want to at least make it easy to
+remove the support.
+
+For those wanting more information on the JPEG patent issue, there is some
+material on the http://www.jpeg.org/ web site.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From s.perkins at lanl.gov  Wed Dec 11 15:46:39 2002
+From: s.perkins at lanl.gov (Simon Perkins)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] JPEG Patent and GDAL
+In-Reply-To: <3DF79DFA.2000402@pobox.com>
+References: <3DF79DFA.2000402@pobox.com>
+Message-ID: <1039639599.3998.41.camel@afreet.lanl.gov>
+
+On Wed, 2002-12-11 at 13:20, Frank Warmerdam wrote:
+> A client of mine that incorporates GDAL in its software products has
+> received a letter from lawyers representing a firm claiming to hold
+> patents which use of the JPEG format infringes.  While I doubt that the
+> claims have merit in law, my client is taking the prudent step of removing
+> JPEG support from their products.   Others may wish to do the same.
+
+It's GIF all over again... And a disaster for JPEG. 
+
+Apparently the company concerned, Forgent, was until recently a
+struggling videoconferencing company down in Texas. A year or two ago,
+with busines doing badly, the CEO had the bright idea of trawling their
+patent catalogue for material they could use to claim royalties from
+other companies. They hit paydirt with a patent (which they'd bought a
+few years earlier from another company) which appeared to duplicate some
+JPEG technology, and their entire business is now devoted to trying to
+screw money out of people for patent infrigement. 
+
+It seems entirely evil to wait until a system becomes widely adopted as
+a non-proprietary standard and then suddenly turn up with a piece of
+paper laying claim to it. Unisys did it with GIF and no doubt made a few
+bucks out of it at the same time as they killed the GIF standard. It's
+possible JPEG will go the same way. Anyway, there's an article at:
+
+http://zdnet.com.com/2100-1104-945735.html
+
+And plenty more if you search the web for "jpeg patent".
+
+Gloomily,
+
+Sy
+
+
+
+
+
+From s.perkins at lanl.gov  Wed Dec 11 15:59:56 2002
+From: s.perkins at lanl.gov (Simon Perkins)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] JPEG Patent and GDAL
+In-Reply-To: <3DF79DFA.2000402@pobox.com>
+References: <3DF79DFA.2000402@pobox.com>
+Message-ID: <1039640396.4011.46.camel@afreet.lanl.gov>
+
+On Wed, 2002-12-11 at 13:20, Frank Warmerdam wrote:
+> For those wanting more information on the JPEG patent issue, there is some
+> material on the http://www.jpeg.org/ web site.
+
+P.S. The JPEG committee is apparently trying to collect evidence of
+prior art (at least 1 year prior to the patent date of Octber 1986, I
+think) relating to JPEG compression technologies (discrete cosine
+transforms, etc), which it can use to undermine Fraudulent's patent
+claim. If you know of anything, let them know...
+
+Sy
+
+
+
+From nida at webstar.co.uk  Thu Dec 12 06:21:54 2002
+From: nida at webstar.co.uk (nida Khan)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+Message-ID: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk>
+
+Hi List,
+
+I have recently started using ogr2ogr. It works fine, but I have some confusion and hoping that anyone can shade the light.
+here r the steps I follow.
+
+first I use ogrInfo on ntf file,
+ogrInfo blah.ntf
+1: BL2000_LINK (Line String)
+2: BL2000_POLY (None)
+3: BL2000_COLLECTIONS (None)
+4: FEATURE_CLASSES (None)
+
+ogr2ogr <directory name> blah.ntf  BL2000_LINK 
+
+this generate .shp,.dbf,shx and .prj  files in the directory
+now I use shp2pgsql to create dump file.
+
+confusion comes when I run the ogr2ogr command against a layer with  no geo. type
+it only creates a .dbf and .prj file.
+how do I import these files in postgres? 
+I think these layers contain other features realted to first geo. layer.
+
+Appreciate any input!
+Regards
+Nida.
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/gdal-dev/attachments/20021212/348921e8/attachment.html
+From warmerdam at pobox.com  Thu Dec 12 09:58:15 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Re: GDAL
+In-Reply-To: <3DF88365.5050301@bvv.bayern.de>
+References: <3DF88365.5050301@bvv.bayern.de>
+Message-ID: <3DF8A407.2050301@pobox.com>
+
+Hubert Fr?hlich wrote:
+> Hello Frank,
+...
+> I got an error like
+> 
+> ERROR 4: `out.tif' does not exist in the file system,
+> and is not recognised as a supported dataset name.
+
+Hubert,
+
+Note that the error above about out.tif is not significant.  Before
+creating the output file the script checks to see if it already exists
+by trying to open it.  This message is the report that it failed.
+Ideally I would install an error handler to supress reporting this
+message, but this is not yet convenient to do from Python with the
+GDAL bindings I have implemented so far.
+
+> Traceback (most recent call last):
+>  File "/usr/lib/python2.1/site-packages/gdal_merge.py", line 293, in ?
+>    file_infos[0].band_type, '' )
+>  File "/usr/lib/python2.1/site-packages/gdal.py", line 305, in Create
+>    bands, datatype, options )
+> TypeError: GDALCreate() argument 7 must be list, not string
+
+This is due to a small bug in gdal_merge.py.  You can just remove
+the last argument in the gdal.Create() call.  I have committed this
+fix to CVS.
+
+However, once that is fixed, you will still have the problem that the pseudo
+color table is not copied to the newly created file.  You are working with
+a pseudocolored input, right?
+
+I have added the -pct flag to gdal_merge.py.  The interpretation of this
+is to copy the pseudocolor table from the first input file to the newly
+created output file.  Note that no checking is done to ensure that the
+pseudocolor tables of all input files are compatible.  If they are not,
+the merged results will not be meaningful.
+
+I have attached this improved gdal_merge.py to this email.  Let me know
+how it goes.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+-------------- next part --------------
+#!/usr/bin/env python
+###############################################################################
+# $Id: gdal_merge.py,v 1.5 2002/12/12 14:54:42 warmerda Exp $
+#
+# Project:  InSAR Peppers
+# Purpose:  Module to extract data from many rasters into one output.
+# Author:   Frank Warmerdam, warmerdam@pobox.com
+#
+###############################################################################
+# Copyright (c) 2000, Atlantis Scientific Inc. (www.atlsci.com)
+# 
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Library General Public
+# License as published by the Free Software Foundation; either
+# version 2 of the License, or (at your option) any later version.
+# 
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Library General Public License for more details.
+# 
+# You should have received a copy of the GNU Library General Public
+# License along with this library; if not, write to the
+# Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+# Boston, MA 02111-1307, USA.
+###############################################################################
+# 
+#  $Log: gdal_merge.py,v $
+#  Revision 1.5  2002/12/12 14:54:42  warmerda
+#  added the -pct flag to copy over a pct
+#
+#  Revision 1.4  2002/12/12 14:48:12  warmerda
+#  removed broken options arg to gdal.Create()
+#
+#  Revision 1.3  2002/04/03 21:12:05  warmerda
+#  added -separate flag for Gerald Buckmaster
+#
+#  Revision 1.2  2000/11/29 20:36:18  warmerda
+#  allow output file to be preexisting
+#
+#  Revision 1.1  2000/11/29 20:23:13  warmerda
+#  New
+#
+#
+
+import gdal
+import sys
+
+verbose = 0
+
+# =============================================================================
+def raster_copy( s_fh, s_xoff, s_yoff, s_xsize, s_ysize, s_band_n,
+                 t_fh, t_xoff, t_yoff, t_xsize, t_ysize, t_band_n ):
+
+    if verbose != 0:
+        print 'Copy %d,%d,%d,%d to %d,%d,%d,%d.' \
+              % (s_xoff, s_yoff, s_xsize, s_ysize,
+             t_xoff, t_yoff, t_xsize, t_ysize )
+
+    s_band = s_fh.GetRasterBand( s_band_n )
+    t_band = t_fh.GetRasterBand( t_band_n )
+
+    data = s_band.ReadRaster( s_xoff, s_yoff, s_xsize, s_ysize,
+                              t_xsize, t_ysize, t_band.DataType )
+    t_band.WriteRaster( t_xoff, t_yoff, t_xsize, t_ysize,
+                        data, t_xsize, t_ysize, t_band.DataType )
+        
+
+    return 0
+    
+# =============================================================================
+def names_to_fileinfos( names ):
+    """
+    Translate a list of GDAL filenames, into file_info objects.
+
+    names -- list of valid GDAL dataset names.
+
+    Returns a list of file_info objects.  There may be less file_info objects
+    than names if some of the names could not be opened as GDAL files.
+    """
+    
+    file_infos = []
+    for name in names:
+        fi = file_info()
+        if fi.init_from_name( name ) == 1:
+            file_infos.append( fi )
+
+    return file_infos
+
+# *****************************************************************************
+class file_info:
+    """A class holding information about a GDAL file."""
+
+    def init_from_name(self, filename):
+        """
+        Initialize file_info from filename
+
+        filename -- Name of file to read.
+
+        Returns 1 on success or 0 if the file can't be opened.
+        """
+        fh = gdal.Open( filename )
+        if fh is None:
+            return 0
+
+        self.filename = filename
+        self.bands = fh.RasterCount
+        self.xsize = fh.RasterXSize
+        self.ysize = fh.RasterYSize
+        self.band_type = fh.GetRasterBand(1).DataType
+        self.projection = fh.GetProjection()
+        self.geotransform = fh.GetGeoTransform()
+        self.ulx = self.geotransform[0]
+        self.uly = self.geotransform[3]
+        self.lrx = self.ulx + self.geotransform[1] * self.xsize
+        self.lry = self.uly + self.geotransform[5] * self.ysize
+
+        ct = fh.GetRasterBand(1).GetRasterColorTable()
+        if ct is not None:
+            self.ct = ct.Clone()
+        else:
+            self.ct = None
+
+        return 1
+
+    def report( self ):
+        print 'Filename: '+ self.filename
+        print 'File Size: %dx%dx%d' \
+              % (self.xsize, self.ysize, self.bands)
+        print 'Pixel Size: %f x %f' \
+              % (self.geotransform[1],self.geotransform[5])
+        print 'UL:(%f,%f)   LR:(%f,%f)' \
+              % (self.ulx,self.uly,self.lrx,self.lry)
+
+    def copy_into( self, t_fh, s_band = 1, t_band = 1 ):
+        """
+        Copy this files image into target file.
+
+        This method will compute the overlap area of the file_info objects
+        file, and the target gdal.Dataset object, and copy the image data
+        for the common window area.  It is assumed that the files are in
+        a compatible projection ... no checking or warping is done.  However,
+        if the destination file is a different resolution, or different
+        image pixel type, the appropriate resampling and conversions will
+        be done (using normal GDAL promotion/demotion rules).
+
+        t_fh -- gdal.Dataset object for the file into which some or all
+        of this file may be copied.
+
+        Returns 1 on success (or if nothing needs to be copied), and zero one
+        failure.
+        """
+        t_geotransform = t_fh.GetGeoTransform()
+        t_ulx = t_geotransform[0]
+        t_uly = t_geotransform[3]
+        t_lrx = t_geotransform[0] + t_fh.RasterXSize * t_geotransform[1]
+        t_lry = t_geotransform[3] + t_fh.RasterYSize * t_geotransform[5]
+
+        # figure out intersection region
+        tgw_ulx = max(t_ulx,self.ulx)
+        tgw_uly = min(t_uly,self.uly)
+        tgw_lrx = min(t_lrx,self.lrx)
+        tgw_lry = max(t_lry,self.lry)
+        
+        # do they even intersect?
+        if tgw_ulx >= tgw_lrx or tgw_uly <= tgw_lry:
+            return 1
+
+        # compute target window in pixel coordinates.
+        tw_xoff = int((tgw_ulx - t_geotransform[0]) / t_geotransform[1] + 0.1)
+        tw_yoff = int((tgw_uly - t_geotransform[3]) / t_geotransform[5] + 0.1)
+        tw_xsize = int((tgw_lrx - t_geotransform[0])/t_geotransform[1] + 0.5) \
+                   - tw_xoff
+        tw_ysize = int((tgw_lry - t_geotransform[3])/t_geotransform[5] + 0.5) \
+                   - tw_yoff
+
+        if tw_xsize < 1 or tw_ysize < 1:
+            return 1
+
+        # Compute source window in pixel coordinates.
+        sw_xoff = int((tgw_ulx - self.geotransform[0]) / self.geotransform[1])
+        sw_yoff = int((tgw_uly - self.geotransform[3]) / self.geotransform[5])
+        sw_xsize = int((tgw_lrx - self.geotransform[0]) \
+                       / self.geotransform[1] + 0.5) - sw_xoff
+        sw_ysize = int((tgw_lry - self.geotransform[3]) \
+                       / self.geotransform[5] + 0.5) - sw_yoff
+
+        if sw_xsize < 1 or sw_ysize < 1:
+            return 1
+
+        # Open the source file, and copy the selected region.
+        s_fh = gdal.Open( self.filename )
+        
+        return \
+            raster_copy( s_fh, sw_xoff, sw_yoff, sw_xsize, sw_ysize, s_band,
+                         t_fh, tw_xoff, tw_yoff, tw_xsize, tw_ysize, t_band )
+
+
+# =============================================================================
+def Usage():
+    print 'Usage: gdal_merge.py [-o out_filename] [-f out_format] [-v] [-pct]'
+    print '                     [-ps pixelsize_x pixelsize_y] [-separate]'
+    print '                     [-ul_lr ulx uly lrx lry] input_files'
+    print
+
+# =============================================================================
+#
+# Program mainline.
+#
+
+if __name__ == '__main__':
+
+    names = []
+    format = 'GTiff'
+    out_file = 'out.tif'
+
+    ulx = None
+    psize_x = None
+    separate = 0
+    copy_pct = 0
+
+    # Parse command line arguments.
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+
+        if arg == '-o':
+            i = i + 1
+            out_file = sys.argv[i]
+
+        elif arg == '-v':
+            verbose = 1
+
+        elif arg == '-separate':
+            separate = 1
+
+        elif arg == '-pct':
+            copy_pct = 1
+
+        elif arg == '-f':
+            i = i + 1
+            format = sys.argv[i]
+
+        elif arg == '-ps':
+            psize_x = float(sys.argv[i+1])
+            psize_y = -1 * abs(float(sys.argv[i+1]))
+            i = i + 2
+
+        elif arg == '-ul_lr':
+            ulx = float(sys.argv[i+1])
+            uly = float(sys.argv[i+2])
+            lrx = float(sys.argv[i+3])
+            lry = float(sys.argv[i+4])
+            i = i + 4
+
+        elif arg[:1] == '-':
+            Usage()
+            sys.exit( 1 )
+
+        else:
+            names.append( arg )
+            
+        i = i + 1
+
+    if len(names) == 0:
+        Usage()
+        sys.exit( 1 )
+
+    Driver = gdal.GetDriverByName(format)
+    if Driver is None:
+        print 'Format driver %s not found, pick a supported driver.' % format
+        sys.exit( 1 )
+
+    # Collect information on all the source files.
+    file_infos = names_to_fileinfos( names )
+
+    if ulx is None:
+        ulx = file_infos[0].ulx
+        uly = file_infos[0].uly
+        lrx = file_infos[0].lrx
+        lry = file_infos[0].lry
+        
+        for fi in file_infos:
+            ulx = min(ulx, fi.ulx)
+            uly = max(uly, fi.uly)
+            lrx = max(lrx, fi.lrx)
+            lry = min(lry, fi.lry)
+
+    if psize_x is None:
+        psize_x = file_infos[0].geotransform[1]
+        psize_y = file_infos[0].geotransform[5]
+
+    # Try opening as an existing file.
+    t_fh = gdal.Open( out_file, gdal.GA_ReadOnly )
+    
+    # Create output file if it does not already exist.
+    if t_fh is None:
+        geotransform = [ulx, psize_x, 0, uly, 0, psize_y]
+
+        xsize = int((lrx - ulx) / geotransform[1])
+        ysize = int((lry - uly) / geotransform[5])
+
+        if separate != 0:
+            bands = len(file_infos)
+        else:
+            bands = 1
+
+        t_fh = Driver.Create( out_file, xsize, ysize, bands,
+                              file_infos[0].band_type )
+        t_fh.SetGeoTransform( geotransform )
+
+        if copy_pct:
+            t_fh.GetRasterBand(1).SetRasterColorTable(file_infos[0].ct)
+
+    # Copy data from source files into output file.
+    t_band = 1
+    for fi in file_infos:
+        if verbose != 0:
+            print
+            fi.report()
+
+        if separate == 0 :
+            fi.copy_into( t_fh )
+        else:
+            fi.copy_into( t_fh, 1, t_band )
+            t_band = t_band+1
+            
+    # Force file to be closed.
+    t_fh = None
+From warmerdam at pobox.com  Thu Dec 12 09:39:02 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+In-Reply-To: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk>
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk>
+Message-ID: <3DF89F86.8020703@pobox.com>
+
+nida Khan wrote:
+> Hi List,
+>  
+> I have recently started using ogr2ogr. It works fine, but I have some 
+> confusion and hoping that anyone can shade the light.
+> here r the steps I follow.
+>  
+> first I use ogrInfo on ntf file,
+> ogrInfo blah.ntf
+> 1: BL2000_LINK (Line String)
+> 2: BL2000_POLY (None)
+> 3: BL2000_COLLECTIONS (None)
+> 4: FEATURE_CLASSES (None)
+>  
+> ogr2ogr <directory name> blah.ntf  BL2000_LINK
+>  
+> this generate .shp,.dbf,shx and .prj  files in the directory
+> now I use shp2pgsql to create dump file.
+>  
+> confusion comes when I run the ogr2ogr command against a layer with  no 
+> geo. type
+> it only creates a .dbf and .prj file.
+> how do I import these files in postgres?
+> I think these layers contain other features realted to first geo. layer.
+>  
+
+Nida,
+
+Layers without geometries are represented as just a .dbf file by the shapefile
+writer.  These are just not supported by shp2pgsql, though there might well
+be other .dbf loaders for PostgreSQL available from somewhere.
+
+I should warn you that the UK NTF driver does not assemble the line geometries
+to create polygons or collections.  It just attaches the ids of the geometries
+in question as an attribute on the poly and collection features.  In other
+environments (FME) further processing steps take care of assembling the
+polygons.
+
+However, you can still load the geometry-less layers if you use a build of
+OGR with direct PostGIS support.  For example, the following command will
+load all the layers of HALTON.NTF directly into a PostGIS enabled database
+named 'test'.
+
+eg.
+
+ogr2ogr -update PG:dbname=test HALTON.NTF
+
+To check if you have a PostGIS ogr build you can just type "ogr2ogr"
+to list the support formats.  If you see '-f "PostgreSQL"' the it is
+built-in.
+
+One more caveat.  In testing this case I discovered a couple of bugs in
+OGR's PG driver which I have fixed.  One of those bugs precludes loading
+tables without geometries into PostGIS!  I would suggest you wait for
+a new daily CVS snapshot and work from that.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From nida at webstar.co.uk  Fri Dec 13 11:46:54 2002
+From: nida at webstar.co.uk (nida Khan)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com>
+Message-ID: <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk>
+
+Hi,
+
+first of all thank u very much for your reply...
+
+I've got lated CVS and I tried to load postgres db with that command that
+you suggested.
+
+I get this error
+ogr2ogr -update PG:dbname=test CHESHIRE_COUNTY.NTF
+
+ERROR 1: AddGeometryColumn failed for layer BL2000_LINK, layer creation has
+failed.
+ERROR 1: Terminating translation prematurely after failed
+translation of layer BL2000_LINK
+
+Is it cause its a line geo. or is it a bug?
+I can create a shp file for that layer and import in the db, but not like
+this.
+As the process dies after this error, I'm still unable to load dbf files :(.
+
+Any sugg.
+Kind Regards
+Nida.
+
+
+
+> >
+> > I have recently started using ogr2ogr. It works fine, but I have some
+> > confusion and hoping that anyone can shade the light.
+> > here r the steps I follow.
+> >
+> > first I use ogrInfo on ntf file,
+> > ogrInfo blah.ntf
+> > 1: BL2000_LINK (Line String)
+> > 2: BL2000_POLY (None)
+> > 3: BL2000_COLLECTIONS (None)
+> > 4: FEATURE_CLASSES (None)
+> >
+> > ogr2ogr <directory name> blah.ntf  BL2000_LINK
+> >
+> > this generate .shp,.dbf,shx and .prj  files in the directory
+> > now I use shp2pgsql to create dump file.
+> >
+> > confusion comes when I run the ogr2ogr command against a layer with  no
+> > geo. type
+> > it only creates a .dbf and .prj file.
+> > how do I import these files in postgres?
+> > I think these layers contain other features realted to first geo. layer.
+> >
+>
+> Nida,
+>
+> Layers without geometries are represented as just a .dbf file by the
+shapefile
+> writer.  These are just not supported by shp2pgsql, though there might
+well
+> be other .dbf loaders for PostgreSQL available from somewhere.
+>
+> I should warn you that the UK NTF driver does not assemble the line
+geometries
+> to create polygons or collections.  It just attaches the ids of the
+geometries
+> in question as an attribute on the poly and collection features.  In other
+> environments (FME) further processing steps take care of assembling the
+> polygons.
+>
+> However, you can still load the geometry-less layers if you use a build of
+> OGR with direct PostGIS support.  For example, the following command will
+> load all the layers of HALTON.NTF directly into a PostGIS enabled database
+> named 'test'.
+>
+> eg.
+>
+> ogr2ogr -update PG:dbname=test HALTON.NTF
+>
+> To check if you have a PostGIS ogr build you can just type "ogr2ogr"
+> to list the support formats.  If you see '-f "PostgreSQL"' the it is
+> built-in.
+>
+> One more caveat.  In testing this case I discovered a couple of bugs in
+> OGR's PG driver which I have fixed.  One of those bugs precludes loading
+> tables without geometries into PostGIS!  I would suggest you wait for
+> a new daily CVS snapshot and work from that.
+>
+> Best regards,
+>
+> --
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+>
+> _______________________________________________
+> Gdal-dev mailing list
+> Gdal-dev@remotesensing.org
+> http://remotesensing.org/mailman/listinfo/gdal-dev
+
+
+From warmerdam at pobox.com  Fri Dec 13 12:00:24 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+In-Reply-To: <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk>
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk>
+Message-ID: <3DFA1228.4050901@pobox.com>
+
+nida Khan wrote:
+> Hi,
+> 
+> first of all thank u very much for your reply...
+> 
+> I've got lated CVS and I tried to load postgres db with that command that
+> you suggested.
+> 
+> I get this error
+> ogr2ogr -update PG:dbname=test CHESHIRE_COUNTY.NTF
+> 
+> ERROR 1: AddGeometryColumn failed for layer BL2000_LINK, layer creation has
+> failed.
+> ERROR 1: Terminating translation prematurely after failed
+> translation of layer BL2000_LINK
+> 
+> Is it cause its a line geo. or is it a bug?
+> I can create a shp file for that layer and import in the db, but not like
+> this.
+> As the process dies after this error, I'm still unable to load dbf files :(.
+
+Nida,
+
+I believe this is a bug in the postgres AddGeometryColumn() implementation
+that I have run into before with odd table names, such as those in upper case.
+I patched my AddGemetryColumn SQL here, but for you the easiest solutions is
+likely to use the OGR option to "launder" table and attribute fields names
+into forms that don't require quoting in Postgres.
+
+eg.
+
+ogr2ogr -update PG:dbname=test -lco "LAUNDER=YES" CHRESHIRE_COUNTY.NTF
+
+Let me know if this does not work.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From steph at derecho.jpl.nasa.gov  Fri Dec 13 13:23:07 2002
+From: steph at derecho.jpl.nasa.gov (Stephanie Granger)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] steph@derecho.jpl.nasa.gov
+Message-ID: <200212131823.gBDIN7BI020901@etesian.jpl.nasa.gov>
+
+Hello,
+
+I am attempting (unsuccesfully) to install GDAL onto a Sun Sparc 
+running Solaris2.8. I am trying to access HDF and HDF-EOS files via 
+GRASS5.0 and need GDAL to read the HDF (else, I have to write my own 
+interface and I don't want to do that).
+
+I do not have root access on my system and my grass binaries are in
+my home directory, grass libs are in my local grass5 directory.
+
+I downloaded the GDAL tar ball, unzipped, un-tarred it and executed
+./configure for my system. When I execute gmake, I get the following 
+messages:
+
+gmake[1]: Entering directory `/home/steph/usr/local/gdal/gdal-1.1.7/core'
+c++ -c -I.. -I../port -I../core -I../ogr -Wall -fPIC -O2  -I/home/steph/grass5 
+/home/steph/grass5/include -I/home/steph/grass5 
+/home/steph/grass5/include/include   -I/usr/local/include  
+-DINST_DATA=\"/home/steph/bin/share/gdal\" \
+        gdaldrivermanager.cpp -o gdaldrivermanager.o
+c++: cannot specify -o with -c or -S and multiple compilations
+gmake[1]: *** [gdaldrivermanager.o] Error 1
+gmake[1]: Leaving directory `/home/steph/usr/local/gdal/gdal-1.1.7/core'
+gmake: *** [core-target] Error 2
+
+
+Can someone please help?
+
+Thank you,
+
+Stephanie Granger
+
+
+--------------------------------------------------------------
+Stephanie Granger		Stephanie.Granger@jpl.nasa.gov
+Jet Propulsion Laboratory
+Mail Stop 169-237
+4800 Oak Grove Dr.		Voice 	(818) 354-5683
+Pasadena, CA 91109		FAX	(818) 393-4619
+--------------------------------------------------------------
+
+
+From warmerdam at pobox.com  Fri Dec 13 16:32:44 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] steph@derecho.jpl.nasa.gov
+In-Reply-To: <200212131823.gBDIN7BI020901@etesian.jpl.nasa.gov>
+References: <200212131823.gBDIN7BI020901@etesian.jpl.nasa.gov>
+Message-ID: <3DFA51FC.8060708@pobox.com>
+
+Stephanie Granger wrote:
+> Hello,
+> 
+> I am attempting (unsuccesfully) to install GDAL onto a Sun Sparc 
+> running Solaris2.8. I am trying to access HDF and HDF-EOS files via 
+> GRASS5.0 and need GDAL to read the HDF (else, I have to write my own 
+> interface and I don't want to do that).
+> 
+> I do not have root access on my system and my grass binaries are in
+> my home directory, grass libs are in my local grass5 directory.
+> 
+> I downloaded the GDAL tar ball, unzipped, un-tarred it and executed
+> ./configure for my system. When I execute gmake, I get the following 
+> messages:
+> 
+> gmake[1]: Entering directory `/home/steph/usr/local/gdal/gdal-1.1.7/core'
+> c++ -c -I.. -I../port -I../core -I../ogr -Wall -fPIC -O2  -I/home/steph/grass5 
+> /home/steph/grass5/include -I/home/steph/grass5 
+> /home/steph/grass5/include/include   -I/usr/local/include  
+> -DINST_DATA=\"/home/steph/bin/share/gdal\" \
+>         gdaldrivermanager.cpp -o gdaldrivermanager.o
+> c++: cannot specify -o with -c or -S and multiple compilations
+> gmake[1]: *** [gdaldrivermanager.o] Error 1
+> gmake[1]: Leaving directory `/home/steph/usr/local/gdal/gdal-1.1.7/core'
+> gmake: *** [core-target] Error 2
+
+Stephanie,
+
+It looks like the list of include files has been corrupted somewhat as
+the /home/steph/grass5/include doesn't have a -I in front of it.  You could
+fix this by hand in GDALmake.opt ; however, if you want HDF support you will
+need a more recent snapshot of GDAL than 1.1.7.  You can download a nightly
+snapshot from the GDAL web site.
+
+Are you wanting to use r.in.gdal from within GRASS to read HDF files?  If
+so, I would encourage you *not* to build GDAL itself with GRASS support as
+this results in two copies of the grass library getting linked into r.in.gdal.
+You will need to download and build the HDF libraries before building an HDF
+enabled GDAL.  See the HDF format page (or perhaps the build page?) for more
+information.
+
+Good luck,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Fri Dec 13 17:12:53 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] gdalwarp
+Message-ID: <3DFA5B65.1010507@pobox.com>
+
+Folks,
+
+As a spinoff of a contract with i-cubed I have implemented a simple image
+reprojection and warping utility called "gdalwarp".  It currently has
+the following limitations:
+
+  o Only 8 bit data is can be warped.
+  o The entire source image is held in memory.
+  o Only nearest neighbour resampling is available.
+
+However, the warping functions are reasonable well done.  The program
+can reproject to any support projection, and can also apply GCPs stored
+with the image if the image is "raw" with control information.   For
+instance, an eight bit spot scene stored in GeoTIFF with control points
+mapping the corners to lat/long could be warped to a UTM projection
+with a command like this:
+
+gdalwarp -t_srs '+proj=utm +zone=11 +datum=WGS84' raw_spot.tif utm11.tif
+
+The coordinate systems that can be passed are anything supported by the
+OGRSpatialReference.SetFromUserInput() call, which includes EPSG PCS and
+GCSes (ie. EPSG:4296), PROJ.4 declarations (as above), or the name of a
+.prf file containing well known text.
+
+The polynomial models generated from GCPs are currently only up to 3rd
+order, and are not terrible stable at 3rd order.  Andrey and I are working
+on that.  Second order is nice and safe.  You can set the extents and
+resolution of the output file, use an existing output file (mosaic into it)
+or let gdalwarp create an output file with approximately the correct region
+and similar resolution to the source image.
+
+The usage message looks like this:
+
+Usage: gdalwarp [--version] [--formats]
+     [-s_srs srs_def] [-t_srs srs_def] [-order n] [-et err_threshold]
+     [-te xmin ymin xmax ymax] [-tr xres yres] [-ts width height]
+     [-of format] [-co "NAME=VALUE"]* srcfile dstfile
+
+I will try to ensure gdalwarp makes it into future OpenEV_FW binary releases.
+
+However, I am not spending too much time documenting gdalwarp as it stands,
+and I may have another contract soon to extend the resampling engine to
+support:
+  o caching of input ... support input images much larger than can be held
+    in memory.
+  o several resampling kernels.
+  o support all data types.
+
+The transformation functions (using GCPs, reprojection, affine geotransforms
+and approximated transforms) are found in gdal/alg, and I intend this to be
+the "standard" model for coordinate transformations in GDAL.  Even the
+improved image warping work would continue to build on these.  Anyone doing
+"geometric" work with GDAL might want to review them.
+
+Finally, I would like to thank i-cubed (www.i3.com) for supporting this work.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From daviddisco at yahoo.com  Sun Dec 15 23:27:44 2002
+From: daviddisco at yahoo.com (David E. Knight)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Radians as units in OGRSpatialReference and OGRProj4CT
+Message-ID: <20021216042744.52269.qmail@web41010.mail.yahoo.com>
+
+
+Hello, I have built a GIS sytem in which I use radians as my unit of measurement. To serve that purpose I created a OGRSpatialReference to represent a radian based projection.  Here is the code that I use...
+////begin code snippet////
+ 
+char* strWkt="GEOGCS[\"MY RADIAN WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563,AUTHORITY[\"EPSG\",7030]],TOWGS84[0,0,0,0,0,0,0],AUTHORITY[\"EPSG\",6326]],PRIMEM[\"Greenwich\",0,AUTHORITY[\"EPSG\",8901]],UNIT[\"radian\",1.0],AXIS[\"Lat\",NORTH],AXIS[\"Long\",EAST],AUTHORITY[\"EPSG\",4326]]";
+  
+OGRSpatialReference myProjection;
+myProjection.importFromWkt(&strWkt);
+////end code snippet////
+Notice that my Unit node looks like this ...
+UNIT[\"radian\",1.0]
+My question: is this a correct use of the wkt string?  
+If the answer is no than please ignore the rest of this posting.  If the answer is yes than there seems to be a bug in the OGRProj4CT class.  OGRProj4CT is the class which handles conversions between projections.  In cases where one of the projections involved in the conversion has a radians based unit the transform method returns faulty results.  Here are the relevant bits of code...
+
+////begin code snippet////
+int OGRProj4CT::Initialize( OGRSpatialReference * poSourceIn,OGRSpatialReference * poTargetIn )
+{
+ poSRSSource = poSourceIn->Clone();
+ poSRSTarget = poTargetIn->Clone();
+ bSourceLatLong = poSRSSource->IsGeographic();
+ bTargetLatLong = poSRSTarget->IsGeographic();
+////end code snippet////
+////begin code snippet////
+int OGRProj4CT::Transform( int nCount, double *x, double *y, double *z )
+{
+    int   err, i;
+
+    if( bSourceLatLong )
+    {
+        for( i = 0; i < nCount; i++ )
+        {
+            x[i] *= DEG_TO_RAD;
+            y[i] *= DEG_TO_RAD;
+        }
+    }
+//transform code snipped out//////
+if( bTargetLatLong )
+    {
+        for( i = 0; i < nCount; i++ )
+        {
+            x[i] *= RAD_TO_DEG;
+            y[i] *= RAD_TO_DEG;
+        }
+    }
+
+////end code snippet////
+As you can see the flags bSourceLatLong , bTargetLatLong  turn on conversion between radians and degrees.  The problem is that no check is made to ascertain that the unit really is degrees.  In my local codebase I have made and used the following change successfully.
+
+////begin code snippet////
+int OGRProj4CT::Initialize( OGRSpatialReference * poSourceIn,OGRSpatialReference * poTargetIn )
+{
+ poSRSSource = poSourceIn->Clone();
+ poSRSTarget = poTargetIn->Clone();
+ bSourceLatLong=FALSE;
+ bTargetLatLong=FALSE;
+ if(poSRSSource->IsGeographic())
+ {
+  const char * unitType=poSRSSource->GetAttrValue("GEOGCS|UNIT",0);
+  bSourceLatLong=(strstr(unitType,"degree")!=NULL);
+ }
+ if(poSRSTarget->IsGeographic())
+ {
+  const char *unitType=poSRSTarget->GetAttrValue("GEOGCS|UNIT",0);
+  bTargetLatLong=(strstr(unitType,"degree")!=NULL);
+ }
+
+////end code snippet////
+
+My apologies if this topic has been discussed before.  The Yahoo mailing list archives are currently inaccessible. 
+ 
+Thanks,
+David E. Knight 
+david1<*at*>davideknight<*dot*>com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/gdal-dev/attachments/20021215/d455b356/attachment.html
+From nida at webstar.co.uk  Mon Dec 16 05:07:55 2002
+From: nida at webstar.co.uk (nida Khan)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com>
+Message-ID: <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk>
+
+Hi Frank,
+
+Once again thank you for your time!.
+
+I tried as you suggested, but again I'm getting same error...
+For Chreshire ntf file it said it can not open with any drivers
+
+bash-2.05a$ ogr2ogr  PG:dbname=test -lco "LAUNDER=YES" CHRESHIRE_COUNTY.NTF
+FAILURE:
+Unable to open datasource `CHRESHIRE_COUNTY.NTF' with the following drivers.
+  -> ESRI Shapefile
+  -> UK .NTF
+  -> SDTS
+  -> TIGER
+  -> IHO S-57 (ENC)
+  -> MapInfo File
+  -> DGN
+  -> GML
+  -> AVCBin
+  -> PostgreSQL
+
+
+so I tried it with another ntf file.
+
+bash-2.05a$ ogr2ogr -update PG:dbname=test -lco "LAUNDER=YES" TQ3281SE.NTF
+ERROR 1: AddGeometryColumn failed for layer LANDLINE99_POINT, layer creation
+has failed.
+ERROR 1: Terminating translation prematurely after failed
+translation of layer LANDLINE99_POINT
+
+bash-2.05a$ ogrinfo TQ3281SE.NTF
+ERROR 4: NTF Driver doesn't support update.
+Had to open data source read-only.
+INFO: Open of `TQ3281SE.NTF'
+using driver `UK .NTF' successful.
+1: LANDLINE99_POINT (Point)
+2: LANDLINE99_LINE (Line String)
+3: LANDLINE99_NAME (Point)
+4: FEATURE_CLASSES (None)
+
+When I do normal ogr2ogr it works fine
+e.g
+ ogr2ogr temp TQ3281SE.NTF
+
+it creates shp files for all the layers in temp directory!
+
+Any idea what might be causing this problem??
+
+Kind Regards
+Nida.
+
+
+
+From warmerdam at pobox.com  Mon Dec 16 09:26:00 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Radians as units in OGRSpatialReference and OGRProj4CT
+In-Reply-To: <20021216042744.52269.qmail@web41010.mail.yahoo.com>
+References: <20021216042744.52269.qmail@web41010.mail.yahoo.com>
+Message-ID: <3DFDE278.7060009@pobox.com>
+
+David E. Knight wrote:
+> Hello, I have built a GIS sytem in which I use radians as my unit of 
+> measurement. To serve that purpose I created a OGRSpatialReference to 
+> represent a radian based projection.  Here is the code that I use...
+
+David,
+
+I have recently (last week) modified OGRProj4CT to properly honour the
+UNITS value on the GEOGCS.  As you have observed it was not previously
+supported.  I would also note that since the weekend I have been working
+on reworking some core assumptions about OGRSpatialReference, and while
+this is ongoing OGR may be unstable.
+
+In particular, it seems I had made some mistakes about the units for the
+PARAMETER[] fields in a PROJCS.  Apparently all the linear values are
+actually supposed to be in the linear units of the PROJCS, and all the
+angular values are supposed to be in the angular units of the GEOGCS.  Also
+any longitude values are relative to the prime meridian, not greenwich.
+
+What this means for you, is that if you set your GEOGCS units to radians,
+you will also need to supply any angular projection parameters in radians.
+However, this upgrade is not yet completely in place so be wary.
+
+There will also be new methods (GetNormProjParm(), and SetNormProjParm())
+on the OGRSpatialReference which allow getting and setting projection
+parameters as if the old assumptions (linear meters, angular degrees
+relative to greenwich) still held.
+
+PS. It is inappropriate to label your "radian" WGS84 GEOGCS as having
+AUTHORITY["EPSG",4326] because you have altered the angular units from
+the EPSG defined coordinate system.  When you include the authority fields
+a consuming application is free to ignore the rest of the definition and
+assume what it knows about 4326 holds for the spatial reference.  It isn't
+likely to affect OGRSpatialReference operations but it isn't correct in
+general.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Mon Dec 16 09:38:09 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+In-Reply-To: <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk>
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com> <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk>
+Message-ID: <3DFDE551.7080502@pobox.com>
+
+nida Khan wrote:
+> I tried as you suggested, but again I'm getting same error...
+> For Chreshire ntf file it said it can not open with any drivers
+> 
+> bash-2.05a$ ogr2ogr  PG:dbname=test -lco "LAUNDER=YES" CHRESHIRE_COUNTY.NTF
+> FAILURE:
+
+This is because the filename was spelled improperly.
+
+> so I tried it with another ntf file.
+> 
+> bash-2.05a$ ogr2ogr -update PG:dbname=test -lco "LAUNDER=YES" TQ3281SE.NTF
+> ERROR 1: AddGeometryColumn failed for layer LANDLINE99_POINT, layer creation
+> has failed.
+> ERROR 1: Terminating translation prematurely after failed
+> translation of layer LANDLINE99_POINT
+> 
+> bash-2.05a$ ogrinfo TQ3281SE.NTF
+> ERROR 4: NTF Driver doesn't support update.
+> Had to open data source read-only.
+> INFO: Open of `TQ3281SE.NTF'
+> using driver `UK .NTF' successful.
+> 1: LANDLINE99_POINT (Point)
+> 2: LANDLINE99_LINE (Line String)
+> 3: LANDLINE99_NAME (Point)
+> 4: FEATURE_CLASSES (None)
+
+OK, it turns out my previous assumptions were wrong.  The LAUNDER flag only
+"launders" the field names, not the layer names.  You have to rename the
+layers yourself:
+
+ogr2ogr -update PG:dbname=test CHESHIRE_COUNTY.NTF \
+          -lco "LAUNDER=YES" -nln bl2000_link BL2000_LINK
+
+you will have to do a separate ogr2ogr command for each layer you want to
+translate.  The "-nln" flag gives a name for the layer in the target
+dataset.
+
+Good luck,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From nida at webstar.co.uk  Tue Dec 17 06:35:57 2002
+From: nida at webstar.co.uk (nida Khan)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com> <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk> <3DFDE551.7080502@pobox.com>
+Message-ID: <016601c2a5c0$7781e2e0$a901a8c0@private.webstar.co.uk>
+
+Great! U r a *.
+
+It works just fine :), once again thank you for your input, I really
+appreciate your help...
+
+There is only one more thing I need to do, I've got more than one ntf file
+all with same layer definition, I want to import all of them in one table.
+
+When I use -append option it says
+ogr2ogr -append PG:dbname=test Unitary_Authority/CAERDYDD_-_CARDIFF.NTF -lco
+"LAUNDER=YES" -nln wrecsam_collections BL2000_COLLECTIONS
+ERROR 1: Failed to create directory PG:dbname=test
+for shapefile datastore.
+
+and when I use -update
+
+ogr2ogr -update PG:dbname=test Unitary_Authority/CAERDYDD_-_CARDIFF.NTF -lco
+"LAUNDER=YES" -nln wrecsam_collections BL2000_COLLECTIONS
+ERROR 1: Layer wrecsam_collections already exists, CreateLayer failed.
+Use the layer creation option OVERWRITE=YES to replace it.
+ERROR 1: Terminating translation prematurely after failed
+translation of layer BL2000_COLLECTIONS
+
+I dont want to overwrite the layer...
+
+Any idea?
+
+Kind Regards
+Nida.
+
+
+
+> nida Khan wrote:
+> > I tried as you suggested, but again I'm getting same error...
+> > For Chreshire ntf file it said it can not open with any drivers
+> >
+> > bash-2.05a$ ogr2ogr  PG:dbname=test -lco "LAUNDER=YES"
+CHRESHIRE_COUNTY.NTF
+> > FAILURE:
+>
+> This is because the filename was spelled improperly.
+>
+> > so I tried it with another ntf file.
+> >
+> > bash-2.05a$ ogr2ogr -update PG:dbname=test -lco "LAUNDER=YES"
+TQ3281SE.NTF
+> > ERROR 1: AddGeometryColumn failed for layer LANDLINE99_POINT, layer
+creation
+> > has failed.
+> > ERROR 1: Terminating translation prematurely after failed
+> > translation of layer LANDLINE99_POINT
+> >
+> > bash-2.05a$ ogrinfo TQ3281SE.NTF
+> > ERROR 4: NTF Driver doesn't support update.
+> > Had to open data source read-only.
+> > INFO: Open of `TQ3281SE.NTF'
+> > using driver `UK .NTF' successful.
+> > 1: LANDLINE99_POINT (Point)
+> > 2: LANDLINE99_LINE (Line String)
+> > 3: LANDLINE99_NAME (Point)
+> > 4: FEATURE_CLASSES (None)
+>
+> OK, it turns out my previous assumptions were wrong.  The LAUNDER flag
+only
+> "launders" the field names, not the layer names.  You have to rename the
+> layers yourself:
+>
+> ogr2ogr -update PG:dbname=test CHESHIRE_COUNTY.NTF \
+>           -lco "LAUNDER=YES" -nln bl2000_link BL2000_LINK
+>
+> you will have to do a separate ogr2ogr command for each layer you want to
+> translate.  The "-nln" flag gives a name for the layer in the target
+> dataset.
+>
+> Good luck,
+>
+> --
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+>
+> _______________________________________________
+> Gdal-dev mailing list
+> Gdal-dev@remotesensing.org
+> http://remotesensing.org/mailman/listinfo/gdal-dev
+
+
+From warmerdam at pobox.com  Tue Dec 17 08:59:25 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+In-Reply-To: <016601c2a5c0$7781e2e0$a901a8c0@private.webstar.co.uk>
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com> <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk> <3DFDE551.7080502@pobox.com> <016601c2a5c0$7781e2e0$a901a8c0@private.webstar.co.uk>
+Message-ID: <3DFF2DBD.9090206@pobox.com>
+
+nida Khan wrote:
+> There is only one more thing I need to do, I've got more than one ntf file
+> all with same layer definition, I want to import all of them in one table.
+
+Nida,
+
+Use -update and -append.  The -update means open the datastore in update
+mode, and means the datastore type is detected from the datastore name
+(identified as PostGIS by the PG: prefix).  The -append implies
+that a layer should be appended to instead of created from scratch.
+
+However, the shorter approach to what you want is to just dump all the
+NTF files you want to load into one directory (with nothing else) and
+use the directory name as the input filename.  The NTF driver (and also
+the TIGER driver) will treat a whole directory full of files as a single
+seamless layer.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From nida at webstar.co.uk  Tue Dec 17 11:39:36 2002
+From: nida at webstar.co.uk (nida Khan)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com> <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk> <3DFDE551.7080502@pobox.com> <016601c2a5c0$7781e2e0$a901a8c0@private.webstar.co.uk> <3DFF2DBD.9090206@pobox.com>
+Message-ID: <028901c2a5ea$e2bf18a0$a901a8c0@private.webstar.co.uk>
+
+good idea! it works wonders! :).
+
+I was able to import  all the files in the postgres, in that process I found
+a weired thing though.
+
+First time when I import into postgres it works fine, after that I drop the
+table and asso. seq. and repeat the process, this time it fails with this
+error
+
+ogr2ogr -update PG:dbname=test temp/ -lco "LAUNDER=YES" -nln trynewlayer
+BL2000_LINK
+ERROR 1: AddGeometryColumn failed for layer trynewlayer, layer creation has
+failed.
+ERROR 1: Terminating translation prematurely after failed
+translation of layer BL2000_LINK
+
+now if I change the "layer name" from "trynewlayer" to "anotherlayer" it
+works!!!!!!!!
+
+I wonder what could cause this problem, is there some thing I'm doing
+wrong??
+
+Kind Regards
+Nida.
+----- Original Message -----
+From: "Frank Warmerdam" <warmerdam@pobox.com>
+To: <gdal-dev@remotesensing.org>
+Sent: Tuesday, December 17, 2002 1:59 PM
+Subject: Re: [Gdal-dev] ntf to postgres tables
+
+
+> nida Khan wrote:
+> > There is only one more thing I need to do, I've got more than one ntf
+file
+> > all with same layer definition, I want to import all of them in one
+table.
+>
+> Nida,
+>
+> Use -update and -append.  The -update means open the datastore in update
+> mode, and means the datastore type is detected from the datastore name
+> (identified as PostGIS by the PG: prefix).  The -append implies
+> that a layer should be appended to instead of created from scratch.
+>
+> However, the shorter approach to what you want is to just dump all the
+> NTF files you want to load into one directory (with nothing else) and
+> use the directory name as the input filename.  The NTF driver (and also
+> the TIGER driver) will treat a whole directory full of files as a single
+> seamless layer.
+>
+> Best regards,
+>
+> --
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+>
+> _______________________________________________
+> Gdal-dev mailing list
+> Gdal-dev@remotesensing.org
+> http://remotesensing.org/mailman/listinfo/gdal-dev
+
+
+From warmerdam at pobox.com  Tue Dec 17 12:06:55 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+In-Reply-To: <028901c2a5ea$e2bf18a0$a901a8c0@private.webstar.co.uk>
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com> <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk> <3DFDE551.7080502@pobox.com> <016601c2a5c0$7781e2e0$a901a8c0@private.webstar.co.uk> <3DFF2DBD.9090206@pobox.com> <028901c2a5ea$e2bf18a0$a901a8c0@private.webstar.co.uk>
+Message-ID: <3DFF59AF.7090509@pobox.com>
+
+nida Khan wrote:
+> good idea! it works wonders! :).
+> 
+> I was able to import  all the files in the postgres, in that process I found
+> a weired thing though.
+> 
+> First time when I import into postgres it works fine, after that I drop the
+> table and asso. seq. and repeat the process, this time it fails with this
+> error
+
+Nida,
+
+I believe the problem is that though you dropped the table, the table still
+appeared in the geometry_columns metadata table and thus an attempt to add it
+again with the same name failed.  If you read the SQL docs you will see
+a DropGeometryColumn() function or something similar you can invoke to
+clean a value out of the geometry_columns table.
+
+Instead of dropping the table yourself, you can use the "OVERWRITE=YES" layer
+creation option, and ogr2ogr will take care of getting rid of all aspects of
+the old layer itself.
+
+Best regard,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From bfraser at geoanalytic.com  Tue Dec 17 12:50:20 2002
+From: bfraser at geoanalytic.com (Brent Fraser)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] re: gdalwarp
+Message-ID: <31e901c2a5f4$c4ae3670$020002c0@SHARK>
+
+Frank,
+
+  I'm interested in gdalwarp.  Is it checked into CVS yet?  I see gdalsimplewarp.cpp is in the alg directory.  Is that the same thing?
+
+Thanks!
+Brent Fraser
+GeoAnalytic Inc.
+Tel:(403) 213-2700
+bfraser@geoanalytic.com
+www.geoanalytic.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/gdal-dev/attachments/20021217/8aaec020/attachment.html
+From warmerdam at pobox.com  Tue Dec 17 12:56:15 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] re: gdalwarp
+In-Reply-To: <31e901c2a5f4$c4ae3670$020002c0@SHARK>
+References: <31e901c2a5f4$c4ae3670$020002c0@SHARK>
+Message-ID: <3DFF653F.7060204@pobox.com>
+
+Brent Fraser wrote:
+> Frank,
+>  
+>   I'm interested in gdalwarp.  Is it checked into CVS yet?  I see 
+> gdalsimplewarp.cpp is in the alg directory.  Is that the same thing?
+
+Brent,
+
+The gdalwarp commandline application is in gdal/apps.  It calls
+gdalsimplewarp.cpp.  Yes, everything is committed to CVS.  A clean build
+should produce a working gdalwarp.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From Allison at DropInWebTools.com  Tue Dec 17 17:46:24 2002
+From: Allison at DropInWebTools.com (Daily Riddle)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] Help Support The Arts - Please Pass This On.
+Message-ID: <20021217224624.29891.qmail@domo.phpwebhosting.com>
+
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/gdal-dev/attachments/20021217/2242c3b5/attachment.html
+From nida at webstar.co.uk  Wed Dec 18 09:20:39 2002
+From: nida at webstar.co.uk (nida Khan)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] ntf to postgres tables
+References: <011801c2a1d0$ad445000$a901a8c0@private.webstar.co.uk> <3DF89F86.8020703@pobox.com> <021101c2a2c7$3e58e500$a901a8c0@private.webstar.co.uk> <3DFA1228.4050901@pobox.com> <013201c2a4eb$0151c0c0$a901a8c0@private.webstar.co.uk> <3DFDE551.7080502@pobox.com> <016601c2a5c0$7781e2e0$a901a8c0@private.webstar.co.uk> <3DFF2DBD.9090206@pobox.com> <028901c2a5ea$e2bf18a0$a901a8c0@private.webstar.co.uk> <3DFF59AF.7090509@pobox.com>
+Message-ID: <023301c2a6a0$a44bbb80$a901a8c0@private.webstar.co.uk>
+
+Frank,
+
+Thank you so much for your help, I really appreciate it :).
+
+you r a star of this list!
+
+kind Regards
+Nida
+xx
+
+----- Original Message -----
+From: "Frank Warmerdam" <warmerdam@pobox.com>
+To: <gdal-dev@remotesensing.org>
+Sent: Tuesday, December 17, 2002 5:06 PM
+Subject: Re: [Gdal-dev] ntf to postgres tables
+
+
+> nida Khan wrote:
+> > good idea! it works wonders! :).
+> >
+> > I was able to import  all the files in the postgres, in that process I
+found
+> > a weired thing though.
+> >
+> > First time when I import into postgres it works fine, after that I drop
+the
+> > table and asso. seq. and repeat the process, this time it fails with
+this
+> > error
+>
+> Nida,
+>
+> I believe the problem is that though you dropped the table, the table
+still
+> appeared in the geometry_columns metadata table and thus an attempt to add
+it
+> again with the same name failed.  If you read the SQL docs you will see
+> a DropGeometryColumn() function or something similar you can invoke to
+> clean a value out of the geometry_columns table.
+>
+> Instead of dropping the table yourself, you can use the "OVERWRITE=YES"
+layer
+> creation option, and ogr2ogr will take care of getting rid of all aspects
+of
+> the old layer itself.
+>
+> Best regard,
+>
+> --
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+>
+> _______________________________________________
+> Gdal-dev mailing list
+> Gdal-dev@remotesensing.org
+> http://remotesensing.org/mailman/listinfo/gdal-dev
+
+
+From mcoletti at lychnobite.org  Wed Dec 18 13:58:53 2002
+From: mcoletti at lychnobite.org (Mark Coletti)
+Date: Wed Nov 21 11:48:45 2007
+Subject: [Gdal-dev] bjam files for building GDAL
+Message-ID: <200212181858.gBIIwrX73243@laputa.lychnobite.org>
+
+I've attached a tar ball containing files for building GDAL using
+bjam.  bjam executable and source distributions can be found at:
+
+http://www.boost.org/tools/build/index.html#Jam
+
+You will also need to have the Boost C++ library installed since it
+contains bootstrap files needed by bjam.
+
+I'm using bjam for my other C++ projects and find it easier to build
+consistent VC++ binaries with it.  (That, and I can go back to my
+familiar emacs/command-line prompt development environment instead of
+being chained to an IDE.)  It also allegedly does faster and more
+complete dependency checking than regular makes.
+
+From warmerdam at pobox.com  Sat Dec 21 15:30:34 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:46 2007
+Subject: [Gdal-dev] GDAL/OGR 1.1.8 Released
+Message-ID: <3E04CF6A.1060708@pobox.com>
+
+Folks,
+
+It has been nearly 9 months since the last official GDAL release, so I
+have decided to finally package up a new cut.  Please try out GDAL 1.1.8 and
+let me know what problems you encounter.
+
+   ftp://ftp.remotesensing.org/gdal/gdal-1.1.8.tar.gz
+   ftp://ftp.remotesensing.org/gdal/gdal118.zip
+
+I have included the NEWS section since the 1.1.7 release.  I would note a
+few flaws in this release:
+  o Various bugs remaining in Bugzilla, check them if you want details.
+  o I have done a huge amount of work on making the OGRSpatialReference
+    work properly for EPSG 6.2.2, GEOGCS'es with odd units (not degrees), and
+    supporting prime meridians but I am still not confident of some of the
+    prime meridian and odd units stuff.
+  o I have not upgraded the shared library naming like I promised, but I do
+    plan to do so! .... some time.
+  o You pretty much have to use the internal versions of libgeotiff and
+    libtiff for now, as the GeoTIFF driver depends on various fixes and
+    improvements not in publically released versions of these libraries.
+  o There are no RPMs yet for this release.
+
+I plan to do a new OpenEV_FW binary release with GDAL 1.1.8 soon.
+
+PS. I appologise for the wide distribution.  Please *don't* reply to all
+these groups!
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+GDAL 1.1.8 - Overview of Changes
+--------------------------------
+
+  o Implemented HDF 4 read/write support. This includes HDF EOS reading.
+
+  o Implemented Windows BMP read/write support.
+
+  o Implemented NITF read/write support.
+
+  o Implemented NOAA Polar Orbiter L1B format driver.
+
+  o Implemented EOSAT FAST format driver.
+
+  o Implemented a JasPer based JPEG2000 driver (several limitations).
+
+  o Implemented a Kakadu based JPEG2000/GeoJP2(tm) driver (full featured, but
+    Kakadu is not open source).
+
+  o Implemented new 'gdalwarp' application for projection and GCP based image
+    warping.  See gdal/alg for underlying algorithms.  Currently gdalwarp only
+    supports 8 bit images and holds the whole source image in memory.
+
+  o Implemented write support for ESRI ASCII Grids.
+
+  o Lots of improvements to GeoTIFF driver.  Metadata writing, update of
+    georeferencing, and support for writing PCS codes based on AUTHORITY fields
+    in WKT.
+
+  o Implemented support for uncompressed 1bit data in Erdas Imagine files,
+    as well as generic metadata.
+
+  o Fixed 0xFF compression support in the Arc/Info Binary Grid (AIG) driver.
+
+  o Lots of improvements to BSB drive, including preliminary uncompressed
+    output support, support for reading BSB 3.0 and GEO/NOS.
+
+  o Lots of work on VRT format.
+
+  o ECW: Fixed bug with reading a more than full resultion.
+
+  o Envisat driver now supports AATSR TOA and MERIS data.
+
+  o Fixes for nodata support in GRASS driver.
+
+  o Added the --version and --formats options to many utility programs.
+
+  o gdal_translate:
+     - added -projwin flag to copy a window specified in projection coordinates.
+     - added the -a_srs option to assign a user supplied SRS to output file.
+     - translation with subsetting to any format now support (uses VRT inside).
+
+  o Lots of metadata now attached to driver objects describing their
+    capabilities.
+
+  o Implemented GDALDestroyDriverManager() to ensure full memory cleanup of
+    GDAL related resources.
+
+  o Added a 'devinstall' target on Windows to support easy installation of
+    include files and stub libraries on Windows.  Also many other improvements
+    to Windows build.  Most options can be easily turned on and off from the
+    nmake.opt file now.
+
+
+OGR 1.1.8 - Overview of Changes
+-------------------------------
+
+  o Implemented support for writing 2D DGN files.   Added support for MSLINK
+    and Text values available as attributes.
+
+  o Implemented FMEObjects based read driver.
+
+  o Implemented ExecuteSQL() method on OGRDataSource.  Generic code supports
+    fairly full featured SELECT statements.
+
+  o Various fixes to 3D shapefile support.
+
+  o Fixes to binary representation for 2.5D geometries.  Fixed MULTIPOINT WKT
+    geometry representation.
+
+  o Upgraded OGRSpatialReference.importFromEPSG() to use the new EPSG 6.2.2
+    tables instead of the old EPSG 4.x tables.
+
+  o Many fixes to PostGIS driver, including special creation options for
+    "laundering" field names to save tokens.
+
+  o Many improvements to standards conformance of OGRSpatialReference WKT
+    representation to the OGC Coordinate Transformations specification.  Still
+    some quirks related to prime meridians and coordinate systems with units
+    other than degrees.
+
+  o Implemented support for Meridian 2 NTF files in NTF driver.  Better
+    support for GENERIC_CPOLY geometries.
+
+  o  Added support for [NOT] IN, [NOT] LIKE and IS [NOT] NULL predicates in
+    WHERE clauses.
+
+  o Implemented a C API for accessing OGR.
+
+  o Implemented support for building OLE DB Provider with Visual Studio.NET
+    (many changes in ATL templates).  Lots of other OLE DB improvements for
+    better MapGuide compatibility.
+
+
+
+
+
+From slepnev_v at newmail.ru  Mon Dec 23 01:43:35 2002
+From: slepnev_v at newmail.ru (Vladimir Slepnev)
+Date: Wed Nov 21 11:48:46 2007
+Subject: [Gdal-dev] geotiff GCS write problem
+Message-ID: <000101c2aa4e$9efe9290$364560c3@sst>
+
+Hello.
+
+In the current version of GDAL (updated from CVS today), when I attempt to
+write any geographic or projected coordinate system into a GeoTIFF file, it
+is not written at all. Something's gone amiss somewhere. It's been this way
+for about four days now. I'm at a loss.
+
+My last letter about this seems to have disappeared at the moderation stage,
+so I subscribed to gdal-dev to bypass it. Sorry if I'm doing something wrong
+or just being silly, but I didn't manage to fix the problem on my own.
+
+Vladimir Slepnev
+Programmer, RDC ScanEx
+
+
+From warmerdam at pobox.com  Tue Dec 24 00:27:53 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Nov 21 11:48:46 2007
+Subject: [Gdal-dev] geotiff GCS write problem
+In-Reply-To: <000101c2aa4e$9efe9290$364560c3@sst>
+References: <000101c2aa4e$9efe9290$364560c3@sst>
+Message-ID: <20021224052753.GA4074@gdal.velocet.ca>
+
+On Mon, Dec 23, 2002 at 09:43:35AM +0300, Vladimir Slepnev wrote:
+> Hello.
+> 
+> In the current version of GDAL (updated from CVS today), when I attempt to
+> write any geographic or projected coordinate system into a GeoTIFF file, it
+> is not written at all. Something's gone amiss somewhere. It's been this way
+> for about four days now. I'm at a loss.
+> 
+> My last letter about this seems to have disappeared at the moderation stage,
+> so I subscribed to gdal-dev to bypass it. Sorry if I'm doing something wrong
+> or just being silly, but I didn't manage to fix the problem on my own.
+
+Vladimir, 
+
+I just tried copying an existing geotiff file (utm.tif from the OpenEV_FW
+distribution) with gdal_translate and it seemed to work fine.  Could you
+be more specific about what happens and how your GDAL is built?  In particular,
+are you building with the internal libtiff and libgeotiff? 
+
+PS. I am off at my parents farm for a few days, so my responses will be less
+than timely.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+

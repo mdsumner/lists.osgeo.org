@@ -1,0 +1,2882 @@
+From me at komzpa.net  Sat Dec  1 02:33:49 2018
+From: me at komzpa.net (=?UTF-8?Q?Darafei_=22Kom=D1=8Fpa=22_Praliaskouski?=)
+Date: Sat, 1 Dec 2018 13:33:49 +0300
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAK2ens0fXYcSVrSmOTiP1X_Fnmzd1pkh1cWV2PbQob+DuUA2CQ@mail.gmail.com>
+References: <CAEC-EqC8iZQ0JuRQqy8yHF5wJHpD6vRKNH545-cX87SyEfS9-A@mail.gmail.com>
+ <CAK2ens0fXYcSVrSmOTiP1X_Fnmzd1pkh1cWV2PbQob+DuUA2CQ@mail.gmail.com>
+Message-ID: <CAC8Q8tLi_=_ZFOrWMCQ+LRgDzwzd1cA_+cAvOt+QOc2Fh12iEg@mail.gmail.com>
+
+This is interesting.
+
+In PostGIS 2.5 I changed ST_Subdivide to accommodate similar cases. The
+splits it's going to produce is a bunch of triangles on the edge and a
+bunch of box-shaped geometries in the meat of polygon. Putting these in a
+tree (new year, boxes in the tree) is probably going to help perform
+several smaller overlays faster.
+
+What are the properties that help in such a split, and what are the ones
+that don't? For point-in-polygon it's definitely better to have large
+squares and get the outer void defined by the shape of the tree and not the
+shape of parts. Will another kind of algorithm for splitting in some
+predefined dimension help? Like, "if you see shape going up and then down,
+it's a good split point and it's more preferred than one close to center."
+
+We can probably optimize further if shape is split into all-convex parts.
+
+
+
+сб, 1 дек. 2018 г. в 00:25, Martin Davis <mtnclimb at gmail.com>:
+
+> Those polygons are a worst-case scenario for MonotoneChains, and they are
+> a sub-optimal case for sweepline as well.  So maybe not surprising you are
+> seeing a n^2 count.
+>
+> There doesn't seem much point in working to optimize such an artificial
+> case, especially if it will impact code complexity or performance for the
+> "average" case.   But it's hard to speculate without a working
+> demonstration of a potential improvement.
+>
+> On Fri, Nov 30, 2018 at 1:13 PM Paul van der Linden <
+> paul.doskabouter at gmail.com> wrote:
+>
+>> Well, the part I'm referring to is the 1. and 2 (Compute
+>> self-intersection nodes for A and B) as far as I understand.
+>> Traced through from
+>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/GeometryGraph.cpp#L393
+>> to
+>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/SimpleMCSweepLineIntersector.cpp#L55
+>> to
+>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/SimpleMCSweepLineIntersector.cpp#L126
+>>
+>> Increased a counter here
+>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/
+>> SimpleMCSweepLineIntersector.cpp#L161 and put a breakpoint here
+>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/SimpleMCSweepLineIntersector.cpp#L166
+>> counter's value at the end of the computeintersections was n*n, and
+>> breakpoint never hit, so a lot of checks were done without any useful work.
+>>
+>> Not really sure how "representative" my polygons are, but they are
+>> squares with zig-zag boundaries
+>> /\/\/\/\/\/\/\/\
+>> \              /
+>> /              \
+>> \              /
+>> /              \
+>> \              /
+>> \/\/\/\/\/\/\/
+>>
+>>
+>> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+Darafei Praliaskouski
+Support me: http://patreon.com/komzpa
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181201/48145b22/attachment.html>
+
+From paul.doskabouter at gmail.com  Sat Dec  1 08:15:03 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Sat, 1 Dec 2018 17:15:03 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqD7fBDBbUVQ_2ZqD8KcgGs9L+p3NYy=a3y9T9SYjnzW4g@mail.gmail.com>
+
+Ok, you're right. This was just a random example I used to see if I can
+spot some improvements and get a bit of a feel about the algorithms used.
+
+Ultimately I'm trying to figure out if the overlay-ops (especially
+intersection and union) can be reworked to use prepared geometries, but
+will make sure any tests I do involve real-world polygons
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181201/c1bdfecf/attachment.html>
+
+From mtnclimb at gmail.com  Sat Dec  1 14:06:02 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Sat, 1 Dec 2018 14:06:02 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqD7fBDBbUVQ_2ZqD8KcgGs9L+p3NYy=a3y9T9SYjnzW4g@mail.gmail.com>
+References: <CAEC-EqD7fBDBbUVQ_2ZqD8KcgGs9L+p3NYy=a3y9T9SYjnzW4g@mail.gmail.com>
+Message-ID: <CAK2ens0Tq7qfr9Jkzt=G6keDWoE2MAbhU7W1tGpw1maa1BuZ7A@mail.gmail.com>
+
+I've also had some thoughts about being able to "prepare" geometries for
+overlay.  At least for intersection and difference - it's less clear that
+there is much of a use case for union and symdifference.
+
+At the theoretical level certainly the self-noding could be cached, and
+probably a reduction to a set of edges (Monotone Chains) as well.
+
+This will require fairly major surgery to the codebase, however.   Ideally
+the relate code can be split out (and hopefully reworked entirely), to
+reduce the complexity.  There's also snap-rounding lurking in the
+background...
+
+
+On Sat, Dec 1, 2018 at 8:15 AM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> Ok, you're right. This was just a random example I used to see if I can
+> spot some improvements and get a bit of a feel about the algorithms used.
+>
+> Ultimately I'm trying to figure out if the overlay-ops (especially
+> intersection and union) can be reworked to use prepared geometries, but
+> will make sure any tests I do involve real-world polygons
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181201/8e9bd312/attachment.html>
+
+From mtnclimb at gmail.com  Sat Dec  1 14:07:13 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Sat, 1 Dec 2018 14:07:13 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAC8Q8tLi_=_ZFOrWMCQ+LRgDzwzd1cA_+cAvOt+QOc2Fh12iEg@mail.gmail.com>
+References: <CAEC-EqC8iZQ0JuRQqy8yHF5wJHpD6vRKNH545-cX87SyEfS9-A@mail.gmail.com>
+ <CAK2ens0fXYcSVrSmOTiP1X_Fnmzd1pkh1cWV2PbQob+DuUA2CQ@mail.gmail.com>
+ <CAC8Q8tLi_=_ZFOrWMCQ+LRgDzwzd1cA_+cAvOt+QOc2Fh12iEg@mail.gmail.com>
+Message-ID: <CAK2ens002u__Kk60gLY=Ys7KyVREqZwHsoJm_5L5NQHA9iOjWA@mail.gmail.com>
+
+Interesting idea.   Sounds like should be discussed on a different thread,
+perhaps?
+
+On Sat, Dec 1, 2018 at 2:34 AM Darafei "Komяpa" Praliaskouski <me at komzpa.net>
+wrote:
+
+> This is interesting.
+>
+> In PostGIS 2.5 I changed ST_Subdivide to accommodate similar cases. The
+> splits it's going to produce is a bunch of triangles on the edge and a
+> bunch of box-shaped geometries in the meat of polygon. Putting these in a
+> tree (new year, boxes in the tree) is probably going to help perform
+> several smaller overlays faster.
+>
+> What are the properties that help in such a split, and what are the ones
+> that don't? For point-in-polygon it's definitely better to have large
+> squares and get the outer void defined by the shape of the tree and not the
+> shape of parts. Will another kind of algorithm for splitting in some
+> predefined dimension help? Like, "if you see shape going up and then down,
+> it's a good split point and it's more preferred than one close to center."
+>
+> We can probably optimize further if shape is split into all-convex parts.
+>
+>
+>
+> сб, 1 дек. 2018 г. в 00:25, Martin Davis <mtnclimb at gmail.com>:
+>
+>> Those polygons are a worst-case scenario for MonotoneChains, and they are
+>> a sub-optimal case for sweepline as well.  So maybe not surprising you are
+>> seeing a n^2 count.
+>>
+>> There doesn't seem much point in working to optimize such an artificial
+>> case, especially if it will impact code complexity or performance for the
+>> "average" case.   But it's hard to speculate without a working
+>> demonstration of a potential improvement.
+>>
+>> On Fri, Nov 30, 2018 at 1:13 PM Paul van der Linden <
+>> paul.doskabouter at gmail.com> wrote:
+>>
+>>> Well, the part I'm referring to is the 1. and 2 (Compute
+>>> self-intersection nodes for A and B) as far as I understand.
+>>> Traced through from
+>>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/GeometryGraph.cpp#L393
+>>> to
+>>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/SimpleMCSweepLineIntersector.cpp#L55
+>>> to
+>>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/SimpleMCSweepLineIntersector.cpp#L126
+>>>
+>>> Increased a counter here
+>>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/
+>>> SimpleMCSweepLineIntersector.cpp#L161 and put a breakpoint here
+>>> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/index/SimpleMCSweepLineIntersector.cpp#L166
+>>> counter's value at the end of the computeintersections was n*n, and
+>>> breakpoint never hit, so a lot of checks were done without any useful work.
+>>>
+>>> Not really sure how "representative" my polygons are, but they are
+>>> squares with zig-zag boundaries
+>>> /\/\/\/\/\/\/\/\
+>>> \              /
+>>> /              \
+>>> \              /
+>>> /              \
+>>> \              /
+>>> \/\/\/\/\/\/\/
+>>>
+>>>
+>>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> --
+> Darafei Praliaskouski
+> Support me: http://patreon.com/komzpa
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181201/06f735c4/attachment.html>
+
+From paul.doskabouter at gmail.com  Sun Dec  2 08:04:23 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Sun, 2 Dec 2018 17:04:23 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqCTE-26FiAhBhboWz36djHs81+0O8CFRWxknzw4wMnXZw@mail.gmail.com>
+
+Well for the union I meant the unary union. didn't do a deep research on
+possible improvements in that part.
+Currently I'm investigating the intersection of some nasty (over 4000
+holes) polygon (forest) with a polygon consisting of the world and a very
+large (area and nr of points) hole in it (selection).
+For reference: the forest is fully inside the selection
+
+The selection is going through the computeIntersections really fast,
+for the forest polygon the skipped (due to the edgeset being equal)
+iterations in the processoverlap is about 10% of the total iterations (so
+not much to gain there i guess),
+but for the computeIntersections of the combination of those polygons the
+skipped iterations are roughly equal to the total (24200775 out of
+24574097), so there's room for improvement.
+Don't know yet on how big of a part the computeIntersections contributes to
+the total intersection-time is going to be, so that improvement could be
+small after all.
+
+I also noticed that in
+https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/algorithm/locate/SimplePointInAreaLocator.cpp#L49
+and/or
+https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/algorithm/locate/SimplePointInAreaLocator.cpp#L72
+there's no envelope-check done
+
+Another thing: as that pointinpolygon is going to be called from
+https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/EdgeEndStar.cpp#L165
+and findEdgeRingContaining quite a number of times, perhaps its possible to
+prepare the lot and use a IndexedPointInAreaLocator?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181202/18901cfa/attachment.html>
+
+From paul.doskabouter at gmail.com  Mon Dec  3 13:40:10 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Mon, 3 Dec 2018 22:40:10 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqDrsZqQ4X=ww2SSb_iz5LFkF=RpJ6ykST287ZkAFVq1Cg@mail.gmail.com>
+
+Ok, first test with my big polygon and the envelope tests in place is
+giving a 27% speedup!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181203/13f6c983/attachment.html>
+
+From mtnclimb at gmail.com  Mon Dec  3 21:38:38 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Mon, 3 Dec 2018 21:38:38 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqCTE-26FiAhBhboWz36djHs81+0O8CFRWxknzw4wMnXZw@mail.gmail.com>
+References: <CAEC-EqCTE-26FiAhBhboWz36djHs81+0O8CFRWxknzw4wMnXZw@mail.gmail.com>
+Message-ID: <CAK2ens1+2Wvv7YXe2asYmdmRjmXmWur3SEyJFhfzUv3jv+j5AA@mail.gmail.com>
+
+On Sun, Dec 2, 2018 at 8:04 AM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+>
+> I also noticed that in
+> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/algorithm/locate/SimplePointInAreaLocator.cpp#L49
+> and/or
+> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/algorithm/locate/SimplePointInAreaLocator.cpp#L72
+> there's no envelope-check done
+>
+
+Yes, that's a good point.  The original reason for not including an
+envelope check is following the JTS design principal of not doing checks
+which may have already been done externally.  But in this case the check is
+fairly low-cost, and not including it is (obviously) a common source of
+inefficiency.  So it makes sense to add an envelope check into the default
+code path.  (If an unchecked path is needed that could be added as a
+separate method).
+
+>
+> Another thing: as that pointinpolygon is going to be called from
+> https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/geomgraph/EdgeEndStar.cpp#L165
+> and findEdgeRingContaining quite a number of times, perhaps its possible to
+> prepare the lot and use a IndexedPointInAreaLocator?
+>
+> You have found an area in the overlay code which isn't optimized as much
+as it could be.  Although whether it's worth building an index on the holes
+depends on the number of holes and rings that are being checked.  But for
+geometries with many holes it might be advantageous.  Are you going to test
+this?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181203/20ee87ed/attachment.html>
+
+From mtnclimb at gmail.com  Tue Dec  4 10:01:55 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 4 Dec 2018 10:01:55 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqDrsZqQ4X=ww2SSb_iz5LFkF=RpJ6ykST287ZkAFVq1Cg@mail.gmail.com>
+References: <CAEC-EqDrsZqQ4X=ww2SSb_iz5LFkF=RpJ6ykST287ZkAFVq1Cg@mail.gmail.com>
+Message-ID: <CAK2ens2TiAAOO9_+m30A1aGTz6m6iaNtrfMd31-NHEHAZCMQzQ@mail.gmail.com>
+
+@Paul vdL - A nice speed bump, for sure.
+
+Do you have data or at least an image to share of your test geometry?
+
+Do you know which operation the performance improvement appears in?
+Predicate or overlay or both?
+
+
+
+On Mon, Dec 3, 2018 at 1:40 PM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> Ok, first test with my big polygon and the envelope tests in place is
+> giving a 27% speedup!
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/d59cbde0/attachment.html>
+
+From geos-trac at osgeo.org  Tue Dec  4 11:35:35 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 04 Dec 2018 19:35:35 -0000
+Subject: [geos-devel] [GEOS] #944: Multiple memory leaks in
+	SIRtreePointInRing
+Message-ID: <045.8dd6a1fe45c14c696e18095f90ed63f2@osgeo.org>
+
+#944: Multiple memory leaks in SIRtreePointInRing
+------------------------+--------------------------
+ Reporter:  dbaston     |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:
+Component:  Default     |    Version:  master
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ In `SIRtreePointInRing::isInside(const Coordinate& pt)`
+
+ A vector is never freed:
+
+ `vector<void*> *segs=sirTree->query(pt.y);`
+
+ In `SIRtreePointInRing::buildIndex()`
+
+ LineSegments are added to a tree, but are never cleaned up:
+
+
+ {{{
+ for(std::size_t i=1; i<npts; ++i)
+ {
+   if(pts->getAt(i-1)==pts->getAt(i)) continue; // Optimization suggested
+ by MD. [Jon Aquino]
+   LineSegment *seg=new LineSegment(pts->getAt(i-1), pts->getAt(i));
+   sirTree->insert(seg->p0.y, seg->p1.y, seg);
+ }
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/944>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From paul.doskabouter at gmail.com  Tue Dec  4 13:06:35 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Tue, 4 Dec 2018 22:06:35 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqBdHK6++RR4sB+afWC6yoG3DgXs1ytotwPG1dchM4goqg@mail.gmail.com>
+
+Ok, I've created a pull request here:
+https://github.com/libgeos/geos/pull/138
+There's also some remarks for further improvements.
+So the discussion can be done in github or continued here (if so, please
+put me in the cc so that I can properly answer)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/d959cf66/attachment.html>
+
+From paul.doskabouter at gmail.com  Tue Dec  4 13:10:13 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Tue, 4 Dec 2018 22:10:13 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqBAWitAu1pB-K9vSmU1riTPDr44FgqvS-qSwawxe=t46g@mail.gmail.com>
+
+It's in the overlay ops.
+Still impressive that this can be done in just over 10 seconds, and I'm
+sure prepared geometries will help even more!
+Also surprising is that for that st_intersection to run in debug-mode in
+visual studio it never finished within my patience window, and that if run
+from postgres it takes about 50-60 seconds...
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/0f0127a3/attachment.html>
+
+From mtnclimb at gmail.com  Tue Dec  4 13:47:38 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 4 Dec 2018 13:47:38 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqBAWitAu1pB-K9vSmU1riTPDr44FgqvS-qSwawxe=t46g@mail.gmail.com>
+References: <CAEC-EqBAWitAu1pB-K9vSmU1riTPDr44FgqvS-qSwawxe=t46g@mail.gmail.com>
+Message-ID: <CAK2ens3V0z18YSoTevhsxQs-BugsTdV2VTZc9e5Hf1G7pMko9w@mail.gmail.com>
+
+Thanks for the test data.  In my Java environment intersection computes in
+3.8 s  :)    That is definitely one of the gnarlier polygon geometries I've
+seen - even worse than muskeg lakes :)
+
+Also, the covers predicate computes in 1.3 s, so adding that test into the
+path would definitely be beneficial - for this particular case.  This is
+pretty data-specific, though - it depends how many cases in the overall
+computation allow short-circuiting via that test.  Did you try the PostGIS
+query using the combination of predicates and intersection?
+
+So maybe a pre-evaluation covers check is best left as an option to the
+Overlay code, so that intermediate structures can be reused.  In other
+words, provide an optional flag on the Overlay operation which does a
+covers check before computing the full result, utilizing the internal
+segment indexing to perform the check quickly.
+
+And as you say, if this can be prepared it should make an even bigger
+difference.  This requires knowing which side of the operation is the one
+that should be prepared - is this obvious in your data context?
+
+On Tue, Dec 4, 2018 at 1:10 PM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> It's in the overlay ops.
+> Still impressive that this can be done in just over 10 seconds, and I'm
+> sure prepared geometries will help even more!
+> Also surprising is that for that st_intersection to run in debug-mode in
+> visual studio it never finished within my patience window, and that if run
+> from postgres it takes about 50-60 seconds...
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/712339f4/attachment.html>
+
+From mtnclimb at gmail.com  Tue Dec  4 15:40:21 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 4 Dec 2018 15:40:21 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAK2ens3V0z18YSoTevhsxQs-BugsTdV2VTZc9e5Hf1G7pMko9w@mail.gmail.com>
+References: <CAEC-EqBAWitAu1pB-K9vSmU1riTPDr44FgqvS-qSwawxe=t46g@mail.gmail.com>
+ <CAK2ens3V0z18YSoTevhsxQs-BugsTdV2VTZc9e5Hf1G7pMko9w@mail.gmail.com>
+Message-ID: <CAK2ens2YiquZgtSS5AeEfTKxv=we0R5os9Oam8sXuAZnA_=gJQ@mail.gmail.com>
+
+>
+> The other place in the overlay algorithm where point-in-polygon is used is
+> during the polygon-extraction phase [1].  This is to assign the holes in
+> the overlay result to their parent shell.  In this particular test case it
+> might be time-consuming, since all 4262 holes are tested against the
+> original 130,327 vertex parent ring, using a linear scan.  This could be
+> improved by using an index. It will need a new class or a new entry point
+> to IndexedPointInAreaLocator however, since that class currently only
+> accepts Geometry inputs as the target.
+>
+
+@Paul - do you think this is another hotspot?
+
+>
+>
+
+[1]
+https://github.com/libgeos/geos/blob/8bc1ea0f8019bcb83c60126e7883ae428ea7c677/src/operation/overlay/PolygonBuilder.cpp#L352
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/7a258a90/attachment.html>
+
+From mtnclimb at gmail.com  Tue Dec  4 16:29:22 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 4 Dec 2018 16:29:22 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqDrsZqQ4X=ww2SSb_iz5LFkF=RpJ6ykST287ZkAFVq1Cg@mail.gmail.com>
+References: <CAEC-EqDrsZqQ4X=ww2SSb_iz5LFkF=RpJ6ykST287ZkAFVq1Cg@mail.gmail.com>
+Message-ID: <CAK2ens3aD-GwAUc1TEZU8PNZM6oZU42=Lhgi8pBkqb25xprxLg@mail.gmail.com>
+
+It turns out that the SimplePointInAreaLocator envelope check has been in
+place in JTS for quite a while.  Guessed it got missed as a item to port.
+
+Still have to think about whether indexing would improve things.  And I
+don't see right now why there needs to be so many PIP checks at all, since
+the hole assignment is known at the outset in this case.
+
+On Mon, Dec 3, 2018 at 1:40 PM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> Ok, first test with my big polygon and the envelope tests in place is
+> giving a 27% speedup!
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/36d56dc6/attachment.html>
+
+From mtnclimb at gmail.com  Tue Dec  4 17:10:53 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 4 Dec 2018 17:10:53 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAK2ens3aD-GwAUc1TEZU8PNZM6oZU42=Lhgi8pBkqb25xprxLg@mail.gmail.com>
+References: <CAEC-EqDrsZqQ4X=ww2SSb_iz5LFkF=RpJ6ykST287ZkAFVq1Cg@mail.gmail.com>
+ <CAK2ens3aD-GwAUc1TEZU8PNZM6oZU42=Lhgi8pBkqb25xprxLg@mail.gmail.com>
+Message-ID: <CAK2ens3-fktkP+CwDjWvtZXhL4ZRq9qcL-L9VrDASAS5pnzafg@mail.gmail.com>
+
+re why so many PIP checks - actually I don't think there are that many,
+relatively speaking.  There are O(n+m) PIP checks, where n and m are the
+number of rings in the two geometries.  In this case that is about 4300.
+That is a small number relative to the total number of vertices.  And with
+the envelope test each PIP test is pretty fast, so this step probably
+doesn't take a very large percentage of the overall time.  So indexing
+probably won't move the needle much here.
+
+This would be worse for a pathological geometry with the same order of
+magnitude of holes as vertices (e.g. a Sierpinkski carpet [1]).  And would
+be even worse for computing the intersection of two *nested* Sierpinksi
+carpets.    But doubt that happens very often in the real world... :)
+
+[1] https://en.wikipedia.org/wiki/Sierpinski_carpet
+
+On Tue, Dec 4, 2018 at 4:29 PM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> It turns out that the SimplePointInAreaLocator envelope check has been in
+> place in JTS for quite a while.  Guessed it got missed as a item to port.
+>
+> Still have to think about whether indexing would improve things.  And I
+> don't see right now why there needs to be so many PIP checks at all, since
+> the hole assignment is known at the outset in this case.
+>
+> On Mon, Dec 3, 2018 at 1:40 PM Paul van der Linden <
+> paul.doskabouter at gmail.com> wrote:
+>
+>> Ok, first test with my big polygon and the envelope tests in place is
+>> giving a 27% speedup!
+>>
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181204/46f43059/attachment-0001.html>
+
+From paul.doskabouter at gmail.com  Wed Dec  5 09:41:14 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Wed, 5 Dec 2018 18:41:14 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqCEZ1TSS7R5YBvggX3==_anU7qexBQjW0FbvhvqqUSkJg@mail.gmail.com>
+
+Depending a bit on the overhead of creating the index, I would guess it
+would benefit rather quickly if you're going from O(n) to O(logn)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181205/ab370fdf/attachment.html>
+
+From paul.doskabouter at gmail.com  Wed Dec  5 09:43:44 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Wed, 5 Dec 2018 18:43:44 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqDmdu7KTX_=BoaX9mhCLmi3yHsViFFfFAx9EkodDwsfzg@mail.gmail.com>
+
+I do indeed.
+I'll start researching the options soon.
+
+P.S. can you include me in the cc in your replies please?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181205/5e390d1a/attachment.html>
+
+From paul.doskabouter at gmail.com  Wed Dec  5 10:02:46 2018
+From: paul.doskabouter at gmail.com (Paul van der Linden)
+Date: Wed, 5 Dec 2018 19:02:46 +0100
+Subject: [geos-devel] Possible speed improvement for overlay operations
+Message-ID: <CAEC-EqC+VMb8ZNAK_ZgyjFv6R6TPkaRkCTPN5PhmB4O9tRuHtQ@mail.gmail.com>
+
+> Thanks for the test data.  In my Java environment intersection computes in
+> 3.8 s  :)    That is definitely one of the gnarlier polygon geometries
+I've
+> seen - even worse than muskeg lakes :)
+>
+
+Wow 3.8 sec is that the old version or the one with the envelope check?
+Still puzzling why postgres @work, devpc at home and your system differ by
+that much...
+Thought cpu's are more or less comparable these days...
+
+> Also, the covers predicate computes in 1.3 s, so adding that test into the
+> path would definitely be beneficial - for this particular case.  This is
+> pretty data-specific, though - it depends how many cases in the overall
+> computation allow short-circuiting via that test.  Did you try the PostGIS
+> query using the combination of predicates and intersection?
+>
+
+Certainly wouldn't add that if it takes about 30% of the time, and I'm not
+sure if I have the full picture of all the edgecases
+Did try quite some combinations of predicate and intersections. predicares
+took about 40s, intersection about 60
+
+
+> So maybe a pre-evaluation covers check is best left as an option to the
+> Overlay code, so that intermediate structures can be reused.  In other
+> words, provide an optional flag on the Overlay operation which does a
+> covers check before computing the full result, utilizing the internal
+> segment indexing to perform the check quickly.
+>
+> And as you say, if this can be prepared it should make an even bigger
+> difference.  This requires knowing which side of the operation is the one
+> that should be prepared - is this obvious in your data context?
+
+Yes, that's the one covering the world.
+In the mean time, I learnt from the code that in case of overlap there will
+be expensive computations done, so I rewrote (actually: planning to :) ) my
+queries from st_intersection(geo,"world-country") to
+st_difference(geo,"country"). As the "county" is much smaller, a lot of
+stuff can be calculated just based on envelope.
+Did a test, and one of the queries that took over 30 hours was now done in
+18 hours, so that's quite an improvement. Only drawback is that having some
+queries with a st_difference and some with st_intersection isn't helping in
+the clarity of the whole workflow... Added benefit is that with the
+st_difference, I don't get line and point geometries that are on the
+boundary
+
+What would help in this case is probably an idea I posted here:
+https://lists.osgeo.org/pipermail/postgis-users/2018-December/043029.html
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181205/c7eb8ec5/attachment.html>
+
+From mtnclimb at gmail.com  Wed Dec  5 10:35:53 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 5 Dec 2018 10:35:53 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqC+VMb8ZNAK_ZgyjFv6R6TPkaRkCTPN5PhmB4O9tRuHtQ@mail.gmail.com>
+References: <CAEC-EqC+VMb8ZNAK_ZgyjFv6R6TPkaRkCTPN5PhmB4O9tRuHtQ@mail.gmail.com>
+Message-ID: <CAK2ens0N+36hPa4ybPwgY3-5cqQEW1Yg+sDnZpNFfcmBgoo6dw@mail.gmail.com>
+
+On Wed, Dec 5, 2018 at 10:02 AM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> > Thanks for the test data.  In my Java environment intersection computes
+> in
+> > 3.8 s  :)    That is definitely one of the gnarlier polygon geometries
+> I've
+> > seen - even worse than muskeg lakes :)
+> >
+>
+> Wow 3.8 sec is that the old version or the one with the envelope check?
+>
+> Yes.  It turned out that JTS already had the envelope check in place (at
+least for polygon rings - I just added a check at the top-level too, but it
+doesn't make any difference, since there are only a few polygons in this
+case.)
+
+>
+> > Also, the covers predicate computes in 1.3 s, so adding that test into
+> the
+> > path would definitely be beneficial - for this particular case.  This is
+> > pretty data-specific, though - it depends how many cases in the overall
+> > computation allow short-circuiting via that test.  Did you try the
+> PostGIS
+> > query using the combination of predicates and intersection?
+> >
+>
+> Certainly wouldn't add that if it takes about 30% of the time, and I'm not
+> sure if I have the full picture of all the edgecases
+> Did try quite some combinations of predicate and intersections. predicares
+> took about 40s, intersection about 60
+>
+
+Fair enough, if adding predicates doesn't improve the overall computation
+time.
+
+>
+> In the mean time, I learnt from the code that in case of overlap there
+> will be expensive computations done, so I rewrote (actually: planning to :)
+> ) my queries from st_intersection(geo,"world-country") to
+> st_difference(geo,"country"). As the "county" is much smaller, a lot of
+> stuff can be calculated just based on envelope.
+>
+
+Hmmm - is this because st_difference includes an envelope check?  In
+PostGIS or GEOS?
+
+
+> Did a test, and one of the queries that took over 30 hours was now done in
+> 18 hours, so that's quite an improvement. Only drawback is that having some
+> queries with a st_difference and some with st_intersection isn't helping in
+> the clarity of the whole workflow... Added benefit is that with the
+> st_difference, I don't get line and point geometries that are on the
+> boundary
+>
+
+Returning lines and points from area intersections is a design decision
+made in the very first release of JTS.  I always wonder if that was the
+best decision, or whether the default should have been to return only
+geometry of the largest dimension, and provide another method if all are
+required.  Seems like it would be useful to add such a function to PostGIS,
+at least.  (Actually would be nice to be able to specify which dimension(s)
+were of interest, to support all use cases.).
+
+
+> What would help in this case is probably an idea I posted here:
+> https://lists.osgeo.org/pipermail/postgis-users/2018-December/043029.html
+>
+
+I am following that thread.   I'm hoping that it would be possible to
+implement a smarter, caching ST_IntersectionPrepared (or some such name)
+which would allow this very simple query:
+
+select ST_IntersectionPrepared(geomA, geomB) R
+from A join B on A.geom && B.geom
+where R != empty/null
+
+This would include the contains check internally, for maximum performance
+and reuse of intermediate results.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181205/7e825c83/attachment.html>
+
+From mtnclimb at gmail.com  Wed Dec  5 10:49:34 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 5 Dec 2018 10:49:34 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqC+VMb8ZNAK_ZgyjFv6R6TPkaRkCTPN5PhmB4O9tRuHtQ@mail.gmail.com>
+References: <CAEC-EqC+VMb8ZNAK_ZgyjFv6R6TPkaRkCTPN5PhmB4O9tRuHtQ@mail.gmail.com>
+Message-ID: <CAK2ens1sbBAcdeH_oF10RSvW_=+zkS7bqXjxsDWApeRtAbdQ8Q@mail.gmail.com>
+
+On Wed, Dec 5, 2018 at 10:02 AM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> Wow 3.8 sec is that the old version or the one with the envelope check?
+> Still puzzling why postgres @work, devpc at home and your system differ by
+> that much...
+> Thought cpu's are more or less comparable these days...
+>
+> I do have a pretty fast machine.  And in theory (and in my limited
+experience often in practice) the JVM is faster than C code. :)   (My
+understanding this is due to clever JIT  dynamic optimization, and highly
+tuned memory management)
+
+I guess that poses an interesting challenge to see how GEOS can be brought
+up to Java levels of performance.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181205/b28b050b/attachment-0001.html>
+
+From mtnclimb at gmail.com  Wed Dec  5 11:08:08 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 5 Dec 2018 11:08:08 -0800
+Subject: [geos-devel] Possible speed improvement for overlay operations
+In-Reply-To: <CAEC-EqD-smRzAk_rdq7VgBE5jmRBmkED3o1M-4YM8=OZ+ag90w@mail.gmail.com>
+References: <CAEC-EqC+VMb8ZNAK_ZgyjFv6R6TPkaRkCTPN5PhmB4O9tRuHtQ@mail.gmail.com>
+ <CAK2ens0N+36hPa4ybPwgY3-5cqQEW1Yg+sDnZpNFfcmBgoo6dw@mail.gmail.com>
+ <CAEC-EqD-smRzAk_rdq7VgBE5jmRBmkED3o1M-4YM8=OZ+ag90w@mail.gmail.com>
+Message-ID: <CAK2ens3+a70-snsPMjCJmeiMMt_KZZJ3cSZYiw21V0Yr__JcrQ@mail.gmail.com>
+
+(now it's me needing to remind you to cross-post to the list  :)
+
+
+On Wed, Dec 5, 2018 at 10:59 AM Paul van der Linden <
+paul.doskabouter at gmail.com> wrote:
+
+> > Hmmm - is this because st_difference includes an envelope check?  In
+> PostGIS or GEOS?
+>
+> It's because most (just not the ones fully within the hole) of the forests
+> do intersect with "world-hole" and thus trigger the expensive operation of
+> noding, testing self-intersect and whatnot, while the st_difference only
+> triggers that for polygons intersecting with that hole.
+>
+
+So if I understand this, the difference is actually between the "positive"
+of the holes in the "world-hole polygon" and forest polys which intersect
+it?  If so that makes sense.
+
+>
+> And as for getting lines and polygons out of an intersection isn't that
+> bad, just add a st_collectionextract and all will be fine.
+>
+
+Right... maybe that's good enough.  Although there might be a bit of
+performance improvement possible if the overlay ops know what is wanted
+ahead of time.
+
+
+>
+> > select ST_IntersectionPrepared(geomA, geomB) R
+> > from A join B on A.geom && B.geom
+> > where R != empty/null
+>
+> That would indeed be perfect! At least if that doesn't involve calculating
+> st_intersection twice...
+>
+
+Good to know that makes sense.  I'm not sure how the preparation caching
+will work, but am hoping to understand that better soon.  And to have time
+to work on this improvement - which should be a win for a lot of users.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181205/a026e154/attachment.html>
+
+From pramsey at cleverelephant.ca  Thu Dec  6 14:46:33 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 6 Dec 2018 14:46:33 -0800
+Subject: [geos-devel] GeometryPtr or ...
+Message-ID: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+
+std::unique_ptr<Geometry> ?
+
+We've got a mishmash in the code base, what should it be?
+As a learner arriving at the code base, std::unique_ptr<Geometry> would
+have been easier, since then the semantics of the thing are more
+immediately transparent then. After working with it for a while, that's
+less of an issue because I've internalized the fact that GeometryPtr is a
+std::unique_ptr, but still.
+
+The best code styleguide is a consistent code base, so deciding and then
+globally changing makes the most sense, IMO.
+
+P.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181206/cf97ddc8/attachment.html>
+
+From dbaston at gmail.com  Fri Dec  7 06:40:31 2018
+From: dbaston at gmail.com (Daniel Baston)
+Date: Fri, 7 Dec 2018 09:40:31 -0500
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+Message-ID: <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+
+I'd agree; I find that typedefs like GeometryPtr generally obfuscate
+things. Although one can guess, it's not immediately obvious if GeometryPtr
+means Geometry*, unique_ptr<Geometry>, shared_ptr<Geometry>, or something
+else.
+
+Dan
+
+On Thu, Dec 6, 2018 at 5:46 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> std::unique_ptr<Geometry> ?
+>
+> We've got a mishmash in the code base, what should it be?
+> As a learner arriving at the code base, std::unique_ptr<Geometry> would
+> have been easier, since then the semantics of the thing are more
+> immediately transparent then. After working with it for a while, that's
+> less of an issue because I've internalized the fact that GeometryPtr is a
+> std::unique_ptr, but still.
+>
+> The best code styleguide is a consistent code base, so deciding and then
+> globally changing makes the most sense, IMO.
+>
+> P.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/3950e85a/attachment.html>
+
+From mtnclimb at gmail.com  Fri Dec  7 09:08:01 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Fri, 7 Dec 2018 09:08:01 -0800
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+ <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+Message-ID: <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+
+As a counter-argument, it might be better to use the typedef, based on the
+principle of encapsulating implementation decisions.  Usual reasons:
+
+* Reduces comprehension complexity
+* Makes implementation easier to change
+* Indicates that this is an explicit design decision made in the library,
+rather than something decided by individual developers on a case-by-case
+basis
+
+On Fri, Dec 7, 2018 at 6:40 AM Daniel Baston <dbaston at gmail.com> wrote:
+
+> I'd agree; I find that typedefs like GeometryPtr generally obfuscate
+> things. Although one can guess, it's not immediately obvious if GeometryPtr
+> means Geometry*, unique_ptr<Geometry>, shared_ptr<Geometry>, or something
+> else.
+>
+> Dan
+>
+> On Thu, Dec 6, 2018 at 5:46 PM Paul Ramsey <pramsey at cleverelephant.ca>
+> wrote:
+>
+>> std::unique_ptr<Geometry> ?
+>>
+>> We've got a mishmash in the code base, what should it be?
+>> As a learner arriving at the code base, std::unique_ptr<Geometry> would
+>> have been easier, since then the semantics of the thing are more
+>> immediately transparent then. After working with it for a while, that's
+>> less of an issue because I've internalized the fact that GeometryPtr is a
+>> std::unique_ptr, but still.
+>>
+>> The best code styleguide is a consistent code base, so deciding and then
+>> globally changing makes the most sense, IMO.
+>>
+>> P.
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/b3adc360/attachment.html>
+
+From dbaston at gmail.com  Fri Dec  7 09:29:38 2018
+From: dbaston at gmail.com (Daniel Baston)
+Date: Fri, 7 Dec 2018 12:29:38 -0500
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+ <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+ <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+Message-ID: <CA+K_q_p5KDDnALR7X0tY18v11zs+wY--W4cq4OB96EG=cwESsg@mail.gmail.com>
+
+I don't see what it encapsulates, though...it's not as though a GeometryPtr
+is appropriate for all cases where a pointer to a geometry is needed, and a
+user can manipulate a GeometryPtr without knowledge of the underlying type.
+A GeometryPtr is only suitable in a situation where a unique_ptr could be
+used, and a user must understand this to correctly use a GeometryPtr. (They
+would also need to refer to standard library documentation to understand
+what methods are available to a GeometryPtr, and how they are to be used.)
+I guess the typedef would allow us to switch to some other implementation
+of a unique pointer without a user being aware, but given that unique_ptr
+is now in the standard library it's hard to imagine a situation where that
+would happen.
+
+Agree with Paul that consistency is probably the most important thing.
+Crude grepping shows ~700 usages of unique_ptr, ~200 usages of
+Geometry::Ptr, ~100 usages of GeometryPtr, but this misses unqualified uses
+of "Ptr" within classes that inherit from Geometry.
+
+Dan
+
+On Fri, Dec 7, 2018 at 12:08 PM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> As a counter-argument, it might be better to use the typedef, based on the
+> principle of encapsulating implementation decisions.  Usual reasons:
+>
+> * Reduces comprehension complexity
+> * Makes implementation easier to change
+> * Indicates that this is an explicit design decision made in the library,
+> rather than something decided by individual developers on a case-by-case
+> basis
+>
+> On Fri, Dec 7, 2018 at 6:40 AM Daniel Baston <dbaston at gmail.com> wrote:
+>
+>> I'd agree; I find that typedefs like GeometryPtr generally obfuscate
+>> things. Although one can guess, it's not immediately obvious if GeometryPtr
+>> means Geometry*, unique_ptr<Geometry>, shared_ptr<Geometry>, or something
+>> else.
+>>
+>> Dan
+>>
+>> On Thu, Dec 6, 2018 at 5:46 PM Paul Ramsey <pramsey at cleverelephant.ca>
+>> wrote:
+>>
+>>> std::unique_ptr<Geometry> ?
+>>>
+>>> We've got a mishmash in the code base, what should it be?
+>>> As a learner arriving at the code base, std::unique_ptr<Geometry> would
+>>> have been easier, since then the semantics of the thing are more
+>>> immediately transparent then. After working with it for a while, that's
+>>> less of an issue because I've internalized the fact that GeometryPtr is a
+>>> std::unique_ptr, but still.
+>>>
+>>> The best code styleguide is a consistent code base, so deciding and then
+>>> globally changing makes the most sense, IMO.
+>>>
+>>> P.
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/c1c0e03e/attachment.html>
+
+From mtnclimb at gmail.com  Fri Dec  7 10:00:33 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Fri, 7 Dec 2018 10:00:33 -0800
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <CA+K_q_p5KDDnALR7X0tY18v11zs+wY--W4cq4OB96EG=cwESsg@mail.gmail.com>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+ <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+ <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+ <CA+K_q_p5KDDnALR7X0tY18v11zs+wY--W4cq4OB96EG=cwESsg@mail.gmail.com>
+Message-ID: <CAK2ens24KMU=RFSderNAWqGNdkVbkDQ2N0Za9tX61vKxz+GzOQ@mail.gmail.com>
+
+Well, I don't have a strong preference on this (yet).  I do like code
+brevity, though.  So would probably opt for using GeomPtr instead of
+"GeometryPtr".
+
+And yes, users do have to understand what they are doing.  And should not
+run with scissors. :)  I thought perhaps defining a library typedef would
+mean that user can just follow a simpler pattern without feeling they need
+to grok everything about std:unique_ptr.
+
+On Fri, Dec 7, 2018 at 9:29 AM Daniel Baston <dbaston at gmail.com> wrote:
+
+> I don't see what it encapsulates, though...it's not as though a
+> GeometryPtr is appropriate for all cases where a pointer to a geometry is
+> needed, and a user can manipulate a GeometryPtr without knowledge of the
+> underlying type. A GeometryPtr is only suitable in a situation where a
+> unique_ptr could be used, and a user must understand this to correctly use
+> a GeometryPtr. (They would also need to refer to standard library
+> documentation to understand what methods are available to a GeometryPtr,
+> and how they are to be used.) I guess the typedef would allow us to switch
+> to some other implementation of a unique pointer without a user being
+> aware, but given that unique_ptr is now in the standard library it's hard
+> to imagine a situation where that would happen.
+>
+> Agree with Paul that consistency is probably the most important thing.
+> Crude grepping shows ~700 usages of unique_ptr, ~200 usages of
+> Geometry::Ptr, ~100 usages of GeometryPtr, but this misses unqualified uses
+> of "Ptr" within classes that inherit from Geometry.
+>
+> Dan
+>
+> On Fri, Dec 7, 2018 at 12:08 PM Martin Davis <mtnclimb at gmail.com> wrote:
+>
+>> As a counter-argument, it might be better to use the typedef, based on
+>> the principle of encapsulating implementation decisions.  Usual reasons:
+>>
+>> * Reduces comprehension complexity
+>> * Makes implementation easier to change
+>> * Indicates that this is an explicit design decision made in the library,
+>> rather than something decided by individual developers on a case-by-case
+>> basis
+>>
+>> On Fri, Dec 7, 2018 at 6:40 AM Daniel Baston <dbaston at gmail.com> wrote:
+>>
+>>> I'd agree; I find that typedefs like GeometryPtr generally obfuscate
+>>> things. Although one can guess, it's not immediately obvious if GeometryPtr
+>>> means Geometry*, unique_ptr<Geometry>, shared_ptr<Geometry>, or something
+>>> else.
+>>>
+>>> Dan
+>>>
+>>> On Thu, Dec 6, 2018 at 5:46 PM Paul Ramsey <pramsey at cleverelephant.ca>
+>>> wrote:
+>>>
+>>>> std::unique_ptr<Geometry> ?
+>>>>
+>>>> We've got a mishmash in the code base, what should it be?
+>>>> As a learner arriving at the code base, std::unique_ptr<Geometry> would
+>>>> have been easier, since then the semantics of the thing are more
+>>>> immediately transparent then. After working with it for a while, that's
+>>>> less of an issue because I've internalized the fact that GeometryPtr is a
+>>>> std::unique_ptr, but still.
+>>>>
+>>>> The best code styleguide is a consistent code base, so deciding and
+>>>> then globally changing makes the most sense, IMO.
+>>>>
+>>>> P.
+>>>> _______________________________________________
+>>>> geos-devel mailing list
+>>>> geos-devel at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/7ba5c4d6/attachment-0001.html>
+
+From dbaston at gmail.com  Fri Dec  7 10:07:39 2018
+From: dbaston at gmail.com (Daniel Baston)
+Date: Fri, 7 Dec 2018 13:07:39 -0500
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <CAK2ens24KMU=RFSderNAWqGNdkVbkDQ2N0Za9tX61vKxz+GzOQ@mail.gmail.com>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+ <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+ <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+ <CA+K_q_p5KDDnALR7X0tY18v11zs+wY--W4cq4OB96EG=cwESsg@mail.gmail.com>
+ <CAK2ens24KMU=RFSderNAWqGNdkVbkDQ2N0Za9tX61vKxz+GzOQ@mail.gmail.com>
+Message-ID: <CA+K_q_pG2+xJDx2z1HiY6soqhfmFwhhX2BTqPhefSKQiMvN9Sg@mail.gmail.com>
+
+>
+> would probably opt for using GeomPtr instead of "GeometryPtr".
+>
+
+Didn't think to look for that one! Looks like we've got ~500 of those, too.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/27da8df5/attachment.html>
+
+From pramsey at cleverelephant.ca  Fri Dec  7 15:28:54 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 7 Dec 2018 15:28:54 -0800
+Subject: [geos-devel] double double
+Message-ID: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+
+Mats, what ever happened to:
+
+https://github.com/libgeos/geos/pull/40
+
+I'm just coming up against some stuff in the JTS commit log that expects
+double double and I see you've done this work already some years ago, but
+it's not committed that I can see. JTS changed over some code to use DD
+exclusively about a year ago, so this is a case where porting has caught up
+to need.
+
+Were there any substantial problems w/ your PR? If not I'm "just" going to
+try and rebase it and use it as the basis for going ahead.
+
+(It seems like the state-of-the-art would eventually be to use the "long
+double" type, which has an implementation in GCC, but does not yet have one
+in clang, in hopes that by being close to the metal we'd eventually also
+start to reap performance gains as the silicon adds instructions to improve
+long double calculations. ???)
+
+P.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/abd753d0/attachment.html>
+
+From mtnclimb at gmail.com  Fri Dec  7 16:18:42 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Fri, 7 Dec 2018 16:18:42 -0800
+Subject: [geos-devel] double double
+In-Reply-To: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+References: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+Message-ID: <CAK2ens3Cc4bax3BOiMOGnrEtvnWVfMuGye3hVM83C3zgJhJHQQ@mail.gmail.com>
+
+And for bonus points implement a class (template? macro?) that will choose
+DoubleDouble or long double depending on platform...  :)
+
+On Fri, Dec 7, 2018 at 3:29 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> Mats, what ever happened to:
+>
+> https://github.com/libgeos/geos/pull/40
+>
+> I'm just coming up against some stuff in the JTS commit log that expects
+> double double and I see you've done this work already some years ago, but
+> it's not committed that I can see. JTS changed over some code to use DD
+> exclusively about a year ago, so this is a case where porting has caught up
+> to need.
+>
+> Were there any substantial problems w/ your PR? If not I'm "just" going to
+> try and rebase it and use it as the basis for going ahead.
+>
+> (It seems like the state-of-the-art would eventually be to use the "long
+> double" type, which has an implementation in GCC, but does not yet have one
+> in clang, in hopes that by being close to the metal we'd eventually also
+> start to reap performance gains as the silicon adds instructions to improve
+> long double calculations. ???)
+>
+> P.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181207/1f9ea88e/attachment.html>
+
+From gdt at lexort.com  Fri Dec  7 19:51:03 2018
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 07 Dec 2018 22:51:03 -0500
+Subject: [geos-devel] double double
+In-Reply-To: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+ (Paul Ramsey's message of "Fri, 7 Dec 2018 15:28:54 -0800")
+References: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+Message-ID: <smu4lboptg8.fsf@linuxpal.mit.edu>
+
+Paul Ramsey <pramsey at cleverelephant.ca> writes:
+
+> Mats, what ever happened to:
+>
+> https://github.com/libgeos/geos/pull/40
+>
+> I'm just coming up against some stuff in the JTS commit log that expects
+> double double and I see you've done this work already some years ago, but
+> it's not committed that I can see. JTS changed over some code to use DD
+> exclusively about a year ago, so this is a case where porting has caught up
+> to need.
+>
+> Were there any substantial problems w/ your PR? If not I'm "just" going to
+> try and rebase it and use it as the basis for going ahead.
+>
+> (It seems like the state-of-the-art would eventually be to use the "long
+> double" type, which has an implementation in GCC, but does not yet have one
+> in clang, in hopes that by being close to the metal we'd eventually also
+> start to reap performance gains as the silicon adds instructions to improve
+> long double calculations. ???)
+
+I don't follow this last paragraph.
+
+As I understand it, long double is a type defined by C that can be more
+precise than double, but doesn't have to be, and on x86 is typically 80
+bits.  double double is a technique to use two doubles to get roughly
+twice the precision.   I would expect that on many CPUs, long double is
+the same as double.
+
+So double double is far more precise than long double always.
+
+https://en.wikipedia.org/wiki/Long_double
+https://en.wikipedia.org/wiki/Quadruple-precision_floating-point_format#Double-double_arithmetic
+
+From me at komzpa.net  Sat Dec  8 00:19:05 2018
+From: me at komzpa.net (=?UTF-8?Q?Darafei_=22Kom=D1=8Fpa=22_Praliaskouski?=)
+Date: Sat, 8 Dec 2018 11:19:05 +0300
+Subject: [geos-devel] double double
+In-Reply-To: <smu4lboptg8.fsf@linuxpal.mit.edu>
+References: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+ <smu4lboptg8.fsf@linuxpal.mit.edu>
+Message-ID: <CAC8Q8tKUQopb=UbA0Qwus9y+raCLoQGibb__6M0BA0fTJD4LrA@mail.gmail.com>
+
+On Sat, Dec 8, 2018 at 6:51 AM Greg Troxel <gdt at lexort.com> wrote:
+
+> Paul Ramsey <pramsey at cleverelephant.ca> writes:
+>
+> > Mats, what ever happened to:
+> >
+> > https://github.com/libgeos/geos/pull/40
+> >
+> > I'm just coming up against some stuff in the JTS commit log that expects
+> > double double and I see you've done this work already some years ago, but
+> > it's not committed that I can see. JTS changed over some code to use DD
+> > exclusively about a year ago, so this is a case where porting has caught
+> up
+> > to need.
+> >
+> > Were there any substantial problems w/ your PR? If not I'm "just" going
+> to
+> > try and rebase it and use it as the basis for going ahead.
+> >
+> > (It seems like the state-of-the-art would eventually be to use the "long
+> > double" type, which has an implementation in GCC, but does not yet have
+> one
+> > in clang, in hopes that by being close to the metal we'd eventually also
+> > start to reap performance gains as the silicon adds instructions to
+> improve
+> > long double calculations. ???)
+>
+> I don't follow this last paragraph.
+>
+> As I understand it, long double is a type defined by C that can be more
+> precise than double, but doesn't have to be, and on x86 is typically 80
+> bits.  double double is a technique to use two doubles to get roughly
+> twice the precision.   I would expect that on many CPUs, long double is
+> the same as double.
+>
+
+Windows defines long double to be the same as double. Java doesn't even
+have long double, so JTS has no choice for intermediate storage.
+
+Redefining some intermediate variables as long double short term is a cheap
+gain.
+Double double gives a bigger gain but is more painful.
+
+It is not enough to be robust in all cases also though - here
+are Shewchuk's proved-robust predicates that have to use up to four doubles
+to manage long arithmetic:
+
+https://www.cs.cmu.edu/~quake/robust.html
+
+https://www.cs.cmu.edu/afs/cs/project/quake/public/code/predicates.c
+
+If you find 512-bit float somewhere you may get away with it directly
+though, but I don't think they are available on consumer non-DSP CPUs.
+
+
+
+> So double double is far more precise than long double always.
+>
+> https://en.wikipedia.org/wiki/Long_double
+>
+> https://en.wikipedia.org/wiki/Quadruple-precision_floating-point_format#Double-double_arithmetic
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+-- 
+Darafei Praliaskouski
+Support me: http://patreon.com/komzpa
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181208/ce3a6405/attachment.html>
+
+From strk at kbt.io  Sat Dec  8 09:35:12 2018
+From: strk at kbt.io (Sandro Santilli)
+Date: Sat, 8 Dec 2018 18:35:12 +0100
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+ <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+ <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+Message-ID: <20181208173512.GB7366@liz>
+
+On Fri, Dec 07, 2018 at 09:08:01AM -0800, Martin Davis wrote:
+
+> * Makes implementation easier to change
+
+This was exactly the reason for starting to use that implementation.
+Wasn't it an auto_ptr before scoped_ptr existed ?
+
+--strk;
+
+From mtnclimb at gmail.com  Sat Dec  8 12:48:38 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Sat, 8 Dec 2018 12:48:38 -0800
+Subject: [geos-devel] double double
+In-Reply-To: <CAC8Q8tKUQopb=UbA0Qwus9y+raCLoQGibb__6M0BA0fTJD4LrA@mail.gmail.com>
+References: <CACowWR1p+Gmq=xKp_xiG3auJxcY=ShKpyk38dvyt0hW4UBWCkA@mail.gmail.com>
+ <smu4lboptg8.fsf@linuxpal.mit.edu>
+ <CAC8Q8tKUQopb=UbA0Qwus9y+raCLoQGibb__6M0BA0fTJD4LrA@mail.gmail.com>
+Message-ID: <CAK2ens3_3c0zaFieWqNDOufJs2X1PwWY=pDwnsVaAnpJ_zB1Pg@mail.gmail.com>
+
+>
+>
+>
+> It is not enough to be robust in all cases also though - here
+> are Shewchuk's proved-robust predicates that have to use up to four doubles
+> to manage long arithmetic:
+>
+> https://www.cs.cmu.edu/~quake/robust.html
+>
+> https://www.cs.cmu.edu/afs/cs/project/quake/public/code/predicates.c
+>
+> If you find 512-bit float somewhere you may get away with it directly
+> though, but I don't think they are available on consumer non-DSP CPUs.
+>
+
+JTS now uses DoubleDouble and Shewchuk's adaptive approach to compute the
+critical orientation predicate [1].  This solved some long-standing and
+subtle problems with the previously-used Robust Determinant algorithm  So
+I'd recommend GEOS switch to using it (unless the performance is a real
+issue).
+
+AFAIK double-double precision is sufficient for robust evaluation of
+orientation.  Seems to work well, anyway.
+
+JTS also has a DoubleDouble-based function for computing the intersection
+point of two segments, but this isn't yet used as the main intersection
+function (not sure why not - maybe I just didn't quite get there.  It would
+be nice to use it as it's a lot simpler than the normalization approach now
+used.  But probably worth checking it it impacts performance.
+
+There's also a DoubleDouble incircle predicate [2], which is not currently
+in the mainline, but probably should be (I think there were some known
+failure cases of the other code).
+
+
+[1]
+https://github.com/locationtech/jts/blob/master/modules/core/src/main/java/org/locationtech/jts/algorithm/CGAlgorithmsDD.java
+
+[2]
+https://github.com/locationtech/jts/blob/master/modules/core/src/main/java/org/locationtech/jts/triangulate/quadedge/TrianglePredicate.java#L187
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181208/690bc6bc/attachment.html>
+
+From schwehr at gmail.com  Mon Dec 10 04:59:03 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Mon, 10 Dec 2018 04:59:03 -0800
+Subject: [geos-devel] GeometryPtr or ...
+In-Reply-To: <20181208173512.GB7366@liz>
+References: <CACowWR3WGmnfFdOwtEU6F8GmSWSGGsWM7ma_vq0+Rhjk4x37uQ@mail.gmail.com>
+ <CA+K_q_ro=Ky81n_VzxxuGKHDhE=5eQvPhvF1hfFtvcrpXeLt3w@mail.gmail.com>
+ <CAK2ens2H-T1FzAR7+D-j8QjDgCrQLrD7YPi1xA1wSJuHzV=MHQ@mail.gmail.com>
+ <20181208173512.GB7366@liz>
+Message-ID: <CACmBxysG2GfHE02T_JP68F-MjwjoRqinumZ+wtNLQirJGoVVqg@mail.gmail.com>
+
+My take... Using a typedef might make sense until std:: gets an
+implementation that is successfully battle tested and generally adopted.
+std::auto_ptr miss the boat in many ways.  std::unique_ptr has staying
+power and most new C++ coders are expected to know and use it.  So I think
+hiding it behind a typedef is usually a hindrance to the reader.  I've
+tried typedefs with it several times and it generally hurt more than it
+helped.  And the cases where it seemed to help start going away with C++14
+and C++17 IMHO.
+
+https://stackoverflow.com/questions/3697686/why-is-auto-ptr-being-deprecated/15049187
+
+On Sat, Dec 8, 2018 at 9:35 AM Sandro Santilli <strk at kbt.io> wrote:
+
+> On Fri, Dec 07, 2018 at 09:08:01AM -0800, Martin Davis wrote:
+>
+> > * Makes implementation easier to change
+>
+> This was exactly the reason for starting to use that implementation.
+> Wasn't it an auto_ptr before scoped_ptr existed ?
+>
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181210/4da110e4/attachment.html>
+
+From geos-trac at osgeo.org  Mon Dec 10 07:39:59 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 10 Dec 2018 15:39:59 -0000
+Subject: [geos-devel] [GEOS] #944: Multiple memory leaks in
+	SIRtreePointInRing
+In-Reply-To: <045.8dd6a1fe45c14c696e18095f90ed63f2@osgeo.org>
+References: <045.8dd6a1fe45c14c696e18095f90ed63f2@osgeo.org>
+Message-ID: <060.d408dafeb93f2030af6c1af472969777@osgeo.org>
+
+#944: Multiple memory leaks in SIRtreePointInRing
+------------------------+---------------------------
+ Reporter:  dbaston     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  major       |   Milestone:
+Component:  Default     |     Version:  master
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+Changes (by Daniel Baston <dbaston@…>):
+
+ * status:  new => closed
+ * resolution:   => fixed
+
+
+Comment:
+
+ In [changeset:"24652fb98c4da0ef41d8f21d6dd021b680e62fcd/git" 24652fb/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="24652fb98c4da0ef41d8f21d6dd021b680e62fcd"
+ Fix mem leaks in SIRtreePointInRing
+
+ Fixes #944
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/944#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Dec 11 07:29:09 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 11 Dec 2018 15:29:09 -0000
+Subject: [geos-devel] [GEOS] #946: hashCode functions not usable by STL
+	containers
+Message-ID: <045.f55a9b39b36527d275d452bbff1eb738@osgeo.org>
+
+#946: hashCode functions not usable by STL containers
+-------------------------+--------------------------
+ Reporter:  dbaston      |      Owner:  geos-devel@…
+     Type:  enhancement  |     Status:  new
+ Priority:  minor        |  Milestone:
+Component:  Default      |    Version:  master
+ Severity:  Unassigned   |   Keywords:
+-------------------------+--------------------------
+ The `Geometry`, `Coordinate`, and `Envelope` classes provide `hashCode`
+ methods ported from Java. It would be more useful to provide hashers in
+ the form expected by standard library containers such as `unordered_map`
+ and `unordered_set`.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/946>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From pramsey at cleverelephant.ca  Wed Dec 12 14:53:56 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 12 Dec 2018 14:53:56 -0800
+Subject: [geos-devel] Deprecation / Removal
+Message-ID: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+
+We're c++11, and the deprecated keyword is c++14.
+
+Just porting away, lah dee dah, and came across this one.
+
+https://github.com/locationtech/jts/commit/95f19c41741a5261c324f038f355549cab8be5a8
+
+I'm tempted to just rip MCPointInRing right out of the code base, it's
+hardly used anywhere, and it's incredibly internal, so it's unlikely that
+anyone external is using it. And yet...
+
+Anyways, we don't have a policy per se, I would imagine, but maybe there's
+some historical process to draw upon?
+
+P
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181212/418674af/attachment.html>
+
+From lr at pcorp.us  Wed Dec 12 15:02:01 2018
+From: lr at pcorp.us (Regina Obe)
+Date: Wed, 12 Dec 2018 18:02:01 -0500
+Subject: [geos-devel] Deprecation / Removal
+In-Reply-To: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+References: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+Message-ID: <003301d4926e$b215fbb0$1641f310$@pcorp.us>
+
+As I recall our process is we don't guarantee ABI or API portability of the C++ API we have (at least not on minor versions), micro we try to.
+
+ 
+
+That said – if it's not exposed in the C-API, +1 for rip away lah dee dah.  Less is more.
+
+ 
+
+From: geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of Paul Ramsey
+Sent: Wednesday, December 12, 2018 5:54 PM
+To: GEOS Development List <geos-devel at lists.osgeo.org>
+Subject: [geos-devel] Deprecation / Removal
+
+ 
+
+We're c++11, and the deprecated keyword is c++14.
+
+ 
+
+Just porting away, lah dee dah, and came across this one.
+
+ 
+
+https://github.com/locationtech/jts/commit/95f19c41741a5261c324f038f355549cab8be5a8
+
+ 
+
+I'm tempted to just rip MCPointInRing right out of the code base, it's hardly used anywhere, and it's incredibly internal, so it's unlikely that anyone external is using it. And yet... 
+
+ 
+
+Anyways, we don't have a policy per se, I would imagine, but maybe there's some historical process to draw upon?
+
+P
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181212/c7deccd1/attachment.html>
+
+From mtnclimb at gmail.com  Wed Dec 12 15:10:30 2018
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 12 Dec 2018 15:10:30 -0800
+Subject: [geos-devel] Deprecation / Removal
+In-Reply-To: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+References: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+Message-ID: <CAK2ens1Tfk6apFCnHF4aJBE_zNYsy_vzsmWUBoFRfq-fauNMeg@mail.gmail.com>
+
+Rip away... that class has been removed from JTS:
+
+https://github.com/locationtech/jts/commit/55fb1113655db08a9a4ce4c17c9ee5912b6aa0f2#diff-97834f133aac4fb21447e50fa597b0fa
+
+On Wed, Dec 12, 2018 at 2:54 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> We're c++11, and the deprecated keyword is c++14.
+>
+> Just porting away, lah dee dah, and came across this one.
+>
+>
+> https://github.com/locationtech/jts/commit/95f19c41741a5261c324f038f355549cab8be5a8
+>
+> I'm tempted to just rip MCPointInRing right out of the code base, it's
+> hardly used anywhere, and it's incredibly internal, so it's unlikely that
+> anyone external is using it. And yet...
+>
+> Anyways, we don't have a policy per se, I would imagine, but maybe there's
+> some historical process to draw upon?
+>
+> P
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181212/1d2530f5/attachment.html>
+
+From dbaston at gmail.com  Thu Dec 13 08:55:36 2018
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 13 Dec 2018 11:55:36 -0500
+Subject: [geos-devel] C++14
+Message-ID: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+
+Paul raised an issue yesterday about how to mark something as "deprecated"
+without using the "[[deprecated]]" attribute provided in C++14.
+
+It made me wonder what others think about using C++14 for GEOS. I see C++14
+as mostly a "bugfix" to C++11, introducing things like std::make_unique
+that were oddly omitted from C+11.
+
+If we are going to modernize the code to use C++11, why not go straight to
+C++14? Are there major platforms that support C++11 but not C++14?
+
+If you look at this chart, there is no release of gcc, clang, or MSVC that
+supports ALL of C++11 without also supporting ALL of C++14:
+https://en.cppreference.com/w/cpp/compiler_support
+
+In all cases, you need gcc5, clang 3.8, or MSVC 19.0. (But yes, _most_ of
+C++11 is implemented in earlier releases of these.)
+
+What do others think? One argument I can think of against this is that it
+complicates backporting of bugfixes.
+
+Dan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181213/3f777693/attachment.html>
+
+From gdt at lexort.com  Thu Dec 13 09:15:25 2018
+From: gdt at lexort.com (Greg Troxel)
+Date: Thu, 13 Dec 2018 12:15:25 -0500
+Subject: [geos-devel] C++14
+In-Reply-To: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ (Daniel Baston's message of "Thu, 13 Dec 2018 11:55:36 -0500")
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+Message-ID: <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+
+Daniel Baston <dbaston at gmail.com> writes:
+
+> Paul raised an issue yesterday about how to mark something as "deprecated"
+> without using the "[[deprecated]]" attribute provided in C++14.
+>
+> It made me wonder what others think about using C++14 for GEOS. I see C++14
+> as mostly a "bugfix" to C++11, introducing things like std::make_unique
+> that were oddly omitted from C+11.
+
+Perhaps, but the real issue is deployed compiler support.
+
+> If we are going to modernize the code to use C++11, why not go straight to
+> C++14? Are there major platforms that support C++11 but not C++14?
+>
+> If you look at this chart, there is no release of gcc, clang, or MSVC that
+> supports ALL of C++11 without also supporting ALL of C++14:
+> https://en.cppreference.com/w/cpp/compiler_support
+>
+> In all cases, you need gcc5, clang 3.8, or MSVC 19.0. (But yes, _most_ of
+> C++11 is implemented in earlier releases of these.)
+
+I think moving to C++14 is premature.  The real issue is that there are
+a lot of systems out there, with various compilers, and there's an
+implicit line between "too lame to cope" and "ok".  Right now, enough
+things require C++11 that a system that can't build most C++11 is
+nonviable.  This really means gcc 4.8 (or maybe 4.7; NetBSD went from
+4.5 to 4.8 (and then to 5), so I don't know about 4.6 and 4.7).  It's
+true that 4.8 does not fully support C++11, but it supports the parts
+that almost all programs use.  The version that has 4.8 (7) is going to
+drop out of support probably over the next year.  I think this is pretty
+typical of systems that tend to stability rather than rapid tracking,
+and would expect RHEL/CentOS to be the same or even more conservative in
+updates.
+
+If the base system compiler isn't new enough, then some gymnastics are
+required.  This seems to be the case across a large class of systems,
+including the various LTS types of releases.
+
+I am starting to see more programs need C++14, but so far those are
+relatively few and relatively giant and tend to be leaf packages, vs
+things that if they don't build a very large number of packages are
+broken.
+
+This tends not to affect people that always update rapidly and use an OS
+that rapidly adopts new compilers - which tend to tbe those contributing
+to programs.  But the user community is I think pretty different, and
+tends to upgrade more slowly, with larger numbers of installed systems.
+
+So I think geos and similar things should wait until one can say with a
+straight face "I don't understand your situation, your concerns, or your
+constraints, but a system without a C++14 compiler is beyond lame and
+therefore you don't matter".   I realize that's harsh, but that's
+essentially what bumping compiler requirements does to people.    In a
+year or two, enough other things will need it that people will have to
+cope somehow.  So I guess I'm saying that geos is too foundational to be
+on the list of why they have to cope now.
+
+From pramsey at cleverelephant.ca  Thu Dec 13 09:19:20 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 13 Dec 2018 09:19:20 -0800
+Subject: [geos-devel] C++14
+In-Reply-To: <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+Message-ID: <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+
+
+> On Dec 13, 2018, at 9:15 AM, Greg Troxel <gdt at lexort.com> wrote:
+>  So I guess I'm saying that geos is too foundational to be
+> on the list of why they have to cope now.
+
++1. We only just hopped to c+11, and we’re a library so there’s a lot of stuff resting on top. Taking it slow is a good idea.
+
+P
+
+
+From lr at pcorp.us  Thu Dec 13 09:41:24 2018
+From: lr at pcorp.us (Regina Obe)
+Date: Thu, 13 Dec 2018 12:41:24 -0500
+Subject: [geos-devel] C++14
+In-Reply-To: <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+ <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+Message-ID: <003001d4930b$12286eb0$36794c10$@pcorp.us>
+
+> > On Dec 13, 2018, at 9:15 AM, Greg Troxel <gdt at lexort.com> wrote:
+> >  So I guess I'm saying that geos is too foundational to be on the list
+> > of why they have to cope now.
+> 
+> +1. We only just hopped to c+11, and we re a library so there s a lot of stuff
+> resting on top. Taking it slow is a good idea.
+> 
+> P
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+[Regina Obe] 
++1 for taking it slow.   I'm still shipping windows builds with GCC 4.8.3, though I plan to have completely moved to GCC 8.1 before 3.8 release.
+
+I think a lot of packaging (for older systems I see) I see is still done on gcc 4.7.  Though one can argue that these older systems will not ship newer GEOS, so might not be so much of an issue aside from users who build their own GEOS stuck on old platforms.
+
+
+Thanks,
+Regina
+
+
+From schwehr at gmail.com  Thu Dec 13 10:59:00 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Thu, 13 Dec 2018 10:59:00 -0800
+Subject: [geos-devel] Deprecation / Removal
+In-Reply-To: <CAK2ens1Tfk6apFCnHF4aJBE_zNYsy_vzsmWUBoFRfq-fauNMeg@mail.gmail.com>
+References: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+ <CAK2ens1Tfk6apFCnHF4aJBE_zNYsy_vzsmWUBoFRfq-fauNMeg@mail.gmail.com>
+Message-ID: <CACmBxyvN0vBGX0sn8NOaGGOBcu8Mw+LM41=7nZPO3Y=NtDYarw@mail.gmail.com>
+
+And a good way to find out if someone really needs it is to remove it.
+Then we'd have a use case and we could bring it back.
+
+A single data point from a C++ user of GEOS, we don't use MCPointInRing at
+Google/Alphabet.
+
+On Wed, Dec 12, 2018 at 3:10 PM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> Rip away... that class has been removed from JTS:
+>
+>
+> https://github.com/locationtech/jts/commit/55fb1113655db08a9a4ce4c17c9ee5912b6aa0f2#diff-97834f133aac4fb21447e50fa597b0fa
+>
+> On Wed, Dec 12, 2018 at 2:54 PM Paul Ramsey <pramsey at cleverelephant.ca>
+> wrote:
+>
+>> We're c++11, and the deprecated keyword is c++14.
+>>
+>> Just porting away, lah dee dah, and came across this one.
+>>
+>>
+>> https://github.com/locationtech/jts/commit/95f19c41741a5261c324f038f355549cab8be5a8
+>>
+>> I'm tempted to just rip MCPointInRing right out of the code base, it's
+>> hardly used anywhere, and it's incredibly internal, so it's unlikely that
+>> anyone external is using it. And yet...
+>>
+>> Anyways, we don't have a policy per se, I would imagine, but maybe
+>> there's some historical process to draw upon?
+>>
+>> P
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181213/8f47e7ab/attachment.html>
+
+From gdt at lexort.com  Thu Dec 13 11:34:13 2018
+From: gdt at lexort.com (Greg Troxel)
+Date: Thu, 13 Dec 2018 14:34:13 -0500
+Subject: [geos-devel] C++14
+In-Reply-To: <003001d4930b$12286eb0$36794c10$@pcorp.us> (Regina Obe's message
+ of "Thu, 13 Dec 2018 12:41:24 -0500")
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+ <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+ <003001d4930b$12286eb0$36794c10$@pcorp.us>
+Message-ID: <smu36r143wq.fsf@linuxpal.mit.edu>
+
+"Regina Obe" <lr at pcorp.us> writes:
+
+> I think a lot of packaging (for older systems I see) I see is still
+> done on gcc 4.7.  Though one can argue that these older systems will
+> not ship newer GEOS, so might not be so much of an issue aside from
+> users who build their own GEOS stuck on old platforms.
+
+A good point for Linux, but in the non-Linux world (BSD, MacOS, Solaris, and
+the rest of the vendor unix tradition) there is usually a notion of
+"base system" and "packages or other stuff".  So with have things like
+mv and the compiler in base, and then packages, the idea of wanting to
+build newer packages with a not bleeding edge but not ancient compiler
+(which describes gcc 4.8) is not really that strange.
+
+
+
+From schwehr at gmail.com  Thu Dec 13 16:30:45 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Thu, 13 Dec 2018 16:30:45 -0800
+Subject: [geos-devel] C++14
+In-Reply-To: <smu36r143wq.fsf@linuxpal.mit.edu>
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+ <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+ <003001d4930b$12286eb0$36794c10$@pcorp.us> <smu36r143wq.fsf@linuxpal.mit.edu>
+Message-ID: <CACmBxyuHsaa=hS7VbNpJURo87Ze1w4wdN5j530e9ByAE468c2w@mail.gmail.com>
+
+Getting people to be willing to drop support for old compilers is really
+difficult.  Especially without people who can provide strong support for
+older branches of all the related code bases.  A bunch of discussion went
+into the topic for these 2 RFCs...
+
+https://trac.osgeo.org/gdal/wiki/rfc68_cplusplus11
+https://trac.osgeo.org/geos/wiki/RFC5
+
+C++14 isn't that huge of a jump and if there are features that people
+really want that are available in libs like abseil, it isn't unreasonable
+to port a copy into a private namespace of GEOS and use it until it can be
+refactored out when the minimum compiler make the standin irrelevant.  e.g.
+make_unique is here and could be converted to geos::private::make_unique or
+some such.
+
+https://github.com/abseil/abseil-cpp/blob/master/absl/memory/memory.h
+
+For deprecated, can just start with something simple like ABSL_DEPRECATED.
+And drop it when you can.
+
+https://github.com/abseil/abseil-cpp/blob/master/absl/base/macros.h#L134
+
+On Thu, Dec 13, 2018 at 11:34 AM Greg Troxel <gdt at lexort.com> wrote:
+
+> "Regina Obe" <lr at pcorp.us> writes:
+>
+> > I think a lot of packaging (for older systems I see) I see is still
+> > done on gcc 4.7.  Though one can argue that these older systems will
+> > not ship newer GEOS, so might not be so much of an issue aside from
+> > users who build their own GEOS stuck on old platforms.
+>
+> A good point for Linux, but in the non-Linux world (BSD, MacOS, Solaris,
+> and
+> the rest of the vendor unix tradition) there is usually a notion of
+> "base system" and "packages or other stuff".  So with have things like
+> mv and the compiler in base, and then packages, the idea of wanting to
+> build newer packages with a not bleeding edge but not ancient compiler
+> (which describes gcc 4.8) is not really that strange.
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181213/061d97fc/attachment.html>
+
+From pramsey at cleverelephant.ca  Fri Dec 14 13:39:29 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 14 Dec 2018 13:39:29 -0800
+Subject: [geos-devel] Deprecation / Removal
+In-Reply-To: <CACmBxyvN0vBGX0sn8NOaGGOBcu8Mw+LM41=7nZPO3Y=NtDYarw@mail.gmail.com>
+References: <CACowWR10HgYbV8ZWhiNj33vjuxpvaJ5ffmbbPYqvs9sC=0a4FQ@mail.gmail.com>
+ <CAK2ens1Tfk6apFCnHF4aJBE_zNYsy_vzsmWUBoFRfq-fauNMeg@mail.gmail.com>
+ <CACmBxyvN0vBGX0sn8NOaGGOBcu8Mw+LM41=7nZPO3Y=NtDYarw@mail.gmail.com>
+Message-ID: <CACowWR3uhBw41_f4TnJK0tFYSFKVKeEGE_uoiPBvUuMG63ty1g@mail.gmail.com>
+
+OK, things that have been strongly deprecated and ripped in JTS are getting
+ripped from GEOS. As one would expect, there's no affect on the outer
+surface (CAPI) of the library.
+
+On Thu, Dec 13, 2018 at 10:59 AM Kurt Schwehr <schwehr at gmail.com> wrote:
+
+> And a good way to find out if someone really needs it is to remove it.
+> Then we'd have a use case and we could bring it back.
+>
+> A single data point from a C++ user of GEOS, we don't use MCPointInRing at
+> Google/Alphabet.
+>
+> On Wed, Dec 12, 2018 at 3:10 PM Martin Davis <mtnclimb at gmail.com> wrote:
+>
+>> Rip away... that class has been removed from JTS:
+>>
+>>
+>> https://github.com/locationtech/jts/commit/55fb1113655db08a9a4ce4c17c9ee5912b6aa0f2#diff-97834f133aac4fb21447e50fa597b0fa
+>>
+>> On Wed, Dec 12, 2018 at 2:54 PM Paul Ramsey <pramsey at cleverelephant.ca>
+>> wrote:
+>>
+>>> We're c++11, and the deprecated keyword is c++14.
+>>>
+>>> Just porting away, lah dee dah, and came across this one.
+>>>
+>>>
+>>> https://github.com/locationtech/jts/commit/95f19c41741a5261c324f038f355549cab8be5a8
+>>>
+>>> I'm tempted to just rip MCPointInRing right out of the code base, it's
+>>> hardly used anywhere, and it's incredibly internal, so it's unlikely that
+>>> anyone external is using it. And yet...
+>>>
+>>> Anyways, we don't have a policy per se, I would imagine, but maybe
+>>> there's some historical process to draw upon?
+>>>
+>>> P
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+>
+> --
+> --
+> http://schwehr.org
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181214/300b8701/attachment.html>
+
+From vicky at georepublic.de  Sun Dec 16 10:08:39 2018
+From: vicky at georepublic.de (Vicky Vergara)
+Date: Sun, 16 Dec 2018 12:08:39 -0600
+Subject: [geos-devel] C++14
+In-Reply-To: <CACmBxyuHsaa=hS7VbNpJURo87Ze1w4wdN5j530e9ByAE468c2w@mail.gmail.com>
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+ <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+ <003001d4930b$12286eb0$36794c10$@pcorp.us> <smu36r143wq.fsf@linuxpal.mit.edu>
+ <CACmBxyuHsaa=hS7VbNpJURo87Ze1w4wdN5j530e9ByAE468c2w@mail.gmail.com>
+Message-ID: <CAK_FzuWeCet=sY9Edi_=xXpzArx5yRm2jxwOsLMm9=hCzNn3DA@mail.gmail.com>
+
+More or less:
+
+C++14 adds to C++11:
+Relaxed constexpr constraints
+Generic lambdas (e.g., [](auto p) { return p*2; })
+Init-capture (e.g., [i = 2](auto p) { return p+i++; })
+Variable templates
+decltype(auto)
+Deduced return types
+Binary literals (e.g., 0b11101100)
+Digit separators (e.g., 0b1110'1100)
+Extend “aggregate class type” to include a class that would be a C++11
+aggregate type if default member initializers were omitted
+[[deprecated]] and [[deprecated("msg")]]
+
+So the question is:
+How much GEOS need those new features?
+Its not using a lot of features of C++11 anyway
+
+with c++ you can still use unique_ptr
+I have a lot of (stalled) work in this branch
+https://github.com/cvvergara/geos/tree/gPolygonizer
+where the intention is to use more the unique_ptr and/or shared pointer
+For example:
+https://github.com/cvvergara/geos/commit/f6c12cf17a40ddbe3b7e88b63728aac104ab8efa
+
+C++11 I think is good enough
+
+
+On Thu, Dec 13, 2018 at 6:31 PM Kurt Schwehr <schwehr at gmail.com> wrote:
+
+> Getting people to be willing to drop support for old compilers is really
+> difficult.  Especially without people who can provide strong support for
+> older branches of all the related code bases.  A bunch of discussion went
+> into the topic for these 2 RFCs...
+>
+> https://trac.osgeo.org/gdal/wiki/rfc68_cplusplus11
+> https://trac.osgeo.org/geos/wiki/RFC5
+>
+> C++14 isn't that huge of a jump and if there are features that people
+> really want that are available in libs like abseil, it isn't unreasonable
+> to port a copy into a private namespace of GEOS and use it until it can be
+> refactored out when the minimum compiler make the standin irrelevant.  e.g.
+> make_unique is here and could be converted to geos::private::make_unique or
+> some such.
+>
+> https://github.com/abseil/abseil-cpp/blob/master/absl/memory/memory.h
+>
+> For deprecated, can just start with something simple
+> like ABSL_DEPRECATED.  And drop it when you can.
+>
+> https://github.com/abseil/abseil-cpp/blob/master/absl/base/macros.h#L134
+>
+> On Thu, Dec 13, 2018 at 11:34 AM Greg Troxel <gdt at lexort.com> wrote:
+>
+>> "Regina Obe" <lr at pcorp.us> writes:
+>>
+>> > I think a lot of packaging (for older systems I see) I see is still
+>> > done on gcc 4.7.  Though one can argue that these older systems will
+>> > not ship newer GEOS, so might not be so much of an issue aside from
+>> > users who build their own GEOS stuck on old platforms.
+>>
+>> A good point for Linux, but in the non-Linux world (BSD, MacOS, Solaris,
+>> and
+>> the rest of the vendor unix tradition) there is usually a notion of
+>> "base system" and "packages or other stuff".  So with have things like
+>> mv and the compiler in base, and then packages, the idea of wanting to
+>> build newer packages with a not bleeding edge but not ancient compiler
+>> (which describes gcc 4.8) is not really that strange.
+>>
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+>
+> --
+> --
+> http://schwehr.org
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+-- 
+
+Georepublic UG (haftungsbeschränkt)
+Salzmannstraße 44,
+81739 München, Germany
+
+Vicky Vergara
+Operations Research
+
+eMail: vicky at georepublic.de
+Web: https://georepublic.info
+
+Tel: +49 (089) 4161 7698-1
+Fax: +49 (089) 4161 7698-9
+
+Commercial register: Amtsgericht München, HRB 181428
+CEO: Daniel Kastl
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181216/15fcdfbb/attachment.html>
+
+From nyall.dawson at gmail.com  Sun Dec 16 15:17:30 2018
+From: nyall.dawson at gmail.com (Nyall Dawson)
+Date: Mon, 17 Dec 2018 09:17:30 +1000
+Subject: [geos-devel] C++14
+In-Reply-To: <CAK_FzuWeCet=sY9Edi_=xXpzArx5yRm2jxwOsLMm9=hCzNn3DA@mail.gmail.com>
+References: <CA+K_q_p2DcF0vyJsYa2dtuE7K4zkbxzEwFxw8VHi_hODorW+0Q@mail.gmail.com>
+ <smu8t0t4ac2.fsf@linuxpal.mit.edu>
+ <0AFA0426-1A14-4D72-8A01-BB8687AA5A80@cleverelephant.ca>
+ <003001d4930b$12286eb0$36794c10$@pcorp.us> <smu36r143wq.fsf@linuxpal.mit.edu>
+ <CACmBxyuHsaa=hS7VbNpJURo87Ze1w4wdN5j530e9ByAE468c2w@mail.gmail.com>
+ <CAK_FzuWeCet=sY9Edi_=xXpzArx5yRm2jxwOsLMm9=hCzNn3DA@mail.gmail.com>
+Message-ID: <CAB28AsgW7yZ6Bh4jA0S9xAN7M25d7MrsTv+Kkn9vWk5EjCRwkg@mail.gmail.com>
+
+On Mon, 17 Dec 2018 at 04:08, Vicky Vergara <vicky at georepublic.de> wrote:
+>
+> More or less:
+>
+> C++14 adds to C++11:
+>
+> Relaxed constexpr constraints
+> Generic lambdas (e.g., [](auto p) { return p*2; })
+> Init-capture (e.g., [i = 2](auto p) { return p+i++; })
+> Variable templates
+> decltype(auto)
+> Deduced return types
+> Binary literals (e.g., 0b11101100)
+> Digit separators (e.g., 0b1110'1100)
+> Extend “aggregate class type” to include a class that would be a C++11 aggregate type if default member initializers were omitted
+> [[deprecated]] and [[deprecated("msg")]]
+
+There's also the very useful make_unique function.
+
+But it's possible to "backport" make_unique to c++11, which is what we
+do in QGIS: https://github.com/qgis/QGIS/blob/master/src/core/qgis.h#L357
+
+Nyall
+
+
+
+>
+> So the question is:
+> How much GEOS need those new features?
+> Its not using a lot of features of C++11 anyway
+>
+> with c++ you can still use unique_ptr
+> I have a lot of (stalled) work in this branch
+> https://github.com/cvvergara/geos/tree/gPolygonizer
+> where the intention is to use more the unique_ptr and/or shared pointer
+> For example:
+> https://github.com/cvvergara/geos/commit/f6c12cf17a40ddbe3b7e88b63728aac104ab8efa
+>
+> C++11 I think is good enough
+>
+>
+> On Thu, Dec 13, 2018 at 6:31 PM Kurt Schwehr <schwehr at gmail.com> wrote:
+>>
+>> Getting people to be willing to drop support for old compilers is really difficult.  Especially without people who can provide strong support for older branches of all the related code bases.  A bunch of discussion went into the topic for these 2 RFCs...
+>>
+>> https://trac.osgeo.org/gdal/wiki/rfc68_cplusplus11
+>> https://trac.osgeo.org/geos/wiki/RFC5
+>>
+>> C++14 isn't that huge of a jump and if there are features that people really want that are available in libs like abseil, it isn't unreasonable to port a copy into a private namespace of GEOS and use it until it can be refactored out when the minimum compiler make the standin irrelevant.  e.g. make_unique is here and could be converted to geos::private::make_unique or some such.
+>>
+>> https://github.com/abseil/abseil-cpp/blob/master/absl/memory/memory.h
+>>
+>> For deprecated, can just start with something simple like ABSL_DEPRECATED.  And drop it when you can.
+>>
+>> https://github.com/abseil/abseil-cpp/blob/master/absl/base/macros.h#L134
+>>
+>> On Thu, Dec 13, 2018 at 11:34 AM Greg Troxel <gdt at lexort.com> wrote:
+>>>
+>>> "Regina Obe" <lr at pcorp.us> writes:
+>>>
+>>> > I think a lot of packaging (for older systems I see) I see is still
+>>> > done on gcc 4.7.  Though one can argue that these older systems will
+>>> > not ship newer GEOS, so might not be so much of an issue aside from
+>>> > users who build their own GEOS stuck on old platforms.
+>>>
+>>> A good point for Linux, but in the non-Linux world (BSD, MacOS, Solaris, and
+>>> the rest of the vendor unix tradition) there is usually a notion of
+>>> "base system" and "packages or other stuff".  So with have things like
+>>> mv and the compiler in base, and then packages, the idea of wanting to
+>>> build newer packages with a not bleeding edge but not ancient compiler
+>>> (which describes gcc 4.8) is not really that strange.
+>>>
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>>
+>>
+>> --
+>> --
+>> http://schwehr.org
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+>
+> --
+>
+> Georepublic UG (haftungsbeschränkt)
+> Salzmannstraße 44,
+> 81739 München, Germany
+>
+> Vicky Vergara
+> Operations Research
+>
+> eMail: vicky at georepublic.de
+> Web: https://georepublic.info
+>
+> Tel: +49 (089) 4161 7698-1
+> Fax: +49 (089) 4161 7698-9
+>
+> Commercial register: Amtsgericht München, HRB 181428
+> CEO: Daniel Kastl
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From james.david.smith at gmail.com  Tue Dec 18 03:22:10 2018
+From: james.david.smith at gmail.com (James David Smith)
+Date: Tue, 18 Dec 2018 11:22:10 +0000
+Subject: [geos-devel] Issue with multiple geos installs
+Message-ID: <CAMu32AAhH_Z7T_HeNjYF0d_gd9+W4W9SeSnUZh-+QE8+vFhjvw@mail.gmail.com>
+
+Hello,
+
+I'm trying to build the SF package in R. I get this error.
+
+Error: package or namespace load failed for ‘sf’ in dyn.load(file, DLLpath
+= DLLpath, ...):
+ unable to load shared object
+'/home/james/R/x86_64-pc-linux-gnu-library/3.4/sf/libs/sf.so':
+  /home/james/R/x86_64-pc-linux-gnu-library/3.4/sf/libs/sf.so: undefined
+symbol: GEOSSTRtree_nearest_generic_r
+Error: loading failed
+Execution halted
+ERROR: loading failed
+* removing ‘/home/james/R/x86_64-pc-linux-gnu-library/3.4/sf’
+
+I am advised it's because I have multiple versions of geos installed. This
+seems correct as per below.
+
+james at UbuntuSandbox:~$ locate /bin/geos
+/opt/geos/bin/geos-config
+/usr/bin/geos-config
+/usr/local/bin/geos-config
+
+I'm unsure how to fix this. Could someone help me please?
+
+Thanks
+
+James
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181218/b76a2c21/attachment.html>
+
+From geos-trac at osgeo.org  Tue Dec 18 03:42:22 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 18 Dec 2018 11:42:22 -0000
+Subject: [geos-devel] [GEOS] #947: GEOSHasZ crashes on non-empty collection
+ with first empty item
+Message-ID: <047.16195e3fc1f80cbabc1b66e536913f24@osgeo.org>
+
+#947: GEOSHasZ crashes on non-empty collection with first empty item
+------------------------+--------------------------
+ Reporter:  sirsigurd   |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:
+Component:  Default     |    Version:  3.6.2
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ GEOSHasZ crashes with such geometry `GEOMETRYCOLLECTION (POINT EMPTY,
+ POINT (1 2))`.
+
+ {{{
+ geos_ts_c.cpp:3911: char GEOSHasZ_r(GEOSContextHandle_t, const
+ geos::geom::Geometry*): Assertion `0 != g->getCoordinate()' failed.
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/947>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Dec 18 03:42:39 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 18 Dec 2018 11:42:39 -0000
+Subject: [geos-devel] [GEOS] #947: GEOSHasZ crashes on non-empty
+ collection with first empty item
+In-Reply-To: <047.16195e3fc1f80cbabc1b66e536913f24@osgeo.org>
+References: <047.16195e3fc1f80cbabc1b66e536913f24@osgeo.org>
+Message-ID: <062.14448554c6202c38a2b9242a35b18be4@osgeo.org>
+
+#947: GEOSHasZ crashes on non-empty collection with first empty item
+------------------------+------------------------
+ Reporter:  sirsigurd   |       Owner:  sirsigurd
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:
+Component:  Default     |     Version:  3.6.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+------------------------
+Changes (by sirsigurd):
+
+ * owner:  geos-devel@… => sirsigurd
+
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/947#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From pramsey at cleverelephant.ca  Wed Dec 19 06:28:00 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 19 Dec 2018 06:28:00 -0800
+Subject: [geos-devel] pragma once
+Message-ID: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca>
+
+As I fart around w/ header guards every time I add a new header/class, I wonder if changing over to #pragma once would be OK with one and all? GCC has had it 3.4, and clang has always had it, so…?
+
+P.
+
+From gdt at lexort.com  Wed Dec 19 07:01:23 2018
+From: gdt at lexort.com (Greg Troxel)
+Date: Wed, 19 Dec 2018 10:01:23 -0500
+Subject: [geos-devel] pragma once
+In-Reply-To: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca> (Paul
+ Ramsey's message of "Wed, 19 Dec 2018 06:28:00 -0800")
+References: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca>
+Message-ID: <smu5zvpmugs.fsf@linuxpal.mit.edu>
+
+Paul Ramsey <pramsey at cleverelephant.ca> writes:
+
+> As I fart around w/ header guards every time I add a new header/class,
+> I wonder if changing over to #pragma once would be OK with one and
+> all? GCC has had it 3.4, and clang has always had it, so…?
+
+Is that covered by any standards?
+
+(Presumably there is some other compiler people use on windows, too.)
+
+From pramsey at cleverelephant.ca  Wed Dec 19 08:11:23 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 19 Dec 2018 08:11:23 -0800
+Subject: [geos-devel] pragma once
+In-Reply-To: <smu5zvpmugs.fsf@linuxpal.mit.edu>
+References: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca>
+ <smu5zvpmugs.fsf@linuxpal.mit.edu>
+Message-ID: <CACowWR2c5+Yapt-FGPH4fnOQC59on_QGXZU39NQBmiSyAV4jUQ@mail.gmail.com>
+
+"non standard but widely supported"
+
+https://en.wikipedia.org/wiki/Pragma_once
+
+Includes MSVC! :)
+
+P
+
+On Wed, Dec 19, 2018 at 7:01 AM Greg Troxel <gdt at lexort.com> wrote:
+
+> Paul Ramsey <pramsey at cleverelephant.ca> writes:
+>
+> > As I fart around w/ header guards every time I add a new header/class,
+> > I wonder if changing over to #pragma once would be OK with one and
+> > all? GCC has had it 3.4, and clang has always had it, so…?
+>
+> Is that covered by any standards?
+>
+> (Presumably there is some other compiler people use on windows, too.)
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181219/aa14f733/attachment.html>
+
+From Mika.Heiskanen at fmi.fi  Wed Dec 19 08:13:15 2018
+From: Mika.Heiskanen at fmi.fi (Heiskanen Mika (FMI))
+Date: Wed, 19 Dec 2018 16:13:15 +0000
+Subject: [geos-devel] pragma once
+In-Reply-To: <smu5zvpmugs.fsf@linuxpal.mit.edu>
+References: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca>,
+ <smu5zvpmugs.fsf@linuxpal.mit.edu>
+Message-ID: <1545235994833.33236@fmi.fi>
+
+
+From: geos-devel <geos-devel-bounces at lists.osgeo.org> on behalf of Greg Troxel <gdt at lexort.com>
+
+> Paul Ramsey <pramsey at cleverelephant.ca> writes:
+> 
+> > As I fart around w/ header guards every time I add a new header/class,
+> > I wonder if changing over to #pragma once would be OK with one and
+> > all? GCC has had it 3.4, and clang has always had it, so…?
+>
+> Is that covered by any standards?
+>
+> (Presumably there is some other compiler people use on windows, too.)
+
+No, it is not part of any standard. Compiler support is quite extensive though,
+see for example https://en.wikipedia.org/wiki/Pragma_once
+
+Mika Heiskanen
+
+
+From gdt at lexort.com  Wed Dec 19 09:26:58 2018
+From: gdt at lexort.com (Greg Troxel)
+Date: Wed, 19 Dec 2018 12:26:58 -0500
+Subject: [geos-devel] pragma once
+In-Reply-To: <CACowWR2c5+Yapt-FGPH4fnOQC59on_QGXZU39NQBmiSyAV4jUQ@mail.gmail.com>
+ (Paul Ramsey's message of "Wed, 19 Dec 2018 08:11:23 -0800")
+References: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca>
+ <smu5zvpmugs.fsf@linuxpal.mit.edu>
+ <CACowWR2c5+Yapt-FGPH4fnOQC59on_QGXZU39NQBmiSyAV4jUQ@mail.gmail.com>
+Message-ID: <smuy38ll95p.fsf@linuxpal.mit.edu>
+
+Paul Ramsey <pramsey at cleverelephant.ca> writes:
+
+> "non standard but widely supported"
+>
+> https://en.wikipedia.org/wiki/Pragma_once
+>
+> Includes MSVC! :)
+
+As much as I hate to depart from standards, that does look near
+universal.
+
+From howard at hobu.co  Wed Dec 19 11:27:19 2018
+From: howard at hobu.co (Howard Butler)
+Date: Wed, 19 Dec 2018 13:27:19 -0600
+Subject: [geos-devel] pragma once
+In-Reply-To: <smuy38ll95p.fsf@linuxpal.mit.edu>
+References: <D47509C1-B657-46F4-994C-FE31E9FCD87A@cleverelephant.ca>
+ <smu5zvpmugs.fsf@linuxpal.mit.edu>
+ <CACowWR2c5+Yapt-FGPH4fnOQC59on_QGXZU39NQBmiSyAV4jUQ@mail.gmail.com>
+ <smuy38ll95p.fsf@linuxpal.mit.edu>
+Message-ID: <2907654e-76a7-7e8a-8417-31a25b09fa89@hobu.co>
+
+
+On 12/19/18 11:26 AM, Greg Troxel wrote:
+> Paul Ramsey <pramsey at cleverelephant.ca> writes:
+>
+>> "non standard but widely supported"
+>>
+>> https://en.wikipedia.org/wiki/Pragma_once
+>>
+>> Includes MSVC! :)
+> As much as I hate to depart from standards, that does look near
+> universal.
+
+
+Go for #pragma once. We haven't regretted it in PDAL for the nearly
+eight years we've existed. It cleans up tons of #ifdef churn and culls a
+set of difficult-to-debug situations (same ifdef being used from
+copypasta code). 
+
+
+You have probably clipped off every compiler that doesn't support
+#pragma once with the C++11 requirement anyway...
+
+
+Howard
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 528 bytes
+Desc: OpenPGP digital signature
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181219/1c2a2fd0/attachment.sig>
+
+From pramsey at cleverelephant.ca  Thu Dec 20 11:51:26 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 20 Dec 2018 11:51:26 -0800
+Subject: [geos-devel] *.vc files
+Message-ID: <CACowWR2MLTeAUxeH+9Lnsim5BdQqoi02gKcJJ0LsW_1gJaJi6g@mail.gmail.com>
+
+Are the *.vc files still maintained at all? I'm guessing not. Can we expect
+VC builds to use cmake now?
+
+I'm attempting to integrate all version information to one place for all
+builds, but the manual maintenance of the *.vc files remains a sticking
+point.
+
+If they are dead I'd like to remove them from master.
+
+I'm also willing to remove them from 3.7 if there's a desire to backport
+one-point-of-truth versioning to that branch.
+
+P
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181220/aca6d52f/attachment.html>
+
+From lr at pcorp.us  Thu Dec 20 12:22:27 2018
+From: lr at pcorp.us (Regina Obe)
+Date: Thu, 20 Dec 2018 15:22:27 -0500
+Subject: [geos-devel] *.vc files
+In-Reply-To: <CACowWR2MLTeAUxeH+9Lnsim5BdQqoi02gKcJJ0LsW_1gJaJi6g@mail.gmail.com>
+References: <CACowWR2MLTeAUxeH+9Lnsim5BdQqoi02gKcJJ0LsW_1gJaJi6g@mail.gmail.com>
+Message-ID: <001901d498a1$baa35550$2fe9fff0$@pcorp.us>
+
++1 
+
+ 
+
+Wipe out all the VC build files.  I think we said in 3.8 we would officially no longer support VS and windows users should use cmake.
+
+ 
+
+There are way too many versions of VS to keep track of. Even a windows user is not going to test all permutations and each always seems to require a slightly different diet.
+
+ 
+
+You'll have to kill the appveyor testing of NMake etc. though.  I think both dan and I have appveyor jobs things since I get alerted when it breaks.
+
+ 
+
+But you can take those out of the appveyor testing suite.
+
+ 
+
+From: geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of Paul Ramsey
+Sent: Thursday, December 20, 2018 2:51 PM
+To: GEOS Development List <geos-devel at lists.osgeo.org>
+Subject: [geos-devel] *.vc files
+
+ 
+
+Are the *.vc files still maintained at all? I'm guessing not. Can we expect VC builds to use cmake now?
+
+ 
+
+I'm attempting to integrate all version information to one place for all builds, but the manual maintenance of the *.vc files remains a sticking point.
+
+ 
+
+If they are dead I'd like to remove them from master.
+
+ 
+
+I'm also willing to remove them from 3.7 if there's a desire to backport one-point-of-truth versioning to that branch.
+
+
+P
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181220/40ae29aa/attachment.html>
+
+From pramsey at cleverelephant.ca  Thu Dec 20 12:25:23 2018
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 20 Dec 2018 12:25:23 -0800
+Subject: [geos-devel] *.vc files
+In-Reply-To: <001901d498a1$baa35550$2fe9fff0$@pcorp.us>
+References: <CACowWR2MLTeAUxeH+9Lnsim5BdQqoi02gKcJJ0LsW_1gJaJi6g@mail.gmail.com>
+ <001901d498a1$baa35550$2fe9fff0$@pcorp.us>
+Message-ID: <CACowWR0PQq2==K9d9XwXDDuxxTu16zsKPXzW7PF9AGCLccBF4A@mail.gmail.com>
+
+Here's a PR for comment
+
+https://git.osgeo.org/gitea/geos/geos/pulls/60
+
+
+On Thu, Dec 20, 2018 at 12:22 PM Regina Obe <lr at pcorp.us> wrote:
+
+> +1
+>
+>
+>
+> Wipe out all the VC build files.  I think we said in 3.8 we would
+> officially no longer support VS and windows users should use cmake.
+>
+>
+>
+> There are way too many versions of VS to keep track of. Even a windows
+> user is not going to test all permutations and each always seems to require
+> a slightly different diet.
+>
+>
+>
+> You'll have to kill the appveyor testing of NMake etc. though.  I think
+> both dan and I have appveyor jobs things since I get alerted when it breaks.
+>
+>
+>
+> But you can take those out of the appveyor testing suite.
+>
+>
+>
+> *From:* geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] *On Behalf
+> Of *Paul Ramsey
+> *Sent:* Thursday, December 20, 2018 2:51 PM
+> *To:* GEOS Development List <geos-devel at lists.osgeo.org>
+> *Subject:* [geos-devel] *.vc files
+>
+>
+>
+> Are the *.vc files still maintained at all? I'm guessing not. Can we
+> expect VC builds to use cmake now?
+>
+>
+>
+> I'm attempting to integrate all version information to one place for all
+> builds, but the manual maintenance of the *.vc files remains a sticking
+> point.
+>
+>
+>
+> If they are dead I'd like to remove them from master.
+>
+>
+>
+> I'm also willing to remove them from 3.7 if there's a desire to backport
+> one-point-of-truth versioning to that branch.
+>
+>
+> P
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20181220/2d403378/attachment.html>
+
+From geos-trac at osgeo.org  Fri Dec 21 12:12:17 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 21 Dec 2018 20:12:17 -0000
+Subject: [geos-devel] [GEOS] #948: regression timed out mingw64 gcc 8.1
+Message-ID: <042.4d81578620f28d77e6b46ee8f968d6c2@osgeo.org>
+
+#948: regression timed out mingw64 gcc 8.1
+------------------------+--------------------------
+ Reporter:  robe        |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.8.0
+Component:  Default     |    Version:  master
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ It's been a while since I tried to compile and make check geos on master.
+
+ I tried against master and got this output:
+
+
+ {{{
+ [100%] Linking C executable ../../../bin/perf_memleak_mp_prep.exe
+ [100%] Built target perf_memleak_mp_prep
+ UpdateCTestConfiguration  from
+ :C:/ming64gcc81/projects/geos/branches/build/DartConfiguration.tcl
+ UpdateCTestConfiguration  from
+ :C:/ming64gcc81/projects/geos/branches/build/DartConfiguration.tcl
+ Test project C:/ming64gcc81/projects/geos/branches/build
+ Constructing a list of tests
+ Done constructing a list of tests
+ Updating test list for fixtures
+ Added 0 tests to meet fixture requirements
+ Checking test dependency graph...
+ Checking test dependency graph end
+ test 1
+     Start 1: test_geos_unit
+
+ 1: Test command:
+ C:\ming64gcc81\projects\geos\branches\build\bin\test_geos_unit.exe
+ 1: Test timeout computed to be: 10000000
+ 1: ===============================
+ 1:   GEOS Test Suite Application
+ 1: ===============================
+ 1:
+
+ }}}
+
+ This is first I've ever seen of a timeout?  Anyone else getting this
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/948>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From communitysprint at osgeo.org  Tue Dec 25 07:53:38 2018
+From: communitysprint at osgeo.org (communitysprint at osgeo.org)
+Date: Tue, 25 Dec 2018 16:53:38 +0100
+Subject: [geos-devel] 2019 OSGeo Community/Code Sprint in Minneapolis
+	14.-17. May 2019
+Message-ID: <138cbfc90d9803203a01b29578372d80@posteo.de>
+
+Hi all:
+
+Just a quick note to let folks know that planning is underway to host
+a community/code sprint in Minneapolis in May of 2019 – specifically 
+from May
+14th to the 17th. The location will be the Wilson Research Collaboration
+Studio on the campus of the University of Minnesota. More information 
+can be
+found at:
+
+    https://wiki.osgeo.org/wiki/OSGeo_Community_Sprint_2019
+
+As with previous sprints this represents a great opportunity to get
+distributed project teams together, to collaborate across projects and 
+to have
+a lot of fun. The event is still five months out and what we need now 
+more
+than anything is an idea of how many sprinters we might expect. There’s 
+a spot
+on the wiki page to add yourself and note the likelihood of attending.
+
+These events are not possible without the generous support of sponsors, 
+and a
+number of organizations have already stepped up. We really appreciate 
+their
+support of free and open source software and OSGeo in particular. They 
+are:
+
+   Gold Sponsor -  GeoCue (https://geocue.com/)
+
+   Silver Sponsors - Hobu (https://hobu.co/), EOX (https://eox.at/) and 
+TYDAC
+   (https://www.tydac.ch/)
+
+   Bronze Sponsors – Coordinate Solutions 
+(http://www.coordinatesolutions.com/)
+   and SharedGeo (https://www.sharedgeo.org/)
+
+Interested in sponsoring? You can find more information at
+https://wiki.osgeo.org/wiki/OSGeo_Community_Sprint_2019#Sponsoring.
+
+See you in Minneapolis!
+
+--Steve (steve.lime at state.mn.us)
+-- 
+****************************************************
+See you in Minneapolis in at OSGeo Code Sprint 2019
+14 to 17 May 2019
+
+https://wiki.osgeo.org/wiki/OSGeo_Community_Sprint_2019
+*****************************************************
+
+From geos-trac at osgeo.org  Thu Dec 27 17:02:30 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 28 Dec 2018 01:02:30 -0000
+Subject: [geos-devel] [GEOS] #924: geometries returned by getGeometryN()
+ should have the same SRID as collection
+In-Reply-To: <047.1d12098bd6334a193b9795963625b83f@osgeo.org>
+References: <047.1d12098bd6334a193b9795963625b83f@osgeo.org>
+Message-ID: <062.78c40c5dc1547ec3572e0f8806a93d19@osgeo.org>
+
+#924: geometries returned by getGeometryN() should have the same SRID as
+collection
+-------------------------+---------------------------
+ Reporter:  sirsigurd    |       Owner:  geos-devel@…
+     Type:  enhancement  |      Status:  new
+ Priority:  major        |   Milestone:
+Component:  Default      |     Version:  master
+ Severity:  Unassigned   |  Resolution:
+ Keywords:               |
+-------------------------+---------------------------
+
+Comment (by dbaston):
+
+ The proposed behavior (components have same SRID as collection) is
+ consistent w/JTS:
+
+
+ {{{
+ -> GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
+ |  Added variable gf of type GeometryFactory with initial value
+ org.locationtech.jts.geom.GeometryFactory at 21213b92
+
+ -> WKTReader reader = new WKTReader(gf);
+ |  Added variable reader of type WKTReader with initial value
+ org.locationtech.jts.io.WKTReader at 3327bd23
+
+ -> Geometry g = reader.read("GEOMETRYCOLLECTION(POINT (3 7), LINESTRING (0
+ 0, 1 1))");
+ |  Added variable g of type Geometry with initial value GEOMETRYCOLLECTION
+ (POINT (3 7), LINESTRING (0 0, 1 1))
+
+ -> g.getSRID();
+ |  Expression value is: 4326
+ |    assigned to temporary variable $12 of type int
+
+ -> g.getGeometryN(0).getSRID();
+ |  Expression value is: 4326
+ |    assigned to temporary variable $13 of type int
+
+ -> g.getGeometryN(1).getSRID();
+ |  Expression value is: 4326
+ |    assigned to temporary variable $14 of type int
+
+ }}}
+
+ {{{
+
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/924#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Dec 27 17:48:33 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 28 Dec 2018 01:48:33 -0000
+Subject: [geos-devel] [GEOS] #924: geometries returned by getGeometryN()
+ should have the same SRID as collection
+In-Reply-To: <047.1d12098bd6334a193b9795963625b83f@osgeo.org>
+References: <047.1d12098bd6334a193b9795963625b83f@osgeo.org>
+Message-ID: <062.58e65815284f9f8356bb21506e8d0bff@osgeo.org>
+
+#924: geometries returned by getGeometryN() should have the same SRID as
+collection
+-------------------------+---------------------------
+ Reporter:  sirsigurd    |       Owner:  geos-devel@…
+     Type:  enhancement  |      Status:  closed
+ Priority:  major        |   Milestone:
+Component:  Default      |     Version:  master
+ Severity:  Unassigned   |  Resolution:  fixed
+ Keywords:               |
+-------------------------+---------------------------
+Changes (by Sergey Fedoseev <fedoseev.sergey@…>):
+
+ * status:  new => closed
+ * resolution:   => fixed
+
+
+Comment:
+
+ In [changeset:"33c1e7bc78dbfffcaf9a05744e49b76d91d21d2f/git" 33c1e7b/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="33c1e7bc78dbfffcaf9a05744e49b76d91d21d2f"
+ Fix #924: Geometries returned by getGeometryN() now have the same SRID as
+ collection.
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/924#comment:3>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+

@@ -1,0 +1,3535 @@
+From j1 at jimenezshaw.com  Fri Jul  1 10:16:46 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 1 Jul 2022 19:16:46 +0200
+Subject: [PROJ] confidence % in projinfo --identify
+Message-ID: <CADRrdKuQF9500z84NJ2uGnveGjBG+czgr5G4vYY8Oc6yzP+pwQ@mail.gmail.com>
+
+Hi
+
+I am a bit confused with "--identify" option in projinfo. I looked at the
+documentation of the method "identify" of CRS classes in C++ trying to
+understand.
+
+Running
+projinfo "$(projinfo ESRI:102654 -o WKT1:GDAL -q)" --identify -o WKT1:GDAL
+Produces
+PROJCS["NAD_1983_StatePlane_Colorado_Central_FIPS_0502_Feet (deprecated)",
+....
+Identification match count: 1
+ESRI:102654: 100 %
+
+so far so good.
+
+Running (I just changed the wkt1 dialect in the inner call)
+projinfo "$(projinfo ESRI:102654 -o WKT1:ESRI -q)" --identify -o WKT1:GDAL
+Produces
+PROJCS["NAD83 / Colorado Central (ftUS)",
+....
+Identification match count: 1
+EPSG:2232: 100 %
+
+Looking at the C++ documentation I think that a confidence of 100% means
+that the names are the same (I do not really know which names it refers to.
+Only the CRS name? geographic crs? datum? units? anything else? all?) But
+in this case the input is "
+NAD_1983_StatePlane_Colorado_Central_FIPS_0502_Feet" while the output is "NAD83
+/ Colorado Central (ftUS)".
+I know that both systems are equivalent (that is why ESRI:102654 is
+deprecated), but I would not expect the 100% confidence having different
+CRS names.
+
+If I use this WKT string (the ESRI one, but adding the authority at the end
+-I found it somewhere-)
+
+PROJCS["NAD_1983_StatePlane_Colorado_Central_FIPS_0502_Feet",
+  GEOGCS["GCS_North_American_1983",
+    DATUM["D_North_American_1983",
+      SPHEROID["GRS_1980",6378137.0,298.257222101]],
+    PRIMEM["Greenwich",0.0],
+    UNIT["Degree",0.0174532925199433]],
+  PROJECTION["Lambert_Conformal_Conic"],
+  PARAMETER["False_Easting",3000000.00031608],
+  PARAMETER["False_Northing",999999.999996],
+  PARAMETER["Central_Meridian",-105.5],
+  PARAMETER["Standard_Parallel_1",38.45],
+  PARAMETER["Standard_Parallel_2",39.75],
+  PARAMETER["Latitude_Of_Origin",37.8333333333333],
+  UNIT["US survey foot",0.304800609601219],
+  AUTHORITY["ESRI","102654"]]
+
+Produces
+PROJCS["NAD83 / Colorado Central (ftUS)",
+...
+Identification match count: 1
+ESRI:102654: 100 %
+
+It is also changing the name to the one in EPSG, returning the ESRI code,
+and with a confidence of 100%
+
+Is all that intended? Maybe I misunderstood the meaning of the confidence
+percentage.
+
+Thanks.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220701/6e2f81dd/attachment.htm>
+
+From even.rouault at spatialys.com  Fri Jul  1 10:47:47 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 1 Jul 2022 19:47:47 +0200
+Subject: [PROJ] confidence % in projinfo --identify
+In-Reply-To: <CADRrdKuQF9500z84NJ2uGnveGjBG+czgr5G4vYY8Oc6yzP+pwQ@mail.gmail.com>
+References: <CADRrdKuQF9500z84NJ2uGnveGjBG+czgr5G4vYY8Oc6yzP+pwQ@mail.gmail.com>
+Message-ID: <42f099ff-5192-c13b-4414-3397dac7bc47@spatialys.com>
+
+
+Le 01/07/2022 ? 19:16, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> I am a bit confused with "--identify" option in projinfo. I looked at 
+> the documentation of the method "identify" of CRS classes in C++ 
+> trying to understand.
+>
+> Running
+> projinfo "$(projinfo ESRI:102654 -o WKT1:GDAL -q)" --identify -o WKT1:GDAL
+> Produces
+> PROJCS["NAD_1983_StatePlane_Colorado_Central_FIPS_0502_Feet (deprecated)",
+> ....
+> Identification match count: 1
+> ESRI:102654: 100 %
+>
+> so far so good.
+"projinfo ESRI:102654 -o WKT1:GDAL -q" generates a WKT with the 
+ESRI:102654 authority node, hence it is used for identification
+>
+> Running (I just changed the wkt1 dialect in the inner call)
+> projinfo "$(projinfo ESRI:102654 -o WKT1:ESRI -q)" --identify -o WKT1:GDAL
+> Produces
+> PROJCS["NAD83 / Colorado Central (ftUS)",
+> ....
+> Identification match count: 1
+> EPSG:2232: 100 %
+>
+> Looking at the C++ documentation I think that a confidence of 100% 
+> means that the names are the same (I do not really know which names it 
+> refers to. Only the CRS name? geographic crs? datum? units? anything 
+> else? all?)
+
+"projinfo ESRI:102654 -o WKT1:ESRI -q" strips the authority node (this 
+is canonical for ESRI WKT), so for identification PROJ relies on the CRS 
+name (to start with). The reason to match EPSG:2232 here is this entry 
+in the database:
+
+../data/sql/esri.sql:INSERT INTO alias_name 
+VALUES('projected_crs','EPSG','2232','NAD_1983_StatePlane_Colorado_Central_FIPS_0502_Feet','ESRI');
+
+which is added when importing the ESRI database where they link their 
+deprecated code to the EPSG entry
+
+I'm not sure to remember why it chooses the entry corresponding to the 
+alias rather than ESRI:102654. Probably the fact that ESRI:102654 is 
+deprecated.
+
+
+> If I use this WKT string (the ESRI one, but adding the authority at 
+> the end -I found it somewhere-)
+>
+> PROJCS["NAD_1983_StatePlane_Colorado_Central_FIPS_0502_Feet",
+> GEOGCS["GCS_North_American_1983",
+> DATUM["D_North_American_1983",
+> SPHEROID["GRS_1980",6378137.0,298.257222101]],
+> PRIMEM["Greenwich",0.0],
+> UNIT["Degree",0.0174532925199433]],
+> PROJECTION["Lambert_Conformal_Conic"],
+> PARAMETER["False_Easting",3000000.00031608],
+> PARAMETER["False_Northing",999999.999996],
+> PARAMETER["Central_Meridian",-105.5],
+> PARAMETER["Standard_Parallel_1",38.45],
+> PARAMETER["Standard_Parallel_2",39.75],
+> PARAMETER["Latitude_Of_Origin",37.8333333333333],
+> ? UNIT["US survey foot",0.304800609601219],
+> AUTHORITY["ESRI","102654"]]
+>
+> Produces
+> PROJCS["NAD83 / Colorado Central (ftUS)",
+> ...
+> Identification match count: 1
+> ESRI:102654: 100 %
+>
+> It is also changing the name to the one in EPSG, returning the ESRI 
+> code, and with a confidence of 100%
+
+When there's a code and the provided CRS is equivalent to the one built 
+from the code, the code is trusted.
+
+Regarding the change of name to the one of EPSG, that's due to the 
+morphing done by PROJ when importing ESRI WKT to use EPSG 
+CRS/datum/projection method/projection parameter names.? The reverse 
+morphing is done when exporting to ESRI WKT.
+
+>
+> Is all that intended? Maybe I misunderstood the meaning of the 
+> confidence percentage.
+Overall yes what you observe is intended. It is really difficult to 
+document every aspect of what some functions does, as there are a lot of 
+heuristics added to make things work smoothly and describing everything 
+can be confusing (and here there are considerations related to 
+import/export of ESRI WKT in additions of purely identification issues). 
+But documentation contributions that could makes things clearer are 
+welcome. Perhaps the doc could be modified to indicate that 100% also 
+takes into account registered alias names.
+>
+> Thanks.
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220701/8e1d9d5c/attachment.htm>
+
+From Bart.Duijndam at ziggo.nl  Mon Jul  4 02:00:27 2022
+From: Bart.Duijndam at ziggo.nl (Bart.Duijndam at ziggo.nl)
+Date: Mon, 4 Jul 2022 11:00:27 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+Message-ID: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+
+Greetings all,
+
+ 
+
+Working with QGIS, I am in need of developing a ?custom CRS? with its own origin and orientation. 
+
+Basically I need a CRS that is DERIVED from a PROJCRS, resulting in a DERIVEDPROJCRS.
+
+ 
+
+I have done some work to that extent, that can be seen at the following spreadsheet on GitHub:
+
+https://github.com/Duijndam-Dev/TopoLib/blob/master/TopoLib/Samples/DerivedProjectedCrsTests.xlsb
+
+ 
+
+Right now, I do this by hacking a WKT2 string, based on various examples found on the internet.
+
+https://gis.stackexchange.com/questions/353022/defining-a-coordinate-system-in-wkt-or-proj-format-that-has-an-affine-transforma 
+
+https://gis.stackexchange.com/questions/350228/define-custom-projection-in-qgis-from-some-control-points 
+
+https://gis.stackexchange.com/questions/408406/qgis-custom-projection-in-wkt-not-saving-prj-file 
+
+https://gis.stackexchange.com/questions/366578/custom-crs-for-historic-site-grid 
+
+https://gis.stackexchange.com/questions/408683/custom-derived-crs-by-affine-transformation-from-epsg32633-setting-as-layer-cr 
+
+ 
+
+Doing the required affine transform is relatively straightforward. What is more of a concern is creating a WKT2 string to setup the DERIVEDPROJCRS.
+
+In particular, I would like to preserve the USAGE definition and BBOX field. Any closing ID field needs to be removed, as it is no longer valid.
+
+ 
+
+But the process of editing a WKT2 string is rather error prone. It is not something you?d like a ?novice? having to do.
+
+Now, the fact is that proj supports affine transforms since v6.0.0. See: https://proj.org/operations/transformations/affine.html?highlight=affine+transformation#
+
+ 
+
+Finally, to come to my question: would it be possible to define the following workflow in C++ code:
+
+1.	Create a projected CRS object (from EPSG code, or a WKT string)
+2.	Apply an affine transformation on this CRS
+3.	Export the modified CRS as a WKT string
+
+This automation would avoid any manual editing of the WKT2 string.
+
+ 
+
+Maybe - if this isn?t the best approach - are any other ways conceivable to achieve my goal ?
+
+Much appreciate your advice.
+
+ 
+
+ <mailto:Bart.Duijndam at ziggo.nl> Bart Duijndam
+
+Geoscience consultant
+
+www.duijndam.dev <http://www.duijndam.dev/>  
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220704/91e86983/attachment.htm>
+
+From even.rouault at spatialys.com  Mon Jul  4 02:40:16 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 4 Jul 2022 11:40:16 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+Message-ID: <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+
+
+Le 04/07/2022 ? 11:00, Bart via PROJ a ?crit?:
+>
+> Greetings all,
+>
+> Working with QGIS, I am in need of developing a ?custom CRS? with its 
+> own origin and orientation.
+>
+> Basically I need a CRS that is DERIVED from a PROJCRS, resulting in a 
+> *DERIVEDPROJCRS*.
+>
+> I have done some work to that extent, that can be seen at the 
+> following spreadsheet on GitHub:
+>
+> https://github.com/Duijndam-Dev/TopoLib/blob/master/TopoLib/Samples/DerivedProjectedCrsTests.xlsb
+>
+> Right now, I do this by hacking a WKT2 string, based on various 
+> examples found on the internet.
+>
+> https://gis.stackexchange.com/questions/353022/defining-a-coordinate-system-in-wkt-or-proj-format-that-has-an-affine-transforma 
+>
+>
+> https://gis.stackexchange.com/questions/350228/define-custom-projection-in-qgis-from-some-control-points 
+>
+>
+> https://gis.stackexchange.com/questions/408406/qgis-custom-projection-in-wkt-not-saving-prj-file 
+>
+>
+> https://gis.stackexchange.com/questions/366578/custom-crs-for-historic-site-grid 
+>
+>
+> https://gis.stackexchange.com/questions/408683/custom-derived-crs-by-affine-transformation-from-epsg32633-setting-as-layer-cr 
+>
+>
+> Doing the required affine transform is relatively straightforward. 
+> What is more of a concern is creating a WKT2 string to setup the 
+> DERIVEDPROJCRS.
+>
+> In particular, I would like to preserve the USAGE definition and BBOX 
+> field. Any closing ID field needs to be removed, as it is no longer valid.
+>
+> But the process of editing a WKT2 string is rather error prone. It is 
+> not something you?d like a ?novice? having to do.
+>
+> Now, the fact is that proj supports affine transforms since v6.0.0. 
+> See: 
+> https://proj.org/operations/transformations/affine.html?highlight=affine+transformation#
+>
+> Finally, to come to my question: would it be possible to define the 
+> following workflow in C++ code:
+>
+>  1. Create a projected CRS object (from EPSG code, or a WKT string)
+>  2. Apply an affine transformation on this CRS
+>  3. Export the modified CRS as a WKT string
+>
+> This automation would avoid any manual editing of the WKT2 string.
+>
+There's definitely everything needed in PROJ C++ API to do that.
+
+The main entry point would be the DerivedProjectedCRS::create() method: 
+https://github.com/OSGeo/PROJ/blob/master/include/proj/crs.hpp#L1266
+
+There's an example of its usage in 
+https://github.com/OSGeo/PROJ/blob/a390c57ab5998154535d7ffbc7de04aad2a73910/test/unit/test_crs.cpp#L5493
+
+In this example, the creation of the conversion is rather dummy. A more 
+interesting example is at 
+https://github.com/OSGeo/PROJ/blob/a390c57ab5998154535d7ffbc7de04aad2a73910/test/unit/test_crs.cpp#L5164
+
+Creation of the base CRS from a EPSG code: 
+https://github.com/OSGeo/PROJ/blob/a390c57ab5998154535d7ffbc7de04aad2a73910/test/unit/test_crs.cpp#L1225
+
+Export of a CRS as WKT: 
+https://github.com/OSGeo/PROJ/blob/a390c57ab5998154535d7ffbc7de04aad2a73910/test/unit/test_crs.cpp#L2047
+
+Even
+
+> Maybe - if this isn?t the best approach - are any other ways 
+> conceivable to achieve my goal ?
+>
+> Much appreciate your advice.
+>
+> Bart Duijndam <mailto:Bart.Duijndam at ziggo.nl>
+>
+> Geoscience consultant
+>
+> www.duijndam.dev <http://www.duijndam.dev/>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220704/5bb70854/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Tue Jul  5 14:29:55 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 5 Jul 2022 23:29:55 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+Message-ID: <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+
+> autoproj_crs = nn_dynamic_pointer_cast<ProjectedCRSNNPtr>(crs);
+>
+==> autoproj_crs = nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220705/cf9a5d5a/attachment.htm>
+
+From Bart.Duijndam at ziggo.nl  Tue Jul  5 14:35:50 2022
+From: Bart.Duijndam at ziggo.nl (Bart.Duijndam at ziggo.nl)
+Date: Tue, 5 Jul 2022 23:35:50 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+Message-ID: <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+
+Hi Even,
+
+ 
+
+Thanks for your help; you?re working late?
+
+Please be advised that I already started with using nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+
+But then I got the following obscure error message:
+
+ 
+
+D:\Source\VS19\PROJ\test\unit\test_crs.cpp(5516): error C2280: 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn(PtrType)': attempting to reference a deleted function
+
+          with
+
+          [
+
+              PtrType=osgeo::proj::crs::ProjectedCRSPtr
+
+          ]
+
+  D:\Source\VS19\PROJ\include\proj\nn.hpp(126): note: see declaration of 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn'
+
+  D:\Source\VS19\PROJ\include\proj\nn.hpp(126): note: 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn(PtrType)': function was explicitly deleted
+
+          with
+
+          [
+
+              PtrType=osgeo::proj::crs::ProjectedCRSPtr
+
+          ]
+
+  ninja: build stopped: subcommand failed.
+
+ 
+
+Build All failed.
+
+ 
+
+So that?s why I tried ProjectedCRSNNPtr instead
+
+ 
+
+Cheers,
+
+ 
+
+Bart
+
+ 
+
+ 
+
+ 
+
+From: Even Rouault <even.rouault at spatialys.com> 
+Sent: Tuesday, 5 July 2022 23:30
+To: Bart.Duijndam at ziggo.nl; proj at lists.osgeo.org
+Subject: Re: [PROJ] Affine transformation using DERIVEDPROJCRS
+
+ 
+
+    auto proj_crs = nn_dynamic_pointer_cast<ProjectedCRSNNPtr>(crs);
+
+==> auto proj_crs = nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220705/4aa74469/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul  5 14:51:35 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 5 Jul 2022 23:51:35 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+Message-ID: <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+
+
+Le 05/07/2022 ? 23:35, Bart.Duijndam at ziggo.nl a ?crit?:
+>
+> Hi Even,
+>
+> Thanks for your help; you?re working late?
+>
+> Please be advised that I already started with using 
+> nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+>
+> But then I got the following obscure error message:
+>
+> D:\Source\VS19\PROJ\test\unit\test_crs.cpp(5516): error C2280: 
+> 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn(PtrType)': 
+> attempting to reference a deleted function
+>
+> with
+>
+> [
+>
+> PtrType=osgeo::proj::crs::ProjectedCRSPtr
+>
+> ]
+>
+> D:\Source\VS19\PROJ\include\proj\nn.hpp(126): note: see declaration of 
+> 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn'
+>
+> D:\Source\VS19\PROJ\include\proj\nn.hpp(126): note: 
+> 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn(PtrType)': 
+> function was explicitly deleted
+>
+> with
+>
+> [
+>
+> PtrType=osgeo::proj::crs::ProjectedCRSPtr
+>
+> ]
+>
+> ninja: build stopped: subcommand failed.
+>
+> Build All failed.
+>
+Ah I see, the issue is that nn_dynamic_pointer_cast<ProjectedCRS> 
+returns a ProjectedCRSPtr (which is a typedef for 
+std::shared_ptr<ProjectedCRS>), which is potentially null (because 
+nn_dynamic_pointer_cast<> might fail and return a null pointer). Whereas 
+your function signature returns a ProjectedCRSNNPtr, which is an alias 
+for nn<ProjectedCRSPtr>, that is a ProjectedCRSPtr that cannot be null. 
+The conversion from ProjectedCRSPtr to nn<ProjectedCRSPtr> must be 
+explicit, so you should typically modify the return statement to be 
+return NN_CHECK_ASSERT(proj_crs);
+
+
+> So that?s why I tried ProjectedCRSNNPtrinstead
+>
+That would leak to a shared pointer of a null-nullable shared pointer. 
+Definitely not something you want.
+>
+> Cheers,
+>
+> Bart
+>
+> *From:*Even Rouault <even.rouault at spatialys.com>
+> *Sent:* Tuesday, 5 July 2022 23:30
+> *To:* Bart.Duijndam at ziggo.nl; proj at lists.osgeo.org
+> *Subject:* Re: [PROJ] Affine transformation using DERIVEDPROJCRS
+>
+>     autoproj_crs = nn_dynamic_pointer_cast<ProjectedCRSNNPtr>(crs);
+>
+> ==> autoproj_crs = nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+>
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220705/39bc138e/attachment-0001.htm>
+
+From Bart.Duijndam at ziggo.nl  Tue Jul  5 14:56:25 2022
+From: Bart.Duijndam at ziggo.nl (Bart.Duijndam at ziggo.nl)
+Date: Tue, 5 Jul 2022 23:56:25 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+ <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+Message-ID: <000b01d890ba$12b04b90$3810e2b0$@ziggo.nl>
+
+Thanks Even, 
+
+ 
+
+This removed the error message, and the code now compiles okay. 
+
+Next thing is to step through the code, and see if it does what I hope it does.
+
+ 
+
+But that will be by Friday earliest, I expect.
+
+ 
+
+Kind regards,
+
+ 
+
+Bart
+
+ 
+
+ 
+
+From: Even Rouault <even.rouault at spatialys.com> 
+Sent: Tuesday, 5 July 2022 23:52
+To: Bart.Duijndam at ziggo.nl; proj at lists.osgeo.org
+Subject: Re: [PROJ] Affine transformation using DERIVEDPROJCRS
+
+ 
+
+ 
+
+Le 05/07/2022 ? 23:35, Bart.Duijndam at ziggo.nl <mailto:Bart.Duijndam at ziggo.nl>  a ?crit :
+
+Hi Even,
+
+ 
+
+Thanks for your help; you?re working late?
+
+Please be advised that I already started with using nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+
+But then I got the following obscure error message:
+
+ 
+
+D:\Source\VS19\PROJ\test\unit\test_crs.cpp(5516): error C2280: 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn(PtrType)': attempting to reference a deleted function
+
+          with
+
+          [
+
+              PtrType=osgeo::proj::crs::ProjectedCRSPtr
+
+          ]
+
+  D:\Source\VS19\PROJ\include\proj\nn.hpp(126): note: see declaration of 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn'
+
+  D:\Source\VS19\PROJ\include\proj\nn.hpp(126): note: 'dropbox::oxygen::nn<osgeo::proj::crs::ProjectedCRSPtr>::nn(PtrType)': function was explicitly deleted
+
+          with
+
+          [
+
+              PtrType=osgeo::proj::crs::ProjectedCRSPtr
+
+          ]
+
+  ninja: build stopped: subcommand failed.
+
+ 
+
+Build All failed.
+
+Ah I see, the issue is that nn_dynamic_pointer_cast<ProjectedCRS> returns a ProjectedCRSPtr (which is a typedef for std::shared_ptr<ProjectedCRS>), which is potentially null (because nn_dynamic_pointer_cast<> might fail and return a null pointer). Whereas your function signature returns a ProjectedCRSNNPtr, which is an alias for nn<ProjectedCRSPtr>, that is a ProjectedCRSPtr that cannot be null. The conversion from ProjectedCRSPtr to nn<ProjectedCRSPtr> must be explicit, so you should typically modify the return statement to be return NN_CHECK_ASSERT(proj_crs);
+
+ 
+
+ 
+
+So that?s why I tried ProjectedCRSNNPtr instead
+
+That would leak to a shared pointer of a null-nullable shared pointer. Definitely not something you want.
+
+
+
+ 
+
+Cheers,
+
+ 
+
+Bart
+
+ 
+
+ 
+
+ 
+
+From: Even Rouault  <mailto:even.rouault at spatialys.com> <even.rouault at spatialys.com> 
+Sent: Tuesday, 5 July 2022 23:30
+To: Bart.Duijndam at ziggo.nl <mailto:Bart.Duijndam at ziggo.nl> ; proj at lists.osgeo.org <mailto:proj at lists.osgeo.org> 
+Subject: Re: [PROJ] Affine transformation using DERIVEDPROJCRS
+
+ 
+
+    auto proj_crs = nn_dynamic_pointer_cast<ProjectedCRSNNPtr>(crs);
+
+==> auto proj_crs = nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220705/ac332012/attachment.htm>
+
+From Bart.Duijndam at ziggo.nl  Fri Jul  8 06:25:46 2022
+From: Bart.Duijndam at ziggo.nl (Bart.Duijndam at ziggo.nl)
+Date: Fri, 8 Jul 2022 15:25:46 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+ <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com> 
+Message-ID: <008301d892ce$3c0294b0$b407be10$@ziggo.nl>
+
+** RE-SENT AS PLAIN TEXT IN VIEW OF EMAIL SIZE **
+
+Hi Even,
+
+I worked things through, and have included the following three routines in test_crs.cpp, that compile and test okay.
+I have a few questions / remarks though:
+1. Why is the EPSG definition ID of an affine transform not being exported:  ID["EPSG",9624]],
+2. Same for the ID?s of the Affine transformation parameters: 8623, 8624, 8625, 8639, 8640 and 8641.
+3. The USAGE description isn?t being included in the generated WKT string and is also missing in the derived transform
+   USAGE[
+   SCOPE["Engineering survey, topographic mapping."],
+   AREA["Netherlands - onshore, including Waddenzee, Dutch Wadden Islands and 12-mile offshore coastal zone."],
+   BBOX[50.75,3.2,53.7,7.22]]]  
+This is really a pity. Is there an ?easy? way to fix this ?
+4. Nevertheless, maybe the example below is more ?meaningful? than the current one, that is included in the test_crs.file.
+
+Kind regards,
+
+Bart
+
+
+ProjectedCRSNNPtr createProjected_v2()
+{
+    auto dbContext = DatabaseContext::create();
+    auto factory = AuthorityFactory::create(dbContext, "EPSG");
+    auto crs = factory->createCoordinateReferenceSystem("28992");
+    auto proj_crs = nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+    EXPECT_TRUE(proj_crs != nullptr);
+
+    return NN_CHECK_ASSERT(proj_crs);
+}
+
+static DerivedProjectedCRSNNPtr createDerivedProjectedCRS_v2() {
+
+    auto derivingConversion = Conversion::create
+    (
+        PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine"),
+        PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine parametric transformation"),
+        std::vector<OperationParameterNNPtr>
+        {
+            OperationParameter::create(PropertyMap().set(
+                IdentifiedObject::NAME_KEY, "A0")),
+            OperationParameter::create(PropertyMap().set(
+                IdentifiedObject::NAME_KEY, "A1")),
+            OperationParameter::create(PropertyMap().set(
+                IdentifiedObject::NAME_KEY, "A2")),
+            OperationParameter::create(PropertyMap().set(
+                IdentifiedObject::NAME_KEY, "B0")),
+            OperationParameter::create(PropertyMap().set(
+                IdentifiedObject::NAME_KEY, "B1")),
+            OperationParameter::create(PropertyMap().set(
+                IdentifiedObject::NAME_KEY, "B2")),
+        },
+        std::vector<ParameterValueNNPtr>
+        {
+            ParameterValue::create(Length(-257762.015)),
+            ParameterValue::create(Scale ( 0.914845326707141)),
+            ParameterValue::create(Scale ( 0.403804443019272)),
+            ParameterValue::create(Length(-374179.972)),
+            ParameterValue::create(Scale (-0.403804443019272)),
+            ParameterValue::create(Scale ( 0.914845326707141)),
+        }
+    );
+
+    // create a DerivedProjectedCRS, but ...
+    // first we need to get the BaseCRS from an EPSG code.
+
+    return DerivedProjectedCRS::create(
+        PropertyMap().set(IdentifiedObject::NAME_KEY, "Abtswoudsebrug"),
+        createProjected_v2(), derivingConversion,
+        CartesianCS::createEastingNorthing(UnitOfMeasure::METRE));
+}
+
+TEST(crs, derivedProjectedCRS_WKT2_2019_v2) {
+
+    auto expected_v2 =
+        "DERIVEDPROJCRS[\"Abtswoudsebrug\",\n"
+        "    BASEPROJCRS[\"Amersfoort / RD New\",\n"
+        "        BASEGEOGCRS[\"Amersfoort\",\n"
+        "            DATUM[\"Amersfoort\",\n"
+        "                ELLIPSOID[\"Bessel 1841\",6377397.155,299.1528128,\n"
+        "                    LENGTHUNIT[\"metre\",1]]],\n"
+        "            PRIMEM[\"Greenwich\",0,\n"
+        "                ANGLEUNIT[\"degree\",0.0174532925199433]]],\n"
+        "        CONVERSION[\"RD New\",\n"
+        "            METHOD[\"Oblique Stereographic\",\n"
+        "                ID[\"EPSG\",9809]],\n"
+        "            PARAMETER[\"Latitude of natural origin\",52.1561605555556,\n"
+        "                ANGLEUNIT[\"degree\",0.0174532925199433],\n"
+        "                ID[\"EPSG\",8801]],\n"
+        "            PARAMETER[\"Longitude of natural origin\",5.38763888888889,\n"
+        "                ANGLEUNIT[\"degree\",0.0174532925199433],\n"
+        "                ID[\"EPSG\",8802]],\n"
+        "            PARAMETER[\"Scale factor at natural origin\",0.9999079,\n"
+        "                SCALEUNIT[\"unity\",1],\n"
+        "                ID[\"EPSG\",8805]],\n"
+        "            PARAMETER[\"False easting\",155000,\n"
+        "                LENGTHUNIT[\"metre\",1],\n"
+        "                ID[\"EPSG\",8806]],\n"
+        "            PARAMETER[\"False northing\",463000,\n"
+        "                LENGTHUNIT[\"metre\",1],\n"
+        "                ID[\"EPSG\",8807]]]],\n"
+        "    DERIVINGCONVERSION[\"Affine\",\n"
+        "        METHOD[\"Affine parametric transformation\"],\n"
+        "        PARAMETER[\"A0\",-257762.015,\n"
+        "            LENGTHUNIT[\"metre\",1,\n"
+        "                ID[\"EPSG\",9001]]],\n"
+        "        PARAMETER[\"A1\",0.914845326707141,\n"
+        "            SCALEUNIT[\"unity\",1,\n"
+        "                ID[\"EPSG\",9201]]],\n"
+        "        PARAMETER[\"A2\",0.403804443019272,\n"
+        "            SCALEUNIT[\"unity\",1,\n"
+        "                ID[\"EPSG\",9201]]],\n"
+        "        PARAMETER[\"B0\",-374179.972,\n"
+        "            LENGTHUNIT[\"metre\",1,\n"
+        "                ID[\"EPSG\",9001]]],\n"
+        "        PARAMETER[\"B1\",-0.403804443019272,\n"
+        "            SCALEUNIT[\"unity\",1,\n"
+        "                ID[\"EPSG\",9201]]],\n"
+        "        PARAMETER[\"B2\",0.914845326707141,\n"
+        "            SCALEUNIT[\"unity\",1,\n"
+        "                ID[\"EPSG\",9201]]]],\n"
+        "    CS[Cartesian,2],\n"
+        "        AXIS[\"(E)\",east,\n"
+        "            ORDER[1],\n"
+        "            LENGTHUNIT[\"metre\",1,\n"
+        "                ID[\"EPSG\",9001]]],\n"
+        "        AXIS[\"(N)\",north,\n"
+        "            ORDER[2],\n"
+        "            LENGTHUNIT[\"metre\",1,\n"
+        "                ID[\"EPSG\",9001]]]]";
+//        "    USAGE[\",\n"
+//        "        SCOPE[\"Engineering survey, topographic mapping.\"],\n"
+//        "        AREA[\"Netherlands - onshore, including Waddenzee, Dutch Wadden Islands and 12-mile offshore coastal zone.\"],\n"
+//        "        BBOX[50.75, 3.2, 53.7, 7.22]]]";
+
+    auto crs = createDerivedProjectedCRS_v2();
+    EXPECT_EQ(
+        crs->exportToWKT(
+            WKTFormatter::create(WKTFormatter::Convention::WKT2_2019).get()), expected_v2);
+
+    EXPECT_TRUE(crs->isEquivalentTo(crs.get()));
+    EXPECT_TRUE(crs->shallowClone()->isEquivalentTo(crs.get()));
+    EXPECT_FALSE(crs->isEquivalentTo(createUnrelatedObject().get()));
+
+    auto geodCRS = crs->extractGeodeticCRS();
+    EXPECT_TRUE(geodCRS != nullptr);
+}
+
+
+
+
+From even.rouault at spatialys.com  Fri Jul  8 13:29:17 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 8 Jul 2022 22:29:17 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <008301d892ce$3c0294b0$b407be10$@ziggo.nl>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+ <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+ <008301d892ce$3c0294b0$b407be10$@ziggo.nl>
+Message-ID: <67e62b76-2847-3fed-db46-cfef3c595b48@spatialys.com>
+
+Bart,
+
+> ** RE-SENT AS PLAIN TEXT IN VIEW OF EMAIL SIZE **
+>
+> Hi Even,
+>
+> I worked things through, and have included the following three routines in test_crs.cpp, that compile and test okay.
+> I have a few questions / remarks though:
+> 1. Why is the EPSG definition ID of an affine transform not being exported:  ID["EPSG",9624]],
+
+You need to add it to the PropertyMap with
+
+.set(metadata::Identifier::CODESPACE_KEY, metadata::Identifier::EPSG)
+ ?.set(metadata::Identifier::CODE_KEY, 9624)
+
+> 2. Same for the ID?s of the Affine transformation parameters: 8623, 8624, 8625, 8639, 8640 and 8641.
+Similarly as above on the property map of each parameter.
+> 3. The USAGE description isn?t being included in the generated WKT string and is also missing in the derived transform
+>     USAGE[
+>     SCOPE["Engineering survey, topographic mapping."],
+>     AREA["Netherlands - onshore, including Waddenzee, Dutch Wadden Islands and 12-mile offshore coastal zone."],
+>     BBOX[50.75,3.2,53.7,7.22]]]
+> This is really a pity. Is there an ?easy? way to fix this ?
+
+There's no reason that a DerivedProjectedCRS should have the same usage 
+as its base one.
+
+You can re-use the one of the base CRS (the projected CRS) with 
+something along
+
+propertyMap.set(ObjectUsage::OBJECT_DOMAIN_KEY, baseCRS->domains()[0]);
+
+If you want to build a custom objectDomain object, the best example 
+would be to look at the JSONParser::buildObjectDomain() implementation 
+in src/iso19111/operation/oputils.cpp
+
+where propertyMap is the first argument of 
+DerivedProjectedCRS::create(), on which you'll also call
+
+.set(IdentifiedObject::NAME_KEY, "Abtswoudsebrug")
+
+> 4. Nevertheless, maybe the example below is more ?meaningful? than the current one, that is included in the test_crs.file.
+
+Those unit tests are just that, unit tests, so they indeed tend to be 
+minimalist.
+
+Perhaps a good contribution would be an Example section under 
+https://proj.org/development/index.html
+
+Even
+
+>
+> Kind regards,
+>
+> Bart
+>
+>
+> ProjectedCRSNNPtr createProjected_v2()
+> {
+>      auto dbContext = DatabaseContext::create();
+>      auto factory = AuthorityFactory::create(dbContext, "EPSG");
+>      auto crs = factory->createCoordinateReferenceSystem("28992");
+>      auto proj_crs = nn_dynamic_pointer_cast<ProjectedCRS>(crs);
+>      EXPECT_TRUE(proj_crs != nullptr);
+>
+>      return NN_CHECK_ASSERT(proj_crs);
+> }
+>
+> static DerivedProjectedCRSNNPtr createDerivedProjectedCRS_v2() {
+>
+>      auto derivingConversion = Conversion::create
+>      (
+>          PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine"),
+>          PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine parametric transformation"),
+>          std::vector<OperationParameterNNPtr>
+>          {
+>              OperationParameter::create(PropertyMap().set(
+>                  IdentifiedObject::NAME_KEY, "A0")),
+>              OperationParameter::create(PropertyMap().set(
+>                  IdentifiedObject::NAME_KEY, "A1")),
+>              OperationParameter::create(PropertyMap().set(
+>                  IdentifiedObject::NAME_KEY, "A2")),
+>              OperationParameter::create(PropertyMap().set(
+>                  IdentifiedObject::NAME_KEY, "B0")),
+>              OperationParameter::create(PropertyMap().set(
+>                  IdentifiedObject::NAME_KEY, "B1")),
+>              OperationParameter::create(PropertyMap().set(
+>                  IdentifiedObject::NAME_KEY, "B2")),
+>          },
+>          std::vector<ParameterValueNNPtr>
+>          {
+>              ParameterValue::create(Length(-257762.015)),
+>              ParameterValue::create(Scale ( 0.914845326707141)),
+>              ParameterValue::create(Scale ( 0.403804443019272)),
+>              ParameterValue::create(Length(-374179.972)),
+>              ParameterValue::create(Scale (-0.403804443019272)),
+>              ParameterValue::create(Scale ( 0.914845326707141)),
+>          }
+>      );
+>
+>      // create a DerivedProjectedCRS, but ...
+>      // first we need to get the BaseCRS from an EPSG code.
+>
+>      return DerivedProjectedCRS::create(
+>          PropertyMap().set(IdentifiedObject::NAME_KEY, "Abtswoudsebrug"),
+>          createProjected_v2(), derivingConversion,
+>          CartesianCS::createEastingNorthing(UnitOfMeasure::METRE));
+> }
+>
+> TEST(crs, derivedProjectedCRS_WKT2_2019_v2) {
+>
+>      auto expected_v2 =
+>          "DERIVEDPROJCRS[\"Abtswoudsebrug\",\n"
+>          "    BASEPROJCRS[\"Amersfoort / RD New\",\n"
+>          "        BASEGEOGCRS[\"Amersfoort\",\n"
+>          "            DATUM[\"Amersfoort\",\n"
+>          "                ELLIPSOID[\"Bessel 1841\",6377397.155,299.1528128,\n"
+>          "                    LENGTHUNIT[\"metre\",1]]],\n"
+>          "            PRIMEM[\"Greenwich\",0,\n"
+>          "                ANGLEUNIT[\"degree\",0.0174532925199433]]],\n"
+>          "        CONVERSION[\"RD New\",\n"
+>          "            METHOD[\"Oblique Stereographic\",\n"
+>          "                ID[\"EPSG\",9809]],\n"
+>          "            PARAMETER[\"Latitude of natural origin\",52.1561605555556,\n"
+>          "                ANGLEUNIT[\"degree\",0.0174532925199433],\n"
+>          "                ID[\"EPSG\",8801]],\n"
+>          "            PARAMETER[\"Longitude of natural origin\",5.38763888888889,\n"
+>          "                ANGLEUNIT[\"degree\",0.0174532925199433],\n"
+>          "                ID[\"EPSG\",8802]],\n"
+>          "            PARAMETER[\"Scale factor at natural origin\",0.9999079,\n"
+>          "                SCALEUNIT[\"unity\",1],\n"
+>          "                ID[\"EPSG\",8805]],\n"
+>          "            PARAMETER[\"False easting\",155000,\n"
+>          "                LENGTHUNIT[\"metre\",1],\n"
+>          "                ID[\"EPSG\",8806]],\n"
+>          "            PARAMETER[\"False northing\",463000,\n"
+>          "                LENGTHUNIT[\"metre\",1],\n"
+>          "                ID[\"EPSG\",8807]]]],\n"
+>          "    DERIVINGCONVERSION[\"Affine\",\n"
+>          "        METHOD[\"Affine parametric transformation\"],\n"
+>          "        PARAMETER[\"A0\",-257762.015,\n"
+>          "            LENGTHUNIT[\"metre\",1,\n"
+>          "                ID[\"EPSG\",9001]]],\n"
+>          "        PARAMETER[\"A1\",0.914845326707141,\n"
+>          "            SCALEUNIT[\"unity\",1,\n"
+>          "                ID[\"EPSG\",9201]]],\n"
+>          "        PARAMETER[\"A2\",0.403804443019272,\n"
+>          "            SCALEUNIT[\"unity\",1,\n"
+>          "                ID[\"EPSG\",9201]]],\n"
+>          "        PARAMETER[\"B0\",-374179.972,\n"
+>          "            LENGTHUNIT[\"metre\",1,\n"
+>          "                ID[\"EPSG\",9001]]],\n"
+>          "        PARAMETER[\"B1\",-0.403804443019272,\n"
+>          "            SCALEUNIT[\"unity\",1,\n"
+>          "                ID[\"EPSG\",9201]]],\n"
+>          "        PARAMETER[\"B2\",0.914845326707141,\n"
+>          "            SCALEUNIT[\"unity\",1,\n"
+>          "                ID[\"EPSG\",9201]]]],\n"
+>          "    CS[Cartesian,2],\n"
+>          "        AXIS[\"(E)\",east,\n"
+>          "            ORDER[1],\n"
+>          "            LENGTHUNIT[\"metre\",1,\n"
+>          "                ID[\"EPSG\",9001]]],\n"
+>          "        AXIS[\"(N)\",north,\n"
+>          "            ORDER[2],\n"
+>          "            LENGTHUNIT[\"metre\",1,\n"
+>          "                ID[\"EPSG\",9001]]]]";
+> //        "    USAGE[\",\n"
+> //        "        SCOPE[\"Engineering survey, topographic mapping.\"],\n"
+> //        "        AREA[\"Netherlands - onshore, including Waddenzee, Dutch Wadden Islands and 12-mile offshore coastal zone.\"],\n"
+> //        "        BBOX[50.75, 3.2, 53.7, 7.22]]]";
+>
+>      auto crs = createDerivedProjectedCRS_v2();
+>      EXPECT_EQ(
+>          crs->exportToWKT(
+>              WKTFormatter::create(WKTFormatter::Convention::WKT2_2019).get()), expected_v2);
+>
+>      EXPECT_TRUE(crs->isEquivalentTo(crs.get()));
+>      EXPECT_TRUE(crs->shallowClone()->isEquivalentTo(crs.get()));
+>      EXPECT_FALSE(crs->isEquivalentTo(createUnrelatedObject().get()));
+>
+>      auto geodCRS = crs->extractGeodeticCRS();
+>      EXPECT_TRUE(geodCRS != nullptr);
+> }
+>
+>
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From Bart.Duijndam at ziggo.nl  Sat Jul  9 07:05:32 2022
+From: Bart.Duijndam at ziggo.nl (Bart.Duijndam at ziggo.nl)
+Date: Sat, 9 Jul 2022 16:05:32 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <67e62b76-2847-3fed-db46-cfef3c595b48@spatialys.com>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+ <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+ <008301d892ce$3c0294b0$b407be10$@ziggo.nl>
+ <67e62b76-2847-3fed-db46-cfef3c595b48@spatialys.com>
+Message-ID: <010201d8939c$f403ca60$dc0b5f20$@ziggo.nl>
+
+Hi Even,
+
+ 
+
+You mentioned that in order to have ID["EPSG",9624]] included into the WKT2 string, you need to add it to the PropertyMap with
+
+ 
+
+    .set(metadata::Identifier::CODESPACE_KEY, metadata::Identifier::EPSG)
+
+    .set(metadata::Identifier::CODE_KEY, 9624)
+
+ 
+
+I appreciate this, but the question is *where* do this.
+
+ 
+
+I have done so in the creation of the DerivedProjCRS object as follows:
+
+ 
+
+ 
+
+    PropertyMap properties;
+
+    properties
+
+        .set(IdentifiedObject::NAME_KEY, "Abtswoudsebrug")
+
+        .set(Identifier::CODESPACE_KEY, Identifier::EPSG)
+
+        .set(Identifier::CODE_KEY, 9624);
+
+ 
+
+    return DerivedProjectedCRS::create(
+
+        properties,
+
+        createProjected_v2(), derivingConversion,
+
+        CartesianCS::createEastingNorthing(UnitOfMeasure::METRE));
+
+ 
+
+The original code was :
+
+ 
+
+    return DerivedProjectedCRS::create(
+
+        PropertyMap().set(IdentifiedObject::NAME_KEY, "Abtswoudsebrug"),
+
+        createProjected_v2(), derivingConversion,
+
+        CartesianCS::createEastingNorthing(UnitOfMeasure::METRE));
+
+ 
+
+But the net result is that  ID[\"EPSG\",9624]] gets appended to the very end of the WKT2-string, which is incorrect. 
+
+So, I struggle with this topic.
+
+ 
+
+It?s a pity that an example WKT2 string is given in test_crs here <https://github.com/OSGeo/PROJ/blob/a390c57ab5998154535d7ffbc7de04aad2a73910/test/unit/test_crs.cpp#L5340> , but the string hasn?t been derived from code?
+
+ 
+
+Obviously, I have similar problems with the Affine transformation parameters: 8623, 8624, 8625, 8639, 8640 and 8641.
+
+ 
+
+Kind regards,
+
+ 
+
+Bart
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220709/f9d7b82d/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Jul  9 07:13:07 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 9 Jul 2022 16:13:07 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <010201d8939c$f403ca60$dc0b5f20$@ziggo.nl>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+ <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+ <008301d892ce$3c0294b0$b407be10$@ziggo.nl>
+ <67e62b76-2847-3fed-db46-cfef3c595b48@spatialys.com>
+ <010201d8939c$f403ca60$dc0b5f20$@ziggo.nl>
+Message-ID: <505c25bb-2923-f899-f77d-8b17d1a53f36@spatialys.com>
+
+
+Le 09/07/2022 ? 16:05, Bart.Duijndam at ziggo.nl a ?crit?:
+>
+> Hi Even,
+>
+> You mentioned that in order to have ID["EPSG",9624]]included into the 
+> WKT2 string, you need to add it to the PropertyMap with
+>
+> .set(metadata::Identifier::CODESPACE_KEY, metadata::Identifier::EPSG)
+>
+> .set(metadata::Identifier::CODE_KEY, 9624)
+>
+> I appreciate this, but the question is *where* do this.
+>
+Well, on the object where this is relevant :-)
+
+So on the property map of the conversion method, that is the one of
+
+PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine parametric 
+transformation"),
+
+> Obviously, I have similar problems with the Affine transformation 
+> parameters: 8623, 8624, 8625, 8639, 8640 and 8641.
+>
+Same here on the respective property map of each operation parameter.
+
+so something like
+
+Conversion::create
+ ???? (
+ ???????? PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine"),
+ ???????? PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine 
+parametric transformation").set(metadata::Identifier::CODESPACE_KEY, 
+metadata::Identifier::EPSG).set(metadata::Identifier::CODE_KEY, 9624) ,
+ ???????? std::vector<OperationParameterNNPtr>
+ ???????? {
+ ???????????? OperationParameter::create(PropertyMap().set(
+ ???????????????? IdentifiedObject::NAME_KEY, 
+"A0").set(metadata::Identifier::CODESPACE_KEY, 
+metadata::Identifier::EPSG).set(metadata::Identifier::CODE_KEY, 8623)),
+ ???????????? OperationParameter::create(PropertyMap().set(
+ ???????????????? IdentifiedObject::NAME_KEY, "A1")),
+ ???????????? OperationParameter::create(PropertyMap().set(
+ ???????????????? IdentifiedObject::NAME_KEY, "A2")),
+ ???????????? OperationParameter::create(PropertyMap().set(
+ ???????????????? IdentifiedObject::NAME_KEY, "B0")),
+ ???????????? OperationParameter::create(PropertyMap().set(
+ ???????????????? IdentifiedObject::NAME_KEY, "B1")),
+ ???????????? OperationParameter::create(PropertyMap().set(
+ ???????????????? IdentifiedObject::NAME_KEY, "B2")),
+ ???????? },
+
+
+> Kind regards,
+>
+> Bart
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220709/6a49d90b/attachment-0001.htm>
+
+From Bart.Duijndam at ziggo.nl  Sat Jul  9 09:01:14 2022
+From: Bart.Duijndam at ziggo.nl (Bart.Duijndam at ziggo.nl)
+Date: Sat, 9 Jul 2022 18:01:14 +0200
+Subject: [PROJ] Affine transformation using DERIVEDPROJCRS
+In-Reply-To: <505c25bb-2923-f899-f77d-8b17d1a53f36@spatialys.com>
+References: <003e01d88f84$819a7cb0$84cf7610$@ziggo.nl>
+ <a659d646-714a-902c-584b-a4c40eddcf08@spatialys.com>
+ <003a01d890b5$3c440280$b4cc0780$@ziggo.nl>
+ <fd915e07-d560-edb3-3ecc-7c6dc7680ee7@spatialys.com>
+ <004901d890b7$3240c4b0$96c24e10$@ziggo.nl>
+ <dc6873d0-feee-a0c8-7a44-3f5924ce5d78@spatialys.com>
+ <008301d892ce$3c0294b0$b407be10$@ziggo.nl>
+ <67e62b76-2847-3fed-db46-cfef3c595b48@spatialys.com>
+ <010201d8939c$f403ca60$dc0b5f20$@ziggo.nl>
+ <505c25bb-2923-f899-f77d-8b17d1a53f36@spatialys.com>
+Message-ID: <011801d893ad$1dde41c0$599ac540$@ziggo.nl>
+
+Hi Even,
+
+ 
+
+Merci beaucoup; ?a marche !
+
+ 
+
+Bart
+
+ 
+
+ 
+
+From: Even Rouault <even.rouault at spatialys.com> 
+Sent: Saturday, 9 July 2022 16:13
+To: Bart.Duijndam at ziggo.nl; proj at lists.osgeo.org
+Subject: Re: [PROJ] Affine transformation using DERIVEDPROJCRS
+
+ 
+
+ 
+
+Le 09/07/2022 ? 16:05, Bart.Duijndam at ziggo.nl <mailto:Bart.Duijndam at ziggo.nl>  a ?crit :
+
+Hi Even,
+
+ 
+
+You mentioned that in order to have ID["EPSG",9624]] included into the WKT2 string, you need to add it to the PropertyMap with
+
+ 
+
+    .set(metadata::Identifier::CODESPACE_KEY, metadata::Identifier::EPSG)
+
+    .set(metadata::Identifier::CODE_KEY, 9624)
+
+ 
+
+I appreciate this, but the question is *where* do this.
+
+Well, on the object where this is relevant :-)
+
+So on the property map of the conversion method, that is the one of
+
+PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine parametric transformation"), 
+
+ 
+
+ 
+
+Obviously, I have similar problems with the Affine transformation parameters: 8623, 8624, 8625, 8639, 8640 and 8641.
+
+Same here on the respective property map of each operation parameter.
+
+so something like
+
+Conversion::create 
+     ( 
+         PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine"), 
+         PropertyMap().set(IdentifiedObject::NAME_KEY, "Affine parametric transformation") .set(metadata::Identifier::CODESPACE_KEY, metadata::Identifier::EPSG).set(metadata::Identifier::CODE_KEY, 9624) ,
+         std::vector<OperationParameterNNPtr> 
+         { 
+             OperationParameter::create(PropertyMap().set( 
+                 IdentifiedObject::NAME_KEY, "A0") .set(metadata::Identifier::CODESPACE_KEY, metadata::Identifier::EPSG).set(metadata::Identifier::CODE_KEY, 8623)), 
+             OperationParameter::create(PropertyMap().set( 
+                 IdentifiedObject::NAME_KEY, "A1")), 
+             OperationParameter::create(PropertyMap().set( 
+                 IdentifiedObject::NAME_KEY, "A2")), 
+             OperationParameter::create(PropertyMap().set( 
+                 IdentifiedObject::NAME_KEY, "B0")), 
+             OperationParameter::create(PropertyMap().set( 
+                 IdentifiedObject::NAME_KEY, "B1")), 
+             OperationParameter::create(PropertyMap().set( 
+                 IdentifiedObject::NAME_KEY, "B2")), 
+         }, 
+
+ 
+
+ 
+
+Kind regards,
+
+ 
+
+Bart
+
+ 
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220709/c311b073/attachment.htm>
+
+From giacomo.cappellini.87 at gmail.com  Mon Jul 18 18:02:11 2022
+From: giacomo.cappellini.87 at gmail.com (Giacomo Cappellini)
+Date: Tue, 19 Jul 2022 03:02:11 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+Message-ID: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+
+Hello,
+
+I'm generally new to working with CRS different from EPSG:4326 + UTM and
+I'm facing some issues while trying to use RDN2008, which is the official
+reference system for Italy at current date.
+Please excuse me if the question sounds trivial to experts, but I can't
+figure out why there are no non-ballpark operations to go from/to RDN2008
+and ETRF2000 or ITRF2000.
+
+Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+
+Proj Rel. 8.2.1, January 1st, 2022
+
+$ projinfo -s EPSG:6706 -t EPSG:9067 --spatial-test intersects --grid-check
+> none --hide-ballpark --summary
+> Candidate operations found: 0
+
+
+$ projinfo -s EPSG:6706 -t EPSG:8997 --spatial-test intersects --grid-check
+> none --hide-ballpark --summary
+> Candidate operations found: 0
+>
+
+Thanks
+
+G.C.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/69c13766/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul 19 02:14:44 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 19 Jul 2022 11:14:44 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+Message-ID: <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+
+Giacomo,
+
+Coordinate transformations are definitely not a trivial subject, so no 
+worry not understanding what's going on here.
+
+PROJ uses the content of its database to find, or infer, coordinate 
+transformations. Most of the content comes from the EPSG database itself.
+
+For RDN2008, there are 2 transformations available:
+
+- one from RDN2008 to ETRS89 (EPSG:4258), with a null Helmert 
+transformation and a accuracy of 0 m. This is consistant with how you 
+described RDN2008, and this transformation has the comment "RDN2008 is 
+the second Italian realization of ETRS89"
+
+- one from RDN2008 to WGS 84, which is the same null Helmert 
+transformation, copied from the above, but with a accuracy of 1 m (due 
+to WGS 84 being dynamic and moving over time compared to plate fixed CRS 
+such as RDN2008 or ETRS89)
+
+The first one would be a good candidate, but PROJ doesn't know he can 
+use it, since there is no explicit transformation in its database 
+between ETRS89 and ETRF2000. That said in the database, ETRS89 is 
+modeled as a datum ensemble of the many ETRFxxxx realizations, so 
+potentially PROJ could use that information to infer a null 
+transformation between ETRS89 and ETRF2000 with the accuracy of the 
+datum ensemble (here 0.1 m) (we actually do that manually for the WGS 84 
+datum ensemble vs its realizations, but that should be generalized), and 
+chain that together with the RDN2008 to ETRS89 transformation.
+
+In the meantime, you can customize your proj.db by adding the following 
+2 records. Can be done with the sqlite3 command line utility
+
+$ sqlite3 proj.db
+
+INSERT INTO "helmert_transformation" 
+VALUES('PROJ','ETRS89_TO_ETRF2000','ETRS89 to ETRF2000','Accuracy 0.1m, 
+derived from ETRS89 datum ensemble definition','EPSG','9603','Geocentric 
+translations (geog2D 
+domain)','EPSG','4258','EPSG','9067',0.1,0,0,0,'EPSG','9001',NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,'',0);
+INSERT INTO "usage" VALUES(
+ ??? 'PROJ',
+ ??? 'ETRS89_TO_ETRF2000_USAGE',
+ ??? 'helmert_transformation',
+ ??? 'PROJ',
+ ??? 'ETRS89_TO_ETRF2000',
+ ??? 'EPSG','1298', -- Europe
+ ??? 'EPSG','1024'? -- unknown
+);
+
+.quit
+
+With that, you'll get
+
+$ projinfo -s RDN2008 -t ETRF2000
+Candidate operations found: 1
+-------------------------------------
+Operation No. 1:
+
+unknown id, RDN2008 to ETRS89 (1) + ETRS89 to ETRF2000, 0.1 m, Italy - 
+onshore and offshore; San Marino, Vatican City State.
+
+PROJ string:
++proj=noop
+
+Even
+
+Le 19/07/2022 ? 03:02, Giacomo Cappellini a ?crit?:
+> Hello,
+>
+> I'm generally new to working with CRS different from EPSG:4326 + UTM 
+> and I'm facing some issues while trying to use RDN2008, which is the 
+> official reference system for Italy at current date.
+> Please excuse me if the question sounds trivial to experts, but I 
+> can't figure out why there are no non-ballpark operations to go 
+> from/to RDN2008 and ETRF2000 or ITRF2000.
+>
+> Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+>
+> Proj Rel. 8.2.1, January 1st, 2022
+>
+>     $ projinfo -s EPSG:6706 -t EPSG:9067 --spatial-test intersects
+>     --grid-check none --hide-ballpark --summary
+>     Candidate operations found: 0
+>
+>
+>     $ projinfo -s EPSG:6706 -t EPSG:8997 --spatial-test intersects
+>     --grid-check none --hide-ballpark --summary
+>     Candidate operations found: 0
+>
+>
+> Thanks
+>
+> G.C.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/683bd0bb/attachment.htm>
+
+From gdt at lexort.com  Tue Jul 19 04:48:07 2022
+From: gdt at lexort.com (Greg Troxel)
+Date: Tue, 19 Jul 2022 07:48:07 -0400
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com> (Even
+ Rouault's message of "Tue, 19 Jul 2022 11:14:44 +0200")
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+Message-ID: <rmizgh58gso.fsf@s1.lexort.com>
+
+
+Even Rouault <even.rouault at spatialys.com> writes:
+
+> For RDN2008, there are 2 transformations available:
+>
+> - one from RDN2008 to ETRS89 (EPSG:4258), with a null Helmert
+> transformation and a accuracy of 0 m. This is consistant with how you
+> described RDN2008, and this transformation has the comment "RDN2008 is
+> the second Italian realization of ETRS89"
+
+A far more lengthy way forward might be:
+
+  Italian geodetic authorities (whoever defined RDN2008) publish a
+  transformation from RDN2008 to some modern ETRFyyyy, including an
+  error estimate.
+
+  They submit that to EPSG for inclusion.
+
+  A new EPSG version is published.
+
+  A proj release arrives with the new EPSG version.
+
+  Meanwhile, you wait for the previous 4 steps.
+
+I realize it doesn't solve your problem now, but authoritative
+transforms with tight error estimates shorten the transform pipelines
+that are used and lead to better answers.  The above avoids ETRS89.
+
+> Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+
+If you believe that precisely, you could just relabel your data as being
+ETRF2000 (assuming the standard epoch is 2008.0).
+
+Or insert a transform similar to Even's sugggestion, perhaps with better
+accuracy.  I would expect RDN2008/ETRF2000:2008.0 to be at the 0.01m
+level -- but I am pretty clueless about ETRF details.
+
+
+  
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/1b84c4d3/attachment.sig>
+
+From oleg.bizin87 at gmail.com  Tue Jul 19 06:39:17 2022
+From: oleg.bizin87 at gmail.com (Oleg Bizin)
+Date: Tue, 19 Jul 2022 16:39:17 +0300
+Subject: [PROJ] Intermediate steps due same datum transformation
+Message-ID: <CADWt3QTQVXJyq6O31V32K7g1+CcP+20XDecjUierF7XZMEh-oQ@mail.gmail.com>
+
+Hi,
+
+I want to clarify for myself the question about the work of the library
+under the hood.
+I have a lot of work with QGIS which uses the library as a reprojecting
+mechanism.
+
+When there is reprojection between CRS with  the same datum, is the
+intermediate transformation of datums to wgs84 used as an intermediate step
+or not?
+
+For example, if I project data from *EPSG 4284 Pulkovo 1942*   to* EPSG
+28411 Pulkovo 1942 / Gauss-Kruger zone 14 *which both on Pulkovo 42 datum
+the pipeline looks like this?
+
+ EPSG 4284 > WGS84 > EPSG 28411
+
+or in case of custom CRS like this:
+
++proj=tmerc +lat_0=0 +lon_0=xxxx +k=1 +x_0=xxxxx +y_0=xxxx +*ellps=krass
++towgs84*=25,-141,-78.5,0,0.35,0.736,0 +units=m +no_defs
+
+ here I see an explicit to WGS clause
+
+Or in this case  intermediate steps to the universal WGS 84 are not
+performed?
+
+Thanks!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/0ba90ff1/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul 19 07:33:21 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 19 Jul 2022 16:33:21 +0200
+Subject: [PROJ] Intermediate steps due same datum transformation
+In-Reply-To: <CADWt3QTQVXJyq6O31V32K7g1+CcP+20XDecjUierF7XZMEh-oQ@mail.gmail.com>
+References: <CADWt3QTQVXJyq6O31V32K7g1+CcP+20XDecjUierF7XZMEh-oQ@mail.gmail.com>
+Message-ID: <8982a997-ed11-c1df-a539-caeaea846700@spatialys.com>
+
+Oleg,
+
+When transforming CRS with the same datum, no datum transformation is 
+done. More generally PROJ >= 6 will not use WGS 84 as a compulsory pivot 
+in coordinate transformations (it might use it when transforming between 
+CRS of datum A and B, that there's no known datum transformation between 
+them but both have recorded transformations to WGS 84)
+
+The PROJ.4 string representation with the +towgs84= is a legacy one, not 
+used by PROJ internals, unless you specify one of the CRS from it.
+
+If you play with the projinfo utility
+
+$ projinfo -s EPSG:4284 -t EPSG:28411
+Candidate operations found: 1
+-------------------------------------
+Operation No. 1:
+
+EPSG:16211, 6-degree Gauss-Kruger zone 11, 0 m, Between 60?E and 66?E, 
+northern hemisphere between equator and 84?N, onshore and offshore.
+
+PROJ string:
++proj=pipeline
+ ? +step +proj=axisswap +order=2,1
+ ? +step +proj=unitconvert +xy_in=deg +xy_out=rad
+ ? +step +proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0 
++ellps=krass
+ ? +step +proj=axisswap +order=2,1
+
+WKT2:2019 string:
+CONVERSION["6-degree Gauss-Kruger zone 11",
+ ??? METHOD["Transverse Mercator",
+ ??????? ID["EPSG",9807]],
+ ??? PARAMETER["Latitude of natural origin",0,
+ ??????? ANGLEUNIT["degree",0.0174532925199433],
+ ??????? ID["EPSG",8801]],
+ ??? PARAMETER["Longitude of natural origin",63,
+ ??????? ANGLEUNIT["degree",0.0174532925199433],
+ ??????? ID["EPSG",8802]],
+ ??? PARAMETER["Scale factor at natural origin",1,
+ ??????? SCALEUNIT["unity",1],
+ ??????? ID["EPSG",8805]],
+ ??? PARAMETER["False easting",11500000,
+ ??????? LENGTHUNIT["metre",1],
+ ??????? ID["EPSG",8806]],
+ ??? PARAMETER["False northing",0,
+ ??????? LENGTHUNIT["metre",1],
+ ??????? ID["EPSG",8807]],
+ ??? ID["EPSG",16211]]
+
+==> no datum transformation applied
+
+
+$ projinfo -s EPSG:4284 -t "+proj=tmerc +lat_0=0 +lon_0=63 +k=1 
++x_0=11500000 +y_0=0 +ellps=krass +towgs84=25,-141,-78.5,0,0.35,0.736,0 
++units=m +no_defs +type=crs"
+Candidate operations found: 1
+
+Note: using '--spatial-test intersects' would bring more results (11)
+-------------------------------------
+Operation No. 1:
+
+unknown id, Pulkovo 1942 to WGS 84 (16) + Inverse of Transformation from 
+unknown to WGS84 + unknown, unknown accuracy, Armenia; Azerbaijan; 
+Belarus; Estonia - onshore; Georgia - onshore; Kazakhstan; Kyrgyzstan; 
+Latvia - onshore; Lithuania - onshore; Moldova; Russian Federation - 
+onshore; Tajikistan; Turkmenistan; Ukraine - onshore; Uzbekistan.
+
+PROJ string:
++proj=pipeline
+ ? +step +proj=axisswap +order=2,1
+ ? +step +proj=unitconvert +xy_in=deg +xy_out=rad
+ ? +step +proj=push +v_3
+ ? +step +proj=cart +ellps=krass
+ ? +step +proj=helmert +x=25 +y=-141 +z=-78.5 +rx=0 +ry=-0.35 +rz=-0.736 
++s=0
+ ??????? +convention=coordinate_frame
+ ? +step +inv +proj=helmert +x=25 +y=-141 +z=-78.5 +rx=0 +ry=0.35 
++rz=0.736 +s=0
+ ??????? +convention=position_vector
+ ? +step +inv +proj=cart +ellps=krass
+ ? +step +proj=pop +v_3
+ ? +step +proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0 
++ellps=krass
+
+[...]
+
+Her's a datum transformation is applied due to the +towgs84 clause. 
+Before the fix I've just submitted in 
+https://github.com/OSGeo/PROJ/pull/3265, PROJ wasn't smart enough here 
+to detect that EPSG:4284 uses the same datum transformation, but 
+expressed with a different convention.? The 2 chained Helmert 
+transformations are almost a no-op. The difference in the result is 
+typically sub-millimetric.
+
+
+If both sides used the same +towgs84, it is optimized away:
+
+$ projinfo -s "+proj=longlat +ellps=krass 
++towgs84=25,-141,-78.5,0,0.35,0.736,0 +no_defs +type=crs" -t 
+"+proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0 +ellps=krass 
++towgs84=25,-141,-78.5,0,0.35,0.736,0 +units=m +no_defs +type=crs"
+
+Candidate operations found: 1
+-------------------------------------
+Operation No. 1:
+
+unknown id, unknown, 0 m, unknown domain of validity
+
+PROJ string:
++proj=pipeline
+ ? +step +proj=unitconvert +xy_in=deg +xy_out=rad
+ ? +step +proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0 
++ellps=krass
+
+
+Even
+
+Le 19/07/2022 ? 15:39, Oleg Bizin a ?crit?:
+> Hi,
+>
+> I want to clarify for myself the question about the work of the 
+> library under the hood.
+> I have a lot of work with QGIS which?uses the library as a 
+> reprojecting mechanism.
+>
+> When there is reprojection between CRS with ?the same datum, is the 
+> intermediate transformation of datums to wgs84 used as an intermediate 
+> step or not?
+>
+> For example, if I project data from /EPSG 4284 Pulkovo 
+> 1942/???to/?EPSG 28411 Pulkovo 1942 / Gauss-Kruger zone 14 /which both 
+> on Pulkovo 42 datum
+> the pipeline looks like this?
+>
+>     ?EPSG 4284 > WGS84 > EPSG 28411
+>
+> or in case of custom CRS like this:
+>
+> +proj=tmerc +lat_0=0 +lon_0=xxxx +k=1 +x_0=xxxxx +y_0=xxxx 
+> +*ellps=krass +towgs84*=25,-141,-78.5,0,0.35,0.736,0 +units=m +no_defs
+>
+> ?here I see an explicit to WGS clause
+>
+> Or in this case ?intermediate steps to the universal WGS 84 are not 
+> performed?
+>
+> Thanks!
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/99574b7e/attachment-0001.htm>
+
+From oleg.bizin87 at gmail.com  Tue Jul 19 08:02:39 2022
+From: oleg.bizin87 at gmail.com (Oleg Bizin)
+Date: Tue, 19 Jul 2022 18:02:39 +0300
+Subject: [PROJ] Intermediate steps due same datum transformation
+In-Reply-To: <8982a997-ed11-c1df-a539-caeaea846700@spatialys.com>
+References: <CADWt3QTQVXJyq6O31V32K7g1+CcP+20XDecjUierF7XZMEh-oQ@mail.gmail.com>
+ <8982a997-ed11-c1df-a539-caeaea846700@spatialys.com>
+Message-ID: <CADWt3QQmRytQWUsNTmoJqeBYojSSnY5LAbHPomArPT97N_x9Kg@mail.gmail.com>
+
+Even,
+
+Thank you for the detailed answer!
+
+I have a couple more clarifying questions.
+
+More generally PROJ >= 6 will not use WGS 84 as a compulsory pivot in
+> coordinate transformations
+
+1. Is it correct that the  PROJ < 6 definitely uses WGS84 as a compulsory
+pivot?
+
+2. Currently, before your fix, for custom crs transformation to WGS84 may
+perform, but  without significant impact on accuracy?
+
+
+??, 19 ???. 2022 ?. ? 17:33, Even Rouault <even.rouault at spatialys.com>:
+
+> Oleg,
+>
+> When transforming CRS with the same datum, no datum transformation is
+> done. More generally PROJ >= 6 will not use WGS 84 as a compulsory pivot in
+> coordinate transformations (it might use it when transforming between CRS
+> of datum A and B, that there's no known datum transformation between them
+> but both have recorded transformations to WGS 84)
+>
+> The PROJ.4 string representation with the +towgs84= is a legacy one, not
+> used by PROJ internals, unless you specify one of the CRS from it.
+>
+> If you play with the projinfo utility
+>
+> $ projinfo -s EPSG:4284 -t EPSG:28411
+> Candidate operations found: 1
+> -------------------------------------
+> Operation No. 1:
+>
+> EPSG:16211, 6-degree Gauss-Kruger zone 11, 0 m, Between 60?E and 66?E,
+> northern hemisphere between equator and 84?N, onshore and offshore.
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0
+> +ellps=krass
+>   +step +proj=axisswap +order=2,1
+>
+> WKT2:2019 string:
+> CONVERSION["6-degree Gauss-Kruger zone 11",
+>     METHOD["Transverse Mercator",
+>         ID["EPSG",9807]],
+>     PARAMETER["Latitude of natural origin",0,
+>         ANGLEUNIT["degree",0.0174532925199433],
+>         ID["EPSG",8801]],
+>     PARAMETER["Longitude of natural origin",63,
+>         ANGLEUNIT["degree",0.0174532925199433],
+>         ID["EPSG",8802]],
+>     PARAMETER["Scale factor at natural origin",1,
+>         SCALEUNIT["unity",1],
+>         ID["EPSG",8805]],
+>     PARAMETER["False easting",11500000,
+>         LENGTHUNIT["metre",1],
+>         ID["EPSG",8806]],
+>     PARAMETER["False northing",0,
+>         LENGTHUNIT["metre",1],
+>         ID["EPSG",8807]],
+>     ID["EPSG",16211]]
+>
+> ==> no datum transformation applied
+>
+>
+> $ projinfo -s EPSG:4284 -t "+proj=tmerc +lat_0=0 +lon_0=63 +k=1
+> +x_0=11500000 +y_0=0 +ellps=krass +towgs84=25,-141,-78.5,0,0.35,0.736,0
+> +units=m +no_defs +type=crs"
+> Candidate operations found: 1
+>
+> Note: using '--spatial-test intersects' would bring more results (11)
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, Pulkovo 1942 to WGS 84 (16) + Inverse of Transformation from
+> unknown to WGS84 + unknown, unknown accuracy, Armenia; Azerbaijan; Belarus;
+> Estonia - onshore; Georgia - onshore; Kazakhstan; Kyrgyzstan; Latvia -
+> onshore; Lithuania - onshore; Moldova; Russian Federation - onshore;
+> Tajikistan; Turkmenistan; Ukraine - onshore; Uzbekistan.
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=push +v_3
+>   +step +proj=cart +ellps=krass
+>   +step +proj=helmert +x=25 +y=-141 +z=-78.5 +rx=0 +ry=-0.35 +rz=-0.736
+> +s=0
+>         +convention=coordinate_frame
+>   +step +inv +proj=helmert +x=25 +y=-141 +z=-78.5 +rx=0 +ry=0.35 +rz=0.736
+> +s=0
+>         +convention=position_vector
+>   +step +inv +proj=cart +ellps=krass
+>   +step +proj=pop +v_3
+>   +step +proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0
+> +ellps=krass
+>
+> [...]
+>
+> Her's a datum transformation is applied due to the +towgs84 clause. Before
+> the fix I've just submitted in https://github.com/OSGeo/PROJ/pull/3265,
+> PROJ wasn't smart enough here to detect that EPSG:4284 uses the same datum
+> transformation, but expressed with a different convention.  The 2 chained
+> Helmert transformations are almost a no-op. The difference in the result is
+> typically sub-millimetric.
+>
+>
+> If both sides used the same +towgs84, it is optimized away:
+>
+> $ projinfo -s "+proj=longlat +ellps=krass
+> +towgs84=25,-141,-78.5,0,0.35,0.736,0 +no_defs +type=crs" -t "+proj=tmerc
+> +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0 +ellps=krass
+> +towgs84=25,-141,-78.5,0,0.35,0.736,0 +units=m +no_defs +type=crs"
+>
+> Candidate operations found: 1
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, unknown, 0 m, unknown domain of validity
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=tmerc +lat_0=0 +lon_0=63 +k=1 +x_0=11500000 +y_0=0
+> +ellps=krass
+>
+>
+> Even
+> Le 19/07/2022 ? 15:39, Oleg Bizin a ?crit :
+>
+> Hi,
+>
+> I want to clarify for myself the question about the work of the library
+> under the hood.
+> I have a lot of work with QGIS which uses the library as a reprojecting
+> mechanism.
+>
+> When there is reprojection between CRS with  the same datum, is the
+> intermediate transformation of datums to wgs84 used as an intermediate step
+> or not?
+>
+> For example, if I project data from *EPSG 4284 Pulkovo 1942*   to* EPSG
+> 28411 Pulkovo 1942 / Gauss-Kruger zone 14 *which both on Pulkovo 42 datum
+> the pipeline looks like this?
+>
+>  EPSG 4284 > WGS84 > EPSG 28411
+>
+> or in case of custom CRS like this:
+>
+> +proj=tmerc +lat_0=0 +lon_0=xxxx +k=1 +x_0=xxxxx +y_0=xxxx +*ellps=krass
+> +towgs84*=25,-141,-78.5,0,0.35,0.736,0 +units=m +no_defs
+>
+>  here I see an explicit to WGS clause
+>
+> Or in this case  intermediate steps to the universal WGS 84 are not
+> performed?
+>
+> Thanks!
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/a6bb5398/attachment.htm>
+
+From giacomo.cappellini.87 at gmail.com  Tue Jul 19 08:10:33 2022
+From: giacomo.cappellini.87 at gmail.com (Giacomo Cappellini)
+Date: Tue, 19 Jul 2022 17:10:33 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <rmizgh58gso.fsf@s1.lexort.com>
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+ <rmizgh58gso.fsf@s1.lexort.com>
+Message-ID: <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+
+Thanks Even, thanks Greg.
+
+I now understand why there are no proposed transformations from RDN2008 to
+ETRF2000 or ITRF2000.
+To get a better picture on the topic I downloaded the EPSG database and by
+grepping the available transformations starting from RDN2008 I've confirmed
+that "RDN2008 to ETRS89 (1)" and "RDN2008 to WGS 84 (1)" are the only
+available transformations according to EPSG authority.
+
+The only point I miss from the picture is the meaning of "ENSEMBLE". While
+I can generally grasp how to move from a source Reference Frame to a target
+Reference Frame, I fail to picture how to move from a Reference Frame to a
+Reference System ensemble. I'd like to ask if possible a little more
+details about the meaning of "we actually do that manually for the WGS 84
+datum ensemble vs its realizations". The information I've reached so far
+about RS ensemble says that "all but the highest accuracy requirements may
+be considered to be insignificantly different from each other" and
+"Datasets referenced to the various realizations may be merged without
+change of coordinates":
+- https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#87
+- https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#53
+
+Thanks,
+
+G.C.
+
+Il giorno mar 19 lug 2022 alle ore 13:48 Greg Troxel <gdt at lexort.com> ha
+scritto:
+
+>
+> Even Rouault <even.rouault at spatialys.com> writes:
+>
+> > For RDN2008, there are 2 transformations available:
+> >
+> > - one from RDN2008 to ETRS89 (EPSG:4258), with a null Helmert
+> > transformation and a accuracy of 0 m. This is consistant with how you
+> > described RDN2008, and this transformation has the comment "RDN2008 is
+> > the second Italian realization of ETRS89"
+>
+> A far more lengthy way forward might be:
+>
+>   Italian geodetic authorities (whoever defined RDN2008) publish a
+>   transformation from RDN2008 to some modern ETRFyyyy, including an
+>   error estimate.
+>
+>   They submit that to EPSG for inclusion.
+>
+>   A new EPSG version is published.
+>
+>   A proj release arrives with the new EPSG version.
+>
+>   Meanwhile, you wait for the previous 4 steps.
+>
+> I realize it doesn't solve your problem now, but authoritative
+> transforms with tight error estimates shorten the transform pipelines
+> that are used and lead to better answers.  The above avoids ETRS89.
+>
+> > Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+>
+> If you believe that precisely, you could just relabel your data as being
+> ETRF2000 (assuming the standard epoch is 2008.0).
+>
+> Or insert a transform similar to Even's sugggestion, perhaps with better
+> accuracy.  I would expect RDN2008/ETRF2000:2008.0 to be at the 0.01m
+> level -- but I am pretty clueless about ETRF details.
+>
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/663afa1e/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul 19 08:10:50 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 19 Jul 2022 17:10:50 +0200
+Subject: [PROJ] Intermediate steps due same datum transformation
+In-Reply-To: <CADWt3QQmRytQWUsNTmoJqeBYojSSnY5LAbHPomArPT97N_x9Kg@mail.gmail.com>
+References: <CADWt3QTQVXJyq6O31V32K7g1+CcP+20XDecjUierF7XZMEh-oQ@mail.gmail.com>
+ <8982a997-ed11-c1df-a539-caeaea846700@spatialys.com>
+ <CADWt3QQmRytQWUsNTmoJqeBYojSSnY5LAbHPomArPT97N_x9Kg@mail.gmail.com>
+Message-ID: <1f56cb92-b447-f543-0704-e1602e185ab8@spatialys.com>
+
+
+Le 19/07/2022 ? 17:02, Oleg Bizin a ?crit?:
+> Even,
+>
+> Thank you for the detailed answer!
+>
+> I have a couple more clarifying questions.
+>
+>     More generally PROJ >= 6 will not use WGS 84 as a compulsory pivot
+>     in coordinate transformations
+>
+> 1. Is it correct that the? PROJ < 6?definitely uses WGS84 as a 
+> compulsory pivot?
+When there was a datum indication in the PROJ.4 string, yes, since 
++towgs84 or +nadgrids implied the WGS84 pivot. When source and 
+transformation CRS PROJ.4 strings used the same +towgs84 terms, that was 
+skipped as an optimization (what newer PROJ does too)
+>
+> 2. Currently, before your fix, for custom?crs transformation to WGS84 
+> may perform, but? without significant impact on accuracy?
+
+For most uses yes, it shouldn't have significant impact. Unless you 
+transformation coordinates back and forth many many times.
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/55df9902/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Tue Jul 19 08:20:14 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 19 Jul 2022 17:20:14 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+ <rmizgh58gso.fsf@s1.lexort.com>
+ <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+Message-ID: <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com>
+
+
+Le 19/07/2022 ? 17:10, Giacomo Cappellini a ?crit?:
+> Thanks Even, thanks Greg.
+>
+> I now understand why there are no proposed transformations from 
+> RDN2008 to ETRF2000 or ITRF2000.
+> To get a better picture on the topic I downloaded the EPSG database 
+> and by grepping the available transformations starting from RDN2008 
+> I've confirmed that "RDN2008 to ETRS89 (1)" and "RDN2008 to WGS 84 
+> (1)" are the only available transformations according to EPSG authority.
+>
+> The only point I miss from the picture is the meaning of "ENSEMBLE". 
+> While I can generally grasp how to move from a source Reference Frame 
+> to a target Reference Frame, I fail to picture how to move from a 
+> Reference Frame to a Reference System ensemble. I'd like to ask if 
+> possible a little more details about the meaning of "we actually do 
+> that manually for the WGS 84 datum ensemble vs its realizations".
+
+See the manually added records starting at 
+https://github.com/OSGeo/PROJ/blob/5b2d59b68f931303d73e742763309d258f9335d4/data/sql/customizations.sql#L187. 
+"manually" here means "not done in code": an alternative would be to 
+explore the datum ensembles and their members in the database and figure 
+out the null transformation between them. Given the relatively low 
+number of datum ensembles in the EPSG database (essentially only WGS 84 
+and ETRS89), the manual way is much easier to implement than new code.
+
+
+> The information I've reached so far about RS ensemble says that "all 
+> but the highest accuracy requirements may be considered to be 
+> insignificantly different from each other" and "Datasets referenced to 
+> the various realizations may be merged without change of coordinates":
+> - https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#87
+> - https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#53
+
+That's what is implemented in the above WGS 84 specific records with a 
+Helmert transformation with all terms null, or my prior suggestion for 
+ETRS89 <--> ETRF2000
+
+(to be pedantic we only record transformation from each member of the 
+ensemble to the ensemble, to avoid the combinatory explosion of 
+registering transformations between each member. but PROJ is smart 
+enough to combine 2 (not more) steps to do e.g WGS 84 (G1674) -> WGS 84 
+(G1762) as WGS 84 (G1674) -> WGS 84 (ensemble) -> WGS 84 (G1762) )
+
+>
+> Thanks,
+>
+> G.C.
+>
+> Il giorno mar 19 lug 2022 alle ore 13:48 Greg Troxel <gdt at lexort.com> 
+> ha scritto:
+>
+>
+>     Even Rouault <even.rouault at spatialys.com> writes:
+>
+>     > For RDN2008, there are 2 transformations available:
+>     >
+>     > - one from RDN2008 to ETRS89 (EPSG:4258), with a null Helmert
+>     > transformation and a accuracy of 0 m. This is consistant with
+>     how you
+>     > described RDN2008, and this transformation has the comment
+>     "RDN2008 is
+>     > the second Italian realization of ETRS89"
+>
+>     A far more lengthy way forward might be:
+>
+>     ? Italian geodetic authorities (whoever defined RDN2008) publish a
+>     ? transformation from RDN2008 to some modern ETRFyyyy, including an
+>     ? error estimate.
+>
+>     ? They submit that to EPSG for inclusion.
+>
+>     ? A new EPSG version is published.
+>
+>     ? A proj release arrives with the new EPSG version.
+>
+>     ? Meanwhile, you wait for the previous 4 steps.
+>
+>     I realize it doesn't solve your problem now, but authoritative
+>     transforms with tight error estimates shorten the transform pipelines
+>     that are used and lead to better answers.? The above avoids ETRS89.
+>
+>     > Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+>
+>     If you believe that precisely, you could just relabel your data as
+>     being
+>     ETRF2000 (assuming the standard epoch is 2008.0).
+>
+>     Or insert a transform similar to Even's sugggestion, perhaps with
+>     better
+>     accuracy.? I would expect RDN2008/ETRF2000:2008.0 to be at the 0.01m
+>     level -- but I am pretty clueless about ETRF details.
+>
+>
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/02aa856b/attachment.htm>
+
+From gdt at lexort.com  Tue Jul 19 09:37:03 2022
+From: gdt at lexort.com (Greg Troxel)
+Date: Tue, 19 Jul 2022 12:37:03 -0400
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com> (Even
+ Rouault's message of "Tue, 19 Jul 2022 17:20:14 +0200")
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+ <rmizgh58gso.fsf@s1.lexort.com>
+ <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+ <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com>
+Message-ID: <rmicze16ouo.fsf@s1.lexort.com>
+
+
+Even Rouault <even.rouault at spatialys.com> writes:
+
+> See the manually added records starting at
+> https://github.com/OSGeo/PROJ/blob/5b2d59b68f931303d73e742763309d258f9335d4/data/sql/customizations.sql#L187. "manually"
+> here means "not done in code": an alternative would be to explore the
+> datum ensembles and their members in the database and figure out the
+> null transformation between them. Given the relatively low number of
+> datum ensembles in the EPSG database (essentially only WGS 84 and
+> ETRS89), the manual way is much easier to implement than new code.
+
+Thank you for the pointer.
+
+I find the word "manual" to be very confusing here.  As I see it, this
+is basically forming a database which is the union of the EPSG database
+and some other entries.  Arguably, these entries or something like them
+should be in the EPSG database, but they aren't for various reasons.
+
+I wonder if instead, or probably, we should have transforms from each
+member to the next, as particularly for recent members the accuracy
+statement can be vastly lower.
+
+> (to be pedantic we only record transformation from each member of the
+> ensemble to the ensemble, to avoid the combinatory explosion of
+> registering transformations between each member. but PROJ is smart
+> enough to combine 2 (not more) steps to do e.g WGS 84 (G1674) -> WGS
+> 84 (G1762) as WGS 84 (G1674) -> WGS 84 (ensemble) -> WGS 84 (G1762) )
+
+Is that limitation fundamental?  It could be reasonable to go through
+multiple steps from WGS84(TRANSIT) to WGS84(G2139), some of which are
+not null transforms.  Anyway we can avoid traversing an ensemble to
+solve a requested transform seems better as there is an intrinsic loss
+of accuracy from ensembles where we pause at "we don't really know what
+frame the data is in".
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220719/83a91a82/attachment.sig>
+
+From even.rouault at spatialys.com  Tue Jul 19 10:05:24 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 19 Jul 2022 19:05:24 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <rmicze16ouo.fsf@s1.lexort.com>
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+ <rmizgh58gso.fsf@s1.lexort.com>
+ <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+ <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com>
+ <rmicze16ouo.fsf@s1.lexort.com>
+Message-ID: <1a6ae835-1e78-07c5-ce0c-26a063724524@spatialys.com>
+
+
+Le 19/07/2022 ? 18:37, Greg Troxel a ?crit?:
+> Even Rouault <even.rouault at spatialys.com> writes:
+>
+>> See the manually added records starting at
+>> https://github.com/OSGeo/PROJ/blob/5b2d59b68f931303d73e742763309d258f9335d4/data/sql/customizations.sql#L187. "manually"
+>> here means "not done in code": an alternative would be to explore the
+>> datum ensembles and their members in the database and figure out the
+>> null transformation between them. Given the relatively low number of
+>> datum ensembles in the EPSG database (essentially only WGS 84 and
+>> ETRS89), the manual way is much easier to implement than new code.
+> Thank you for the pointer.
+>
+> I find the word "manual" to be very confusing here.  As I see it, this
+> is basically forming a database which is the union of the EPSG database
+> and some other entries.  Arguably, these entries or something like them
+> should be in the EPSG database, but they aren't for various reasons.
+One can see them as implicitly present in the EPSG database from the 
+definition of each datum ensemble. It is just that this isn't super 
+convenient for PROJ direct use.
+>
+> I wonder if instead, or probably, we should have transforms from each
+> member to the next, as particularly for recent members the accuracy
+> statement can be vastly lower.
+That could be done, although I'm not sure this would help that much 
+compared to having each datum ensemble member <--> datum ensemble 
+transformation.
+>
+>> (to be pedantic we only record transformation from each member of the
+>> ensemble to the ensemble, to avoid the combinatory explosion of
+>> registering transformations between each member. but PROJ is smart
+>> enough to combine 2 (not more) steps to do e.g WGS 84 (G1674) -> WGS
+>> 84 (G1762) as WGS 84 (G1674) -> WGS 84 (ensemble) -> WGS 84 (G1762) )
+> Is that limitation fundamental?
+
+when you have one intermediate CRS as currently, in SQL, this is a (very 
+complicated) self JOIN with the coordinate_operation_view appearing 
+twice (and joining with other tables to account for the fact that most 
+transformations are defined only between geographic 2D CRS, but the 
+transformations we want to do may involve their related geographic 3D or 
+geocentric CRS). Potential complexity O(N^2) in the number of coordinate 
+operations
+
+(it is actually the union of 4 such self JOIN to take into account that 
+the 'left' and 'right' operations must be considered in the forward and 
+inverse transformation)
+
+If you allowed 2 intermediate CRS, that would be (really very 
+complicated) self JOIN with the coordinate_operation_view appearing 
+three times. Potential complexity O(N^3)
+
+etc.
+
+So computation time and code could become very ugly
+
+A potential enhancement to PROJ would be to have a way for it to know 
+which intermediate datums must be considered, so it is guided in its 
+search, probably by defining "generation of datums" that apply to some 
+area (e.g for the US: NAD27, NAD83 (86), NAD83(HARN), NAD83(NSRS2007), 
+NAD83(2011))
+
+But the more transformations PROJ chain together, the more questionable 
+they are. One hop as done currently probably already covers > 90% of the 
+cases.
+
+That said, if we implemented the NADCON5 grids, a more complex logic 
+would be needed as they are provided only for successive datums in the 
+above mentionned NAD datums, and AFAIR, they recommend chaining them 
+when wanting to transform between non immediately consecutive datums.
+
+>   It could be reasonable to go through
+> multiple steps from WGS84(TRANSIT) to WGS84(G2139), some of which are
+> not null transforms.
+Are such non-null transforms between members published somewhere ? 
+Anyway, if they existed in its database, PROJ would use them in priority 
+compared to chaining WGS84(XXX) -> WGS84(ensemble)->WGS84(YYYY)
+>    Anyway we can avoid traversing an ensemble to
+> solve a requested transform seems better as there is an intrinsic loss
+> of accuracy from ensembles where we pause at "we don't really know what
+> frame the data is in".
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From giacomo.cappellini.87 at gmail.com  Tue Jul 19 18:56:32 2022
+From: giacomo.cappellini.87 at gmail.com (Giacomo Cappellini)
+Date: Wed, 20 Jul 2022 03:56:32 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com>
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+ <rmizgh58gso.fsf@s1.lexort.com>
+ <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+ <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com>
+Message-ID: <CABXJd1kY8Hu19P87Q9-cV5W9fvdwhsO5s3QO-o7w0mVF=v4jrg@mail.gmail.com>
+
+Ok I mis-interprered the meaning of "manual" here, I though there were some
+additional custom magic code around WGS84 realizations transformations, but
+it's the opposite.
+
+Just side note: I'm actually quite surprised about your question about
+WGS84 "Are such non-null transforms between members published somewhere ?"
+as I was considered that like an obvious fact. If this information is not
+officially available to the public, what's the whole point of updating the
+datum? Considering that WGS is currently aligned with ITRF2014 at 2010.000, is
+this made to push new maps to ITRS (that provides all the numbers)? Just
+wild thoughts.
+
+Thanks again for the answers.
+
+G.C.
+
+On Tue, Jul 19, 2022, 17:20 Even Rouault <even.rouault at spatialys.com> wrote:
+
+>
+> Le 19/07/2022 ? 17:10, Giacomo Cappellini a ?crit :
+>
+> Thanks Even, thanks Greg.
+>
+> I now understand why there are no proposed transformations from RDN2008 to
+> ETRF2000 or ITRF2000.
+> To get a better picture on the topic I downloaded the EPSG database and by
+> grepping the available transformations starting from RDN2008 I've confirmed
+> that "RDN2008 to ETRS89 (1)" and "RDN2008 to WGS 84 (1)" are the only
+> available transformations according to EPSG authority.
+>
+> The only point I miss from the picture is the meaning of "ENSEMBLE". While
+> I can generally grasp how to move from a source Reference Frame to a target
+> Reference Frame, I fail to picture how to move from a Reference Frame to a
+> Reference System ensemble. I'd like to ask if possible a little more
+> details about the meaning of "we actually do that manually for the WGS 84
+> datum ensemble vs its realizations".
+>
+> See the manually added records starting at
+> https://github.com/OSGeo/PROJ/blob/5b2d59b68f931303d73e742763309d258f9335d4/data/sql/customizations.sql#L187.
+> "manually" here means "not done in code": an alternative would be to
+> explore the datum ensembles and their members in the database and figure
+> out the null transformation between them. Given the relatively low number
+> of datum ensembles in the EPSG database (essentially only WGS 84 and
+> ETRS89), the manual way is much easier to implement than new code.
+>
+>
+> The information I've reached so far about RS ensemble says that "all but
+> the highest accuracy requirements may be considered to be insignificantly
+> different from each other" and "Datasets referenced to the various
+> realizations may be merged without change of coordinates":
+> - https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#87
+> - https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#53
+>
+> That's what is implemented in the above WGS 84 specific records with a
+> Helmert transformation with all terms null, or my prior suggestion for
+> ETRS89 <--> ETRF2000
+>
+> (to be pedantic we only record transformation from each member of the
+> ensemble to the ensemble, to avoid the combinatory explosion of registering
+> transformations between each member. but PROJ is smart enough to combine 2
+> (not more) steps to do e.g WGS 84 (G1674) -> WGS 84 (G1762) as WGS 84 (G1674)
+> -> WGS 84 (ensemble) -> WGS 84 (G1762) )
+>
+>
+> Thanks,
+>
+> G.C.
+>
+> Il giorno mar 19 lug 2022 alle ore 13:48 Greg Troxel <gdt at lexort.com> ha
+> scritto:
+>
+>>
+>> Even Rouault <even.rouault at spatialys.com> writes:
+>>
+>> > For RDN2008, there are 2 transformations available:
+>> >
+>> > - one from RDN2008 to ETRS89 (EPSG:4258), with a null Helmert
+>> > transformation and a accuracy of 0 m. This is consistant with how you
+>> > described RDN2008, and this transformation has the comment "RDN2008 is
+>> > the second Italian realization of ETRS89"
+>>
+>> A far more lengthy way forward might be:
+>>
+>>   Italian geodetic authorities (whoever defined RDN2008) publish a
+>>   transformation from RDN2008 to some modern ETRFyyyy, including an
+>>   error estimate.
+>>
+>>   They submit that to EPSG for inclusion.
+>>
+>>   A new EPSG version is published.
+>>
+>>   A proj release arrives with the new EPSG version.
+>>
+>>   Meanwhile, you wait for the previous 4 steps.
+>>
+>> I realize it doesn't solve your problem now, but authoritative
+>> transforms with tight error estimates shorten the transform pipelines
+>> that are used and lead to better answers.  The above avoids ETRS89.
+>>
+>> > Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+>>
+>> If you believe that precisely, you could just relabel your data as being
+>> ETRF2000 (assuming the standard epoch is 2008.0).
+>>
+>> Or insert a transform similar to Even's sugggestion, perhaps with better
+>> accuracy.  I would expect RDN2008/ETRF2000:2008.0 to be at the 0.01m
+>> level -- but I am pretty clueless about ETRF details.
+>>
+>>
+>>
+>> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220720/4631a2ef/attachment.htm>
+
+From oleg.bizin87 at gmail.com  Tue Jul 19 23:27:24 2022
+From: oleg.bizin87 at gmail.com (Oleg Bizin)
+Date: Wed, 20 Jul 2022 09:27:24 +0300
+Subject: [PROJ] Intermediate steps due same datum transformation
+In-Reply-To: <1f56cb92-b447-f543-0704-e1602e185ab8@spatialys.com>
+References: <CADWt3QTQVXJyq6O31V32K7g1+CcP+20XDecjUierF7XZMEh-oQ@mail.gmail.com>
+ <8982a997-ed11-c1df-a539-caeaea846700@spatialys.com>
+ <CADWt3QQmRytQWUsNTmoJqeBYojSSnY5LAbHPomArPT97N_x9Kg@mail.gmail.com>
+ <1f56cb92-b447-f543-0704-e1602e185ab8@spatialys.com>
+Message-ID: <CADWt3QSWSXWd4jLottazeMZmFSgbGeUYUbsB+=i=9P571b0Xkg@mail.gmail.com>
+
+Ok, now everything is clear.
+Thanks!
+
+??, 19 ???. 2022 ?. ? 18:10, Even Rouault <even.rouault at spatialys.com>:
+
+>
+> Le 19/07/2022 ? 17:02, Oleg Bizin a ?crit :
+>
+> Even,
+>
+> Thank you for the detailed answer!
+>
+> I have a couple more clarifying questions.
+>
+> More generally PROJ >= 6 will not use WGS 84 as a compulsory pivot in
+>> coordinate transformations
+>
+> 1. Is it correct that the  PROJ < 6 definitely uses WGS84 as a compulsory
+> pivot?
+>
+> When there was a datum indication in the PROJ.4 string, yes, since
+> +towgs84 or +nadgrids implied the WGS84 pivot. When source and
+> transformation CRS PROJ.4 strings used the same +towgs84 terms, that was
+> skipped as an optimization (what newer PROJ does too)
+>
+>
+> 2. Currently, before your fix, for custom crs transformation to WGS84 may
+> perform, but  without significant impact on accuracy?
+>
+> For most uses yes, it shouldn't have significant impact. Unless you
+> transformation coordinates back and forth many many times.
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220720/3a0d0152/attachment.htm>
+
+From gdt at lexort.com  Wed Jul 20 05:45:39 2022
+From: gdt at lexort.com (Greg Troxel)
+Date: Wed, 20 Jul 2022 08:45:39 -0400
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <CABXJd1kY8Hu19P87Q9-cV5W9fvdwhsO5s3QO-o7w0mVF=v4jrg@mail.gmail.com>
+ (Giacomo Cappellini's message of "Wed, 20 Jul 2022 03:56:32 +0200")
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+ <rmizgh58gso.fsf@s1.lexort.com>
+ <CABXJd1nhQuSkXyrZhWpkCWOXpPoGfJKh=SW7D=1ijoa6bLOFnQ@mail.gmail.com>
+ <cbc3b292-302a-9a5f-609f-87eee95f09c1@spatialys.com>
+ <CABXJd1kY8Hu19P87Q9-cV5W9fvdwhsO5s3QO-o7w0mVF=v4jrg@mail.gmail.com>
+Message-ID: <rmiwnc80x70.fsf@s1.lexort.com>
+
+
+Giacomo Cappellini <giacomo.cappellini.87 at gmail.com> writes:
+
+> Just side note: I'm actually quite surprised about your question about
+> WGS84 "Are such non-null transforms between members published somewhere ?"
+> as I was considered that like an obvious fact. If this information is not
+> officially available to the public, what's the whole point of updating the
+> datum? Considering that WGS is currently aligned with ITRF2014 at 2010.000, is
+> this made to push new maps to ITRS (that provides all the numbers)?
+
+The new realizations are solutions are estimates of station coordinates,
+for the stations in the GPS tracking network.  Because of the way those
+are done, they end up being very close to some ITRF (which is quite
+intentional).  These are then used to monitor signals and thus the
+broadcast orbits are in this frame.  This is useful all by itself --
+positions computed by users are more closely aligned to ITRF with every
+succeeding WGS84 realization.  This does not require publishing or even
+computing a transform from the previous version.
+
+Often, NGA has published transforms, or other people have from analyzing
+the changes in station coordinates.  It's important to realize that much
+of the new realization is reducing errors and little of it is systematic
+shifts, for recent realizations.
+
+Veering off topic for the list, but it's important to understand that
+only GPS-only, non-differential (so no SBAS in use!) solutions are in
+the WGS84(Gwwww) frames.  Once you use SBAS, the solution is in the
+frame of the SBAS reference stations.  I think that's ~always some
+recent ITRFyyyy, or an analogous IGSyyyy related frame, but it's
+remarkably difficult to get a precise, documented answer.  That's
+probably because unless you are doing precise geodetic surveying, all
+recent WGS84 and all recent ITRF are equivalent.  And if you are, you're
+doing day or multiday static double-differenced carrier phase solutions,
+which avoid the "what frame is GPS in' entirely.
+
+I have not been able to find reference frame information published for
+the US WAAS, for example.
+
+EGNOS is similarly difficult to find information about.  I was able to
+find a paper from 2007 that says that it then used ITRF2000:
+  http://geodesy.unr.edu/hanspeterplag/publications/pubs/2007_plag_etal_egnos.pdf
+
+Practically, the errors from autonomous solutions and SBAS solutions are
+so vastly greater than the frame differences that I doubt anyone could
+tell the difference, even with a year of averaging.  Contrary facts
+welcome of course :-)
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220720/f1f45814/attachment.sig>
+
+From even.rouault at spatialys.com  Thu Jul 21 10:37:07 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 21 Jul 2022 19:37:07 +0200
+Subject: [PROJ] Could you please explain me why I can't project RDN2008
+ (EPSG:6706) to ERTF2000 (EPSG:9067) or ITRF2000 (EPGS:8997)
+In-Reply-To: <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+References: <CABXJd1nWgMuwZMOUwRNSR9v-4cjs_vAdzpNZ2F3jszqO9+WG=A@mail.gmail.com>
+ <0f7254d5-2cec-917f-82bf-c1e73ea29d01@spatialys.com>
+Message-ID: <1ba59284-ecc0-1873-419b-8fac5c11eada@spatialys.com>
+
+
+> That said in the database, ETRS89 is modeled as a datum ensemble of 
+> the many ETRFxxxx realizations, so potentially PROJ could use that 
+> information to infer a null transformation between ETRS89 and ETRF2000 
+> with the accuracy of the datum ensemble (here 0.1 m) (we actually do 
+> that manually for the WGS 84 datum ensemble vs its realizations, but 
+> that should be generalized), and chain that together with the RDN2008 
+> to ETRS89 transformation.
+>
+I've implemented that per https://github.com/OSGeo/PROJ/pull/3266. So 
+now you get
+>
+> $ projinfo -s RDN2008 -t ETRF2000
+> Candidate operations found: 1
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, RDN2008 to ETRS89 (1) + ETRS89 to ETRF2000, 0.1 m, Italy - 
+> onshore and offshore; San Marino, Vatican City State.
+>
+> PROJ string:
+> +proj=noop
+>
+> Even
+>
+> Le 19/07/2022 ? 03:02, Giacomo Cappellini a ?crit?:
+>> Hello,
+>>
+>> I'm generally new to working with CRS different from EPSG:4326 + UTM 
+>> and I'm facing some issues while trying to use RDN2008, which is the 
+>> official reference system for Italy at current date.
+>> Please excuse me if the question sounds trivial to experts, but I 
+>> can't figure out why there are no non-ballpark operations to go 
+>> from/to RDN2008 and ETRF2000 or ITRF2000.
+>>
+>> Afaik, RDN2008 is ETRS89 realization ETRF2000 epoch 2008.0.
+>>
+>> Proj Rel. 8.2.1, January 1st, 2022
+>>
+>>     $ projinfo -s EPSG:6706 -t EPSG:9067 --spatial-test intersects
+>>     --grid-check none --hide-ballpark --summary
+>>     Candidate operations found: 0
+>>
+>>
+>>     $ projinfo -s EPSG:6706 -t EPSG:8997 --spatial-test intersects
+>>     --grid-check none --hide-ballpark --summary
+>>     Candidate operations found: 0
+>>
+>>
+>> Thanks
+>>
+>> G.C.
+>>
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220721/61c0d109/attachment.htm>
+
+From j1 at jimenezshaw.com  Mon Jul 25 12:20:04 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Mon, 25 Jul 2022 21:20:04 +0200
+Subject: [PROJ] Local CRS as derived
+Message-ID: <CADRrdKv0p0eZiiTDKCrjMBbaM34reX3pMqZv22mzCx6ZcMexuw@mail.gmail.com>
+
+Hi
+
+I want to define a local projected CRS, and be able to compute
+transformations from geographic 3D coordinates to this final system (site
+calibration). This final (3 axes) system have to be expressed in a WKT2
+string, including somehow the coordinate operations.
+
+It looks like a DERIVEDPROJCRS is a good candidate (I got inspired in
+https://gis.stackexchange.com/questions/387189/how-to-use-affine-transform-parameters-in-a-proj-or-wkt2-string
+). Maybe there is something better.
+I would choose the BASEPROJCRS properly (something like a Transverse
+Mercator centred in the area of interest), and I can compute the 2D affine
+transformation parameters.
+
+However I have some questions with the vertical component. I guess there is
+not affine transformation method in 3D ("Affine parametric transformation"
+is 2D), so I would have to define a compound of "derived projected" and
+"derived vertical", right?. For the vertical I could use the method
+"Vertical offset" (is there any other option that is not just a constant
+value?). But that means that I need a proper vertical crs as base. If the
+initial 3D input is in ellipsoidal heights (very likely, as they are RTK
+measurements), how can a add a derived vertical to change the Z value?
+There is no such a vertical crs that means "ellipsoidal height", even in
+WKT2, right?
+
+This solution would leave me only 5 degrees of freedom: 3 for the
+translation, 1 for the horizontal rotation and 1 for horizontal the scale
+(now I notice that I would not have vertical scale). Vertical and
+horizontal calibrations would be independent.
+
+How can I deal with the vertical component?
+Is there any better solution?
+
+Thank you
+
+Javier.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220725/7c98dcb9/attachment.htm>
+
+From gdt at lexort.com  Tue Jul 26 04:27:44 2022
+From: gdt at lexort.com (Greg Troxel)
+Date: Tue, 26 Jul 2022 07:27:44 -0400
+Subject: [PROJ] Local CRS as derived
+In-Reply-To: <CADRrdKv0p0eZiiTDKCrjMBbaM34reX3pMqZv22mzCx6ZcMexuw@mail.gmail.com>
+ (Javier Jimenez Shaw's message of "Mon, 25 Jul 2022 21:20:04 +0200")
+References: <CADRrdKv0p0eZiiTDKCrjMBbaM34reX3pMqZv22mzCx6ZcMexuw@mail.gmail.com>
+Message-ID: <rmifsioyuz3.fsf@s1.lexort.com>
+
+
+Javier Jimenez Shaw <j1 at jimenezshaw.com> writes:
+
+> I want to define a local projected CRS, and be able to compute
+> transformations from geographic 3D coordinates to this final system (site
+> calibration). This final (3 axes) system have to be expressed in a WKT2
+> string, including somehow the coordinate operations.
+
+I have this problem too, but only in a hobby sense so I have not been
+really struggling with it.  Concretely, a local coordinate system normal
+to gravity, from classical surveying measurements, with stations having
+horizontal and vertical components.  I am guessing yours has the U
+component matching the plumb line, rather than normal to the ellipsoid,
+and you're ok with ignoring the Laplace correction.
+
+My sense is that full treatment of local CRS is beyond what almost
+anybody does, and people with big enough areas and who care about the
+Laplace correction just don't use a local CRS.
+
+> It looks like a DERIVEDPROJCRS is a good candidate (I got inspired in
+> https://gis.stackexchange.com/questions/387189/how-to-use-affine-transform-parameters-in-a-proj-or-wkt2-string
+> ). Maybe there is something better.
+> I would choose the BASEPROJCRS properly (something like a Transverse
+> Mercator centred in the area of interest), and I can compute the 2D affine
+> transformation parameters.
+
+That makes sense.  My tentative approach which was 2D only uses Lambert
+conformal conic because it's my state plane system, but same thing.
+
+> However I have some questions with the vertical component. I guess there is
+> not affine transformation method in 3D ("Affine parametric transformation"
+> is 2D), so I would have to define a compound of "derived projected" and
+> "derived vertical", right?.
+
+It seems to me that the 3D transform should exist.  It is semantically
+sensible.
+
+> For the vertical I could use the method "Vertical offset" (is there
+> any other option that is not just a constant value?).
+
+If you are transforming the vertical separately one input, then the
+output can't be function of the horizontal position.  So the options are
+an offset, and then a scale and offset, and so on, to view it through
+Taylor-colored glasses.
+
+> But that means that I need a proper vertical crs as base. If the
+> initial 3D input is in ellipsoidal heights (very likely, as they are
+> RTK measurements), how can a add a derived vertical to change the Z
+> value?  There is no such a vertical crs that means "ellipsoidal
+> height", even in WKT2, right?
+
+It seems like there should be, because it is semantically sensible.  But
+if not you could transform to the continental/national orthometric
+height, or even WGS84 orthometric height (avoiding the ensemble :-)
+
+> This solution would leave me only 5 degrees of freedom: 3 for the
+> translation, 1 for the horizontal rotation and 1 for horizontal the scale
+> (now I notice that I would not have vertical scale). Vertical and
+> horizontal calibrations would be independent.
+
+Yes, 2 rotations are missing.  But this is exactly saying that the U
+axis of the local CRS is the ellipsoidal normal.  I think this is
+equivalent to deciding to process EN and U separately.
+
+And yes, there's no vertical scale.  That makes sense for real
+situations.
+
+Horizontal scale shows up in two different situations:
+
+  As scale (3D) in datum transformations, e.g. at the ppb level among
+  ITRF realizations.  This isn't relevant at all to a local CRS.
+
+  To account for non-1 scale due to a projection.  This is I think what
+  you are dealing with.
+
+> How can I deal with the vertical component?
+
+I can only think of using e.g. NAVD88/EVRF2007/etc.
+
+> Is there any better solution?
+
+Define a code for ellipsoidal height only as a vertical CRS and then use
+it.
+
+Or probably better, TM as a 3D CRS with Easting, northing and HAE, and
+then a 2D affine plus a vertical, or use 3D affine with two zero
+rotations, a scale for horizontal and scale=1 for vertical.  But this is
+a change to doctrine and not feasible in the short term.
+
+I guess what's hard fundamentally is that you are trying to have a 3D
+local CRS, and my sense is that this is generally not done -- even
+though it is completely sensible.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220726/4d79e7e6/attachment.sig>
+
+From j1 at jimenezshaw.com  Tue Jul 26 08:37:38 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 26 Jul 2022 17:37:38 +0200
+Subject: [PROJ] Local CRS as derived
+In-Reply-To: <rmifsioyuz3.fsf@s1.lexort.com>
+References: <CADRrdKv0p0eZiiTDKCrjMBbaM34reX3pMqZv22mzCx6ZcMexuw@mail.gmail.com>
+ <rmifsioyuz3.fsf@s1.lexort.com>
+Message-ID: <CADRrdKu41cjEsuRi21PDeq43g0g6Tv_dRc32VOzAKHqz0N_wcg@mail.gmail.com>
+
+Thanks Greg. Your answer gives me some hope that I am not very wrong with
+my ideas. But still many open questions.
+
+About a better transformation for the vertical values (3 degrees of
+freedom, not 1), I found this in the EPSG:
+METHOD["Vertical Offset and Slope",ID["EPSG",1046]]
+https://epsg.org/coord-operation-method_1046/Vertical-Offset-and-Slope.html
+But I have the impression that it is not implemented in PROJ. Am I right?
+
+Cheers
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Tue, 26 Jul 2022 at 13:27, Greg Troxel <gdt at lexort.com> wrote:
+
+>
+> Javier Jimenez Shaw <j1 at jimenezshaw.com> writes:
+>
+> > I want to define a local projected CRS, and be able to compute
+> > transformations from geographic 3D coordinates to this final system (site
+> > calibration). This final (3 axes) system have to be expressed in a WKT2
+> > string, including somehow the coordinate operations.
+>
+> I have this problem too, but only in a hobby sense so I have not been
+> really struggling with it.  Concretely, a local coordinate system normal
+> to gravity, from classical surveying measurements, with stations having
+> horizontal and vertical components.  I am guessing yours has the U
+> component matching the plumb line, rather than normal to the ellipsoid,
+> and you're ok with ignoring the Laplace correction.
+>
+> My sense is that full treatment of local CRS is beyond what almost
+> anybody does, and people with big enough areas and who care about the
+> Laplace correction just don't use a local CRS.
+>
+> > It looks like a DERIVEDPROJCRS is a good candidate (I got inspired in
+> >
+> https://gis.stackexchange.com/questions/387189/how-to-use-affine-transform-parameters-in-a-proj-or-wkt2-string
+> > ). Maybe there is something better.
+> > I would choose the BASEPROJCRS properly (something like a Transverse
+> > Mercator centred in the area of interest), and I can compute the 2D
+> affine
+> > transformation parameters.
+>
+> That makes sense.  My tentative approach which was 2D only uses Lambert
+> conformal conic because it's my state plane system, but same thing.
+>
+> > However I have some questions with the vertical component. I guess there
+> is
+> > not affine transformation method in 3D ("Affine parametric
+> transformation"
+> > is 2D), so I would have to define a compound of "derived projected" and
+> > "derived vertical", right?.
+>
+> It seems to me that the 3D transform should exist.  It is semantically
+> sensible.
+>
+> > For the vertical I could use the method "Vertical offset" (is there
+> > any other option that is not just a constant value?).
+>
+> If you are transforming the vertical separately one input, then the
+> output can't be function of the horizontal position.  So the options are
+> an offset, and then a scale and offset, and so on, to view it through
+> Taylor-colored glasses.
+>
+> > But that means that I need a proper vertical crs as base. If the
+> > initial 3D input is in ellipsoidal heights (very likely, as they are
+> > RTK measurements), how can a add a derived vertical to change the Z
+> > value?  There is no such a vertical crs that means "ellipsoidal
+> > height", even in WKT2, right?
+>
+> It seems like there should be, because it is semantically sensible.  But
+> if not you could transform to the continental/national orthometric
+> height, or even WGS84 orthometric height (avoiding the ensemble :-)
+>
+> > This solution would leave me only 5 degrees of freedom: 3 for the
+> > translation, 1 for the horizontal rotation and 1 for horizontal the scale
+> > (now I notice that I would not have vertical scale). Vertical and
+> > horizontal calibrations would be independent.
+>
+> Yes, 2 rotations are missing.  But this is exactly saying that the U
+> axis of the local CRS is the ellipsoidal normal.  I think this is
+> equivalent to deciding to process EN and U separately.
+>
+> And yes, there's no vertical scale.  That makes sense for real
+> situations.
+>
+> Horizontal scale shows up in two different situations:
+>
+>   As scale (3D) in datum transformations, e.g. at the ppb level among
+>   ITRF realizations.  This isn't relevant at all to a local CRS.
+>
+>   To account for non-1 scale due to a projection.  This is I think what
+>   you are dealing with.
+>
+> > How can I deal with the vertical component?
+>
+> I can only think of using e.g. NAVD88/EVRF2007/etc.
+>
+> > Is there any better solution?
+>
+> Define a code for ellipsoidal height only as a vertical CRS and then use
+> it.
+>
+> Or probably better, TM as a 3D CRS with Easting, northing and HAE, and
+> then a 2D affine plus a vertical, or use 3D affine with two zero
+> rotations, a scale for horizontal and scale=1 for vertical.  But this is
+> a change to doctrine and not feasible in the short term.
+>
+> I guess what's hard fundamentally is that you are trying to have a 3D
+> local CRS, and my sense is that this is generally not done -- even
+> though it is completely sensible.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220726/62fbecb2/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul 26 08:46:50 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 26 Jul 2022 17:46:50 +0200
+Subject: [PROJ] Local CRS as derived
+In-Reply-To: <CADRrdKu41cjEsuRi21PDeq43g0g6Tv_dRc32VOzAKHqz0N_wcg@mail.gmail.com>
+References: <CADRrdKv0p0eZiiTDKCrjMBbaM34reX3pMqZv22mzCx6ZcMexuw@mail.gmail.com>
+ <rmifsioyuz3.fsf@s1.lexort.com>
+ <CADRrdKu41cjEsuRi21PDeq43g0g6Tv_dRc32VOzAKHqz0N_wcg@mail.gmail.com>
+Message-ID: <22587191-d92b-9d8c-08b5-2c5d1c1a999e@spatialys.com>
+
+
+Le 26/07/2022 ? 17:37, Javier Jimenez Shaw a ?crit?:
+> Thanks Greg. Your answer gives me some hope that I am not very wrong 
+> with my ideas. But still many open questions.
+>
+> About a better transformation for the vertical values (3 degrees of 
+> freedom, not 1), I found this in the EPSG:
+> METHOD["Vertical Offset and Slope",ID["EPSG",1046]]
+> https://epsg.org/coord-operation-method_1046/Vertical-Offset-and-Slope.html
+> But I have the impression that it is not implemented in PROJ. Am I right?
+
+
+==> it is implemented in master: https://github.com/OSGeo/PROJ/pull/3200
+
+
+>
+> Cheers
+> .___ ._ ..._ .. . ._. .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+>
+> On Tue, 26 Jul 2022 at 13:27, Greg Troxel <gdt at lexort.com> wrote:
+>
+>
+>     Javier Jimenez Shaw <j1 at jimenezshaw.com> writes:
+>
+>     > I want to define a local projected CRS, and be able to compute
+>     > transformations from geographic 3D coordinates to this final
+>     system (site
+>     > calibration). This final (3 axes) system have to be expressed in
+>     a WKT2
+>     > string, including somehow the coordinate operations.
+>
+>     I have this problem too, but only in a hobby sense so I have not been
+>     really struggling with it.? Concretely, a local coordinate system
+>     normal
+>     to gravity, from classical surveying measurements, with stations
+>     having
+>     horizontal and vertical components.? I am guessing yours has the U
+>     component matching the plumb line, rather than normal to the
+>     ellipsoid,
+>     and you're ok with ignoring the Laplace correction.
+>
+>     My sense is that full treatment of local CRS is beyond what almost
+>     anybody does, and people with big enough areas and who care about the
+>     Laplace correction just don't use a local CRS.
+>
+>     > It looks like a DERIVEDPROJCRS is a good candidate (I got
+>     inspired in
+>     >
+>     https://gis.stackexchange.com/questions/387189/how-to-use-affine-transform-parameters-in-a-proj-or-wkt2-string
+>     > ). Maybe there is something better.
+>     > I would choose the BASEPROJCRS properly (something like a Transverse
+>     > Mercator centred in the area of interest), and I can compute the
+>     2D affine
+>     > transformation parameters.
+>
+>     That makes sense.? My tentative approach which was 2D only uses
+>     Lambert
+>     conformal conic because it's my state plane system, but same thing.
+>
+>     > However I have some questions with the vertical component. I
+>     guess there is
+>     > not affine transformation method in 3D ("Affine parametric
+>     transformation"
+>     > is 2D), so I would have to define a compound of "derived
+>     projected" and
+>     > "derived vertical", right?.
+>
+>     It seems to me that the 3D transform should exist.? It is semantically
+>     sensible.
+>
+>     > For the vertical I could use the method "Vertical offset" (is there
+>     > any other option that is not just a constant value?).
+>
+>     If you are transforming the vertical separately one input, then the
+>     output can't be function of the horizontal position.? So the
+>     options are
+>     an offset, and then a scale and offset, and so on, to view it through
+>     Taylor-colored glasses.
+>
+>     > But that means that I need a proper vertical crs as base. If the
+>     > initial 3D input is in ellipsoidal heights (very likely, as they are
+>     > RTK measurements), how can a add a derived vertical to change the Z
+>     > value?? There is no such a vertical crs that means "ellipsoidal
+>     > height", even in WKT2, right?
+>
+>     It seems like there should be, because it is semantically
+>     sensible.? But
+>     if not you could transform to the continental/national orthometric
+>     height, or even WGS84 orthometric height (avoiding the ensemble :-)
+>
+>     > This solution would leave me only 5 degrees of freedom: 3 for the
+>     > translation, 1 for the horizontal rotation and 1 for horizontal
+>     the scale
+>     > (now I notice that I would not have vertical scale). Vertical and
+>     > horizontal calibrations would be independent.
+>
+>     Yes, 2 rotations are missing.? But this is exactly saying that the U
+>     axis of the local CRS is the ellipsoidal normal.? I think this is
+>     equivalent to deciding to process EN and U separately.
+>
+>     And yes, there's no vertical scale.? That makes sense for real
+>     situations.
+>
+>     Horizontal scale shows up in two different situations:
+>
+>     ? As scale (3D) in datum transformations, e.g. at the ppb level among
+>     ? ITRF realizations.? This isn't relevant at all to a local CRS.
+>
+>     ? To account for non-1 scale due to a projection.? This is I think
+>     what
+>     ? you are dealing with.
+>
+>     > How can I deal with the vertical component?
+>
+>     I can only think of using e.g. NAVD88/EVRF2007/etc.
+>
+>     > Is there any better solution?
+>
+>     Define a code for ellipsoidal height only as a vertical CRS and
+>     then use
+>     it.
+>
+>     Or probably better, TM as a 3D CRS with Easting, northing and HAE, and
+>     then a 2D affine plus a vertical, or use 3D affine with two zero
+>     rotations, a scale for horizontal and scale=1 for vertical. But
+>     this is
+>     a change to doctrine and not feasible in the short term.
+>
+>     I guess what's hard fundamentally is that you are trying to have a 3D
+>     local CRS, and my sense is that this is generally not done -- even
+>     though it is completely sensible.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220726/7e965582/attachment-0001.htm>
+
+From roger.oberholtzer at gmail.com  Wed Jul 27 00:22:13 2022
+From: roger.oberholtzer at gmail.com (Roger Oberholtzer)
+Date: Wed, 27 Jul 2022 09:22:13 +0200
+Subject: [PROJ] WKT and such via C API
+Message-ID: <CANkOqwNb5xe2=5iiCC50xDomDm8Xkq=EYJGJfu4PDSBb+EBXOw@mail.gmail.com>
+
+I am pretty certain that the WKT/JSON/PROJ STRING information is not
+available via the C API. I see how it is done in projinfo. But that
+program has lots going on. I would like to access these strings in my
+C application. For example, when making shape files, the WKT is
+needed,
+
+Can anyone suggest the most straight forward method to get this
+information if one has a PJ structure? It's ok if it is in C++. It
+will be in a library where a component can be in C++. But it will be
+called from a C application.
+
+Any pointers are welcome.
+
+-- 
+Roger Oberholtzer
+
+From roger.oberholtzer at gmail.com  Wed Jul 27 01:22:06 2022
+From: roger.oberholtzer at gmail.com (Roger Oberholtzer)
+Date: Wed, 27 Jul 2022 10:22:06 +0200
+Subject: [PROJ] WKT and such via C API
+In-Reply-To: <CANkOqwNb5xe2=5iiCC50xDomDm8Xkq=EYJGJfu4PDSBb+EBXOw@mail.gmail.com>
+References: <CANkOqwNb5xe2=5iiCC50xDomDm8Xkq=EYJGJfu4PDSBb+EBXOw@mail.gmail.com>
+Message-ID: <CANkOqwOP_2i7TG3XuB2+KdyFiuiBCKtRph-QsYDyPcScWJi6+g@mail.gmail.com>
+
+Sorry for the noise. I have found the C API access to these strings. I
+do not know how I missed it.
+
+Next step is to see how well this information works with a shape file.
+
+I'm also curious why this conversion can only be presented in WKT2:2019:
+
+EPSG:4326 -> EPSG:3006
+
+(WGS84 -> Sweref99)
+
+On Wed, Jul 27, 2022 at 9:22 AM Roger Oberholtzer
+<roger.oberholtzer at gmail.com> wrote:
+>
+> I am pretty certain that the WKT/JSON/PROJ STRING information is not
+> available via the C API. I see how it is done in projinfo. But that
+> program has lots going on. I would like to access these strings in my
+> C application. For example, when making shape files, the WKT is
+> needed,
+>
+> Can anyone suggest the most straight forward method to get this
+> information if one has a PJ structure? It's ok if it is in C++. It
+> will be in a library where a component can be in C++. But it will be
+> called from a C application.
+>
+> Any pointers are welcome.
+>
+> --
+> Roger Oberholtzer
+
+
+
+-- 
+Roger Oberholtzer
+
+From j1 at jimenezshaw.com  Fri Jul 29 12:16:20 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 29 Jul 2022 21:16:20 +0200
+Subject: [PROJ] Derived Vertical CRS
+Message-ID: <CADRrdKvtn3q7YXymWYesPkJ4KuB0PmTENoAosBvBgh9S6adu=A@mail.gmail.com>
+
+Hi
+
+Thanks to Even's PR #3200 "Implement Vertical Offset and slope
+transformation method", I am trying to use a Derived Vertical CRS using the
+conversion method "Vertical Offset and Slope" (that will be a perfect
+combination with "Affine parametric transformation" in the horizontal... I
+hope)
+
+The WKT2 I have created is this
+
+VERTCRS["Custom Vertical",
+    BASEVERTCRS["EGM2008 height",
+        VDATUM["EGM2008 geoid"]],
+    DERIVINGCONVERSION["vertical offs. and slope",
+        METHOD["Vertical Offset and Slope",
+            ID["EPSG",1046]],
+        PARAMETER["Ordinate 1 of evaluation point",46.9166666666669,
+            ANGLEUNIT["degree",0.0174532925199433],
+            ID["EPSG",8617]],
+        PARAMETER["Ordinate 2 of evaluation point",8.18333333333361,
+            ANGLEUNIT["degree",0.0174532925199433],
+            ID["EPSG",8618]],
+        PARAMETER["Vertical Offset",-0.245,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8603]],
+        PARAMETER["Inclination in latitude",-0.21,
+            ANGLEUNIT["arc-second",4.8481368111E-06],
+            ID["EPSG",8730]],
+        PARAMETER["Inclination in longitude",-0.032,
+            ANGLEUNIT["arc-second",4.8481368111E-06],
+            ID["EPSG",8731]],
+        PARAMETER["EPSG code for Horizontal CRS",4326,
+            ANGLEUNIT["arc-second",4.8481368111E-06],
+            ID["EPSG",1037]]],
+    CS[vertical,1],
+        AXIS["gravity-related height (H)",up,
+            LENGTHUNIT["metre",1]],
+    USAGE[
+        SCOPE["unknown"],
+        AREA["World"],
+        BBOX[-90,-180,90,180]]]
+
+The first strange thing is that without the unit in the parameter "EPSG
+code for Horizontal CRS", projinfo "$(cat derived_vertical.wkt)" shows a
+warning:
+Warning: Parsing error : syntax error, unexpected ID. Error occurred around:
+            ID["EPSG",1037]]],
+
+When I try to see how the conversion would be with the command
+projinfo -s EPSG:3855 -t "$(cat derived_vertical.wkt)"
+I get
+PROJ string:
+Error when exporting to PROJ string: Unsupported conversion method:
+Vertical Offset and Slope
+
+Using it in a compound crs and using cs2cs does not get the proper
+transformation neither.
+
+Am I creating the WKT2 string properly to create a derived vertical crs (to
+be used in a compound) with that conversion method?
+
+Thanks
+
+PS. I am using master from today
+PS2.  projinfo -s EPSG:5728 -t EPSG:5730 shows a coordinate operation that
+uses "Vertical Offset and Slope", with a nice PROJ string
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220729/9b4f92e4/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Jul 30 10:35:32 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 30 Jul 2022 19:35:32 +0200
+Subject: [PROJ] Derived Vertical CRS
+In-Reply-To: <CADRrdKvtn3q7YXymWYesPkJ4KuB0PmTENoAosBvBgh9S6adu=A@mail.gmail.com>
+References: <CADRrdKvtn3q7YXymWYesPkJ4KuB0PmTENoAosBvBgh9S6adu=A@mail.gmail.com>
+Message-ID: <f856d510-c9ed-4e8c-14a2-76edeb2413f9@spatialys.com>
+
+Javier,
+
+I've addressed this in https://github.com/OSGeo/PROJ/pull/3270.
+
+Regarding the WKT issue, I've raised this to the OGC CRS SWG list as the 
+grammar of WKT doesn't allow currently a unitless parameter, even if the 
+EPSG Vertical Offset and Slope method requires it. I'd suggest using 
+something like UNIT["none",1] instead of 
+ANGLEUNIT["arc-second",4.8481368111E-06], until that's cleared up
+
+Even
+
+Le 29/07/2022 ? 21:16, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> Thanks to Even's PR #3200 "Implement Vertical Offset and slope 
+> transformation method", I am trying to use a Derived Vertical CRS 
+> using the conversion method "Vertical Offset and Slope" (that will be 
+> a perfect combination with "Affine parametric transformation" in the 
+> horizontal... I hope)
+>
+> The WKT2 I have created is this
+>
+> VERTCRS["Custom Vertical",
+> ? ? BASEVERTCRS["EGM2008 height",
+> ? ? ? ? VDATUM["EGM2008 geoid"]],
+> ? ? DERIVINGCONVERSION["vertical offs. and slope",
+> ? ? ? ? METHOD["Vertical Offset and Slope",
+> ? ? ? ? ? ? ID["EPSG",1046]],
+> ? ? ? ? PARAMETER["Ordinate 1 of evaluation point",46.9166666666669,
+> ? ? ? ? ? ? ANGLEUNIT["degree",0.0174532925199433],
+> ? ? ? ? ? ? ID["EPSG",8617]],
+> ? ? ? ? PARAMETER["Ordinate 2 of evaluation point",8.18333333333361,
+> ? ? ? ? ? ? ANGLEUNIT["degree",0.0174532925199433],
+> ? ? ? ? ? ? ID["EPSG",8618]],
+> ? ? ? ? PARAMETER["Vertical Offset",-0.245,
+> ? ? ? ? ? ? LENGTHUNIT["metre",1],
+> ? ? ? ? ? ? ID["EPSG",8603]],
+> ? ? ? ? PARAMETER["Inclination in latitude",-0.21,
+> ? ? ? ? ? ? ANGLEUNIT["arc-second",4.8481368111E-06],
+> ? ? ? ? ? ? ID["EPSG",8730]],
+> ? ? ? ? PARAMETER["Inclination in longitude",-0.032,
+> ? ? ? ? ? ? ANGLEUNIT["arc-second",4.8481368111E-06],
+> ? ? ? ? ? ? ID["EPSG",8731]],
+> ? ? ? ? PARAMETER["EPSG code for Horizontal CRS",4326,
+> ??????????? ANGLEUNIT["arc-second",4.8481368111E-06],
+> ? ? ? ? ? ? ID["EPSG",1037]]],
+> ? ? CS[vertical,1],
+> ? ? ? ? AXIS["gravity-related height (H)",up,
+> ? ? ? ? ? ? LENGTHUNIT["metre",1]],
+> ? ? USAGE[
+> ? ? ? ? SCOPE["unknown"],
+> ? ? ? ? AREA["World"],
+> ? ? ? ? BBOX[-90,-180,90,180]]]
+>
+> The first strange thing is that without the unit in the parameter 
+> "EPSG code for Horizontal CRS", projinfo "$(cat derived_vertical.wkt)" 
+> shows a warning:
+> Warning: Parsing error : syntax error, unexpected ID. Error occurred 
+> around:
+> ? ? ? ? ? ? ID["EPSG",1037]]],
+>
+> When I try to see how the conversion would be with the command
+> projinfo -s EPSG:3855 -t "$(cat derived_vertical.wkt)"
+> I get
+> PROJ string:
+> Error when exporting to PROJ string: Unsupported conversion method: 
+> Vertical Offset and Slope
+>
+> Using it in a compound crs and using cs2cs does not get the proper 
+> transformation neither.
+>
+> Am I creating the WKT2 string properly to create a derived vertical 
+> crs (to be used in a compound) with that conversion method?
+>
+> Thanks
+>
+> PS. I am using master from today
+> PS2. projinfo -s EPSG:5728 -t EPSG:5730 shows a coordinate operation 
+> that uses "Vertical Offset and Slope", with a nice PROJ string
+>
+> .___ ._ ..._ .. . ._. .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220730/23306dec/attachment.htm>
+
+From j1 at jimenezshaw.com  Sun Jul 31 04:11:36 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sun, 31 Jul 2022 13:11:36 +0200
+Subject: [PROJ] Derived Vertical CRS
+In-Reply-To: <f856d510-c9ed-4e8c-14a2-76edeb2413f9@spatialys.com>
+References: <CADRrdKvtn3q7YXymWYesPkJ4KuB0PmTENoAosBvBgh9S6adu=A@mail.gmail.com>
+ <f856d510-c9ed-4e8c-14a2-76edeb2413f9@spatialys.com>
+Message-ID: <CADRrdKse8v-zcbpTNN9W08dJcGy=nZusNogSSc+1ZyaeQmm=yw@mail.gmail.com>
+
+Thank you Even.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Sat, 30 Jul 2022 at 19:35, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Javier,
+>
+> I've addressed this in https://github.com/OSGeo/PROJ/pull/3270.
+>
+> Regarding the WKT issue, I've raised this to the OGC CRS SWG list as the
+> grammar of WKT doesn't allow currently a unitless parameter, even if the
+> EPSG Vertical Offset and Slope method requires it. I'd suggest using
+> something like UNIT["none",1] instead of
+> ANGLEUNIT["arc-second",4.8481368111E-06], until that's cleared up
+>
+> Even
+> Le 29/07/2022 ? 21:16, Javier Jimenez Shaw a ?crit :
+>
+> Hi
+>
+> Thanks to Even's PR #3200 "Implement Vertical Offset and slope
+> transformation method", I am trying to use a Derived Vertical CRS using the
+> conversion method "Vertical Offset and Slope" (that will be a perfect
+> combination with "Affine parametric transformation" in the horizontal... I
+> hope)
+>
+> The WKT2 I have created is this
+>
+> VERTCRS["Custom Vertical",
+>     BASEVERTCRS["EGM2008 height",
+>         VDATUM["EGM2008 geoid"]],
+>     DERIVINGCONVERSION["vertical offs. and slope",
+>         METHOD["Vertical Offset and Slope",
+>             ID["EPSG",1046]],
+>         PARAMETER["Ordinate 1 of evaluation point",46.9166666666669,
+>             ANGLEUNIT["degree",0.0174532925199433],
+>             ID["EPSG",8617]],
+>         PARAMETER["Ordinate 2 of evaluation point",8.18333333333361,
+>             ANGLEUNIT["degree",0.0174532925199433],
+>             ID["EPSG",8618]],
+>         PARAMETER["Vertical Offset",-0.245,
+>             LENGTHUNIT["metre",1],
+>             ID["EPSG",8603]],
+>         PARAMETER["Inclination in latitude",-0.21,
+>             ANGLEUNIT["arc-second",4.8481368111E-06],
+>             ID["EPSG",8730]],
+>         PARAMETER["Inclination in longitude",-0.032,
+>             ANGLEUNIT["arc-second",4.8481368111E-06],
+>             ID["EPSG",8731]],
+>         PARAMETER["EPSG code for Horizontal CRS",4326,
+>             ANGLEUNIT["arc-second",4.8481368111E-06],
+>             ID["EPSG",1037]]],
+>     CS[vertical,1],
+>         AXIS["gravity-related height (H)",up,
+>             LENGTHUNIT["metre",1]],
+>     USAGE[
+>         SCOPE["unknown"],
+>         AREA["World"],
+>         BBOX[-90,-180,90,180]]]
+>
+> The first strange thing is that without the unit in the parameter "EPSG
+> code for Horizontal CRS", projinfo "$(cat derived_vertical.wkt)" shows a
+> warning:
+> Warning: Parsing error : syntax error, unexpected ID. Error occurred
+> around:
+>             ID["EPSG",1037]]],
+>
+> When I try to see how the conversion would be with the command
+> projinfo -s EPSG:3855 -t "$(cat derived_vertical.wkt)"
+> I get
+> PROJ string:
+> Error when exporting to PROJ string: Unsupported conversion method:
+> Vertical Offset and Slope
+>
+> Using it in a compound crs and using cs2cs does not get the proper
+> transformation neither.
+>
+> Am I creating the WKT2 string properly to create a derived vertical crs
+> (to be used in a compound) with that conversion method?
+>
+> Thanks
+>
+> PS. I am using master from today
+> PS2.  projinfo -s EPSG:5728 -t EPSG:5730 shows a coordinate operation
+> that uses "Vertical Offset and Slope", with a nice PROJ string
+>
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20220731/28bb79a3/attachment.htm>
+

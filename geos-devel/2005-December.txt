@@ -1,0 +1,2739 @@
+From pramsey at refractions.net  Thu Dec  1 23:58:47 2005
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS 2.2
+Message-ID: <3725ACAF-615F-4D9E-B743-D49087FC9E35@refractions.net>
+
+http://geos.refractions.net
+
+GEOS 2.2 is on the street, from the change log:
+
+Changes in 2.2.0
+
+- Performance improvement in OverlayOp::insertUniqueEdge()
+- CoordinateSequence copy removal in EdgeRing
+- Minor memory allocation improvements
+- Higher dimensions interface for CoordinateSequence
+- Added getCoordinatesRO for Point class
+- NEW WKB IO
+- NEW Simplified and stabler C API
+
+I believe 2.2 includes a change in the binary interface, which means  
+you will have to recompile PostGIS and other dependent client  
+programs, but not in the source interface, so the old programs should  
+still compile sucessfully against it.  Strk can correct me if I am  
+wrong.
+
+The performance improvements can be quite large for some use cases.
+
+P.
+
+
+From strk at refractions.net  Fri Dec  2 03:19:40 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS 2.2 (CORRECTION)
+In-Reply-To: <3725ACAF-615F-4D9E-B743-D49087FC9E35@refractions.net>
+References: <3725ACAF-615F-4D9E-B743-D49087FC9E35@refractions.net>
+Message-ID: <20051202081940.GA9965@keybit.net>
+
+On Thu, Dec 01, 2005 at 08:58:47PM -0800, Paul Ramsey wrote:
+
+> I believe 2.2 includes a change in the binary interface, which means  
+> you will have to recompile PostGIS and other dependent client  
+> programs, but not in the source interface, so the old programs should  
+> still compile sucessfully against it.  Strk can correct me if I am  
+> wrong.
+
+CORRECTION:
+
+There is no change in the binary interface between 2.1.x and 2.2.0.
+Binary interface changes are scheduled for 3.0 (or 2.2, I'd like
+to hear from you for versioning scheme).
+
+The 2.2.0 release *adds* the C-API wrapper to let users hook on
+it before the ABI-breaking release. This means that if you link
+against the C-API wrapper now you won't have to rebuild your
+client when upgrading to next major release. Applications already
+linked to the C++ library shouldn't need a rebuild.
+
+None of the official postgis releases have C-API support for GEOS
+yet. This is scheduled for Postgis-1.1.0. So don't bother rebuilding
+postgis now, unless you detect an involunteer ABI breakage (aka bug).
+
+--strk;
+
+From strk at refractions.net  Fri Dec  2 08:10:03 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] autotools problems
+Message-ID: <20051202131003.GA11288@keybit.net>
+
+Guys, I need some help with the Makefile.am
+under source/capi (the new CAPI thing).
+
+I'm really unsure of wheter it is constructed
+correctly. As a matter of fact I've hade report
+of failures for MingW builds.
+
+The point is building a library and a program.
+The library is libgeos_c.
+The program is geostest.
+libgeos_c depends (links against) libgeos.
+geostest depends (links against) libgeos_c.
+
+Current Makefile.am is as follows:
+
+----8<--------------------------------------------------
+
+prefix=@prefix@
+top_srcdir=@top_srcdir@
+GEOS_CAPI_VERSION="@VERSION@-CAPI-@CAPI_VERSION@"
+
+noinst_PROGRAMS = geostest
+
+geostest_SOURCES = geostest.c
+#geostest_LDADD = libgeos_c.la
+geostest_LDADD = $(top_builddir)/source/geom/libgeos.la libgeos_c.la
+geostest_INCLUDES = -I.
+
+capidir = $(includedir)
+
+nodist_capi_HEADERS = \
+        geos_c.h
+
+lib_LTLIBRARIES = libgeos_c.la
+
+LIBS = $(top_builddir)/source/geom/libgeos.la
+
+DIR_SOURCES = \
+        geos_c.cpp
+
+libgeos_c_la_SOURCES = $(DIR_SOURCES)
+libgeos_c_la_CPPFLAGS = -DGEOS_CAPI_VERSION='$(GEOS_CAPI_VERSION)'
+
+
+libgeos_c_la_LDFLAGS = -version-info @CAPI_INTERFACE_CURRENT@:@CAPI_INTERFACE_REVISION@:@CAPI_INTERFACE_AGE@
+
+dist-local:
+        cp -p $(DIST_SOURCES) Makefile.am Makefile.in $(distdir)
+
+----8<--------------------------------------------------
+
+MingW build report show a WARNING at libgeos_c.la build:
+
+*** Warning: This system can not link to static lib archive ../../source/geom/libgeos.la.
+*** I have the capability to make that library automatically link in when
+*** you link to this library.  But I can only do this if you have a
+*** shared version of the library, which you do not appear to have.
+libtool: link: warning: undefined symbols not allowed in i686-pc-mingw32 shared libraries
+
+And a lots of "undefined reference" error at geostest build, where
+undefined symbols seems the ones in libstdc++.
+
+Any successful MingW builder here, or  does the Makefile.am looks fine ?
+
+
+--strk;
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for open standards
+  X     No HTML/RTF in email
+ / \    No M$ Word docs in email
+
+
+From strk at refractions.net  Wed Dec  7 13:49:59 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] MingW build (was: autotools problems)
+In-Reply-To: <20051202131003.GA11288@keybit.net>
+References: <20051202131003.GA11288@keybit.net>
+Message-ID: <20051207184959.GA92500@keybit.net>
+
+Ok, thanks to Mark we fixed the MingW issue by:
+
+	- Uncommenting AC_LIBTOOL_WIN32_DLL in configure.in
+
+	- Adding -no-undefined to LDFLAGS for both C++ and C lib
+
+Additionally we added acsite.m4 to the distribution, so future
+users will be able to regenerate build scripts.
+
+This calls for 2.2.1 - see 2.2.1 mail (coming next).
+
+--strk;
+
+On Fri, Dec 02, 2005 at 02:10:03PM +0100, strk@refractions.net wrote:
+> Guys, I need some help with the Makefile.am
+> under source/capi (the new CAPI thing).
+> 
+> I'm really unsure of wheter it is constructed
+> correctly. As a matter of fact I've hade report
+> of failures for MingW builds.
+> 
+> The point is building a library and a program.
+> The library is libgeos_c.
+> The program is geostest.
+> libgeos_c depends (links against) libgeos.
+> geostest depends (links against) libgeos_c.
+> 
+> Current Makefile.am is as follows:
+> 
+> ----8<--------------------------------------------------
+> 
+> prefix=@prefix@
+> top_srcdir=@top_srcdir@
+> GEOS_CAPI_VERSION="@VERSION@-CAPI-@CAPI_VERSION@"
+> 
+> noinst_PROGRAMS = geostest
+> 
+> geostest_SOURCES = geostest.c
+> #geostest_LDADD = libgeos_c.la
+> geostest_LDADD = $(top_builddir)/source/geom/libgeos.la libgeos_c.la
+> geostest_INCLUDES = -I.
+> 
+> capidir = $(includedir)
+> 
+> nodist_capi_HEADERS = \
+>         geos_c.h
+> 
+> lib_LTLIBRARIES = libgeos_c.la
+> 
+> LIBS = $(top_builddir)/source/geom/libgeos.la
+> 
+> DIR_SOURCES = \
+>         geos_c.cpp
+> 
+> libgeos_c_la_SOURCES = $(DIR_SOURCES)
+> libgeos_c_la_CPPFLAGS = -DGEOS_CAPI_VERSION='$(GEOS_CAPI_VERSION)'
+> 
+> 
+> libgeos_c_la_LDFLAGS = -version-info @CAPI_INTERFACE_CURRENT@:@CAPI_INTERFACE_REVISION@:@CAPI_INTERFACE_AGE@
+> 
+> dist-local:
+>         cp -p $(DIST_SOURCES) Makefile.am Makefile.in $(distdir)
+> 
+> ----8<--------------------------------------------------
+> 
+> MingW build report show a WARNING at libgeos_c.la build:
+> 
+> *** Warning: This system can not link to static lib archive ../../source/geom/libgeos.la.
+> *** I have the capability to make that library automatically link in when
+> *** you link to this library.  But I can only do this if you have a
+> *** shared version of the library, which you do not appear to have.
+> libtool: link: warning: undefined symbols not allowed in i686-pc-mingw32 shared libraries
+> 
+> And a lots of "undefined reference" error at geostest build, where
+> undefined symbols seems the ones in libstdc++.
+> 
+> Any successful MingW builder here, or  does the Makefile.am looks fine ?
+> 
+> 
+> --strk;
+> 
+>  /"\    ASCII Ribbon Campaign
+>  \ /    Respect for open standards
+>   X     No HTML/RTF in email
+>  / \    No M$ Word docs in email
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+-- 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From strk at refractions.net  Wed Dec  7 13:52:55 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] call for 2.2.1
+Message-ID: <20051207185255.GB92500@keybit.net>
+
+Due to changes for clean MingW builds we have a call for 2.2.1.
+
+Before that I'd like to hear from C-API hookers so we grab two
+birds (if flying) with a stone.
+
+--strk; 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From cfis at interserv.com  Wed Dec  7 19:41:58 2005
+From: cfis at interserv.com (Charles F. I. Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] MingW build (was: autotools problems)
+Message-ID: <43978156.4000808@interserv.com>
+
+Just in case it helps, to get geos to compile on MinGW I've had to run 
+configure like this:
+
+./configure LDFLAGS=-no-undefined -Wl,--enable-runtime-pseudo-reloc
+
+This works for geos 2.1.4 and geos 2.2.0, and lets me link libgeos 
+against PostGIS and GDAL/OGR.
+
+For more info about --enable-runtime-pseudo-reloc see 
+http://sourceware.org/binutils/docs-2.16/ld/WIN32.html#WIN32.
+
+Thanks,
+
+Charlie
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051207/9ca614c8/smime.bin
+From mgleahy at alumni.uwaterloo.ca  Thu Dec  8 02:22:07 2005
+From: mgleahy at alumni.uwaterloo.ca (Mike Leahy)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] MingW build (was: autotools problems)
+Message-ID: <BAY102-DAV1482DFE7EB636E3C9D7D36BC420@phx.gbl>
+
+Hello,
+
+I'm just adding to this, because I ran into troubles compiling
+geos-2.2.0 today using msys/mingw.  I found this post in this list, and
+tried various combinations of the suggested solution.  What I found did
+work was "LDFLAGS=-no-undefined ./configure <options>", after which
+make/make install ran fine.  However, if I uncommented
+AC_LIBTOOL_WIN32_DLL in configure.in as suggested, that seemed to cause
+problems when I tried to run make (see errors below).  I suppose it
+could be out of date msys/mingw installations...I'm not really sure.  I
+used msys-1.0.10 and mingw-4.1.0, and after running into this problem,
+updated the automake and autoconf binaries...same results.
+
+I'm guessing that if I got it to work without uncommenting
+AC_LIBTOOL_WIN32_DLL, then I should be happy and just move on...am I wrong?
+
+Regards,
+Mike
+
+=========================================
+
+$ make
+cd . && /bin/sh /Downloads/geos-2.2.0/missing --run aclocal-1.9
+Can't locate Automake/Config.pm in @INC (@INC contains: C
+/mingw/AutoMake/share/automake-1.9 /usr/lib/perl5/5.6.1/msys
+/usr/lib/perl5/5.6.1 /usr/lib/perl5/site_perl/5.6.1/msys
+/usr/lib/perl5/site_perl/5.6.1 /usr/lib/perl5/site_perl .) at
+/mingw/bin/aclocal-1.9 line 36.
+BEGIN failed--compilation aborted at /mingw/bin/aclocal-1.9 line 36.
+WARNING: `aclocal-1.9' is missing on your system.  You should only need
+it if
+         you modified `acinclude.m4' or `configure.in'.  You might want
+         to install the `Automake' and `Perl' packages.  Grab them from
+         any GNU archive site.
+ cd . && /bin/sh /Downloads/geos-2.2.0/missing --run automake-1.9 --gnu
+Can't locate Automake/Struct.pm in @INC (@INC contains: C
+/mingw/AutoMake/share/automake-1.9 /usr/lib/perl5/5.6.1/msys
+/usr/lib/perl5/5.6.1 /usr/lib/perl5/site_perl/5.6.1/msys
+/usr/lib/perl5/site_perl/5.6.1 /usr/lib/perl5/site_perl .) at
+/mingw/bin/automake-1.9 line 47.
+BEGIN failed--compilation aborted at /mingw/bin/automake-1.9 line 47.
+WARNING: `automake-1.9' is missing on your system.  You should only need
+it if
+         you modified `Makefile.am', `acinclude.m4' or `configure.in'.
+         You might want to install the `Automake' and `Perl' packages.
+         Grab them from any GNU archive site.
+cd . && /bin/sh /Downloads/geos-2.2.0/missing --run autoconf
+/mingw/bin/autoconf:
+/Downloads/geos-2.2.0/c:/progra~1/AutoConf/bin/autom4te: No such file or
+directory
+/mingw/bin/autoconf: exec:
+/Downloads/geos-2.2.0/c:/progra~1/AutoConf/bin/autom4te: cannot execute:
+No such file or directory
+make: *** [configure] Error 1
+
+
+
+====================================================
+
+strk at refractions.net strk at refractions.net
+Wed Dec 7 10:49:59 PST 2005
+
+    * Previous message: [geos-devel] autotools problems
+    * Next message: [geos-devel] call for 2.2.1
+    * Messages sorted by: [ date ] [ thread ] [ subject ] [ author ]
+
+Ok, thanks to Mark we fixed the MingW issue by:
+
+	- Uncommenting AC_LIBTOOL_WIN32_DLL in configure.in
+
+	- Adding -no-undefined to LDFLAGS for both C++ and C lib
+
+Additionally we added acsite.m4 to the distribution, so future
+users will be able to regenerate build scripts.
+
+This calls for 2.2.1 - see 2.2.1 mail (coming next).
+
+--strk;
+
+On Fri, Dec 02, 2005 at 02:10:03PM +0100, strk at refractions.net wrote:
+> Guys, I need some help with the Makefile.am
+> under source/capi (the new CAPI thing).
+>
+> I'm really unsure of wheter it is constructed
+> correctly. As a matter of fact I've hade report
+> of failures for MingW builds.
+>
+> The point is building a library and a program.
+> The library is libgeos_c.
+> The program is geostest.
+> libgeos_c depends (links against) libgeos.
+> geostest depends (links against) libgeos_c.
+>
+> Current Makefile.am is as follows:
+>
+> ----8<--------------------------------------------------
+>
+> prefix=@prefix@
+> top_srcdir=@top_srcdir@
+> GEOS_CAPI_VERSION="@VERSION at -CAPI-@CAPI_VERSION@"
+>
+> noinst_PROGRAMS = geostest
+>
+> geostest_SOURCES = geostest.c
+> #geostest_LDADD = libgeos_c.la
+> geostest_LDADD = $(top_builddir)/source/geom/libgeos.la libgeos_c.la
+> geostest_INCLUDES = -I.
+>
+> capidir = $(includedir)
+>
+> nodist_capi_HEADERS = \
+>         geos_c.h
+>
+> lib_LTLIBRARIES = libgeos_c.la
+>
+> LIBS = $(top_builddir)/source/geom/libgeos.la
+>
+> DIR_SOURCES = \
+>         geos_c.cpp
+>
+> libgeos_c_la_SOURCES = $(DIR_SOURCES)
+> libgeos_c_la_CPPFLAGS = -DGEOS_CAPI_VERSION='$(GEOS_CAPI_VERSION)'
+>
+>
+> libgeos_c_la_LDFLAGS = -version-info
+@CAPI_INTERFACE_CURRENT@:@CAPI_INTERFACE_REVISION@:@CAPI_INTERFACE_AGE@
+>
+> dist-local:
+>         cp -p $(DIST_SOURCES) Makefile.am Makefile.in $(distdir)
+>
+> ----8<--------------------------------------------------
+>
+> MingW build report show a WARNING at libgeos_c.la build:
+>
+> *** Warning: This system can not link to static lib archive
+../../source/geom/libgeos.la.
+> *** I have the capability to make that library automatically link in when
+> *** you link to this library.  But I can only do this if you have a
+> *** shared version of the library, which you do not appear to have.
+> libtool: link: warning: undefined symbols not allowed in
+i686-pc-mingw32 shared libraries
+>
+> And a lots of "undefined reference" error at geostest build, where
+> undefined symbols seems the ones in libstdc++.
+>
+> Any successful MingW builder here, or  does the Makefile.am looks fine ?
+>
+>
+> --strk;
+>
+>  /"\    ASCII Ribbon Campaign
+>  \ /    Respect for open standards
+>   X     No HTML/RTF in email
+>  / \    No M$ Word docs in email
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+-- 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII.
+
+
+    * Previous message: [geos-devel] autotools problems
+    * Next message: [geos-devel] call for 2.2.1
+    * Messages sorted by: [ date ] [ thread ] [ subject ] [ author ]
+
+
+From strk at refractions.net  Thu Dec  8 05:06:46 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] MingW build (was: autotools problems)
+In-Reply-To: <4397DF1F.3080307@alumni.uwaterloo.ca>
+References: <4397DF1F.3080307@alumni.uwaterloo.ca>
+Message-ID: <20051208100646.GA383@keybit.net>
+
+Mike, Charles,
+please try this *temporary* package:
+http://geos.refractions.net/geos-2.2.1CVS.tar.gz
+
+--strk;
+
+On Thu, Dec 08, 2005 at 02:22:07AM -0500, Mike Leahy wrote:
+> Hello,
+> 
+> I'm just adding to this, because I ran into troubles compiling
+> geos-2.2.0 today using msys/mingw.  I found this post in this list, and
+> tried various combinations of the suggested solution.  What I found did
+> work was "LDFLAGS=-no-undefined ./configure <options>", after which
+> make/make install ran fine.  However, if I uncommented
+> AC_LIBTOOL_WIN32_DLL in configure.in as suggested, that seemed to cause
+> problems when I tried to run make (see errors below).  I suppose it
+> could be out of date msys/mingw installations...I'm not really sure.  I
+> used msys-1.0.10 and mingw-4.1.0, and after running into this problem,
+> updated the automake and autoconf binaries...same results.
+> 
+> I'm guessing that if I got it to work without uncommenting
+> AC_LIBTOOL_WIN32_DLL, then I should be happy and just move on...am I wrong?
+> 
+> Regards,
+> Mike
+> 
+> =========================================
+> 
+> $ make
+> cd . && /bin/sh /Downloads/geos-2.2.0/missing --run aclocal-1.9
+> Can't locate Automake/Config.pm in @INC (@INC contains: C
+> /mingw/AutoMake/share/automake-1.9 /usr/lib/perl5/5.6.1/msys
+> /usr/lib/perl5/5.6.1 /usr/lib/perl5/site_perl/5.6.1/msys
+> /usr/lib/perl5/site_perl/5.6.1 /usr/lib/perl5/site_perl .) at
+> /mingw/bin/aclocal-1.9 line 36.
+> BEGIN failed--compilation aborted at /mingw/bin/aclocal-1.9 line 36.
+> WARNING: `aclocal-1.9' is missing on your system.  You should only need
+> it if
+>          you modified `acinclude.m4' or `configure.in'.  You might want
+>          to install the `Automake' and `Perl' packages.  Grab them from
+>          any GNU archive site.
+>  cd . && /bin/sh /Downloads/geos-2.2.0/missing --run automake-1.9 --gnu
+> Can't locate Automake/Struct.pm in @INC (@INC contains: C
+> /mingw/AutoMake/share/automake-1.9 /usr/lib/perl5/5.6.1/msys
+> /usr/lib/perl5/5.6.1 /usr/lib/perl5/site_perl/5.6.1/msys
+> /usr/lib/perl5/site_perl/5.6.1 /usr/lib/perl5/site_perl .) at
+> /mingw/bin/automake-1.9 line 47.
+> BEGIN failed--compilation aborted at /mingw/bin/automake-1.9 line 47.
+> WARNING: `automake-1.9' is missing on your system.  You should only need
+> it if
+>          you modified `Makefile.am', `acinclude.m4' or `configure.in'.
+>          You might want to install the `Automake' and `Perl' packages.
+>          Grab them from any GNU archive site.
+> cd . && /bin/sh /Downloads/geos-2.2.0/missing --run autoconf
+> /mingw/bin/autoconf:
+> /Downloads/geos-2.2.0/c:/progra~1/AutoConf/bin/autom4te: No such file or
+> directory
+> /mingw/bin/autoconf: exec:
+> /Downloads/geos-2.2.0/c:/progra~1/AutoConf/bin/autom4te: cannot execute:
+> No such file or directory
+> make: *** [configure] Error 1
+> 
+> 
+> 
+> ====================================================
+> 
+> strk at refractions.net strk at refractions.net
+> Wed Dec 7 10:49:59 PST 2005
+> 
+>     * Previous message: [geos-devel] autotools problems
+>     * Next message: [geos-devel] call for 2.2.1
+>     * Messages sorted by: [ date ] [ thread ] [ subject ] [ author ]
+> 
+> Ok, thanks to Mark we fixed the MingW issue by:
+> 
+> 	- Uncommenting AC_LIBTOOL_WIN32_DLL in configure.in
+> 
+> 	- Adding -no-undefined to LDFLAGS for both C++ and C lib
+> 
+> Additionally we added acsite.m4 to the distribution, so future
+> users will be able to regenerate build scripts.
+> 
+> This calls for 2.2.1 - see 2.2.1 mail (coming next).
+> 
+> --strk;
+> 
+> On Fri, Dec 02, 2005 at 02:10:03PM +0100, strk at refractions.net wrote:
+> > Guys, I need some help with the Makefile.am
+> > under source/capi (the new CAPI thing).
+> >
+> > I'm really unsure of wheter it is constructed
+> > correctly. As a matter of fact I've hade report
+> > of failures for MingW builds.
+> >
+> > The point is building a library and a program.
+> > The library is libgeos_c.
+> > The program is geostest.
+> > libgeos_c depends (links against) libgeos.
+> > geostest depends (links against) libgeos_c.
+> >
+> > Current Makefile.am is as follows:
+> >
+> > ----8<--------------------------------------------------
+> >
+> > prefix=@prefix@
+> > top_srcdir=@top_srcdir@
+> > GEOS_CAPI_VERSION="@VERSION at -CAPI-@CAPI_VERSION@"
+> >
+> > noinst_PROGRAMS = geostest
+> >
+> > geostest_SOURCES = geostest.c
+> > #geostest_LDADD = libgeos_c.la
+> > geostest_LDADD = $(top_builddir)/source/geom/libgeos.la libgeos_c.la
+> > geostest_INCLUDES = -I.
+> >
+> > capidir = $(includedir)
+> >
+> > nodist_capi_HEADERS = \
+> >         geos_c.h
+> >
+> > lib_LTLIBRARIES = libgeos_c.la
+> >
+> > LIBS = $(top_builddir)/source/geom/libgeos.la
+> >
+> > DIR_SOURCES = \
+> >         geos_c.cpp
+> >
+> > libgeos_c_la_SOURCES = $(DIR_SOURCES)
+> > libgeos_c_la_CPPFLAGS = -DGEOS_CAPI_VERSION='$(GEOS_CAPI_VERSION)'
+> >
+> >
+> > libgeos_c_la_LDFLAGS = -version-info
+> @CAPI_INTERFACE_CURRENT@:@CAPI_INTERFACE_REVISION@:@CAPI_INTERFACE_AGE@
+> >
+> > dist-local:
+> >         cp -p $(DIST_SOURCES) Makefile.am Makefile.in $(distdir)
+> >
+> > ----8<--------------------------------------------------
+> >
+> > MingW build report show a WARNING at libgeos_c.la build:
+> >
+> > *** Warning: This system can not link to static lib archive
+> ../../source/geom/libgeos.la.
+> > *** I have the capability to make that library automatically link in when
+> > *** you link to this library.  But I can only do this if you have a
+> > *** shared version of the library, which you do not appear to have.
+> > libtool: link: warning: undefined symbols not allowed in
+> i686-pc-mingw32 shared libraries
+> >
+> > And a lots of "undefined reference" error at geostest build, where
+> > undefined symbols seems the ones in libstdc++.
+> >
+> > Any successful MingW builder here, or  does the Makefile.am looks fine ?
+> >
+> >
+> > --strk;
+> >
+> >  /"\    ASCII Ribbon Campaign
+> >  \ /    Respect for open standards
+> >   X     No HTML/RTF in email
+> >  / \    No M$ Word docs in email
+> >
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel at geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+> -- 
+> 
+>  /"\    ASCII Ribbon Campaign
+>  \ /    Respect for low technology.
+>   X     Keep e-mail messages readable by any computer system.
+>  / \    Keep it ASCII.
+> 
+> 
+>     * Previous message: [geos-devel] autotools problems
+>     * Next message: [geos-devel] call for 2.2.1
+>     * Messages sorted by: [ date ] [ thread ] [ subject ] [ author ]
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+-- 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From mgleahy at alumni.uwaterloo.ca  Thu Dec  8 06:59:32 2005
+From: mgleahy at alumni.uwaterloo.ca (Mike Leahy)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] MingW build
+In-Reply-To: <20051208100646.GA383@keybit.net>
+References: <4397DF1F.3080307@alumni.uwaterloo.ca>
+	<20051208100646.GA383@keybit.net>
+Message-ID: <BAY102-DAV7E35F32597770DC252ECFBC420@phx.gbl>
+
+strk,
+
+Worked for me - thanks.
+
+Mike
+
+strk@refractions.net wrote:
+> Mike, Charles,
+> please try this *temporary* package:
+> http://geos.refractions.net/geos-2.2.1CVS.tar.gz
+> 
+> --strk;
+> 
+> On Thu, Dec 08, 2005 at 02:22:07AM -0500, Mike Leahy wrote:
+>> Hello,
+>>
+>> I'm just adding to this, because I ran into troubles compiling
+>> geos-2.2.0 today using msys/mingw.  I found this post in this list, and
+>> tried various combinations of the suggested solution.  What I found did
+>> work was "LDFLAGS=-no-undefined ./configure <options>", after which
+>> make/make install ran fine.  However, if I uncommented
+>> AC_LIBTOOL_WIN32_DLL in configure.in as suggested, that seemed to cause
+>> problems when I tried to run make (see errors below).  I suppose it
+>> could be out of date msys/mingw installations...I'm not really sure.  I
+>> used msys-1.0.10 and mingw-4.1.0, and after running into this problem,
+>> updated the automake and autoconf binaries...same results.
+>>
+>> I'm guessing that if I got it to work without uncommenting
+>> AC_LIBTOOL_WIN32_DLL, then I should be happy and just move on...am I wrong?
+>>
+>> Regards,
+>> Mike
+>>
+>> =========================================
+>>
+>> $ make
+>> cd . && /bin/sh /Downloads/geos-2.2.0/missing --run aclocal-1.9
+>> Can't locate Automake/Config.pm in @INC (@INC contains: C
+>> /mingw/AutoMake/share/automake-1.9 /usr/lib/perl5/5.6.1/msys
+>> /usr/lib/perl5/5.6.1 /usr/lib/perl5/site_perl/5.6.1/msys
+>> /usr/lib/perl5/site_perl/5.6.1 /usr/lib/perl5/site_perl .) at
+>> /mingw/bin/aclocal-1.9 line 36.
+>> BEGIN failed--compilation aborted at /mingw/bin/aclocal-1.9 line 36.
+>> WARNING: `aclocal-1.9' is missing on your system.  You should only need
+>> it if
+>>          you modified `acinclude.m4' or `configure.in'.  You might want
+>>          to install the `Automake' and `Perl' packages.  Grab them from
+>>          any GNU archive site.
+>>  cd . && /bin/sh /Downloads/geos-2.2.0/missing --run automake-1.9 --gnu
+>> Can't locate Automake/Struct.pm in @INC (@INC contains: C
+>> /mingw/AutoMake/share/automake-1.9 /usr/lib/perl5/5.6.1/msys
+>> /usr/lib/perl5/5.6.1 /usr/lib/perl5/site_perl/5.6.1/msys
+>> /usr/lib/perl5/site_perl/5.6.1 /usr/lib/perl5/site_perl .) at
+>> /mingw/bin/automake-1.9 line 47.
+>> BEGIN failed--compilation aborted at /mingw/bin/automake-1.9 line 47.
+>> WARNING: `automake-1.9' is missing on your system.  You should only need
+>> it if
+>>          you modified `Makefile.am', `acinclude.m4' or `configure.in'.
+>>          You might want to install the `Automake' and `Perl' packages.
+>>          Grab them from any GNU archive site.
+>> cd . && /bin/sh /Downloads/geos-2.2.0/missing --run autoconf
+>> /mingw/bin/autoconf:
+>> /Downloads/geos-2.2.0/c:/progra~1/AutoConf/bin/autom4te: No such file or
+>> directory
+>> /mingw/bin/autoconf: exec:
+>> /Downloads/geos-2.2.0/c:/progra~1/AutoConf/bin/autom4te: cannot execute:
+>> No such file or directory
+>> make: *** [configure] Error 1
+>>
+>>
+>>
+>> ====================================================
+>>
+>> strk at refractions.net strk at refractions.net
+>> Wed Dec 7 10:49:59 PST 2005
+>>
+>>     * Previous message: [geos-devel] autotools problems
+>>     * Next message: [geos-devel] call for 2.2.1
+>>     * Messages sorted by: [ date ] [ thread ] [ subject ] [ author ]
+>>
+>> Ok, thanks to Mark we fixed the MingW issue by:
+>>
+>> 	- Uncommenting AC_LIBTOOL_WIN32_DLL in configure.in
+>>
+>> 	- Adding -no-undefined to LDFLAGS for both C++ and C lib
+>>
+>> Additionally we added acsite.m4 to the distribution, so future
+>> users will be able to regenerate build scripts.
+>>
+>> This calls for 2.2.1 - see 2.2.1 mail (coming next).
+>>
+>> --strk;
+>>
+>> On Fri, Dec 02, 2005 at 02:10:03PM +0100, strk at refractions.net wrote:
+>>> Guys, I need some help with the Makefile.am
+>>> under source/capi (the new CAPI thing).
+>>>
+>>> I'm really unsure of wheter it is constructed
+>>> correctly. As a matter of fact I've hade report
+>>> of failures for MingW builds.
+>>>
+>>> The point is building a library and a program.
+>>> The library is libgeos_c.
+>>> The program is geostest.
+>>> libgeos_c depends (links against) libgeos.
+>>> geostest depends (links against) libgeos_c.
+>>>
+>>> Current Makefile.am is as follows:
+>>>
+>>> ----8<--------------------------------------------------
+>>>
+>>> prefix=@prefix@
+>>> top_srcdir=@top_srcdir@
+>>> GEOS_CAPI_VERSION="@VERSION at -CAPI-@CAPI_VERSION@"
+>>>
+>>> noinst_PROGRAMS = geostest
+>>>
+>>> geostest_SOURCES = geostest.c
+>>> #geostest_LDADD = libgeos_c.la
+>>> geostest_LDADD = $(top_builddir)/source/geom/libgeos.la libgeos_c.la
+>>> geostest_INCLUDES = -I.
+>>>
+>>> capidir = $(includedir)
+>>>
+>>> nodist_capi_HEADERS = \
+>>>         geos_c.h
+>>>
+>>> lib_LTLIBRARIES = libgeos_c.la
+>>>
+>>> LIBS = $(top_builddir)/source/geom/libgeos.la
+>>>
+>>> DIR_SOURCES = \
+>>>         geos_c.cpp
+>>>
+>>> libgeos_c_la_SOURCES = $(DIR_SOURCES)
+>>> libgeos_c_la_CPPFLAGS = -DGEOS_CAPI_VERSION='$(GEOS_CAPI_VERSION)'
+>>>
+>>>
+>>> libgeos_c_la_LDFLAGS = -version-info
+>> @CAPI_INTERFACE_CURRENT@:@CAPI_INTERFACE_REVISION@:@CAPI_INTERFACE_AGE@
+>>> dist-local:
+>>>         cp -p $(DIST_SOURCES) Makefile.am Makefile.in $(distdir)
+>>>
+>>> ----8<--------------------------------------------------
+>>>
+>>> MingW build report show a WARNING at libgeos_c.la build:
+>>>
+>>> *** Warning: This system can not link to static lib archive
+>> ../../source/geom/libgeos.la.
+>>> *** I have the capability to make that library automatically link in when
+>>> *** you link to this library.  But I can only do this if you have a
+>>> *** shared version of the library, which you do not appear to have.
+>>> libtool: link: warning: undefined symbols not allowed in
+>> i686-pc-mingw32 shared libraries
+>>> And a lots of "undefined reference" error at geostest build, where
+>>> undefined symbols seems the ones in libstdc++.
+>>>
+>>> Any successful MingW builder here, or  does the Makefile.am looks fine ?
+>>>
+>>>
+>>> --strk;
+>>>
+>>>  /"\    ASCII Ribbon Campaign
+>>>  \ /    Respect for open standards
+>>>   X     No HTML/RTF in email
+>>>  / \    No M$ Word docs in email
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at geos.refractions.net
+>>> http://geos.refractions.net/mailman/listinfo/geos-devel
+>> -- 
+>>
+>>  /"\    ASCII Ribbon Campaign
+>>  \ /    Respect for low technology.
+>>   X     Keep e-mail messages readable by any computer system.
+>>  / \    Keep it ASCII.
+>>
+>>
+>>     * Previous message: [geos-devel] autotools problems
+>>     * Next message: [geos-devel] call for 2.2.1
+>>     * Messages sorted by: [ date ] [ thread ] [ subject ] [ author ]
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@geos.refractions.net
+>> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+
+From strk at refractions.net  Thu Dec  8 09:27:29 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Coordinate copy removal in ElevationMatrix
+Message-ID: <20051208142729.GA3934@keybit.net>
+
+I removed another copy of CoordinateSequence
+in ElevationMatrix. This removes useless copies
+of all Coordinates in output.
+
+--strk; 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From strk at refractions.net  Thu Dec  8 10:52:50 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Coordinate copy removal in ElevationMatrix
+In-Reply-To: <20051208142729.GA3934@keybit.net>
+References: <20051208142729.GA3934@keybit.net>
+Message-ID: <20051208155250.GB3934@keybit.net>
+
+Oh, BTW, this is in the HEAD branch, and required
+another break in the ABI.
+
+I'll never stress this too much: GEOS API is too wide
+to allow for performance improvements and reducing
+it would open up many speedup possibilities.
+
+--strk;
+
+On Thu, Dec 08, 2005 at 03:27:29PM +0100, strk@refractions.net wrote:
+> I removed another copy of CoordinateSequence
+> in ElevationMatrix. This removes useless copies
+> of all Coordinates in output.
+
+From cfis at interserv.com  Fri Dec  9 12:49:06 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Coordinate copy removal in ElevationMatrix
+In-Reply-To: <20051208155250.GB3934@keybit.net>
+References: <20051208142729.GA3934@keybit.net>
+	<20051208155250.GB3934@keybit.net>
+Message-ID: <4399C392.3020204@interserv.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051209/2ee1849e/smime.bin
+From pramsey at refractions.net  Fri Dec  9 13:53:36 2005
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Coordinate copy removal in ElevationMatrix
+In-Reply-To: <4399C392.3020204@interserv.com>
+References: <20051208142729.GA3934@keybit.net>
+	<20051208155250.GB3934@keybit.net> <4399C392.3020204@interserv.com>
+Message-ID: <96FEA619-57A0-4C2E-AC37-39EE95CD46AC@refractions.net>
+
+Well, doing so makes it harder for geos to become an  
+"infrastructural", which can be maintained in isolation from the  
+projects that depend on it.  Imagine a geos RPM as part of a Linux  
+distribution for example.  If we break ABI at regular intervals we  
+force upgrades of not only geos but all other dependent programs as  
+well at the same time.
+
+That said, I agree.  It is still relatively "early days" for geos,  
+development-wise, and improved performance is quite an important  
+requirement, judging from the comment profile on this list.
+
+P.
+
+On 9-Dec-05, at 9:49 AM, Charlie Savage wrote:
+
+> Note sure what others think, but I would strongly vote to change  
+> GEOS's API as needed to improve its performance.
+>
+> Charlie
+>
+> strk@refractions.net wrote:
+>> Oh, BTW, this is in the HEAD branch, and required another break in  
+>> the ABI. I'll never stress this too much: GEOS API is too wide to  
+>> allow for performance improvements and reducing it would open up  
+>> many speedup possibilities. --strk; On Thu, Dec 08, 2005 at  
+>> 03:27:29PM +0100, strk@refractions.net wrote:
+>>> I removed another copy of CoordinateSequence in ElevationMatrix.  
+>>> This removes useless copies of all Coordinates in output.
+>> _______________________________________________ geos-devel mailing  
+>> list geos-devel@geos.refractions.net http://geos.refractions.net/ 
+>> mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From cfis at interserv.com  Fri Dec  9 13:54:41 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Problems building PostGIS Head on Linux
+Message-ID: <4399D2F1.4070204@interserv.com>
+
+I've been building PostGIS on linux (and Windows) using the autoconf 
+tool chain without problems, until the 1.1CVS version (I noticed the 
+problem last month and I still have it).
+
+When building the current head version of CVS I run into two issues.  
+First, the build scripts can't find postgres.h.  Second, they install 
+lwgeom in the wrong place.
+
+Setup:
+ * postgresql 8.1 in usr/src/postgresql-8.1
+ * postgis 1.0.6 in the contrib directory as postgis-1.0.6
+ * postgis 1.1 cvs in the contrib directory as postgis
+
+With postgis 1.0.6 I can do ./configure --enable-autoconf --with-geos 
+--with-proj4 and everything works as expected.  With postgis 1.1CVS this 
+does not work because when I run make gcc can't find postgres.h. To make 
+it work I have to run make like this:
+
+make CPPFLAGS='-I/usr/src/postgresql-8.1/src/include'
+
+Then run I run make install the libraries get installed to /usr/bin, 
+instead of /usr/bin/postgresql where they should go.  I tried playing 
+with the config --libdir and --libexecdir to no avail.
+
+Output from pg_config (where I think postgis is getting its build info 
+from is) is included below.  Wondering if I'm doing something wrong?
+
+Charlie
+
+
+BINDIR = /usr/bin
+DOCDIR = /usr/doc
+INCLUDEDIR = /usr/include
+PKGINCLUDEDIR = /usr/include
+INCLUDEDIR-SERVER = /usr/include/server
+LIBDIR = /usr/lib
+PKGLIBDIR = /usr/lib
+LOCALEDIR =
+MANDIR = /usr/man
+SHAREDIR = /usr/share
+SYSCONFDIR = /usr/etc
+PGXS = /usr/lib/pgxs/src/makefiles/pgxs.mk
+CONFIGURE =
+CC = gcc
+CPPFLAGS = -D_GNU_SOURCE
+CFLAGS = -O2 -Wall -Wmissing-prototypes -Wpointer-arith -Winline 
+-Wdeclaration-after-statement -Wendif-labels -fno-strict-aliasing
+CFLAGS_SL = -fpic
+LDFLAGS = -Wl,-rpath,/usr/local/pgsql/lib
+LDFLAGS_SL =
+LIBS = -lpgport -lz -lreadline -lcrypt -lresolv -lnsl -ldl -lm
+VERSION = PostgreSQL 8.1.0
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051209/ab666539/smime.bin
+From cfis at interserv.com  Fri Dec  9 20:52:06 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] MingW build (was: autotools problems)
+In-Reply-To: <20051208100646.GA383@keybit.net>
+References: <4397DF1F.3080307@alumni.uwaterloo.ca>
+	<20051208100646.GA383@keybit.net>
+Message-ID: <439A34C6.3060504@interserv.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051209/09424f64/smime.bin
+From mike at fuhr.org  Fri Dec  9 23:32:44 2005
+From: mike at fuhr.org (Michael Fuhr)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Unkown -> Unknown
+Message-ID: <20051210043244.GA18584@winnie.fuhr.org>
+
+In GEOS 2.2 and 3.0, source/capi/geos_c.cpp contains numerous
+instances of the string "Unkown exception thrown".  I think that
+should be "Unknown".
+
+-- 
+Michael Fuhr
+
+From strk at refractions.net  Sat Dec 10 11:07:42 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Unkown -> Unknown
+In-Reply-To: <20051210043244.GA18584@winnie.fuhr.org>
+References: <20051210043244.GA18584@winnie.fuhr.org>
+Message-ID: <20051210160742.GG20909@keybit.net>
+
+On Fri, Dec 09, 2005 at 09:32:44PM -0700, Michael Fuhr wrote:
+> In GEOS 2.2 and 3.0, source/capi/geos_c.cpp contains numerous
+> instances of the string "Unkown exception thrown".  I think that
+> should be "Unknown".
+
+This was a virus coming from postgis ;) 
+Fixed, thanks
+
+--strk;
+
+From strk at refractions.net  Sat Dec 10 13:03:57 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Reducing GEOS API (was: Coordinate copy removal in
+	ElevationMatrix)
+In-Reply-To: <96FEA619-57A0-4C2E-AC37-39EE95CD46AC@refractions.net>
+References: <20051208142729.GA3934@keybit.net>
+	<20051208155250.GB3934@keybit.net> <4399C392.3020204@interserv.com>
+	<96FEA619-57A0-4C2E-AC37-39EE95CD46AC@refractions.net>
+Message-ID: <20051210180357.GA32784@keybit.net>
+
+On Fri, Dec 09, 2005 at 10:53:36AM -0800, Paul Ramsey wrote:
+> Well, doing so makes it harder for geos to become an  
+> "infrastructural", which can be maintained in isolation from the  
+> projects that depend on it.  Imagine a geos RPM as part of a Linux  
+> distribution for example.  If we break ABI at regular intervals we  
+> force upgrades of not only geos but all other dependent programs as  
+> well at the same time.
+
+Yes, this is problem.
+
+> That said, I agree.  It is still relatively "early days" for geos,  
+> development-wise, and improved performance is quite an important  
+> requirement, judging from the comment profile on this list.
+
+I think we should work more on preventing future breaks rather
+then on performance. If we make up a stable API/ABI we'll
+be free to improve performance in the future without the
+compatibility problems.
+
+This is where the C-API interface came in, but I'm afraid
+that would not be enough, as C++ applications will still
+be able to link to the C++ library and access ALL of
+the most intimate interfaces of GEOS trhough the huge
+collection of header files installed.
+
+Actual code usually just uses a few of these interfaces
+(Geometry, CoordinateSequence and their factories), but
+still there's nothing there to forbid wider uses
+(apart from streamlined documentation).
+
+A general solution could be obsoleting all of the
+internal geos headers (what's under the INCLUDEDIR/geos/*)
+and keep a single geos.h with the smallest interface
+we intend to maintain stable. Note that in this case
+we should replace old-installed headers with new ones,
+or the old will keep floating around and nothing could
+stop users from linking against dying interfaces.
+
+Another possibility (very drastic) would be to completely
+avoid installing a shared C++ library, providing its
+functionalities by a statically linked C lib.
+
+I'd like to see a change in this direction (API reduction)
+in GEOS-3.0.0.
+The 2.2 branch as started with this in mind (taking time
+before shipping 3.0.0).
+
+Comments highly welcome.
+
+--strk;
+
+
+> 
+> P.
+> 
+> On 9-Dec-05, at 9:49 AM, Charlie Savage wrote:
+> 
+> >Note sure what others think, but I would strongly vote to change  
+> >GEOS's API as needed to improve its performance.
+> >
+> >Charlie
+> >
+> >strk@refractions.net wrote:
+> >>Oh, BTW, this is in the HEAD branch, and required another break in  
+> >>the ABI. I'll never stress this too much: GEOS API is too wide to  
+> >>allow for performance improvements and reducing it would open up  
+> >>many speedup possibilities. --strk; On Thu, Dec 08, 2005 at  
+> >>03:27:29PM +0100, strk@refractions.net wrote:
+> >>>I removed another copy of CoordinateSequence in ElevationMatrix.  
+> >>>This removes useless copies of all Coordinates in output.
+> >>_______________________________________________ geos-devel mailing  
+> >>list geos-devel@geos.refractions.net http://geos.refractions.net/ 
+> >>mailman/listinfo/geos-devel
+> >_______________________________________________
+> >geos-devel mailing list
+> >geos-devel@geos.refractions.net
+> >http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+-- 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From warmerdam at pobox.com  Sat Dec 10 23:05:12 2005
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Reducing GEOS API (was: Coordinate copy removal in
+	ElevationMatrix)
+In-Reply-To: <20051210180357.GA32784@keybit.net>
+References: <20051208142729.GA3934@keybit.net>
+	<20051208155250.GB3934@keybit.net> <4399C392.3020204@interserv.com>
+	<96FEA619-57A0-4C2E-AC37-39EE95CD46AC@refractions.net>
+	<20051210180357.GA32784@keybit.net>
+Message-ID: <931f8ea90512102005v38390c91y50f09f479b68b030@mail.gmail.com>
+
+On 12/10/05, strk@refractions.net <strk@refractions.net> wrote:
+>
+> This is where the C-API interface came in, but I'm afraid
+> that would not be enough, as C++ applications will still
+> be able to link to the C++ library and access ALL of
+> the most intimate interfaces of GEOS trhough the huge
+> collection of header files installed.
+
+Strk,
+
+In my opinion it should be sufficient to make it clear that
+the C++ ABI will be unstable, and that applications wanting
+a stable ABI should stick to the C API.  This is the reasoning
+under which I modified GDAL/OGR to use the C API.  I
+think Steve Lime is doing the same thing for MapServer.
+
+But there will still be applications that need more intimate
+access to GEOS.  As long as they can live with ABI instability
+I don't think you ought to interfere with their ability to do this.
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at refractions.net  Sun Dec 11 18:49:12 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: freeBSD ports GEOS
+In-Reply-To: <20051210193009.GA37460@keybit.net>
+References: <439B1F9B.9030500@swoodbridge.com>
+	<20051210183944.GD63373@fuji11.math.uni-bielefeld.de>
+	<20051210193009.GA37460@keybit.net>
+Message-ID: <20051211234912.GA24439@keybit.net>
+
+[geos-devel included]
+
+On Sat, Dec 10, 2005 at 08:30:09PM +0100, strk@refractions.net wrote:
+> On Sat, Dec 10, 2005 at 07:39:44PM +0100, Konstantin Saurbier wrote:
+> > Stephen Woodbridge wrote on Sat Dec 10, 2005 um 01:34:03PM:
+> > > Hello,
+> > > 
+> > > I got you email from the freeBSD geos package as the port maintainer.
+> > > 
+> > > I use PostGIS which depends on GEOS and I have had a problem with the last two 
+> > > upgrades, GEOS-2.1.4 and GEOS-2.2.0 in that these have created libraries of 
+> > > libgeos.so.3 and libgeos.so.4 respectively. The problem is that these should 
+> > > probably both be libgeos.so.2. Well at least PostGIS expects the library to be 
+> > > libgeos.so.2.
+> > > 
+> > > I have copied Strk the GEOS developer who might have more to comment on this.
+> > > 
+> > > Any help with this would be appreciated by all freeBSD users of these packages.
+> > 
+> > Have you tried to just create appropiate links? For example:
+> > 
+> > ln -s libgeos.so.4 libgeos.so.3
+> > 
+> > if this will fix your problems i will patch geos to create these links at
+> > installtime.
+> > Be adviced that geos will not compile on FreeBSD 4.x. I will contact the
+> > GEOS developers later on, but i had no time until now.
+> 
+> I have access to a FreeBSD 4.2 - I'll test this and let you know.
+
+I successfully build 2.2.1 (out tomorrow) with g++ (GCC) 3.4.4.
+I confirm that libgeos.so comes out versioned as .4 (libgeos.so.4)
+SONAME sems to be libgeos.so.4 but didn't have readelf(1) available
+to check this.
+
+I assume this is a decision taken by libtool, probably due to
+requirements of the FreeBSD dynamic linker. Basically it looks
+like on Linux an addition of interfaces (in libtool terms) is binary
+compatible while in FreeBSD it is not.
+
+Mea culpa: I shouldn't have incremented INTERFACE_CURRENT for C++
+lib as there really haven't been any additional interface there.
+I wanted to encode addition of the C-API, but that should have
+been reflected on release version only, not C++ library SONAME.
+
+The symlink should work fine (as no binary breaks has been introduced),
+but its really not that clean and should be avoided in future.
+
+
+--strk;
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From saurbier at math.uni-bielefeld.de  Sun Dec 11 19:16:55 2005
+From: saurbier at math.uni-bielefeld.de (Konstantin Saurbier)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: freeBSD ports GEOS
+In-Reply-To: <20051211234912.GA24439@keybit.net>
+References: <439B1F9B.9030500@swoodbridge.com>
+	<20051210183944.GD63373@fuji11.math.uni-bielefeld.de>
+	<20051210193009.GA37460@keybit.net>
+	<20051211234912.GA24439@keybit.net>
+Message-ID: <20051212001655.GF75717@fuji11.math.uni-bielefeld.de>
+
+I was not subscribed to geos-devel. So here my reply to streak for the
+files of geos-devel:
+
+
+strk@refractions.net wrote on Mon Dec 12, 2005 um 12:49:12AM:
+> [geos-devel included]
+> 
+> On Sat, Dec 10, 2005 at 08:30:09PM +0100, strk@refractions.net wrote:
+> > On Sat, Dec 10, 2005 at 07:39:44PM +0100, Konstantin Saurbier wrote:
+> > > Stephen Woodbridge wrote on Sat Dec 10, 2005 um 01:34:03PM:
+> > > > Hello,
+> > > > 
+> > > > I got you email from the freeBSD geos package as the port maintainer.
+> > > > 
+> > > > I use PostGIS which depends on GEOS and I have had a problem with the last two 
+> > > > upgrades, GEOS-2.1.4 and GEOS-2.2.0 in that these have created libraries of 
+> > > > libgeos.so.3 and libgeos.so.4 respectively. The problem is that these should 
+> > > > probably both be libgeos.so.2. Well at least PostGIS expects the library to be 
+> > > > libgeos.so.2.
+> > > > 
+> > > > I have copied Strk the GEOS developer who might have more to comment on this.
+> > > > 
+> > > > Any help with this would be appreciated by all freeBSD users of these packages.
+> > > 
+> > > Have you tried to just create appropiate links? For example:
+> > > 
+> > > ln -s libgeos.so.4 libgeos.so.3
+> > > 
+> > > if this will fix your problems i will patch geos to create these links at
+> > > installtime.
+> > > Be adviced that geos will not compile on FreeBSD 4.x. I will contact the
+> > > GEOS developers later on, but i had no time until now.
+> > 
+> > I have access to a FreeBSD 4.2 - I'll test this and let you know.
+> 
+> I successfully build 2.2.1 (out tomorrow) with g++ (GCC) 3.4.4.
+> I confirm that libgeos.so comes out versioned as .4 (libgeos.so.4)
+> SONAME sems to be libgeos.so.4 but didn't have readelf(1) available
+> to check this.
+
+This sounds very good. I will write a patch for the geos port as soon as
+the new version will be out. Very nice and fast work :-)
+Thank you very much!
+
+
+> I assume this is a decision taken by libtool, probably due to
+> requirements of the FreeBSD dynamic linker. Basically it looks
+> like on Linux an addition of interfaces (in libtool terms) is binary
+> compatible while in FreeBSD it is not.
+> 
+> Mea culpa: I shouldn't have incremented INTERFACE_CURRENT for C++
+> lib as there really haven't been any additional interface there.
+> I wanted to encode addition of the C-API, but that should have
+> been reflected on release version only, not C++ library SONAME.
+> 
+> The symlink should work fine (as no binary breaks has been introduced),
+> but its really not that clean and should be avoided in future.
+
+Oh sorry I've forgotten to CC you. The naming problem is already solved it
+is no problem of geos. In fact it is only a problem of the freebsd package
+postgis not even the source of postgis.
+
+What happened? When i upgraded geos to version 2.1.4 and 2.2.0 the postgis
+port was adjusted do use libgeos.so.3 respective libgeos.so.4 but because
+of other errors in the postgis port from FreeBSD the build cluster was
+unable to build postgis. The result was the occurring error message of the
+postgis packages. This message can be fixed with a simple link but is not
+needed after the postgis packages has been fixed and rebuild.
+-- 
+
+Best regards,
+
+Konstantin Saurbier
+
+------------------------------------------------------
+Konstantin Saurbier                Tel.: 0521 106 3861
+Computerlabor Mathematik                        U5-138
+Universitaet Bielefeld             Universitaetsstr.25
+33501 Bielefeld
+email:                  saurbier@math.uni-bielefeld.de
+------------------------------------------------------
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 187 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051212/27d2ac40/attachment.bin
+From strk at refractions.net  Sun Dec 11 20:00:27 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Versioning scheme,
+	binary compatibilities and future of GEOS
+Message-ID: <20051212010027.GB24439@keybit.net>
+
+After a friendly discussion with FrankW on #mapserver I finally
+took a decision about next GEOS releases layout.
+
+The important point is:
+
+	No efforts will be taken to keep the C++ library
+	binary interface compatible between releases.
+
+The corollary is:
+
+	All love goes to the C interface, which will be 
+	carefully kept binary compatible between releases.
+
+
+C++ library soname will be bound to full GEOS release version,
+actually advertising that *every* new release of it is
+binary-incompatible with *every* other release.
+[ see -release flag of libtool ]
+
+C library soname will keep using the libtool versioning
+scheme INTERFACE_{CURRENT,AGE,REVISION} to encode
+binary compatibility. 
+[ see -version-info flag of libtool ]
+
+Release versioning would then be unbound from library
+versioning and will be able to hold its own meaning.
+A simple proposal for this meaning could be:
+	- MAJOR: increments when substantial changes
+	         take place (not well defined)
+	- MINOR: increments when new stuff is added
+		 (either in C lib or outside it - consider
+		  swig languages), reset on higher increments
+	- MICRO: as usual, bug fixes++, reset on higher increments.
+
+Using the above layout next major release of GEOS would
+be composed as follows:
+
+	Release version: GEOS-3.0.0        (new versioning scheme)
+	   C lib soname: libgeos_c.so.1    (compatible with GEOS-2.2.x)
+	 C++ lib soname: libgeos.so.3.0.0  (compatible with itself)
+
+If this convinces all of you as well (or a good part of you, or
+noone talks and I take it for good), the only thing left before
+we release GEOS-3.0.0 is taking a closer look at the following:
+
+	- GEOS_FIRST_INTERFACE and GEOS_LAST_INTERFACE #defines
+	  in geos/version.h (I think they should be removed)
+
+	- geos-config --version output (I think it should print
+	  release version)
+
+	- geos-config --libs (currently adds a -lgeos, might add -lgeos_c
+	  instead, but I'm unsure about consequences for users - apart
+	  feeling warned about troubles).
+
+	- geos.m4 setting of GEOS_LIBS (see above item)
+
+	- PostGIS support for the new GEOS versioning scheme
+	  (1.1.0 will hook on the C api, but 1.0 branch might
+	   require a bit of attention in the GEOS transition)
+
+Comments and/or moral support highly welcome :P
+
+--strk;
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From strk at refractions.net  Sun Dec 11 20:09:33 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: freeBSD ports GEOS
+In-Reply-To: <20051212000802.GD75717@fuji11.math.uni-bielefeld.de>
+References: <439B1F9B.9030500@swoodbridge.com>
+	<20051210183944.GD63373@fuji11.math.uni-bielefeld.de>
+	<20051210193009.GA37460@keybit.net>
+	<20051211234912.GA24439@keybit.net>
+	<20051212000802.GD75717@fuji11.math.uni-bielefeld.de>
+Message-ID: <20051212010933.GC24439@keybit.net>
+
+On Mon, Dec 12, 2005 at 01:08:02AM +0100, Konstantin Saurbier wrote:
+> strk@refractions.net wrote on Mon Dec 12, 2005 um 12:49:12AM:
+> > On Sat, Dec 10, 2005 at 07:39:44PM +0100, Konstantin Saurbier wrote:
+...
+> > > Be adviced that geos will not compile on FreeBSD 4.x. I will contact the
+> > > GEOS developers later on, but i had no time until now.
+> > 
+> > I successfully build 2.2.1 (out tomorrow) with g++ (GCC) 3.4.4.
+> > I confirm that libgeos.so comes out versioned as .4 (libgeos.so.4)
+> > SONAME sems to be libgeos.so.4 but didn't have readelf(1) available
+> > to check this.
+> 
+> This sounds very good. I will write a patch for the geos port as soon as
+> the new version will be out. Very nice and fast work :-)
+> Thank you very much!
+
+Note that I haven't done anything, it just built.
+Note also that 2.95.2 didn't make it.
+
+--strk;
+
+From strk at refractions.net  Mon Dec 12 03:50:36 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS-2.2.1 out (for MingW builds)
+Message-ID: <20051212085036.GA26375@keybit.net>
+
+New micro release out, not of much interest unless
+you happen build GEOS on MingW.
+Changes:
+
+- Support for MingW builds
+- Bugfix in Polygonizer chocking on invalid LineString inputs
+- CAPI: small leak removed in GEOSHasZ()
+
+--strk;
+
+From cfis at interserv.com  Mon Dec 12 12:33:01 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Versioning scheme, binary compatibilities and future
+	of GEOS
+In-Reply-To: <20051212010027.GB24439@keybit.net>
+References: <20051212010027.GB24439@keybit.net>
+Message-ID: <439DB44D.7050205@interserv.com>
+
++1 Sounds like a good plan to me.
+
+Charlie
+
+strk@refractions.net wrote:
+> After a friendly discussion with FrankW on #mapserver I finally
+> took a decision about next GEOS releases layout.
+>
+> The important point is:
+>
+> 	No efforts will be taken to keep the C++ library
+> 	binary interface compatible between releases.
+>
+> The corollary is:
+>
+> 	All love goes to the C interface, which will be 
+> 	carefully kept binary compatible between releases.
+>
+>
+> C++ library soname will be bound to full GEOS release version,
+> actually advertising that *every* new release of it is
+> binary-incompatible with *every* other release.
+> [ see -release flag of libtool ]
+>
+> C library soname will keep using the libtool versioning
+> scheme INTERFACE_{CURRENT,AGE,REVISION} to encode
+> binary compatibility. 
+> [ see -version-info flag of libtool ]
+>
+> Release versioning would then be unbound from library
+> versioning and will be able to hold its own meaning.
+> A simple proposal for this meaning could be:
+> 	- MAJOR: increments when substantial changes
+> 	         take place (not well defined)
+> 	- MINOR: increments when new stuff is added
+> 		 (either in C lib or outside it - consider
+> 		  swig languages), reset on higher increments
+> 	- MICRO: as usual, bug fixes++, reset on higher increments.
+>
+> Using the above layout next major release of GEOS would
+> be composed as follows:
+>
+> 	Release version: GEOS-3.0.0        (new versioning scheme)
+> 	   C lib soname: libgeos_c.so.1    (compatible with GEOS-2.2.x)
+> 	 C++ lib soname: libgeos.so.3.0.0  (compatible with itself)
+>
+> If this convinces all of you as well (or a good part of you, or
+> noone talks and I take it for good), the only thing left before
+> we release GEOS-3.0.0 is taking a closer look at the following:
+>
+> 	- GEOS_FIRST_INTERFACE and GEOS_LAST_INTERFACE #defines
+> 	  in geos/version.h (I think they should be removed)
+>
+> 	- geos-config --version output (I think it should print
+> 	  release version)
+>
+> 	- geos-config --libs (currently adds a -lgeos, might add -lgeos_c
+> 	  instead, but I'm unsure about consequences for users - apart
+> 	  feeling warned about troubles).
+>
+> 	- geos.m4 setting of GEOS_LIBS (see above item)
+>
+> 	- PostGIS support for the new GEOS versioning scheme
+> 	  (1.1.0 will hook on the C api, but 1.0 branch might
+> 	   require a bit of attention in the GEOS transition)
+>
+> Comments and/or moral support highly welcome :P
+>
+> --strk;
+>
+>  /"\    ASCII Ribbon Campaign
+>  \ /    Respect for low technology.
+>   X     Keep e-mail messages readable by any computer system.
+>  / \    Keep it ASCII. 
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+>
+>
+>   
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051212/1f95788a/smime.bin
+From strk at refractions.net  Tue Dec 13 21:15:58 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Versioning scheme,
+	binary compatibilities and future of GEOS
+In-Reply-To: <20051212010027.GB24439@keybit.net>
+References: <20051212010027.GB24439@keybit.net>
+Message-ID: <20051214021558.GD17131@keybit.net>
+
+
+News from the transition to 3.0.0.
+
+1. FIXED ISSUES:
+
+> 	- GEOS_FIRST_INTERFACE and GEOS_LAST_INTERFACE #defines
+> 	  in geos/version.h (I think they should be removed)
+
+Removed, also from geos_c.h
+
+> 	- PostGIS support for the new GEOS versioning scheme
+> 	  (1.1.0 will hook on the C api, but 1.0 branch might
+> 	   require a bit of attention in the GEOS transition)
+
+Tested with INTERFACE_* removed, it works fine
+
+> 	- geos-config --version output (I think it should print
+> 	  release version)
+
+It does already, I give it for good.
+
+
+2. PENDING ISSUES:
+
+> 	- geos-config --libs (currently adds a -lgeos, might add -lgeos_c
+> 	  instead, but I'm unsure about consequences for users - apart
+> 	  feeling warned about troubles).
+> 
+> 	- geos.m4 setting of GEOS_LIBS (see above item)
+
+So, who uses these flags/macros ? I'd like to hear from users about this
+
+
+3. NEW ISSUE:
+
+- CAPI library versioning
+
+I've been making some tests, with help from PostGIS users, about
+downgrading GEOS (3.0.0 to 2.2.1). If libgeos_c.so version doesn't
+change (ie: both version have 1.0.1) a side effect of the
+GEOS downgrade is that every application linked against the
+CAPI will be bound to the older version, rather then on the new.
+
+A working (tested) solution is to always increment CAPI lib version
+at every release, even when the CAPI lib has NOT be changed.
+The dark side of this is that multiple GEOS installation sharing
+the same prefix would take up more space (multiple identical CAPI
+libs under different names).
+
+I think we can leave with the duplication, rather then introduce
+confusion about what C++ lib is the CAPI linked against
+(ldd would show, but filename wouldn't).
+
+Comments ?
+
+--strk;
+
+From cfis at interserv.com  Thu Dec 15 13:24:11 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS Swig Patch - New support for Ruby
+Message-ID: <43A1B4CB.10900@interserv.com>
+
+Hi everyone,
+
+I have just provided a patch to strk that updates the GEOS swig 
+bindings.  I have not included it below, because it is quite large due 
+to the inclusion of SWIG generated wrapper files.
+
+What the patch does:
+
+* adds a swig/ruby directory - this includes bindings for the Ruby 
+language plus a port of example.cpp
+
+* significantly modifies swig/geos.i.  Language specific functionality, 
+such as renaming methods and classes, was taken out and moved to 
+language specific files (python.i for python, ruby.i for ruby)
+
+* Adds typemaps to support istreams and ostreams - this makes methods 
+like WKBReader.printHex and WKBWriter.write accessible now to scripting 
+languages
+
+* A few other bug fixes like keyword conflicts in Python (the print keyword)
+
+
+What needs work:
+
+* As always, the key issues with SWIG bindings is memory management.  
+Right now the bindings assume that any time one of the following 3 types 
+is passed in as a parameter to a method, then the method's class takes 
+over ownernship of the parameter:
+
+geos::CoordinateSequence *
+geos::LinearRing *
+std::vector<geos::Geometry * > *
+
+I'd guess this is not true.  If someone who is more familiar with the 
+GEOS C++ api could let me know, I can fix this
+
+Similarly, a brief look through the GEOS api shows some methods return 
+new objects.  SWIG must be told about these methods.  So once again, 
+does someone have a list of these methods?
+
+* The example.py and example.rb files crash when trying any of the 
+combination methods (union, intersection, etc.).  My guess it has to do 
+with the memory management item listed above.  
+
+* The bindings compile against the C++ api, not the C api.  This could 
+be changed, but would require a significant amount of work.
+
+Hope people find this useful.
+
+Thanks,
+
+Charlie
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051215/331c6a71/smime.bin
+From eric.faurot at gmail.com  Mon Dec 19 07:15:07 2005
+From: eric.faurot at gmail.com (Eric Faurot)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Versioning scheme,
+	binary compatibilities and future of GEOS
+Message-ID: <e012d6b50512190415g2b10ff6eg9e59b546560cfd0@mail.gmail.com>
+
+Hi,
+
+(I did not follow-up because I just subscribed to the list, sorry)
+
+I'm packaging GEOS/PostGIS for OpenBSD (btw, I have a few minor
+patches for GEOS and PostGIS; I'll post them later).  It might be too
+late, but as you asked for opinions I'll give my BSD-biased point of
+view. Not that it is worth a lot but...
+
+First, if your plan is to encourage people to use the C API, then why
+not use libgeos.so and libgeos++.so for the C and C++ library
+respectively? It makes things simple and clear. The transition might
+be a bit painful, but if the C++ library becomes "sort of internal",
+the name change would not hurt too much anyway.
+
+Concerning the library versioning scheme, if the C++ library is
+incompatible between each release then I suggest either to change its
+name completely each time, (libgeos++-3.0.0.so instead of
+libgeos++.so.3.0.0) or better, bump the major version for each release
+(libgeos++.so.4.0, libgeos++.so.5.0 libgeos++.so.6.0, ...).  The
+second scheme is really the best, because it allows to keep the same
+C++ version number for a "trivial fix" releases, or changes that do
+not affect the C++ code. And it does not bind the library version to
+the release, which was your original goal.
+
+About the C API, well, I don't find the libtool versioning framework
+very interesting and practical.  Note that BSD linker only knows about
+the major and minor numbers. A program can link to a library if it has
+the same major number and a minor number smaller or equal than the
+library. Three-number schemes do not fit.
+
+My 2 cts.
+Eric.
+From strk at refractions.net  Mon Dec 19 08:00:08 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Versioning scheme,
+	binary compatibilities and future of GEOS
+In-Reply-To: <e012d6b50512190415g2b10ff6eg9e59b546560cfd0@mail.gmail.com>
+References: <e012d6b50512190415g2b10ff6eg9e59b546560cfd0@mail.gmail.com>
+Message-ID: <20051219130008.GC15239@keybit.net>
+
+On Mon, Dec 19, 2005 at 01:15:07PM +0100, Eric Faurot wrote:
+> Hi,
+> 
+> (I did not follow-up because I just subscribed to the list, sorry)
+> 
+> I'm packaging GEOS/PostGIS for OpenBSD (btw, I have a few minor
+> patches for GEOS and PostGIS; I'll post them later).  It might be too
+> late, but as you asked for opinions I'll give my BSD-biased point of
+> view. Not that it is worth a lot but...
+
+Plese send postgis patch quickly as release date for 1.1.0 
+is set to this wednesday (might be delayed for this need).
+
+> First, if your plan is to encourage people to use the C API, then why
+> not use libgeos.so and libgeos++.so for the C and C++ library
+> respectively? It makes things simple and clear. The transition might
+> be a bit painful, but if the C++ library becomes "sort of internal",
+> the name change would not hurt too much anyway.
+
+I agree this would be better, but unfortunately libgeos_c.so is
+already out there (starting at geos-2.2.0), and many applications
+already use geos.so expecting a C++ interface. If community 
+screams enough for this I'll take it in consideration.
+
+> Concerning the library versioning scheme, if the C++ library is
+> incompatible between each release then I suggest either to change its
+> name completely each time, (libgeos++-3.0.0.so instead of
+> libgeos++.so.3.0.0) or better, bump the major version for each release
+> (libgeos++.so.4.0, libgeos++.so.5.0 libgeos++.so.6.0, ...).  The
+> second scheme is really the best, because it allows to keep the same
+> C++ version number for a "trivial fix" releases, or changes that do
+> not affect the C++ code. And it does not bind the library version to
+> the release, which was your original goal.
+
+Renaming completely is what happens with the -release flag of libtool.
+Indeed release 3.0.0 will dump libgeos-3.0.0.so.
+
+Using major numbers would allow keeping some form of compatibility,
+but the whole point is reducing cost of traking this, which is
+feeling free to break ABI for the sake of speeding up the operations.
+
+Always increasing Major would just be aestetically unpleasant, and
+would also make it harder to find out which release does a library
+come out from.
+
+> About the C API, well, I don't find the libtool versioning framework
+> very interesting and practical.  Note that BSD linker only knows about
+> the major and minor numbers. A program can link to a library if it has
+> the same major number and a minor number smaller or equal than the
+> library. Three-number schemes do not fit.
+
+Yeah, I noticed that. On *BSD systems GEOS-2.1.0 produced libgeos.so.3
+and GEOS-2.2.0 produced libgeos.so.4, preventing automatic use
+of the Minor releases from already built executables.
+
+At a first glance I supposed this was due to possibly limited *BSD
+capabilities (something about symbol relocation?). Do you know, as
+an OpenBSD user why does libtool acts like that ? 
+Also, I didn't check if behaviour is the same for C libs (compared
+to C++ ones).
+
+> My 2 cts.
+
+Thanks for that.
+
+--strk;
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From eric.faurot at gmail.com  Mon Dec 19 11:07:29 2005
+From: eric.faurot at gmail.com (Eric Faurot)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Versioning scheme,
+	binary compatibilities and future of GEOS
+In-Reply-To: <20051219130008.GC15239@keybit.net>
+References: <e012d6b50512190415g2b10ff6eg9e59b546560cfd0@mail.gmail.com>
+	<20051219130008.GC15239@keybit.net>
+Message-ID: <e012d6b50512190807p6ed111b7q9e9417a5326ca9a7@mail.gmail.com>
+
+On 12/19/05, strk@refractions.net <strk@refractions.net> wrote:
+
+> Plese send postgis patch quickly as release date for 1.1.0
+> is set to this wednesday (might be delayed for this need).
+
+These are actually not really important. The compiler does not
+like sprintf and strcpy but that's ok. The biggest trouble is
+that regress fails (#62/#63) because infinity is stringified as "Inf"
+instead of "inf". Using diff -i in run_regress does the trick. There
+is also a failure on macppc (for OGC regression test), due to
+slight differences in floats representation. Maybe checking (in SQL)
+that the distance to the expected result is small enough would
+be better than comparing the output in this case.
+
+> > First, if your plan is to encourage people to use the C API, then why
+> > not use libgeos.so and libgeos++.so for the C and C++ library
+> > respectively? It makes things simple and clear. The transition might
+> > be a bit painful, but if the C++ library becomes "sort of internal",
+> > the name change would not hurt too much anyway.
+>
+> I agree this would be better, but unfortunately libgeos_c.so is
+> already out there (starting at geos-2.2.0), and many applications
+> already use geos.so expecting a C++ interface. If community
+> screams enough for this I'll take it in consideration.
+
+> Renaming completely is what happens with the -release flag of libtool.
+> Indeed release 3.0.0 will dump libgeos-3.0.0.so.
+>
+> Using major numbers would allow keeping some form of compatibility,
+> but the whole point is reducing cost of traking this, which is
+> feeling free to break ABI for the sake of speeding up the operations.
+>
+> Always increasing Major would just be aestetically unpleasant, and
+> would also make it harder to find out which release does a library
+> come out from.
+
+Well, I have libc.so.38.4 and libstdc++.so.40.0 and I don't find that
+too disturbing :). Better than libpangoft2-1.0.so.1001.1 anyway. Also,
+I suspect some day the ABI will stabilize enough to be kept compabible
+between two minor releases, having it bound to a release name will
+be a pain then.
+
+> > About the C API, well, I don't find the libtool versioning framework
+> > very interesting and practical.  Note that BSD linker only knows about
+> > the major and minor numbers. A program can link to a library if it has
+> > the same major number and a minor number smaller or equal than the
+> > library. Three-number schemes do not fit.
+>
+> Yeah, I noticed that. On *BSD systems GEOS-2.1.0 produced libgeos.so.3
+> and GEOS-2.2.0 produced libgeos.so.4, preventing automatic use
+> of the Minor releases from already built executables.
+
+I cannot speak for the others, but on OpenBSD, it builds libgeos.so.4.1
+and libgeos_c.so.1.1 with GEOS 2.2.1, which looks coherent with the
+provided INTERFACE_CURRENT and INTERFACE_REVISION. Also, there
+is no symlink trick used to make libfoo.so resolve as libfoo.so.3 resolve
+as libfoo.so.3.6.
+
+> At a first glance I supposed this was due to possibly limited *BSD
+> capabilities (something about symbol relocation?). Do you know, as
+> an OpenBSD user why does libtool acts like that ?
+
+I think the policy was to keep things very simple: bump the minor number
+for incremental ABI/API changes, and bump the major number for
+disruptive changes.  The problem is that lots of programmer started
+to use libtool without carrying much about library numbering, happily
+mixing project version, releases and library names. So some things
+are now pretty messy (gtk2 for example).
+
+http://www.openbsd.org/porting/libraries.html
+
+> Also, I didn't check if behaviour is the same for C libs (compared
+> to C++ ones).
+
+I think it is.
+
+Thanks,
+Eric.
+From strk at refractions.net  Tue Dec 20 05:07:30 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Versioning scheme,
+	binary compatibilities and future of GEOS
+In-Reply-To: <e012d6b50512190807p6ed111b7q9e9417a5326ca9a7@mail.gmail.com>
+References: <e012d6b50512190415g2b10ff6eg9e59b546560cfd0@mail.gmail.com>
+	<20051219130008.GC15239@keybit.net>
+	<e012d6b50512190807p6ed111b7q9e9417a5326ca9a7@mail.gmail.com>
+Message-ID: <20051220100730.GA32005@keybit.net>
+
+On Mon, Dec 19, 2005 at 05:07:29PM +0100, Eric Faurot wrote:
+> On 12/19/05, strk@refractions.net <strk@refractions.net> wrote:
+> 
+> > Plese send postgis patch quickly as release date for 1.1.0
+> > is set to this wednesday (might be delayed for this need).
+> 
+> These are actually not really important. The compiler does not
+> like sprintf and strcpy but that's ok. The biggest trouble is
+> that regress fails (#62/#63) because infinity is stringified as "Inf"
+> instead of "inf". Using diff -i in run_regress does the trick. There
+> is also a failure on macppc (for OGC regression test), due to
+> slight differences in floats representation. Maybe checking (in SQL)
+> that the distance to the expected result is small enough would
+> be better than comparing the output in this case.
+
+Could you try with current CVS snapshot ?
+We should have handled those cases by using sed 'to' normalize
+Inf and e[+-]xx representations.
+
+> > Using major numbers would allow keeping some form of compatibility,
+> > but the whole point is reducing cost of traking this, which is
+> > feeling free to break ABI for the sake of speeding up the operations.
+> >
+> > Always increasing Major would just be aestetically unpleasant, and
+> > would also make it harder to find out which release does a library
+> > come out from.
+> 
+> Well, I have libc.so.38.4 and libstdc++.so.40.0 and I don't find that
+> too disturbing :). Better than libpangoft2-1.0.so.1001.1 anyway. Also,
+> I suspect some day the ABI will stabilize enough to be kept compabible
+> between two minor releases, having it bound to a release name will
+> be a pain then.
+
+The only way I can see ABI to stabilize is drastically reducing it.
+In that case having another name for the library won't be such
+a pain... it could be libgeos++.so.1.0.0 - for example.
+
+> > > About the C API, well, I don't find the libtool versioning framework
+> > > very interesting and practical.  Note that BSD linker only knows about
+> > > the major and minor numbers. A program can link to a library if it has
+> > > the same major number and a minor number smaller or equal than the
+> > > library. Three-number schemes do not fit.
+> >
+> > Yeah, I noticed that. On *BSD systems GEOS-2.1.0 produced libgeos.so.3
+> > and GEOS-2.2.0 produced libgeos.so.4, preventing automatic use
+> > of the Minor releases from already built executables.
+> 
+> I cannot speak for the others, but on OpenBSD, it builds libgeos.so.4.1
+> and libgeos_c.so.1.1 with GEOS 2.2.1, which looks coherent with the
+> provided INTERFACE_CURRENT and INTERFACE_REVISION. Also, there
+> is no symlink trick used to make libfoo.so resolve as libfoo.so.3 resolve
+> as libfoo.so.3.6.
+
+Mmm.. doesn't sound coherent to me.
+
+C++ curr:1 age:0 rev:1 should bring to libgeos_c.so.1.0.1
+C   curr:4 age:2 rev:1 should bring to libgeos.so.2.2.1
+
+On FreeBSD 4.2 minor is completely unused and the above results in
+	libgeos_c.so.1 (symlink libgeos_c.so)
+	libgeos.so.4 (symlink libgeos.so)
+
+To summarize up:
+
+	Linux uses CURR and AGE for major, AGE for minor, REV for micro
+	OpenBSD uses CURR for major, REV for minor (AGE unused)
+	FreeBSD uses CURR for major (REV and AGE unused)
+
+> > At a first glance I supposed this was due to possibly limited *BSD
+> > capabilities (something about symbol relocation?). Do you know, as
+> > an OpenBSD user why does libtool acts like that ?
+> 
+> I think the policy was to keep things very simple: bump the minor number
+> for incremental ABI/API changes, and bump the major number for
+> disruptive changes.  The problem is that lots of programmer started
+> to use libtool without carrying much about library numbering, happily
+> mixing project version, releases and library names. So some things
+> are now pretty messy (gtk2 for example).
+
+Actually, libtool info page is pretty clear about numbering.
+It is supposed to take care itself of different dynamic linkage
+implementations. I'd *not* give up libtool usage for GEOS.
+Rather, I think we should understand whether we're doin something
+wrong with release procedures.
+For example some time ago we had to upgrade libtool on the machine
+on which releases were packaged. Somebody suggested that running
+libtoolize would have forced it somehow, but I'm still confused
+about what is done when and where.
+
+--strk;
+
+From cfis at interserv.com  Wed Dec 21 03:27:37 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Swig Wrapper Versioning
+In-Reply-To: <973fd1230512200713x704ed645l@mail.gmail.com>
+References: <973fd1230512200713x704ed645l@mail.gmail.com>
+Message-ID: <43A911F9.3080903@interserv.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051221/260f7792/smime.bin
+From niki.spahiev at gmail.com  Wed Dec 21 07:48:55 2005
+From: niki.spahiev at gmail.com (Niki Spahiev)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] Re: Swig Wrapper Versioning
+In-Reply-To: <43A911F9.3080903@interserv.com>
+References: <973fd1230512200713x704ed645l@mail.gmail.com>
+	<43A911F9.3080903@interserv.com>
+Message-ID: <67c229320512210448w7e2814b7t@mail.gmail.com>
+
+2005/12/21, Charlie Savage <cfis@interserv.com>:
+>
+> Hi G?rald,
+>
+> Right now you would only be able to have 1 version of a SWIG GEOS wrapper
+> at a time.  The reason is that the extension libraries are being built
+> without version numbers.  Thus for Python, there is a Python extension
+> called _geos.so (or .dll) and for ruby on called geos.so.
+>
+> In fact, I don't know if Python supports installing the same extension
+> with multiple versions - maybe someone else on the  list knows this?  I
+> don't if Ruby does either, but I suspect it doesn't (but I'll see if I can
+> find something).
+>
+
+It's possible using eggs.
+
+HTH
+Niki Spahiev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20051221/307f16ae/attachment.html
+From strk at refractions.net  Thu Dec 22 07:53:19 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS Swig Patch - New support for Ruby
+In-Reply-To: <43A1B4CB.10900@interserv.com>
+References: <43A1B4CB.10900@interserv.com>
+Message-ID: <20051222125319.GA75403@keybit.net>
+
+On Thu, Dec 15, 2005 at 11:24:11AM -0700, Charlie Savage wrote:
+...
+> I have just provided a patch to strk that updates the GEOS swig 
+> bindings.  I have not included it below, because it is quite large due 
+> to the inclusion of SWIG generated wrapper files.
+
+Committed, except from geos_wrap.cxx, which I'd like to be
+produced at release time but not included in CVS.
+We can discuss this...
+
+
+> What needs work:
+> 
+> * As always, the key issues with SWIG bindings is memory management.  
+> Right now the bindings assume that any time one of the following 3 types 
+> is passed in as a parameter to a method, then the method's class takes 
+> over ownernship of the parameter:
+> 
+> geos::CoordinateSequence *
+> geos::LinearRing *
+> std::vector<geos::Geometry * > *
+> 
+> I'd guess this is not true.  If someone who is more familiar with the 
+> GEOS C++ api could let me know, I can fix this
+> 
+> Similarly, a brief look through the GEOS api shows some methods return 
+> new objects.  SWIG must be told about these methods.  So once again, 
+> does someone have a list of these methods?
+
+There are no lists, just some tips in the API docs.
+
+> * The example.py and example.rb files crash when trying any of the 
+> combination methods (union, intersection, etc.).  My guess it has to do 
+> with the memory management item listed above.  
+> 
+> * The bindings compile against the C++ api, not the C api.  This could 
+> be changed, but would require a significant amount of work.
+
+Importance of this depends on how much of the exposed API is used,
+and how much time you intend to put in maintaining the code.
+The API subset present in the C-API is about what is likely to
+be stable in the C++ lib as well.
+
+--strk;
+
+From woodbri at swoodbridge.com  Thu Dec 22 09:17:30 2005
+From: woodbri at swoodbridge.com (Stephen Woodbridge)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos_c question from new user
+Message-ID: <43AAB57A.5000607@swoodbridge.com>
+
+Hi all,
+
+I'm making my first attempt at using the GEOS C api. Basically, what I 
+am trying to do is take a bunch of linestrings, polygonize them, extract 
+the polygons and write them to a shapefile. This seems all pretty 
+straight forward to do using GEOS.
+
+My questions are:
+
+1. How do I decompose a MULTIPOLYGON?
+
+It appears the GEOSGetNumGeometries() and GEOSGetGeometryN() only work 
+on collections.
+
+2. Is a POLYGON only a single ring and a MULTIPOLYGON a single exterior 
+ring and some N interior rings? but multiple exterior rings would always 
+be returned from polygonize as a COLLECTION? If this is true, then I see 
+how to do it.
+
+Thanks,
+   -Steve
+
+From strk at refractions.net  Thu Dec 22 09:24:20 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos_c question from new user
+In-Reply-To: <43AAB57A.5000607@swoodbridge.com>
+References: <43AAB57A.5000607@swoodbridge.com>
+Message-ID: <20051222142420.GA75797@keybit.net>
+
+On Thu, Dec 22, 2005 at 09:17:30AM -0500, Stephen Woodbridge wrote:
+> Hi all,
+> 
+> I'm making my first attempt at using the GEOS C api. Basically, what I 
+> am trying to do is take a bunch of linestrings, polygonize them, extract 
+> the polygons and write them to a shapefile. This seems all pretty 
+> straight forward to do using GEOS.
+> 
+> My questions are:
+> 
+> 1. How do I decompose a MULTIPOLYGON?
+> 
+> It appears the GEOSGetNumGeometries() and GEOSGetGeometryN() only work 
+> on collections.
+
+If confirmed I'd call this a bug, and eventually handle it from
+the C-API.
+
+> 2. Is a POLYGON only a single ring and a MULTIPOLYGON a single exterior 
+> ring and some N interior rings? but multiple exterior rings would always 
+> be returned from polygonize as a COLLECTION? If this is true, then I see 
+> how to do it.
+
+A Polygon is a "shell" ring and an arbitrary number of "hole" rings.
+polygonize would return both exterior-ring only and shell/holes versions.
+You might want to take a look at the BuildArea function in postgis
+which contained an algorithm suggested by Carl Anderson for extracting
+*valid* (multi)polygons from polygonize.
+
+--strk;
+
+From woodbri at swoodbridge.com  Thu Dec 22 09:40:22 2005
+From: woodbri at swoodbridge.com (Stephen Woodbridge)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos_c question from new user
+In-Reply-To: <20051222142420.GA75797@keybit.net>
+References: <43AAB57A.5000607@swoodbridge.com>
+	<20051222142420.GA75797@keybit.net>
+Message-ID: <43AABAD6.7000509@swoodbridge.com>
+
+strk@refractions.net wrote:
+> On Thu, Dec 22, 2005 at 09:17:30AM -0500, Stephen Woodbridge wrote:
+> 
+>>Hi all,
+>>
+>>I'm making my first attempt at using the GEOS C api. Basically, what I 
+>>am trying to do is take a bunch of linestrings, polygonize them, extract 
+>>the polygons and write them to a shapefile. This seems all pretty 
+>>straight forward to do using GEOS.
+>>
+>>My questions are:
+>>
+>>1. How do I decompose a MULTIPOLYGON?
+>>
+>>It appears the GEOSGetNumGeometries() and GEOSGetGeometryN() only work 
+>>on collections.
+> 
+> 
+> If confirmed I'd call this a bug, and eventually handle it from
+> the C-API.
+
+I say the above because that is what is stated in the comments in geos_c.h
+
+>>2. Is a POLYGON only a single ring and a MULTIPOLYGON a single exterior 
+>>ring and some N interior rings? but multiple exterior rings would always 
+>>be returned from polygonize as a COLLECTION? If this is true, then I see 
+>>how to do it.
+> 
+> 
+> A Polygon is a "shell" ring and an arbitrary number of "hole" rings.
+> polygonize would return both exterior-ring only and shell/holes versions.
+> You might want to take a look at the BuildArea function in postgis
+> which contained an algorithm suggested by Carl Anderson for extracting
+> *valid* (multi)polygons from polygonize.
+
+Thanks I will look at that.
+
+-Steve
+
+From cfis at interserv.com  Thu Dec 22 12:51:26 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS Swig Patch - New support for Ruby
+In-Reply-To: <20051222125319.GA75403@keybit.net>
+References: <43A1B4CB.10900@interserv.com> <20051222125319.GA75403@keybit.net>
+Message-ID: <43AAE79E.3000007@interserv.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051222/84857ce1/smime.bin
+From strk at refractions.net  Thu Dec 22 13:19:24 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS Swig Patch - New support for Ruby
+In-Reply-To: <43AAE79E.3000007@interserv.com>
+References: <43A1B4CB.10900@interserv.com> <20051222125319.GA75403@keybit.net>
+	<43AAE79E.3000007@interserv.com>
+Message-ID: <20051222181924.GA78004@keybit.net>
+
+On Thu, Dec 22, 2005 at 10:51:26AM -0700, Charlie Savage wrote:
+> 
+> >Committed, except from geos_wrap.cxx, which I'd like to be
+> >produced at release time but not included in CVS.
+> >We can discuss this...
+> >
+> >  
+> Thanks - that's great.  Building the geos_wrap.cxx files at release time 
+> would work well.  How should we do this?  Is there a "official" build 
+> machine?  I can provide them also, but maybe something a bit more formal 
+> would be better?
+
+Builds take place on refractions host, let Paul know what are the
+requirements for the wrappers to build. And I think we should have
+./configure autodetect whether build is possible and act consequently.
+
+..
+> SWIG reads in the header files and generates wrapper code, so the whole 
+> C++ api should be exposed.  Using the C API requires manually creating 
+> "fake" SWIG classes that look like real classes to Python/Ruby/etc. but 
+> in fact are just C code that uses the underlying C api.  Its a fair bit 
+> of work because you have to create these "fake" classes using various 
+> SWIG directives, and then update them any time the C API changes.  Of 
+> course if the C API doesn't change much, that's probably not a big deal.
+> 
+> So to summarize - the disadvantage is manually creating the "fake" 
+> classes, maintaining the fake classses, and not having access to 
+> anything in the C++ api that is not exposed in the C API.  The advantage 
+> is that the wrappers would work against any GEOS version with a binary 
+> compatible C api.
+
+Would a C++ header work ? Norman suggested this, and qgis developers
+are arguing against using C style interfaces...
+We might provide a geos_c++.h header file with all inline class
+definitions. This could be used by both swig and any other C++ clients.
+
+What people think about this ?
+
+--strk;
+
+From cfis at interserv.com  Thu Dec 22 13:41:12 2005
+From: cfis at interserv.com (Charlie Savage)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS Swig Patch - New support for Ruby
+In-Reply-To: <20051222181924.GA78004@keybit.net>
+References: <43A1B4CB.10900@interserv.com>
+	<20051222125319.GA75403@keybit.net>	<43AAE79E.3000007@interserv.com>
+	<20051222181924.GA78004@keybit.net>
+Message-ID: <43AAF348.8080908@interserv.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: smime.p7s
+Type: application/x-pkcs7-signature
+Size: 2781 bytes
+Desc: S/MIME Cryptographic Signature
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051222/64bf27b2/smime.bin
+From strk at refractions.net  Thu Dec 22 17:50:14 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOS Swig Patch - New support for Ruby
+In-Reply-To: <43AAF348.8080908@interserv.com>
+References: <43A1B4CB.10900@interserv.com> <20051222125319.GA75403@keybit.net>
+	<43AAE79E.3000007@interserv.com>
+	<20051222181924.GA78004@keybit.net>
+	<43AAF348.8080908@interserv.com>
+Message-ID: <20051222225014.GA79892@keybit.net>
+
+On Thu, Dec 22, 2005 at 11:41:12AM -0700, Charlie Savage wrote:
+> Do you mean a single C++ header?
+
+I mean a single C++ header including the geos_c.h file
+and adding wrapper class definitions/declarations
+Nothing more then what's in geos_c.h would be available,
+but with a C++ syntax.
+
+--strk;
+
+From bt at ccgis.de  Fri Dec 23 02:52:55 2005
+From: bt at ccgis.de (Benjamin Thelen)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos-2.2.0 / FreeBSD 4
+Message-ID: <43ABACD7.9010202@ccgis.de>
+
+Hello list,
+
+I've just subscribed to the geos-devel list in order to ask what it's
+about geos > 2.1.4 (which succesfully builds on FreeBSD4) on FreeBSD4
+and saw that the responsible FreeBSD portmaintainer has already been 
+asking there. But to be honest, I did't get the conclusion, whether you 
+or he is working on a solution or whether there already is a solution or 
+whether there is just no.
+
+I've just tried to build 2.2.0, 2.2.1 using gcc-3.4, but without success.
+
+What's the status, will there be a solution or a workaround? This would
+really be great! I'd really appreciate any information.
+
+Thanks,
+Ben
+
+
+From woodbri at swoodbridge.com  Wed Dec 28 19:39:43 2005
+From: woodbri at swoodbridge.com (Stephen Woodbridge)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] GEOSPolygonize() ERROR: Shell is not a LinearRing
+Message-ID: <43B3304F.9030005@swoodbridge.com>
+
+I am trying to write a simple utility that will read a shapefile of 
+polygons, decompose them into simple linestrings and feed them to 
+GEOSPolygonize() so I can take the results and write  a new shapefile 
+with good polygons.
+
+So, I have this coded using geos_c.h. I used postgis buildarea() as an 
+example of how to process the output of GEOSPolygonize(), but get the 
+following  ERROR thrown by GEOS from this statement:
+
+   g = GEOSPolygonize(geoms, nedge);
+
+   if (! g || GEOSGeomTypeId(g) != GEOS_GEOMETRYCOLLECTION)
+     goto DONE;
+
+   ngeoms = GEOSGetNumGeometries(g);
+
+   printf("GEOSPolygonize returned %d geoms\n", ngeoms);
+
+...
+
+       extring = GEOSGeom_createPolygon(
+         GEOSGeom_clone(GEOSGetExteriorRing(GEOSGetGeometryN(g, i))),
+         NULL, 0);
+
+
+GEOSPolygonize returned 6 geoms
+Processing Geom 0
+ERROR: Shell is not a LinearRing
+
+I guess, my question is what does this error mean? And why would 
+GEOSPolygonize return something that is not a polygon or LinearRing?
+
+If it would by helpful, I can post fixpoly.c and the shapefile.
+
+-Steve
+
+From woodbri at swoodbridge.com  Wed Dec 28 21:14:07 2005
+From: woodbri at swoodbridge.com (Stephen Woodbridge)
+Date: Fri Nov  2 20:52:56 2007
+Subject: BUG: GEOSGeom_clone() was( Re: [geos-devel] GEOSPolygonize() ERROR:
+	Shell is not a LinearRing
+In-Reply-To: <43B3304F.9030005@swoodbridge.com>
+References: <43B3304F.9030005@swoodbridge.com>
+Message-ID: <43B3466F.5080900@swoodbridge.com>
+
+Ah, I think I found a bug ...
+
+woodbri@linus:~/cvs/dev/shptools/test$ fixpoly county out
+2.2.1-CAPI-1.0.1
+GEOSPolygonize returned 6 geoms IsValid(1)
+Processing Geom 6
+Geom(0) is type (3), IsValid(1)
+ExteriorRing(0) is type (2), IsValid(1)
+Cloned ExteriorRing(0) is type (1), IsValid(1)
+ERROR: Shell is not a LinearRing
+
+NOTICE, that the type changed when I cloned the ExteriorRing from a 
+LINEARRING to LINESTRING
+
+       g4 = GEOSGetExteriorRing(g3);
+printf("ExteriorRing(%d) is type (%d), IsValid(%d)\n", i, 
+GEOSGeomTypeId(g4), GEOSisValid(g4));
+
+       g5 = GEOSGeom_clone(g4);
+printf("Cloned ExteriorRing(%d) is type (%d), IsValid(%d)\n", i, 
+GEOSGeomTypeId(g5), GEOSisValid(g5));
+
+       extring = GEOSGeom_createPolygon(g5, NULL, 0);
+
+-Steve
+
+Stephen Woodbridge wrote:
+> I am trying to write a simple utility that will read a shapefile of 
+> polygons, decompose them into simple linestrings and feed them to 
+> GEOSPolygonize() so I can take the results and write  a new shapefile 
+> with good polygons.
+> 
+> So, I have this coded using geos_c.h. I used postgis buildarea() as an 
+> example of how to process the output of GEOSPolygonize(), but get the 
+> following  ERROR thrown by GEOS from this statement:
+> 
+>   g = GEOSPolygonize(geoms, nedge);
+> 
+>   if (! g || GEOSGeomTypeId(g) != GEOS_GEOMETRYCOLLECTION)
+>     goto DONE;
+> 
+>   ngeoms = GEOSGetNumGeometries(g);
+> 
+>   printf("GEOSPolygonize returned %d geoms\n", ngeoms);
+> 
+> ...
+> 
+>       extring = GEOSGeom_createPolygon(
+>         GEOSGeom_clone(GEOSGetExteriorRing(GEOSGetGeometryN(g, i))),
+>         NULL, 0);
+> 
+> 
+> GEOSPolygonize returned 6 geoms
+> Processing Geom 0
+> ERROR: Shell is not a LinearRing
+> 
+> I guess, my question is what does this error mean? And why would 
+> GEOSPolygonize return something that is not a polygon or LinearRing?
+> 
+> If it would by helpful, I can post fixpoly.c and the shapefile.
+> 
+> -Steve
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+
+From strk at refractions.net  Thu Dec 29 06:00:23 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: BUG: GEOSGeom_clone() was( Re: [geos-devel] GEOSPolygonize()
+	ERROR: Shell is not a LinearRing
+In-Reply-To: <43B3466F.5080900@swoodbridge.com>
+References: <43B3304F.9030005@swoodbridge.com>
+	<43B3466F.5080900@swoodbridge.com>
+Message-ID: <20051229110023.GA61349@keybit.net>
+
+Sorry for late answer. This is a known bug, and it's fixed
+in CVS (GEOS-3.0.0). It's basically LinearRing::clone() missing,
+thus using LineString::clone(), which returns a LineString
+rather then a LinearRing...
+
+In PostGIS I decided to handle the bug from caller, to ensure
+also old *bogus* geos were supported... see LWGEOM_buildarea
+in lwgeom/lwgeom_geos_c.c (basically you extract a CoordinateSequence,
+clone that and create a LinearRing).
+
+--strk;
+
+
+On Wed, Dec 28, 2005 at 09:14:07PM -0500, Stephen Woodbridge wrote:
+> Ah, I think I found a bug ...
+> 
+> woodbri@linus:~/cvs/dev/shptools/test$ fixpoly county out
+> 2.2.1-CAPI-1.0.1
+> GEOSPolygonize returned 6 geoms IsValid(1)
+> Processing Geom 6
+> Geom(0) is type (3), IsValid(1)
+> ExteriorRing(0) is type (2), IsValid(1)
+> Cloned ExteriorRing(0) is type (1), IsValid(1)
+> ERROR: Shell is not a LinearRing
+> 
+> NOTICE, that the type changed when I cloned the ExteriorRing from a 
+> LINEARRING to LINESTRING
+> 
+>       g4 = GEOSGetExteriorRing(g3);
+> printf("ExteriorRing(%d) is type (%d), IsValid(%d)\n", i, 
+> GEOSGeomTypeId(g4), GEOSisValid(g4));
+> 
+>       g5 = GEOSGeom_clone(g4);
+> printf("Cloned ExteriorRing(%d) is type (%d), IsValid(%d)\n", i, 
+> GEOSGeomTypeId(g5), GEOSisValid(g5));
+> 
+>       extring = GEOSGeom_createPolygon(g5, NULL, 0);
+> 
+> -Steve
+> 
+> Stephen Woodbridge wrote:
+> >I am trying to write a simple utility that will read a shapefile of 
+> >polygons, decompose them into simple linestrings and feed them to 
+> >GEOSPolygonize() so I can take the results and write  a new shapefile 
+> >with good polygons.
+> >
+> >So, I have this coded using geos_c.h. I used postgis buildarea() as an 
+> >example of how to process the output of GEOSPolygonize(), but get the 
+> >following  ERROR thrown by GEOS from this statement:
+> >
+> >  g = GEOSPolygonize(geoms, nedge);
+> >
+> >  if (! g || GEOSGeomTypeId(g) != GEOS_GEOMETRYCOLLECTION)
+> >    goto DONE;
+> >
+> >  ngeoms = GEOSGetNumGeometries(g);
+> >
+> >  printf("GEOSPolygonize returned %d geoms\n", ngeoms);
+> >
+> >...
+> >
+> >      extring = GEOSGeom_createPolygon(
+> >        GEOSGeom_clone(GEOSGetExteriorRing(GEOSGetGeometryN(g, i))),
+> >        NULL, 0);
+> >
+> >
+> >GEOSPolygonize returned 6 geoms
+> >Processing Geom 0
+> >ERROR: Shell is not a LinearRing
+> >
+> >I guess, my question is what does this error mean? And why would 
+> >GEOSPolygonize return something that is not a polygon or LinearRing?
+> >
+> >If it would by helpful, I can post fixpoly.c and the shapefile.
+> >
+> >-Steve
+> >_______________________________________________
+> >geos-devel mailing list
+> >geos-devel@geos.refractions.net
+> >http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+-- 
+
+ /"\    ASCII Ribbon Campaign
+ \ /    Respect for low technology.
+  X     Keep e-mail messages readable by any computer system.
+ / \    Keep it ASCII. 
+
+
+From strk at refractions.net  Thu Dec 29 06:01:34 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos-2.2.0 / FreeBSD 4
+In-Reply-To: <43ABACD7.9010202@ccgis.de>
+References: <43ABACD7.9010202@ccgis.de>
+Message-ID: <20051229110134.GA61427@keybit.net>
+
+If you are more specific on what's wrong we *might* help.
+--strk;
+
+On Fri, Dec 23, 2005 at 08:52:55AM +0100, Benjamin Thelen wrote:
+> Hello list,
+> 
+> I've just subscribed to the geos-devel list in order to ask what it's
+> about geos > 2.1.4 (which succesfully builds on FreeBSD4) on FreeBSD4
+> and saw that the responsible FreeBSD portmaintainer has already been 
+> asking there. But to be honest, I did't get the conclusion, whether you 
+> or he is working on a solution or whether there already is a solution or 
+> whether there is just no.
+> 
+> I've just tried to build 2.2.0, 2.2.1 using gcc-3.4, but without success.
+> 
+> What's the status, will there be a solution or a workaround? This would
+> really be great! I'd really appreciate any information.
+> 
+> Thanks,
+> Ben
+
+From eric.faurot at gmail.com  Thu Dec 29 06:15:48 2005
+From: eric.faurot at gmail.com (Eric Faurot)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos-2.2.0 / FreeBSD 4
+In-Reply-To: <20051229110134.GA61427@keybit.net>
+References: <43ABACD7.9010202@ccgis.de> <20051229110134.GA61427@keybit.net>
+Message-ID: <e012d6b50512290315p7dc221ccneead47d86ebb1a42@mail.gmail.com>
+
+On 12/29/05, strk@refractions.net <strk@refractions.net> wrote:
+> If you are more specific on what's wrong we *might* help.
+> --strk;
+
+On OpenBSD, the build fails in source/capi because geostest is build with
+the c compiler, but it links with a c++ library so it does not work
+(trace attached).
+Changing the libtool line to "--tag=CXX c++" works.
+
+The corrolary is that postgis 1.1.0 now fails because it uses the capi
+and the liblwgeom.so is incorrectly linked, so postgres cannot dlopen it
+(undefined reference to C++ symbols)...
+
+Also, please do not force configure to use your libtool script.
+
+Eric.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: capi
+Type: application/octet-stream
+Size: 14835 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20051229/d6c35425/capi.obj
+From strk at refractions.net  Fri Dec 30 09:35:03 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:56 2007
+Subject: [geos-devel] geos-2.2.0 / FreeBSD 4
+In-Reply-To: <e012d6b50512290315p7dc221ccneead47d86ebb1a42@mail.gmail.com>
+References: <43ABACD7.9010202@ccgis.de> <20051229110134.GA61427@keybit.net>
+	<e012d6b50512290315p7dc221ccneead47d86ebb1a42@mail.gmail.com>
+Message-ID: <20051230143503.GD72134@keybit.net>
+
+On Thu, Dec 29, 2005 at 12:15:48PM +0100, Eric Faurot wrote:
+> On 12/29/05, strk@refractions.net <strk@refractions.net> wrote:
+> > If you are more specific on what's wrong we *might* help.
+> > --strk;
+> 
+> On OpenBSD, the build fails in source/capi because geostest is build with
+> the c compiler, but it links with a c++ library so it does not work
+> (trace attached).
+> Changing the libtool line to "--tag=CXX c++" works.
+
+Mm... my libtool responds with:
+libtool: invalid tag name: CXX c++
+
+Does this have to do with the "do not force use of your libtool"
+request below ? Note that the `libtool' script is NOT shipped
+with GEOS package, only the ltmain.sh script, as reccommended
+in the libtool info page.
+
+> The corrolary is that postgis 1.1.0 now fails because it uses the capi
+> and the liblwgeom.so is incorrectly linked, so postgres cannot dlopen it
+> (undefined reference to C++ symbols)...
+
+Maybe OpenBSD *needs* to explicitly link libstdc++ ?
+I think we can safely always include libstdc++ link in postgis 
+build scripts... they would not hurt.
+Could you check that adding -lstdc++ in SHLIB_LINK line of lwgeom/Makefile
+(around line 46) fixes the problem ?
+
+> Also, please do not force configure to use your libtool script.
+
+See above
+
+--strk;
+
+

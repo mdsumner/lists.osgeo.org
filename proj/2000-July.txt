@@ -1,0 +1,2058 @@
+From warmerda at home.com  Tue Jul  4 07:33:53 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Tue, 04 Jul 2000 09:33:53 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+Message-ID: <3961F5D1.EDE7A78F@home.com>
+
+Folks, 
+
+I am finally getting around to incorporating datum shifting support into
+PROJ.4, and I would be interested in some feedback on approaches. 
+
+I have currently implemented 3 and 7 parameter molodensky transforms based
+on cloning the code from NIMA's Geotrans, and using the Geocentric<->Geodetic
+translation code from Geotrans unchanged.  I am also looking to incorporate
+the NADCON nad27/83 conversion code already in PROJ.4, though I haven't yet. 
+
+But, I would like to propose, and get feedback on the API and argument
+syntax.  Unlike the existing NAD27/83 support, I would like this to be 
+fully integrated into PROJ.4. 
+
+Currently the PROJ.4 access can be summarized in via the API:
+
+       PJ *pj_init(int argc, char **argv)
+
+       projUV pj_fwd(projUV val, PJ *proj)
+
+       projUV pj_inv(projUV val, PJ *proj)
+
+       void pj_free(PJ *proj)
+
+Note that it is only support translation back and forth between a projection
+and geodetic (lat/long) coordinates.  There is no support for elevations, and
+or for translating between different ellipsoids, or datums. 
+
+I propose the following changes to the coordinate system definitions:
+
+ o Add a +towgs84=a,b,c[,d,e,f,g] option for providing the 3 or 7 parameter
+   relationship between this coordinate systems datum, and WGS84. 
+
+ o Adding a +datum=<datumname> option which will basically lookup the datum name
+   in an internal table, substituting the +towgs84= and the ellipse definition
+   that is contained in the table. 
+ 
+ o Adding a +ld[id] command option for listing the datum table with definitions
+   in a manner similar to the handling of ellipsoids and projections.
+
+ o Adding +proj=latlong as a legal "projection" meaning that the coordinates
+   are in geodetic coordinates rather than a projection system.  
+
+We also need a way of driving coordinate system to coordinate system conversion
+from the command line.  I torn between extending the ``proj'' command with
+some methodology of defining a second coordinate system, or implement a new
+command which operates coordinate system to coordinate system.  Perhaps a
+proj2proj command or something like that.  I am open to suggestions on this.
+
+I propose to implement several new API entry points, while leaving the
+current API essentially unchanged.  The only changes to the current API
+would be that pj_init would understand the new options (+towgs84, +datum)
+and would store the additional information in the PJ structure. 
+
+The new API entry point would likely be:
+
+ int pj_transform( PJ *projSrc, PJ*projDst, int point_count, 
+                   double *x, double *y, double *z );
+
+The return value would be some sort of success/error indicator, and the function
+would transform the list of points between the source coordinate system and the
+destination coordinate system.  As needed it would take care of translations
+between
+projected coordinates and lat/long, and ellipsoid shifts of datum shifts between
+geodetic coordinate systems.  Notes:
+
+ o If no datum shifting information is provided, but the projSrc, and projDst
+   have different ellipsoid definitions, the geodetic coordinates would be
+   translated into geocentric coordinates on the source ellipsoid, and then back
+   to geodetic coordinates on the second ellipsoid.  
+
+ o The changes in elevation implied by changing ellipsoids, and datum shifting
+is
+   accounted for. 
+
+ o The Z elevation value is always in meters.  Later we may want to add an
+optional
+   scaling factor. 
+
+ o Multiple points can be handled in one call in order to reduce per-point 
+   function call overhead.  
+
+Unrelated to the datum shifting changes, I also propose to add a variation on
+pj_init() which takes a single string argument with the coordinate system 
+arguments, and will take care of parsing it into internal tokens in the usual
+way.  Perhaps this could be pj_init_1().
+
+I would appreciate feedback on the above proposals. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From warmerda at home.com  Tue Jul  4 08:54:24 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Tue, 04 Jul 2000 10:54:24 -0500
+Subject: [OSRS-PROJ] proj binary coordinates: radians or degrees?
+Message-ID: <396208B0.1094D0E5@home.com>
+
+Folks,
+
+Thomas Knudsen had kindly provided patches for proj to handle binary IO
+properly on windows and DOS.  He has also run into the fact that proj binary
+coordinate io is in radians, instead of degrees.  Before changing the behaviour
+of binary file io to degrees, like formatted results, I wanted to query the
+list, and see if anyone anticipates this causing significant hardship.  
+
+So, is it OK with everyone if I change the proj commands binary lat/long 
+coordinates to be in degrees instead of radians?
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From morten at ngb.se  Tue Jul  4 08:21:38 2000
+From: morten at ngb.se (Morten Hulden)
+Date: Tue, 4 Jul 2000 17:21:38 +0200 (CEST)
+Subject: [OSRS-PROJ] Datum Shifting
+In-Reply-To: <3961F5D1.EDE7A78F@home.com>
+Message-ID: <Pine.LNX.4.21.0007041718170.7582-100000@tor.ngb.se>
+
+
+
+On Tue, 4 Jul 2000, Frank Warmerdam wrote:
+
+> We also need a way of driving coordinate system to coordinate system conversion
+> from the command line.  I torn between extending the ``proj'' command with
+> some methodology of defining a second coordinate system, or implement a new
+> command which operates coordinate system to coordinate system.  Perhaps a
+> proj2proj command or something like that.  I am open to suggestions on this.
+
+Isn't +proj=ob_tran already doing something similar (rotating from one
+projection to another). Could the existing code be used or extended to
+cover your changes?
+
+Morten Hulden
+Nordic Gene Bank
+
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From warmerda at home.com  Tue Jul  4 09:34:40 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Tue, 04 Jul 2000 11:34:40 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+References: <Pine.LNX.4.21.0007041718170.7582-100000@tor.ngb.se>
+Message-ID: <39621220.B972B356@home.com>
+
+Morten Hulden wrote:
+> 
+> On Tue, 4 Jul 2000, Frank Warmerdam wrote:
+> 
+> > We also need a way of driving coordinate system to coordinate system conversion
+> > from the command line.  I torn between extending the ``proj'' command with
+> > some methodology of defining a second coordinate system, or implement a new
+> > command which operates coordinate system to coordinate system.  Perhaps a
+> > proj2proj command or something like that.  I am open to suggestions on this.
+> 
+> Isn't +proj=ob_tran already doing something similar (rotating from one
+> projection to another). Could the existing code be used or extended to
+> cover your changes?
+
+Morten,
+
+As I understand it the current ``proj'' command only allows conversion between
+a single projected coordinate system and geodetic (lat/long) coordinates on
+the same ellipsoid.  In particular, there is no way to convert directly from
+one projection to another since it is assume that all projection definition
+information on the commandline relates to one definition. 
+
+I could possibly add some sort of divider argument and assume that everything
+after that divider is another coordinate system.  For instance, 
+
+proj +proj=utm +zone=11 +ellps=clrk80 -to +proj=utm +zone=11 +ellpse=GRS80
+
+The assumption being that everything before "-to" is the first coordinate
+system, and everything after is the second.  If no "-to" flag is given, then
+the second coordinate system would be the geodetic equivelent to the indicated
+projected coordinate system. 
+
+For instance:
+
+ proj +proj=utm +zone=11 +ellps=clrk80
+
+would be equivelent to:
+ 
+ proj +proj=utm +zone=11 +ellps=clrk80 -to +proj=latlong +ellps=clrk80
+
+and the inverse form would expand as expected:
+
+ proj -I +proj=utm +zone=11 +ellps=clrk80 
+
+would be the same as:
+
+ proj +proj=latlong +ellps=clrk80 -to +proj=utm +zone=11 +ellps=clrk80
+
+This approach ensures we just have one command, and a fairly graceful and 
+backward compatible way of going from the current style to the two coordinate
+system form.  It would also ensure I don't have to duplicate all the other
+argument handling currently embedded in the proj command.  On the downside,
+it might be tricky to make the current proj command support Z optional Z 
+coordinates without breaking some existing behaviour. 
+
+Do people prefer an approach like the above instead of a new proj2proj command?
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From morten at ngb.se  Tue Jul  4 09:04:55 2000
+From: morten at ngb.se (Morten Hulden)
+Date: Tue, 4 Jul 2000 18:04:55 +0200 (CEST)
+Subject: [OSRS-PROJ] Datum Shifting
+In-Reply-To: <39621220.B972B356@home.com>
+Message-ID: <Pine.LNX.4.21.0007041756310.7582-100000@tor.ngb.se>
+
+
+Frank,
+
+On Tue, 4 Jul 2000, Frank Warmerdam wrote:
+
+> As I understand it the current ``proj'' command only allows conversion between
+> a single projected coordinate system and geodetic (lat/long) coordinates on
+> the same ellipsoid.  In particular, there is no way to convert directly from
+> one projection to another since it is assume that all projection definition
+> information on the commandline relates to one definition. 
+
+ob_trans projection allows a second projection to be specified e.g. (a
+pole shift)
+
+proj +ellps=clrk66 proj=ob_trans +lon_0=20 +o_proj=tmerc o_lon_p=45
+
+but, you are correct, not a second ellipsoid
+and anyway I think your approach is cleaner:
+
+> proj +proj=utm +zone=11 +ellps=clrk80 -to +proj=utm +zone=11 +ellpse=GRS80
+
+
+Morten Hulden
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From thk at kms.dk  Tue Jul  4 09:19:44 2000
+From: thk at kms.dk (thk at kms.dk)
+Date: Tue, 4 Jul 2000 18:19:44 +0200
+Subject: [OSRS-PROJ] Datum Shifting
+Message-ID: <C1256912.00562F2B.00@notes_3.kms.min.dk>
+
+
+> proj +proj=latlong +ellps=clrk80 -to +proj=utm +zone=11 +ellps=clrk80
+
+actually I think it would be a good thing to add a "-from" parameter as
+well:
+this would make the command easier to read, as it resembles everyday
+language more:
+
+proj -from .... -to .....
+
+additionally it becomes evident from the first step that we are using the
+"new form".
+
+and with the new +proj=latlong option even plain old style conversions
+can be stated in a more readable format:
+
+proj -from +proj=utm +zone=32 -to +proj=stere
+
+perhaps it would also be a good idea to introduce a -files flag (or
+something
+like that: often a plain dash is used to mark "end of options") for the
+new form: This way filenames and options are clearly separated, so
+the "+" in the beginning of the options (which only serves to distinguish
+them from file names) may be made optional, as in the pj_init() call.
+
+If, furthermore,  -from and -to are made equivalent to +proj= the syntax
+may
+be reduced to:
+
+proj    -from utm zone=32  ellps=grs80    -to utm zone=33    -    infile
+outfile
+
+(I assume here that  the ellps setting is inherited from "-from" to "-to"
+if
+not restated)
+
+I think this form is quite readable, but I may have missed some gotchas...
+
+>This approach ensures we just have one command, and a fairly graceful and
+> backward compatible way of going from the current style to the two
+coordinate
+> system form.  It would also ensure I don't have to duplicate all the
+other
+> argument handling currently embedded in the proj command.  On the
+downside,
+> it might be tricky to make the current proj command support Z optional Z
+> coordinates without breaking some existing behaviour.
+
+> Do people prefer an approach like the above instead of a new proj2proj
+command?
+
+yes - if the syntax is made sufficiently easy to differentiate, while still
+being sufficiently close to the original one to be easily understood.
+
+Also, on a different note, I fully second your previous posting on API
+additions:
+I have really missed the pj_init_1() entry which you suggests. Handling
+(the
+7 parameter) datum shifts within proj is also a really good thing.
+
+Regards
+Thomas
+
+--
+Thomas Knudsen, Research Geophysicist, Ph.D. | http://www.gfy.ku.dk/~tk/
+National Survey and Cadastre - Denmark       | thk at kms.dk   tk at gfy.ku.dk
+Geodetic Department, Rentemestervej 8        | phone:    +45 35 87 52 64
+DK-2400 Copenhagen NV, Denmark               | fax:      +45 35 87 50 52
+
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From csbruce at cubewerx.com  Tue Jul  4 15:41:12 2000
+From: csbruce at cubewerx.com (Craig Bruce)
+Date: Tue, 4 Jul 2000 18:41:12 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+Message-ID: <200007042241.SAA05819@tux.cubewerx.com>
+
+Frank Warmerdam <warmerda at home.com> wrote:
+
+> The new API entry point would likely be:
+>
+>  int pj_transform( PJ *projSrc, PJ*projDst, int point_count,
+>                    double *x, double *y, double *z );
+
+One minor issue with this function prototype is that for efficient
+processing, it implies a coordinate organization that I don't think is
+very common.  I think it is more common to use vectors of either structures
+of { double x; double y; [double z;] } or a vector of 2-d or 3-d vectors
+of coordinates.
+
+If you wanted to fully generalize the interface, you could add an
+'interleave' parameter that gives the number of 'double's between
+successive coordinates.  For the order implied by the given function,
+the interleave would be 1; for a vector of 2-d vectors, the interleave
+would be 2; etc.  Internally, the function would do someting like "x +=
+interleave" to go to the next X coordinate.
+
+Personally, I'm also sequeamish about using 'int's for counts (I'd use
+at least a 'long' if not a "proper" 'size_t').
+
+------------------------------------------------------------------------------
+Dr. Craig Bruce           |  csbruce at cubewerx.com  |             CubeWerx Inc.
+Senior Software Developer |           --           |  200 Montcalm, Suite R-13
+Ph. (819) 771-8303 x205   |   csbruce at pobox.com    |     Hull, Quebec, J8Y 3B5
+Fax (819) 771-8388        | http://www.csbruce.com |  http://www.cubewerx.com/
+------------------------------------------------------------------------------
+           "Only works with Microsoft products" != "Interoperable"
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From gevenden at capecod.net  Tue Jul  4 16:44:30 2000
+From: gevenden at capecod.net (Gerald I. Evenden)
+Date: Tue, 4 Jul 2000 19:44:30 -0400
+Subject: [OSRS-PROJ] proj binary coordinates: radians or degrees?
+References: <396208B0.1094D0E5@home.com>
+Message-ID: <002501bfe619$e98a7780$5fbad33f@gevenden>
+
+The last few entries to OSRS-PROJ have produced disturbing suggestions
+for changes to 'proj' that I would like to comment on.  This is the first.
+
+The purpose of the binary I/O capability of proj was to facilitate data
+transfer
+of "like-minded" programs.  For example, to simply transform cartesian
+coordinates from one projection to another the process would be facilitated
+by:
+
+proj [projection source parms] -I -o | proj [projection destination
+parms] -i
+
+By doing this, we avoid extra computations of formating/deformating and
+the probable loss of precision.
+
+The the binary could be in decimal degrees, but why bother.  Most
+software I have used/written work with angular information in radians and it
+is the natural state of all angular arguments to transcendental functions.
+Arcane degrees are an artifact of the unwashed external world and not
+used in internal computations.
+
+Because we cannot read binary (well maybe a few gifted can) why would
+we care if the data is in degrees when the natural internal is in radians?
+This information is for program to program communications so lets keep
+it in their language.
+
+__________________________________________________
+Jerry Evenden and the Low Riders, Katie and  Daisy May
+gevenden at capecod.net  http://www.capecod.net/~gevenden
+----- Original Message -----
+From: Frank Warmerdam <warmerda at home.com>
+To: <osrs-proj at remotesensing.org>
+Sent: Tuesday, July 04, 2000 11:54 AM
+Subject: [OSRS-PROJ] proj binary coordinates: radians or degrees?
+
+
+> Folks,
+>
+> Thomas Knudsen had kindly provided patches for proj to handle binary IO
+> properly on windows and DOS.  He has also run into the fact that proj
+binary
+> coordinate io is in radians, instead of degrees.  Before changing the
+behaviour
+> of binary file io to degrees, like formatted results, I wanted to query
+the
+> list, and see if anyone anticipates this causing significant hardship.
+>
+> So, is it OK with everyone if I change the proj commands binary lat/long
+> coordinates to be in degrees instead of radians?
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From gevenden at capecod.net  Tue Jul  4 17:23:05 2000
+From: gevenden at capecod.net (Gerald I. Evenden)
+Date: Tue, 4 Jul 2000 20:23:05 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <Pine.LNX.4.21.0007041756310.7582-100000@tor.ngb.se>
+Message-ID: <002601bfe619$ea431920$5fbad33f@gevenden>
+
+The second set of disturbing concepts if the old "lets-build-a-program-to-
+do-all-things."  Program *proj* is a program to do exactly what was
+sumarized
+below: transform coordinates to and from cartesian and geographic space.
+Nothing more or less.
+
+Secondly, it was designed in the Unix spirit to be usable as a filter
+funtion
+so that it could be cobbled together with other functions to perform larger,
+more complex operations without having to stike C code.  That is, let the
+shell program do the building.
+
+To borrow from my previous email, the problem of transfering data from one
+cartesian system to another is *very* simply performed by:
+
+proj -I [source +proj parms] -o   |   proj [dest +proj parms] -i
+
+The pipe, "|", is a wonderful thing, use it.
+
+If datum transformation is also required, something like:
+
+proj -I [source +proj parms] -o   |   datum_shift -b [parms]   |   proj
+[dest +proj parms] -i
+
+Where datum_shift is some program to perform appropriate datum transforms.
+The whole operation looks like *nad2nad* which was programmed as an example
+of a program which could handle multiple projections.  In hindsight, I
+should have
+distributed it in this manner.
+
+Lastly, PLEASE, if you proceed with this +to/+from concept, change the name
+of the transmogrified proj to something else.
+
+*Proj* is not perfect and I am aware of a few improvements that could be
+made.
+But none of these improvement impact the current execution flavor which I
+feel
+has withstood the test of time.  The important thing is to keep things
+simple and
+isolate various aspects of the problem into well defined units that can be
+individually work on.
+
+__________________________________________________
+Jerry Evenden and the Low Riders, Katie and  Daisy May
+gevenden at capecod.net  http://www.capecod.net/~gevenden
+----- Original Message -----
+From: Morten Hulden <morten at ngb.se>
+To: <osrs-proj at remotesensing.org>
+Sent: Tuesday, July 04, 2000 12:04 PM
+Subject: Re: [OSRS-PROJ] Datum Shifting
+
+
+>
+> Frank,
+>
+> On Tue, 4 Jul 2000, Frank Warmerdam wrote:
+>
+> > As I understand it the current ``proj'' command only allows conversion
+between
+> > a single projected coordinate system and geodetic (lat/long) coordinates
+on
+> > the same ellipsoid.  In particular, there is no way to convert directly
+from
+> > one projection to another since it is assume that all projection
+definition
+> > information on the commandline relates to one definition.
+>
+> ob_trans projection allows a second projection to be specified e.g. (a
+> pole shift)
+>
+> proj +ellps=clrk66 proj=ob_trans +lon_0=20 +o_proj=tmerc o_lon_p=45
+>
+> but, you are correct, not a second ellipsoid
+> and anyway I think your approach is cleaner:
+>
+> > proj +proj=utm +zone=11 +ellps=clrk80 -to +proj=utm +zone=11
++ellpse=GRS80
+>
+>
+> Morten Hulden
+>
+> ----------------------------------------
+> OSRS PRoject PROJ Discussion List
+> To Subscribe: send a message to majordomo at remotesensing.org with
+'subscribe osrs-proj' in the body
+> To Unsubscribe: send a message to majordomo at remotesensing.org with
+'unsubscribe osrs-proj' in the body
+> To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+>
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From gevenden at capecod.net  Tue Jul  4 17:41:41 2000
+From: gevenden at capecod.net (Gerald I. Evenden)
+Date: Tue, 4 Jul 2000 20:41:41 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <3961F5D1.EDE7A78F@home.com>
+Message-ID: <002701bfe619$eb0c83a0$5fbad33f@gevenden>
+
+More detailed comments imbedded below.
+
+__________________________________________________
+Jerry Evenden and the Low Riders, Katie and  Daisy May
+gevenden at capecod.net  http://www.capecod.net/~gevenden
+----- Original Message -----
+From: Frank Warmerdam <warmerda at home.com>
+To: <osrs-proj at remotesensing.org>
+Sent: Tuesday, July 04, 2000 10:33 AM
+Subject: [OSRS-PROJ] Datum Shifting
+
+
+> Folks,
+>
+> I am finally getting around to incorporating datum shifting support into
+> PROJ.4, and I would be interested in some feedback on approaches.
+
+Got plenty.
+
+A hypercritical note here.  We are talking about the PROJ.4 library system.
+
+> Currently the PROJ.4 access can be summarized in via the API:
+>
+>        PJ *pj_init(int argc, char **argv)
+>
+>        projUV pj_fwd(projUV val, PJ *proj)
+>
+>        projUV pj_inv(projUV val, PJ *proj)
+>
+>        void pj_free(PJ *proj)
+>
+> Note that it is only support translation back and forth between a
+projection
+> and geodetic (lat/long) coordinates.  There is no support for elevations,
+and
+> or for translating between different ellipsoids, or datums.
+
+Correct!  PROJ.x system is purely designed for cartographic projection
+operations.
+Same as NMD's GCTP.
+
+> I propose the following changes to the coordinate system definitions:
+>
+>  o Add a +towgs84=a,b,c[,d,e,f,g] option for providing the 3 or 7
+parameter
+>    relationship between this coordinate systems datum, and WGS84.
+>
+>  o Adding a +datum=<datumname> option which will basically lookup the
+datum name
+>    in an internal table, substituting the +towgs84= and the ellipse
+definition
+>    that is contained in the table.
+>
+>  o Adding a +ld[id] command option for listing the datum table with
+definitions
+>    in a manner similar to the handling of ellipsoids and projections.
+
+Other than supplying the ellipsoid parameters, datums have nothing to do
+with
+cartographic projections.  I suggest adding the above to PROJ.4 is counter
+to
+the purpose of the package.
+
+>  o Adding +proj=latlong as a legal "projection" meaning that the
+coordinates
+>    are in geodetic coordinates rather than a projection system.
+
+This one makes no sense to me.  Dummy argument?
+
+> We also need a way of driving coordinate system to coordinate system
+conversion
+> from the command line.  I torn between extending the ``proj'' command with
+> some methodology of defining a second coordinate system, or implement a
+new
+> command which operates coordinate system to coordinate system.  Perhaps a
+> proj2proj command or something like that.  I am open to suggestions on
+this.
+
+You already have it.  It is called a "pipe."  See other emails.
+
+> I propose to implement several new API entry points, while leaving the
+> current API essentially unchanged.  The only changes to the current API
+> would be that pj_init would understand the new options (+towgs84, +datum)
+> and would store the additional information in the PJ structure.
+
+Strongly disagree as the suggested data has nothing to so with the process
+of cartographic projection.
+
+> The new API entry point would likely be:
+
+    ...  deleted as nothing to do with cartographic projection
+
+>    function call overhead.
+>
+> Unrelated to the datum shifting changes, I also propose to add a variation
+on
+> pj_init() which takes a single string argument with the coordinate system
+> arguments, and will take care of parsing it into internal tokens in the
+usual
+> way.  Perhaps this could be pj_init_1().
+
+Not sure what you're talking about.
+
+You have two basic problems: 1) cartographic projections and 2) datum
+shifts.
+All the factors involved are very nicely separated and can be similarly
+treated
+with separate pieces of software.  Problem 1 seems to be niecely solved and
+problem 2 seems easily solvable in a similar manner.  Why throw everything
+into one stew pot?  It just makes the stirring more difficult.
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From warmerda at home.com  Tue Jul  4 19:26:39 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Tue, 04 Jul 2000 21:26:39 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+References: <3961F5D1.EDE7A78F@home.com> <002701bfe619$eb0c83a0$5fbad33f@gevenden>
+Message-ID: <39629CDF.CB741BFF@home.com>
+
+"Gerald I. Evenden" wrote:
+> > I am finally getting around to incorporating datum shifting support into
+> > PROJ.4, and I would be interested in some feedback on approaches.
+> 
+> Got plenty.
+>
+> A hypercritical note here.  We are talking about the PROJ.4 library system.
+
+Gerald, 
+
+I am not sure I see your point.  Is it just that it is properly titled as
+"The PROJ.4 Library System" or that PROJ.4 is primarily a library, and
+secondarily available as user tools?  
+ 
+> Correct!  PROJ.x system is purely designed for cartographic projection
+> operations.
+> Same as NMD's GCTP.
+...
+> Other than supplying the ellipsoid parameters, datums have nothing to do
+> with cartographic projections.  I suggest adding the above to PROJ.4 is 
+> counter to the purpose of the package.
+...
+> You have two basic problems: 1) cartographic projections and 2) datum
+> shifts.
+> All the factors involved are very nicely separated and can be similarly
+> treated
+> with separate pieces of software.  Problem 1 seems to be niecely solved and
+> problem 2 seems easily solvable in a similar manner.  Why throw everything
+> into one stew pot?  It just makes the stirring more difficult.
+
+You are absolutely correct that what I propose is extending PROJ.4 from
+being a cartographic projections library system to being a cartographic
+coordinate system translation library system.  
+
+One viable solution to building a broader coordinate system translation
+package would be to build separate components for datum shifting as
+an unrelated API, and applications using the libraries would be responsible
+for calling them in appropriate sequence.  At the command line, programs
+like proj could be used via pipes in combination with other programs
+doing datum shifting.  
+
+However, I would claim that it is "natural" to consider coordinate
+system translation a relatively unified task, and that there are good
+reasons to offer a unified API to accomplish them.
+
+ o It is useful to have a unified, and reasonably consistent way of
+   describing coordinate systems as a whole for users.  For me PROJ.4
+   projection parameter syntax is more than just a way to invoke the ``proj''
+   command.  They are a format for describing projections (and soon hopefully
+   coordinate systems).   I will potentially want to describe other aspects
+   of my coordinate system via the syntax as well, such as vertical datums. 
+   
+   In my mind one of PROJ.4's great advantages over GCTP is a consistent
+   user accessable textual syntax for describing projections.  
+
+ o Applications will generally still need a unified API to handle coordinate
+   system transformations.  Why make every application that uses PROJ.4 
+   handle the integration of it with a datum shifting system?  The result
+   so far has been a number of systems developed with missing, or poorly
+   integrated datum shifting capability because it wasn't conveniently 
+   handled by PROJ.4 (notably OGDI, GRASS, and my own OGRSpatialReference
+   stuff).
+
+An argument could be made that adding datum shifting to libproj.a (and
+libproj.so) will make it bigger for people who don't even care about 
+datum shifting.  Similarly you could make a case that adding coordinate
+system to coordinate system transformation to the proj command will
+complicate the command syntax.  I would argue that datum shifting adds
+relatively little new code to the library, but I am not so sure about
+overloading of the proj command.  
+
+My fear in introducing a separate command for coordinate system to 
+coordinate system conversion is that I will need to reimplementing 
+essentially all of the functionality already in proj.c, and we will
+end up with two commands that operate fairly similarly but with
+one being a superset of the other.  Assuming that the proj command
+retains backward compatibility to the current argument syntax, what
+argument would you provide against extending it?
+
+Given the feedback I have seen so far, I think there is justification
+for adding datum shifting (and other coordinate system to coordinate
+system transformation capabilities) to PROJ.4.  However, I am less 
+convinced of the nead for a unified from/to style of proj command. 
+
+> >  o Adding +proj=latlong as a legal "projection" meaning that the
+> coordinates
+> >    are in geodetic coordinates rather than a projection system.
+> 
+> This one makes no sense to me.  Dummy argument?
+
+This is so that we can describe the geodetic coordinate system directly.  
+Already systems like OGDI which use PROJ.4 as their projections library also
+use PROJ.4 syntax for describing coordinate systems.  OGDI has already adopted
+the convention of +proj=latlong meaning the coordinates are in lat/long. 
+
+Best regards, 
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From cjmce at lsu.edu  Wed Jul  5 08:53:57 2000
+From: cjmce at lsu.edu (cjmce at lsu.edu)
+Date: Wed, 5 Jul 2000 10:53:57 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+Message-ID: <86256913.0057573F.00@gate002.ocs.lsu.edu>
+
+When Atef Elassal wrote GCTP, his objective was to translate John P. Snyder
+to FORTRAN 77.  He did a superb job for the needs of the U.S. Geological
+Survey at the time.
+
+In regard to expanding PROJ4 to geodetic-type manipulation:
+
+The inclusion of the MadTran algorithms is actually incomplete for
+3-parameter and 7-parameter methods.  In actuality, there is a Bursa-Wolf
+model and there is a Molodensky-Badekas model.  The NIMA implementation in
+MadTran was actually the Americanized version of the Bursa-Wolf 7-parameter
+model.  The European version (such as found in LEICA's "SKI" software for
+geodetic-quality differential GPS solutions), uses the opposite sign for
+the infinitesimal rotations.  Whopping errors will result if you confuse
+the two.  (The only way to avoid errors is to always provide a test point
+in both coordinate systems).
+
+Furthermore, the Molodensky-Badekas model allows the use of the classical
+Datum Origin to be used in the solution such that the scale factor is
+changed substantially to account for the much-reduced magnitude of the
+translation components.  (Of course, this also has two flavors of rotations
+- the American/Australian version and the European version.)
+
+Unbeknownst to some people is that if presented with a set of parameters
+for a 7-parameter model, one CANNOT truncate the rotations just because
+"they are so small."  In the least-squares solution for the seven
+parameters, the rotations are solved first, then scale factor, then
+translations.  The "tiny" rotations amount to quite a bit at the surface of
+the ellipsoid and have a direct and specific effect on the magnitude of the
+translation components (and the scalar).  When performing a least-squares
+solution with the identical co-located points, the magnitude of the
+translation-only components in a 3-parameter solution will be entirely
+different than the magnitude of the translation components in a 7-parameter
+solution.
+
+When you talk about "elevations" being used in a "datum shift," are you
+going to take into account the EGM96 Geoid when going to the WGS 84 Datum?
+What about NIMA's Multiple Regression Equation (MRE) solutions for
+continental areas?
+
+Note that the NADCON algorithm is great for the U.S., but what about Canada
+& Mexico?  I believe "Geomatics Canada" has a hefty price tag on their
+transformation package for Maple Leaf applications.  Have you seen the
+eye-popping prices charged by the Norwegians for their datum shift package?
+I think only the U.S. and Australia give their stuff out for free.  South
+Africa's solution is privately marketed by Prof. Charles Merry at the
+University of Capetown.
+
+Going 3-D "geodetic" is a big chunk to bite off ...
+
+I write a monthly column on this stuff with a different country featured
+each month in "Photogrammetric Engineering and Remote Sensing."  If you
+have an interest in this type of stuff, look under "GRIDS & DATUMS" at the
+society's web site:
+
+http://www.asprs.org/resources.html
+
+There's over a dozen past columns of mine available in .pdf format for
+downloading and printing with Adobe Acrobat Reader.  This month is on the
+Kingdom of Spain, last month was on the Republic of Ghana.
+
+Cliff
+
+Clifford J. Mugnier (cjmce at LSU.edu)
+Surveying, Geodesy, and Photogrammetry
+LOUISIANA STATE UNIVERSITY
+12408 CEBA Building
+Baton Rouge, Louisiana  70803
+Voice and Facsimilie: (225) 388 - 8536
+
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From gevenden at capecod.net  Wed Jul  5 10:07:34 2000
+From: gevenden at capecod.net (Gerald I. Evenden)
+Date: Wed, 5 Jul 2000 13:07:34 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <3961F5D1.EDE7A78F@home.com> <002701bfe619$eb0c83a0$5fbad33f@gevenden> <39629CDF.CB741BFF@home.com>
+Message-ID: <000701bfe6a3$fbcdf5e0$c9bcd33f@gevenden>
+
+Response embedded below.
+
+__________________________________________________
+Jerry Evenden and the Low Riders, Katie and  Daisy May
+gevenden at capecod.net  http://www.capecod.net/~gevenden
+----- Original Message -----
+From: Frank Warmerdam <warmerda at home.com>
+To: <osrs-proj at remotesensing.org>
+Sent: Tuesday, July 04, 2000 10:26 PM
+Subject: Re: [OSRS-PROJ] Datum Shifting
+
+
+> "Gerald I. Evenden" wrote:
+    ...
+> > You have two basic problems: 1) cartographic projections and 2) datum
+> > shifts.
+> > All the factors involved are very nicely separated and can be similarly
+> > treated
+> > with separate pieces of software.  Problem 1 seems to be niecely solved
+and
+> > problem 2 seems easily solvable in a similar manner.  Why throw
+everything
+> > into one stew pot?  It just makes the stirring more difficult.
+>
+> You are absolutely correct that what I propose is extending PROJ.4 from
+> being a cartographic projections library system to being a cartographic
+> coordinate system translation library system.
+
+Here is the core of our disagreement.  I would have libproj.a *and*
+libdatum.a
+while you would have libproj.a absorb the contents of libdatum.a or one
+unified library.  I argue for the separation of the two on two points:
+
+1) the maintenance and development of code for the two problems may
+be performed by geeks who are experts in the respective fields and don't
+want to be nor need to be bothered by the details of extraneous, unrelated
+material.
+
+2) users may be of similar exclusivity and could care less about or get
+confused about details unrelated to their interests.  Keep it simple.
+
+> One viable solution to building a broader coordinate system translation
+> package would be to build separate components for datum shifting as
+> an unrelated API, and applications using the libraries would be
+responsible
+> for calling them in appropriate sequence.  At the command line, programs
+> like proj could be used via pipes in combination with other programs
+> doing datum shifting.
+>
+> However, I would claim that it is "natural" to consider coordinate
+> system translation a relatively unified task, and that there are good
+> reasons to offer a unified API to accomplish them.
+>
+>  o It is useful to have a unified, and reasonably consistent way of
+>    describing coordinate systems as a whole for users.  For me PROJ.4
+>    projection parameter syntax is more than just a way to invoke the
+``proj''
+>    command.  They are a format for describing projections (and soon
+hopefully
+>    coordinate systems).   I will potentially want to describe other
+aspects
+>    of my coordinate system via the syntax as well, such as vertical
+datums.
+>
+>    In my mind one of PROJ.4's great advantages over GCTP is a consistent
+>    user accessable textual syntax for describing projections.
+
+We certainly agree there.  GCTP's method of control input was archaic and
+virtually unchanged since its inception in the late 60's.  A good deal of
+the
+problem was the mindset of FORTRAN programming.
+
+>  o Applications will generally still need a unified API to handle
+coordinate
+>    system transformations.  Why make every application that uses PROJ.4
+>    handle the integration of it with a datum shifting system?  The result
+>    so far has been a number of systems developed with missing, or poorly
+>    integrated datum shifting capability because it wasn't conveniently
+>    handled by PROJ.4 (notably OGDI, GRASS, and my own OGRSpatialReference
+>    stuff).
+>
+> An argument could be made that adding datum shifting to libproj.a (and
+> libproj.so) will make it bigger for people who don't even care about
+> datum shifting.  Similarly you could make a case that adding coordinate
+> system to coordinate system transformation to the proj command will
+> complicate the command syntax.  I would argue that datum shifting adds
+> relatively little new code to the library, but I am not so sure about
+> overloading of the proj command.
+>
+> My fear in introducing a separate command for coordinate system to
+> coordinate system conversion is that I will need to reimplementing
+> essentially all of the functionality already in proj.c, and we will
+> end up with two commands that operate fairly similarly but with
+> one being a superset of the other.  Assuming that the proj command
+> retains backward compatibility to the current argument syntax, what
+> argument would you provide against extending it?
+>
+> Given the feedback I have seen so far, I think there is justification
+> for adding datum shifting (and other coordinate system to coordinate
+> system transformation capabilities) to PROJ.4.  However, I am less
+> convinced of the nead for a unified from/to style of proj command.
+
+As an alternative, I will present my initial thoughts on how to organize
+the problem.  I see it layered in the following manner:
+
+                 coordinate system to coordinate system (cs2cs)
+                           driver main  (keyword control data)
+                       ____________|___________
+                       |                     |                       |
+                 libproj.a         libdatum.a        libcs2cs.a(?)
+
+Libdatum.a code would have initialization and entry point code similar
+to libproj.a and an identical argc/argv control input of keywords.  Note
+that
+I do not see implementation of keyword input system for libdatum as being
+very difficult as some code and techniques can be stolen from libproj.
+
+The only task of cs2cs is splitting the proj keywords for the input system
+and the output system.  For the input inverse projection nothing has to be
+done to the argv list---remember, proj ignores the second of duplicate
+keywords.  But the output forward projection needs to have the input
+keywords removed prior to calling the ininitialization.  If the proposed
+"+to" keyword is used, the massaging of the parameters is brutally simple
+and I'll leave that as an exercise. ;-)  If you want to add the +from, OK
+but
+it will be ignored.
+
+Example:
+
+    cs2cs [input proj keywds] +to [output proj keywds] [datum keywds]
+
+Datum keywords can be placed anywhere and the only item I would be
+sure to put into the libdatum initializer is that if datum keys are absent,
+then
+no datum conversion is performed!
+
+About all cs2cs is doing is manipulating the argv pointer and controlling
+the I/O.  If I were writing it, I'd take proj.c and  rehack it by stripping
+out some of the proj type dependencies and preserving the format
+and file control.
+
+As for libdatum, I'd look at libproj argument handling routine and rehack
+those for the new problem.  I think the argument handling for libdatum
+would be a little simpler.
+
+The emphasis here is libproj is unscathed and libproj and libdatum are
+independent code.  Simplicity is the ultimate keyword.
+
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From gevenden at capecod.net  Wed Jul  5 10:21:17 2000
+From: gevenden at capecod.net (Gerald I. Evenden)
+Date: Wed, 5 Jul 2000 13:21:17 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <86256913.0057573F.00@gate002.ocs.lsu.edu>
+Message-ID: <000d01bfe6a5$6e23de60$c9bcd33f@gevenden>
+
+Notes below.
+
+__________________________________________________
+Jerry Evenden and the Low Riders, Katie and  Daisy May
+gevenden at capecod.net  http://www.capecod.net/~gevenden
+----- Original Message -----
+From: <cjmce at lsu.edu>
+To: <osrs-proj at remotesensing.org>
+Sent: Wednesday, July 05, 2000 11:53 AM
+Subject: Re: [OSRS-PROJ] Datum Shifting
+
+
+> When Atef Elassal wrote GCTP, his objective was to translate John P.
+Snyder
+> to FORTRAN 77.  He did a superb job for the needs of the U.S. Geological
+> Survey at the time.
+
+I don't believe the first version was in 77.  The one I got was in 360, G
+compiler version uncompilable on non-big Blue machines.  The 77 stuff
+that came out later was not so hot either but that's a long story.
+
+> Note that the NADCON algorithm is great for the U.S., but what about
+Canada
+> & Mexico?  I believe "Geomatics Canada" has a hefty price tag on their
+> transformation package for Maple Leaf applications.  Have you seen the
+> eye-popping prices charged by the Norwegians for their datum shift
+package?
+> I think only the U.S. and Australia give their stuff out for free.  South
+> Africa's solution is privately marketed by Prof. Charles Merry at the
+> University of Capetown.
+
+The US is pretty unique in feeling that the taxpayers have already paid
+for the job.  Lots of countries also copyright their maps.  US does not.
+
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From warmerda at home.com  Wed Jul  5 13:21:12 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Wed, 05 Jul 2000 15:21:12 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+References: <86256913.0057573F.00@gate002.ocs.lsu.edu>
+Message-ID: <396398B8.936689A4@home.com>
+
+cjmce at lsu.edu wrote:
+> The inclusion of the MadTran algorithms is actually incomplete for
+> 3-parameter and 7-parameter methods.  In actuality, there is a Bursa-Wolf
+> model and there is a Molodensky-Badekas model.  The NIMA implementation in
+> MadTran was actually the Americanized version of the Bursa-Wolf 7-parameter
+> model.  The European version (such as found in LEICA's "SKI" software for
+> geodetic-quality differential GPS solutions), uses the opposite sign for
+> the infinitesimal rotations.  Whopping errors will result if you confuse
+> the two.  (The only way to avoid errors is to always provide a test point
+> in both coordinate systems).
+
+Cliff,
+
+Is the NIMA Geotrans code superceed MADTRAN?  Does it have the same issues
+to the best of your knowledge?
+
+I am hoping to get something working that can handle all the datum shifting
+methods described in the EPSG database.  It lists the following applicable
+methods with the indicated parameters:
+
+9604,Molodenski,,,X-axis translation,Y-axis translation,Z-axis
+translation,Semi-major axis length difference,Flattening difference
+
+9605,Abridged Molodenski,,,X-axis translation,Y-axis translation,Z-axis
+translation,Semi-major axis length difference,Flattening difference
+
+9603,Geocentric translations,,,X-axis translation,Y-axis translation,Z-axis
+translation
+
+9606,Position Vector 7-param. transformation,,,X-axis translation,Y-axis
+translation,Z-axis translation,X-axis rotation,Y-axis rotation,Z-axis
+rotation,Scale difference
+
+The 7 parameter transformation is is (according to the text) normally
+evaluated using the Bursa-Wolf formula.  I gather the Molodenski (and
+Abridged Molodensky) formulas are normaly applied directly to the
+geodetic coordinates without having to translate to geocentric coordinates
+while the geocentric translation, and bursa-wolf transformations are
+applied on geocentric coordinates. 
+
+It appears that what I have been doing so far is always transforming to
+geocentric coordinates and doing either the geocentric translation (three
+parameters), or the bursa-wolf transformation (7-parameters).  Looking at 
+the Geotrans code, it calls something called Molodensky_Shift() for points 
+not near the poles, and uses geocentric translation or bursa-wolf otherwise.
+
+One thing that freaks me out, is that Molodensky_Shift() does not appear
+to utilize the rotational and scaling parameters, only the 3 translation
+parameters.  I don't quite understand how this can be legitimate. Is this
+the truncation of rotations that you mention is quite inappopriate?
+
+Are the Molodensky and Abridged Molodensky transformations just a way of
+reducing the computational cost by skipping the shift to and from 
+geocentric coordinates?  If so, can I safely ignore it, and just use
+the geocentric translation, and bursa-wolf formulas in geocentric space
+if I don't mind it being slower? 
+
+> When you talk about "elevations" being used in a "datum shift," are you
+> going to take into account the EGM96 Geoid when going to the WGS 84 Datum?
+> What about NIMA's Multiple Regression Equation (MRE) solutions for
+> continental areas?
+
+My understanding of geoid, is that it is the real equigravitational surfrace
+that is important for modelling sea level and so forth. Is that right?  I 
+don't currently intend to deal with shifts between the ellipsoid and the geoid.
+
+When discussing the elevation, I am just pointing out that I must now carry
+a Z in and out of the datum shifts whereas this is not the case (of course)
+for the projection transforms.  
+ 
+> Note that the NADCON algorithm is great for the U.S., but what about Canada
+> & Mexico?  I believe "Geomatics Canada" has a hefty price tag on their
+> transformation package for Maple Leaf applications.  Have you seen the
+> eye-popping prices charged by the Norwegians for their datum shift package?
+> I think only the U.S. and Australia give their stuff out for free.  South
+> Africa's solution is privately marketed by Prof. Charles Merry at the
+> University of Capetown.
+
+My understanding is that the NTv1 data distributed by Geomatics Canada is
+now free, but that the NTv2 data is expensive.  Furthermore, I understand that
+the algorithm to apply the transformation is not protected, and I could
+implement it if I wished. However, I am not intending to do so at this
+time, as it is substantial additional effort, and it doesn't seem to be
+a pressing issue for me.  It might be added at some point in the future. 
+
+
+> Going 3-D "geodetic" is a big chunk to bite off ...
+
+Well, I am the first to admit that I am not intending to do it _well_.  I am
+intending to do it as well as some of the commercial packages I am aware
+of (eg. PCI), and what I know of Geotrans.  I believe this is alot better
+than not doing it at all, even if it isn't everything that could be hoped for.
+Of course, I am listening, and am willing to improve my knowledge of the
+issues, and implementation of them if possible.  I would also stress that I
+am trying to implement code that can support the sort of transformations 
+documented in EPSG (and the derived OGC interfaces).
+
+> I write a monthly column on this stuff with a different country featured
+> each month in "Photogrammetric Engineering and Remote Sensing."  If you
+> have an interest in this type of stuff, look under "GRIDS & DATUMS" at the
+> society's web site:
+> 
+> http://www.asprs.org/resources.html
+> 
+> There's over a dozen past columns of mine available in .pdf format for
+> downloading and printing with Adobe Acrobat Reader.  This month is on the
+> Kingdom of Spain, last month was on the Republic of Ghana.
+> 
+> Cliff
+
+Finally, I would like to say that I am pleasantly surprised to have someone
+of your stature on the list.  I have read some of your posts to USENET with
+interest, and accept you as a top expert in the field.  
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From gevenden at capecod.net  Wed Jul  5 13:01:28 2000
+From: gevenden at capecod.net (Gerald I. Evenden)
+Date: Wed, 5 Jul 2000 16:01:28 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <86256913.0057573F.00@gate002.ocs.lsu.edu> <396398B8.936689A4@home.com>
+Message-ID: <000701bfe6bb$edebf540$edbcd33f@gevenden>
+
+These comments remind me: a general libdatum (or buried in libproj) package
+is a can of worms that pales simple cartographic projections.  Although
+keywords are usable for some Molodensky-like transformations, others
+like the polynomial and NGS's grid method require alternate input.
+
+A lot of this is why I didn't persue the subject 10-15 years ago and
+paid no more attention than the nad2nad program which was easily
+adapted from NGS sources.  At that time info was hard to find
+(especially in the outback regions of Woods Hole) and much of it
+seem locked in secretive vaults.  I did get various pieces of software
+from several kind folks but I was never sure of their pedigree and
+was afraid to use or distribute any of it.  The USGS/NMD never
+seemed to touch the outside world so it was useless at the time.
+
+A *lot of luck* to whoever wants to put together the computational
+part of the datum shift software.  Bit I think the front end could be
+a relative piece of cake.
+
+__________________________________________________
+Jerry Evenden and the Low Riders, Katie and  Daisy May
+gevenden at capecod.net  http://www.capecod.net/~gevenden
+----- Original Message -----
+From: Frank Warmerdam <warmerda at home.com>
+To: <osrs-proj at remotesensing.org>
+Sent: Wednesday, July 05, 2000 4:21 PM
+Subject: Re: [OSRS-PROJ] Datum Shifting
+
+
+> cjmce at lsu.edu wrote:
+> > The inclusion of the MadTran algorithms is actually incomplete for
+> > 3-parameter and 7-parameter methods.  In actuality, there is a
+Bursa-Wolf
+    ... etc, etc.
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From cjmce at lsu.edu  Wed Jul  5 13:41:58 2000
+From: cjmce at lsu.edu (cjmce at lsu.edu)
+Date: Wed, 5 Jul 2000 15:41:58 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+Message-ID: <86256913.0071B56E.00@gate002.ocs.lsu.edu>
+
+Frank,
+
+Comments are imbedded as follows:
+
+>cjmce at LSU.edu wrote:
+> The inclusion of the MadTran algorithms is actually >incomplete for
+3-parameter and 7-parameter methods. In >actuality, there is a Bursa-Wolf
+model and there is a >Molodensky-Badekas model. The NIMA implementation in
+> MadTran was actually the Americanized version of the >Bursa-Wolf
+7-parameter model. The European version (such >as found in LEICA's "SKI"
+software for geodetic-quality >differential GPS solutions), uses the
+opposite sign for
+> the infinitesimal rotations. Whopping errors will result >if you confuse
+the two. (The only way to avoid errors is >to always provide a test point
+in both coordinate systems).
+
+>Cliff,
+
+>Is the NIMA Geotrans code superceed MADTRAN? Does it have >the same issues
+to the best of your knowledge?
+
+I have not looked at it recently, but I would suggest that it largely be
+ignored.
+
+>I am hoping to get something working that can handle all >the datum
+shifting methods described in the EPSG database. >It lists the following
+applicable methods with the >indicated parameters:
+
+>9604,Molodenski,,,X-axis translation,Y-axis translation,Z->axis
+translation,Semi-major axis length >difference,Flattening difference
+
+>9605,Abridged Molodenski,,,X-axis translation,Y-axis >translation,Z-axis
+>translation,Semi-major axis length difference,Flattening >difference
+
+>9603,Geocentric translations,,,X-axis translation,Y-axis
+>translation,Z-axis
+>translation
+
+>9606,Position Vector 7-param. transformation,,,X-axis >translation,Y-axis
+>translation,Z-axis translation,X-axis rotation,Y-axis >rotation,Z-axis
+>rotation,Scale difference
+
+>The 7 parameter transformation is is (according to the >text) normally
+evaluated using the Bursa-Wolf formula.
+
+The EPSG text is specific to what Mr. Roger Lott of British Petroleum
+prefers to do at the approximately one-metre level of transformation
+precision for locating shot points and well heads.  Roger is not looking
+for the ultimate in geodetic precision, although he has nothing against the
+idea as long as it does not get too complicated for the worldwide crew of
+surveyors under his supervision.  There are a number of companies in the
+"oil patch" that like to follow Mr. Roger Lott's lead.  PetroConsultants,
+Inc. would love it if everyone used the "EPSG Standard."  They could sell
+more data that way ...  simplifies their life in Geneva ...
+
+>I gather the Molodenski (and Abridged Molodensky) formulas >are normaly
+applied directly to the geodetic coordinates >without having to translate
+to geocentric coordinates
+>while the geocentric translation, and bursa-wolf >transformations are
+applied on geocentric coordinates.
+
+No.  However, that is true with respect what NIMA calls those
+transformations.  The NIMA nomenclature in that context, however, is
+incorrect.  It is just consistent with decades of DMA/NIMA use of the
+misnomers.  Note that when I was there, it was the Corps of Engineers' Army
+Map Service and then Army Topographic Command.  We didn't make such a faux
+paus until DoD took over ... then after the NRO Spooks took over, well, ...
+!
+
+>It appears that what I have been doing so far is always >transforming to
+geocentric coordinates and doing either >the geocentric translation (three
+parameters), or the >bursa-wolf transformation (7-parameters). Looking at
+the >Geotrans code, it calls something called Molodensky_Shift
+>() for points not near the poles, and uses geocentric
+>translation or bursa-wolf otherwise.
+
+>One thing that freaks me out, is that Molodensky_Shift() >does not appear
+to utilize the rotational and scaling >parameters, only the 3 translation
+parameters. I don't >quite understand how this can be legitimate. Is this
+>the truncation of rotations that you mention is quite >inappopriate?
+
+No, it is not the truncation I spoke of.
+
+
+>Are the Molodensky and Abridged Molodensky transformations >just a way of
+reducing the computational cost by skipping >the shift to and from
+geocentric coordinates?
+
+Absolutely.  The "Abridged version" refers to the fact that they ignore the
+third component, ellipsoid height.  When you are lobbing 155mm Howitzer
+shells for 30 kilometers or less, the blast radius (and crater) will take
+care of geoid separation differences quite effectively.
+
+>If so, can I safely ignore it, and just use the geocentric >translation,
+and bursa-wolf formulas in geocentric space >if I don't mind it being
+slower?
+
+Yes.
+
+> When you talk about "elevations" being used in a "datum >shift," are you
+going to take into account the EGM96 Geoid >when going to the WGS 84 Datum?
+> What about NIMA's Multiple Regression Equation (MRE) >solutions for
+continental areas?
+
+>My understanding of geoid, is that it is the real >equigravitational
+surface that is important for modeling >sea level and so forth. Is that
+right?
+
+Important for terrestrial applications far inland, too.
+
+>I don't currently intend to deal with shifts between the >ellipsoid and
+the geoid.
+
+That's fine, but to be consistent; you should NOT be diddling with
+seven-parameter shift models, either.  If you want to remain largely a
+cartographic application toolbox, I urge you not to dally with the higher
+precision methods.
+If you stick to a military-type implementation, intended for cartographic
+applications at the 1:50,000 source scale and smaller, a simple three
+parameter datum shift implementation is more than adequate for accuracies
+around +/- 25 meters.
+
+>When discussing the elevation, I am just pointing out that >I must now
+carry a Z in and out of the datum shifts >whereas this is not the case (of
+course)for the projection >transforms.
+
+You should use the elevation as being equivalent to ellipsoid height for a
+3-D solution.  It is preferable, anyway, and for a +/- 25 meter error
+budget - it's simpler.
+The "new" ellipsoid height on the new datum will probably give a number of
+cartographers no small amount of heartburn, but that's good.  They SHOULD
+read more!
+... especially my stuff.  I consider myself a cartographer; not a
+geodesist.
+
+> Note that the NADCON algorithm is great for the U.S., but >what about
+Canada & Mexico? I believe "Geomatics Canada" >has a hefty price tag on
+their transformation package for >Maple Leaf applications. Have you seen
+the
+> eye-popping prices charged by the Norwegians for their >datum shift
+package?
+> I think only the U.S. and Australia give their stuff out >for free. South
+Africa's solution is privately marketed by >Prof. Charles Merry at the
+University of Capetown.
+
+>My understanding is that the NTv1 data distributed by >Geomatics Canada is
+now free, but that the NTv2 data is >expensive. Furthermore, I understand
+that the algorithm to >apply the transformation is not protected, and I
+could
+>implement it if I wished. However, I am not intending to >do so at this
+time, as it is substantial additional >effort, and it doesn't seem to be a
+pressing issue for me. >It might be added at some point in the future.
+
+I was attempting to play Devil's Advocate in that paragraph.  I suggest
+that you leave the higher-precision models to the individual user to keep
+this stuff manageable for cartographic apps.
+
+> Going 3-D "geodetic" is a big chunk to bite off ...
+
+>Well, I am the first to admit that I am not intending to >do it _well_. I
+am intending to do it as well as some of >the commercial packages I am
+aware of (eg. PCI), and what >I know of Geotrans.
+
+The PCI implementation is the old "BP Projection Module" License.  It was
+the early foundation of the EPSG attempts later improved upon by the same
+guy, Mr. Roger Lott.
+
+
+>I believe this is alot better than not doing it at all, >even if it isn't
+everything that could be hoped for.
+>Of course, I am listening, and am willing to improve my >knowledge of the
+issues, and implementation of them if >possible. I would also stress that I
+am trying to >implement code that can support the sort of transformations
+>documented in EPSG (and the derived OGC interfaces).
+
+I would recommend that you NOT try to emulate the EPSG system.  It has
+problems, although fewer and fewer as Roger and I talk from time to time.
+The EPSG model is essentially intended for the professional surveyor with
+R.I.C.S. (Royal Institute of Chartered Surveyors), after his name, and not
+for a general purpose cartographic utility.
+
+> I write a monthly column on this stuff with a different >country featured
+each month in "Photogrammetric >Engineering and Remote Sensing." If you
+have an interest >in this type of stuff, look under "GRIDS & DATUMS" at the
+> society's web site:
+>
+> http://www.asprs.org/resources.html
+>
+> There's over a dozen past columns of mine available in
+> .pdf format for downloading and printing with Adobe
+> Acrobat Reader. This month is on the Kingdom of Spain,
+> last month was on the Republic of Ghana.
+>
+> Cliff
+
+>Finally, I would like to say that I am pleasantly >surprised to have
+someone of your stature on the list. I >have read some of your posts to
+USENET with
+>interest, and accept you as a top expert in the field.
+
+>Best regards,
+
+>Frank Warmerdam, warmerda at home.com
+
+Hope this advice helps.
+
+Cliff
+
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From martinm at six.net  Wed Jul  5 18:32:13 2000
+From: martinm at six.net (Martin Manningham)
+Date: Wed, 05 Jul 2000 21:32:13 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <3961F5D1.EDE7A78F@home.com> <002701bfe619$eb0c83a0$5fbad33f@gevenden> <39629CDF.CB741BFF@home.com>
+Message-ID: <3963E19D.289DA3A6@six.net>
+
+
+
+Frank Warmerdam wrote:
+
+> "Gerald I. Evenden" wrote:
+> > > I am finally getting around to incorporating datum shifting support into
+> > > PROJ.4, and I would be interested in some feedback on approaches.
+> >
+> > Got plenty.
+> >
+> > A hypercritical note here.  We are talking about the PROJ.4 library system.
+>
+> Gerald,
+>
+> I am not sure I see your point.  Is it just that it is properly titled as
+> "The PROJ.4 Library System" or that PROJ.4 is primarily a library, and
+> secondarily available as user tools?
+>
+> > Correct!  PROJ.x system is purely designed for cartographic projection
+> > operations.
+> > Same as NMD's GCTP.
+> ...
+> > Other than supplying the ellipsoid parameters, datums have nothing to do
+> > with cartographic projections.  I suggest adding the above to PROJ.4 is
+> > counter to the purpose of the package.
+> ...
+> > You have two basic problems: 1) cartographic projections and 2) datum
+> > shifts.
+> > All the factors involved are very nicely separated and can be similarly
+> > treated
+> > with separate pieces of software.  Problem 1 seems to be niecely solved and
+> > problem 2 seems easily solvable in a similar manner.  Why throw everything
+> > into one stew pot?  It just makes the stirring more difficult.
+>
+> You are absolutely correct that what I propose is extending PROJ.4 from
+> being a cartographic projections library system to being a cartographic
+> coordinate system translation library system.
+>
+> One viable solution to building a broader coordinate system translation
+> package would be to build separate components for datum shifting as
+> an unrelated API, and applications using the libraries would be responsible
+> for calling them in appropriate sequence.  At the command line, programs
+> like proj could be used via pipes in combination with other programs
+> doing datum shifting.
+>
+> However, I would claim that it is "natural" to consider coordinate
+> system translation a relatively unified task, and that there are good
+> reasons to offer a unified API to accomplish them.
+>
+>  o It is useful to have a unified, and reasonably consistent way of
+>    describing coordinate systems as a whole for users.  For me PROJ.4
+>    projection parameter syntax is more than just a way to invoke the ``proj''
+>    command.  They are a format for describing projections (and soon hopefully
+>    coordinate systems).   I will potentially want to describe other aspects
+>    of my coordinate system via the syntax as well, such as vertical datums.
+>
+>    In my mind one of PROJ.4's great advantages over GCTP is a consistent
+>    user accessable textual syntax for describing projections.
+>
+>  o Applications will generally still need a unified API to handle coordinate
+>    system transformations.  Why make every application that uses PROJ.4
+>    handle the integration of it with a datum shifting system?  The result
+>    so far has been a number of systems developed with missing, or poorly
+>    integrated datum shifting capability because it wasn't conveniently
+>    handled by PROJ.4 (notably OGDI, GRASS, and my own OGRSpatialReference
+>    stuff).
+>
+> An argument could be made that adding datum shifting to libproj.a (and
+> libproj.so) will make it bigger for people who don't even care about
+> datum shifting.  Similarly you could make a case that adding coordinate
+> system to coordinate system transformation to the proj command will
+> complicate the command syntax.  I would argue that datum shifting adds
+> relatively little new code to the library, but I am not so sure about
+> overloading of the proj command.
+>
+> My fear in introducing a separate command for coordinate system to
+> coordinate system conversion is that I will need to reimplementing
+> essentially all of the functionality already in proj.c, and we will
+> end up with two commands that operate fairly similarly but with
+> one being a superset of the other.  Assuming that the proj command
+> retains backward compatibility to the current argument syntax, what
+> argument would you provide against extending it?
+>
+> Given the feedback I have seen so far, I think there is justification
+> for adding datum shifting (and other coordinate system to coordinate
+> system transformation capabilities) to PROJ.4.  However, I am less
+> convinced of the nead for a unified from/to style of proj command.
+>
+> > >  o Adding +proj=latlong as a legal "projection" meaning that the
+> > coordinates
+> > >    are in geodetic coordinates rather than a projection system.
+> >
+> > This one makes no sense to me.  Dummy argument?
+>
+> This is so that we can describe the geodetic coordinate system directly.
+> Already systems like OGDI which use PROJ.4 as their projections library also
+> use PROJ.4 syntax for describing coordinate systems.  OGDI has already adopted
+> the convention of +proj=latlong meaning the coordinates are in lat/long.
+>
+> Best regards,
+>
+
+I could add one or two comments about the use of PROJ 4 in the OGDI. The
+idea is to handle maps
+represented and geo-referenced in a given coordinate system into a new
+representation defined by a user.
+The whole idea is to combine geographic informations and maps, vectorial
+or imagery, from various sources
+to a certain "view" or map. Of course, the "from/to" of PROJ 4 is not
+applied directly, to transform from
+one geographic coordinate to another, we must first perform a "from"
+with a projection "A" and take the
+result to perform a "to" with a projection "B".
+
+I am not a mathematician, only a computer scientist. I agree with Frank
+in this debate, the people who
+need to transform coordinates usually also need to perform datum
+transformation. And the only way to
+ensure this is done properly is by integrating in a single library and
+API all transformations (projection
+and datum). It's obvious for me.
+
+In the other hand (I agree with Mr Evenden here): Datum transformation
+isn't as easy to handle than projection transformation. Most of the
+time, this is only a shift applied to a certain system of coordinates of
+a small map, and people are using tables to perform this operation.
+Tables are difficult to handle since they could be big and their format
+could change over time. But they are most of the time more flexible and
+precise Of course, there is some mathematical transformations of the
+requested shifts from one datum to another (nad27 to WGS84 or stuff like
+this) and this must be put into consideration on this situation...
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From martinm at six.net  Wed Jul  5 18:49:13 2000
+From: martinm at six.net (Martin Manningham)
+Date: Wed, 05 Jul 2000 21:49:13 -0400
+Subject: [OSRS-PROJ] Datum Shifting
+References: <3961F5D1.EDE7A78F@home.com> <002701bfe619$eb0c83a0$5fbad33f@gevenden> <39629CDF.CB741BFF@home.com> <3963E19D.289DA3A6@six.net>
+Message-ID: <3963E599.DF3C4BD8@six.net>
+
+
+
+Martin Manningham wrote:
+
+> In the other hand (I agree with Mr Evenden here): Datum transformation
+> isn't as easy to handle than projection transformation. Most of the
+> time, this is only a shift applied to a certain system of coordinates of
+> a small map, and people are using tables to perform this operation.
+> Tables are difficult to handle since they could be big and their format
+> could change over time. But they are most of the time more flexible and
+> precise Of course, there is some mathematical transformations of the
+> requested shifts from one datum to another (nad27 to WGS84 or stuff like
+> this) and this must be put into consideration on this situation...
+
+Sorry about the last paragraph, I was composing this email when I sent this email
+before completion by mistake.
+
+To finish what I was saying, a problem of datum transformation is there is no easy
+way to go from one datum to another, and a new library will have to be as modular
+than possible to respect the variety of existing datum transformation. Or the
+library will have to be build to handle all the possible datum transformation,
+including datum table handling.
+
+This problem isn`t an easy one. I think integration of this transformation is
+important, but how to handle every possible datum transformation without increasing
+the complexity of the API or string representation of a projection?
+
+Regards
+
+Martin Manningham
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From warmerda at home.com  Thu Jul  6 18:04:41 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Thu, 06 Jul 2000 20:04:41 -0500
+Subject: [OSRS-PROJ] Datum Shifting
+Message-ID: <39652CA9.7FF8006F@home.com>
+
+Folks,
+
+Well, I have been beavering away on datum shifting support for a couple
+days, and have made substantial progress.  
+
+At the coordinate system definition level I have added:
+
+ +datum=name
+	The name is looked up in a list of datums, and used to imply an
+        ellipsoid, and a datum definition (+towgs84= or +nadgrids=)
+ 
+ +towgs84=xshift,yshift,zshift[,xrot,yrot,zrot,scale]
+        Defines a shift to WGS84 for a datum. 
+
+ +nadgrids=file[,file...]
+        Gives a list of files to be used to perform grid shift to WGS84 
+        for this datum (only in the output format nad2bin for now). 
+
+ +proj=latlong
+        Defines a coordinate system as being geodetic, rather than projected.
+
+The PJ data structure has been extended with the following fields:
+
+        int     datum_type; /* PJD_UNKNOWN/3PARAM/7PARAM/GRIDSHIFT/WGS84 */
+        double  datum_params[7];
+        int is_latlong; /* proj=latlong ... not really a projection at all */
+
+Note that for the latlong coordinate system a forward, and inverse function
+have been implemented that do nothing.  Just mapping a location in angular
+radians back onto itself.  
+
+The following prototypes have been added to projects.h.  The point_offset
+argument indicates the stepsize in doubles between entries in the x, y, and
+z arrays.  For data held in xyzxyz format the point_offset would be 3.  For
+data in separate x, y, z arrays the point_offset would be 1. 
+
+int pj_transform( PJ *src, PJ *dst, long point_count, int point_offset,
+                  double *x, double *y, double *z );
+int pj_datum_transform( PJ *src, PJ *dst, long point_count, int point_offset,
+                        double *x, double *y, double *z );
+int pj_geocentric_to_geodetic( double a, double ra,
+                               long point_count, int point_offset,
+                               double *x, double *y, double *z );
+int pj_geodetic_to_geocentric( double a, double ra,
+                               long point_count, int point_offset,
+                               double *x, double *y, double *z );
+int pj_compare_datums( PJ *srcdefn, PJ *dstdefn );
+int pj_apply_gridshift( const char *, int, 
+                        long point_count, int point_offset,
+                        double *x, double *y, double *z );
+void pj_deallocate_grids();
+
+The only aspect that I plan to document for public use is pj_transform()
+which operates as described before.  However, the geocentric/geodetic
+conversion functions and some others might be useful to some applications
+in isolation.  Each of the functions that returns an int is returning an
+error code (0 is success).  I have also learn about the pj_errno flag which
+is also set properly by these functions. 
+
+The pj_init() function works as it always did, but now calls pj_datum_set()
+to parse datum parameters (+datum=, +towgs84= and +nadgrids=).  The datum
+parameters are all optional.  The pj_inv() and pj_fwd() functions are unchanged. 
+The pj_transform() is the entry point to take advantage of datum shifting.
+
+Note that pj_transform() does 3/7 parameter geocentric shifts as well as
+supporting NAD27/83 grid shifting using the existing nad_cvt() API. 
+
+I have changed proj to support the -ld options to list datums, but have 
+otherwise left it unchanged.  I have implemented a new cs2cs program with
+works someone similarly to the proj program, but with less options (no binary,
+Chebyshev polynomials, error estimates, or verbose out).  For now I am using
+the +to parameter as a separator between the from and to coordinate systems. 
+
+For example:
+warmerda at cs46980-c[384]% cs2cs -ld
+__datum_id__ __ellipse___ __definition/comments______________________________
+       WGS84 WGS84        towgs84=0,0,0                 
+      GGRS87 GRS80        towgs84=-199.87,74.79,246.62  
+                          Greek_Geodetic_Reference_System_1987
+       NAD83 GRS80        towgs84=0,0,0                 
+                          North_American_Datum_1983
+       NAD27 clrk66       nadgrids=conus                
+                          North_American_Datum_1927
+
+warmerda at cs46980-c[386]% cs2cs -v +proj=latlong +datum=NAD27 +to +proj=latlong
++datum=GGRS87
+# ---- From Coordinate System ----
+#Lat/long (Geodetic)
+#
+# +proj=latlong +datum=NAD27 +ellps=clrk66 +nadgrids=conus
+# ---- To Coordinate System ----
+#Lat/long (Geodetic)
+#
+# +proj=latlong +datum=GGRS87 +ellps=GRS80 +towgs84=-199.87,74.79,246.62
+-117 33
+116d59'54.943"W 32d59'53.873"N -154.525
+
+warmerda at cs46980-c[390]% cs2cs -v +units=us-ft +init=nad27:406 +to +units=m
++proj=utm +zone=11 +datum=WGS84
+# ---- From Coordinate System ----
+#Lambert Conformal Conic
+#       Conic, Sph&Ell
+#       lat_1= and lat_2= or lat_0
+# +units=us-ft +init=../nad/nad27:406 +proj=lcc +datum=NAD27 +lon_0=-116d15
+# +lat_1=33d53 +lat_2=32d47 +lat_0=32d10 +x_0=609601.2192024384 +y_0=0
+# +no_defs +ellps=clrk66 +nadgrids=conus
+# ---- To Coordinate System ----
+#Universal Transverse Mercator (UTM)
+#       Cyl, Sph
+#       zone= south
+# +units=m +proj=utm +zone=11 +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0
+400000 100000
+82688.56        3585908.61 0.000
+
+As you can see from the ``cs2cs -ld'' command, I have a rather limited set of
+datums hardcoded so far.  I am interested in how I should name them, and what 
+datums I should use.  Possible sources are EPSG, Mapinfo's datum list, PCI's
+datum list, Geotrans's list (several of these are based on DMA TR 8350.2-B)
+but this still leaves a question of what short names to use. 
+
+Anyways, I am being called to bath the kids, so I have to go now.   The code
+is checked into CVS in case anyone wants to look at it. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From jlargent at imagelinks.com  Fri Jul  7 06:27:30 2000
+From: jlargent at imagelinks.com (Jeff Largent)
+Date: Fri, 07 Jul 2000 09:27:30 -0400
+Subject: [OSRS-PROJ] remotesensing.org web site.
+Message-ID: <3965DAC2.1FB06862@imagelinks.com>
+
+Just a quick note to let everyone know that the
+remote sensing web site/lists/cvs will be down for
+several hours this weekend.  We are upgrading the
+server to redhat6.2.  If there are any problems
+please let me know.
+
+thank you
+
+-- 
+Jeff Largent                   ImageLinks, Inc.
+System Admin                   Melbourne, Fl 32935
+(321) 253-0011                 fax:(321) 253-5559
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From jlargent at imagelinks.com  Mon Jul 10 06:03:49 2000
+From: jlargent at imagelinks.com (Jeff Largent)
+Date: Mon, 10 Jul 2000 09:03:49 -0400
+Subject: [OSRS-PROJ] remotesensing.org web site.
+Message-ID: <3969C9B5.C785F68E@imagelinks.com>
+
+The upgrade to OSRS was completed over the weekend.
+Sorry about the messup on the mailing lists, I forgot
+to turn sendmail back on after I ran some tests.  If
+anyone has any problems with the site please let me
+know.
+
+Thank you
+
+
+-- 
+Jeff Largent                   ImageLinks, Inc.
+System Admin                   Melbourne, Fl 32935
+(321) 253-0011                 fax:(321) 253-5559
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From jlargent at imagelinks.com  Wed Jul 12 14:25:31 2000
+From: jlargent at imagelinks.com (Jeff Largent)
+Date: Wed, 12 Jul 2000 17:25:31 -0400
+Subject: [OSRS-PROJ] Remotesensing Maillists
+Message-ID: <396CE24B.399EBAA@imagelinks.com>
+
+Due to popular request I added a search function
+to the mailing list archives.
+Send any comments/suggestions.
+
+thank you
+
+-- 
+Jeff Largent                   ImageLinks, Inc.
+System Admin                   Melbourne, Fl 32935
+(321) 253-0011                 fax:(321) 253-5559
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From kibez at gilan.uar.net  Wed Jul 19 02:45:15 2000
+From: kibez at gilan.uar.net (kibez)
+Date: Wed, 19 Jul 2000 08:45:15 -0100
+Subject: [OSRS-PROJ] ArcView projection & PROJ.4 projection
+Message-ID: <397578AA.A1874C60@gilan.uar.net>
+
+I had problem with installation necessary projection for a map
+
+In ArcView it is described so:
+
+Projection:     Transverse Mercator
+Spheroid:        Krasovsky
+Central Meridian:    33.0
+Reference Latitude:    0.0
+Scale Factor:            1.0
+False Easting:            6500.0
+False Northing:            0.0
+
+It is possible - whether to describe such projection a mapserver ???
+(PROJ.4 ???)
+PROJECTION
+    "PROJ = tmerk"
+    "ELLPS = krass"
+
+???????????????????
+END
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From warmerda at home.com  Wed Jul 19 07:14:18 2000
+From: warmerda at home.com (Frank Warmerdam)
+Date: Wed, 19 Jul 2000 09:14:18 -0500
+Subject: [OSRS-PROJ] ArcView projection & PROJ.4 projection
+References: <397578AA.A1874C60@gilan.uar.net>
+Message-ID: <3975B7BA.1038119@home.com>
+
+kibez wrote:
+> 
+> I had problem with installation necessary projection for a map
+> 
+> In ArcView it is described so:
+> 
+> Projection:     Transverse Mercator
+> Spheroid:        Krasovsky
+> Central Meridian:    33.0
+> Reference Latitude:    0.0
+> Scale Factor:            1.0
+> False Easting:            6500.0
+> False Northing:            0.0
+> 
+> It is possible - whether to describe such projection a mapserver ???
+> (PROJ.4 ???)
+> PROJECTION
+>     "PROJ = tmerk"
+>     "ELLPS = krass"
+
+I must confess I am not clear on MapServer syntax for using PROJ.4; however, 
+the PROJ.4 parameters would be:
+
+proj=tmerc lon_0=33.0 lat_0=0.0 k_0=1.0 x_0=6500.0 y_0=0.0 ellps=krass
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerda at home.com
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+
+From Andreas.Lange at Rhein-Main.de  Thu Jul 20 01:22:58 2000
+From: Andreas.Lange at Rhein-Main.de (Andreas Lange)
+Date: Thu, 20 Jul 2000 10:22:58 +0200
+Subject: [OSRS-PROJ] ArcView projection & PROJ.4 projection
+References: <397578AA.A1874C60@gilan.uar.net> <3975B7BA.1038119@home.com>
+Message-ID: <3976B6E2.45FF2E70@Rhein-Main.de>
+
+Frank Warmerdam wrote:
+> 
+> kibez wrote:
+> >
+> > I had problem with installation necessary projection for a map
+> >
+> > In ArcView it is described so:
+> >
+> > Projection:     Transverse Mercator
+> > Spheroid:        Krasovsky
+> > Central Meridian:    33.0
+> > Reference Latitude:    0.0
+> > Scale Factor:            1.0
+> > False Easting:            6500.0
+> > False Northing:            0.0
+> >
+> > It is possible - whether to describe such projection a mapserver ???
+> > (PROJ.4 ???)
+> > PROJECTION
+> >     "PROJ = tmerk"
+> >     "ELLPS = krass"
+> 
+> I must confess I am not clear on MapServer syntax for using PROJ.4; however,
+> the PROJ.4 parameters would be:
+> 
+> proj=tmerc lon_0=33.0 lat_0=0.0 k_0=1.0 x_0=6500.0 y_0=0.0 ellps=krass
+> 
+> Best regards,
+
+Hi,
+
+an additional note: I suspect that the false easting is in kilometers,
+so you should figure out if this is true and use x_0=6500000.0 .
+
+cu,
+
+Andreas
+-- 
+Andreas Lange, 65187 Wiesbaden, Germany, Tel. +49 611 807850
+Andreas.Lange at Rhein-Main.de - A.C.Lange at GMX.net
+
+----------------------------------------
+OSRS PRoject PROJ Discussion List
+To Subscribe: send a message to majordomo at remotesensing.org with 'subscribe osrs-proj' in the body
+To Unsubscribe: send a message to majordomo at remotesensing.org with 'unsubscribe osrs-proj' in the body
+To Report Problems: send a message to owner-osrs-proj at remotesensing.org
+
+

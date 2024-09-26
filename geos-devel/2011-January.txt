@@ -1,0 +1,2567 @@
+From James.Sewell at lisasoft.com  Tue Jan 11 20:06:05 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Tue Jan 11 20:07:11 2011
+Subject: [geos-devel] GEOS errors from PostGIS
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B982641@optimus.ms.a2end.com>
+
+Hello All,
+
+I am currently creating an OSS Python app which uses PostGIS (and thus GEOS) to combines multiple layers and carries through attributes.
+
+I am using a method derived from Paul Ramsey's http://s3.opengeo.org/postgis-power.pdf document. The steps I am taking are as follows:
+
+
+*         Take the left and right layers and split them into smaller segments
+
+*         Iterate through the segments doing the following:
+
+o   Use the following to dump each side to linework
+
+
+SELECT ST_Collect(a.the_geom) AS the_geom
+                            FROM (SELECT
+                                (ST_Dump
+                                (ST_Exteriorring(
+                                (ST_Dumprings(
+                                (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+
+
+o   Put two resulting multi-polygons into a table, make sure they are valid (and all encapsulated polys are valid),  and union to remove overlap as follows
+
+SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+
+
+o   Build the polygons back up as follows
+
+SELECT a.the_geom AS the_geom,
+                                ST_pointonsurface(a.the_geom) AS point,
+                                0 AS leftgid, 0 AS rightgid
+FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+
+
+
+o   Then use an overlay to map the attributes back through from the left and the right.
+
+
+The process works, however I am getting problems with GEOS Non Noded Intersection ("GEOS union() threw an error!") crashes in some areas. These can often be fixed by rearranging the data (importing in a different order, snapping to a slightly different grid etc...).
+
+When a failure occurs I am given two linestrings and a point, however these usually bear no relationship to the lines in either the expected output, the left or the right side other than being in the same area.
+
+Unfortunately I can't provide data at the moment as any attempt to reduce the size of the dataset seems to remove (or relocate) the problem. I will try and get permission to release some data from the customer, but this will take some time.
+
+One thing to note is that the layers I am combining contain very complex and very similar linework. It would not be unexpected to get 10 sets of similar but not identical linework all running around an area. This is acceptable for the end product, but I am wondering if it is upsetting the Union somehow?
+
+If anyone has any ideas they would be most appreciated.
+
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110112/445d1120/attachment.html
+From James.Sewell at lisasoft.com  Tue Jan 11 21:23:01 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Tue Jan 11 21:23:05 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+
+Sorry, I didn't include the actual error:
+
+An example is:
+
+NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+This particular one is a two very small identical lines, this isn't always the case but seems to be the majority of the time.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: James.Sewell@lisasoft.com
+Sent: Wednesday, 12 January 2011 12:06 PM
+To: 'geos-devel@lists.osgeo.org'
+Subject: GEOS errors from PostGIS
+
+Hello All,
+
+I am currently creating an OSS Python app which uses PostGIS (and thus GEOS) to combines multiple layers and carries through attributes.
+
+I am using a method derived from Paul Ramsey's http://s3.opengeo.org/postgis-power.pdf document. The steps I am taking are as follows:
+
+
+*         Take the left and right layers and split them into smaller segments
+
+*         Iterate through the segments doing the following:
+
+o   Use the following to dump each side to linework
+
+
+SELECT ST_Collect(a.the_geom) AS the_geom
+                            FROM (SELECT
+                                (ST_Dump
+                                (ST_Exteriorring(
+                                (ST_Dumprings(
+                                (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+
+
+o   Put two resulting multi-polygons into a table, make sure they are valid (and all encapsulated polys are valid),  and union to remove overlap as follows
+
+SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+
+
+o   Build the polygons back up as follows
+
+SELECT a.the_geom AS the_geom,
+                                ST_pointonsurface(a.the_geom) AS point,
+                                0 AS leftgid, 0 AS rightgid
+FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+
+
+
+o   Then use an overlay to map the attributes back through from the left and the right.
+
+
+The process works, however I am getting problems with GEOS Non Noded Intersection ("GEOS union() threw an error!") crashes in some areas. These can often be fixed by rearranging the data (importing in a different order, snapping to a slightly different grid etc...).
+
+When a failure occurs I am given two linestrings and a point, however these usually bear no relationship to the lines in either the expected output, the left or the right side other than being in the same area.
+
+Unfortunately I can't provide data at the moment as any attempt to reduce the size of the dataset seems to remove (or relocate) the problem. I will try and get permission to release some data from the customer, but this will take some time.
+
+One thing to note is that the layers I am combining contain very complex and very similar linework. It would not be unexpected to get 10 sets of similar but not identical linework all running around an area. This is acceptable for the end product, but I am wondering if it is upsetting the Union somehow?
+
+If anyone has any ideas they would be most appreciated.
+
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110112/72af7385/attachment-0001.html
+From strk at keybit.net  Thu Jan 13 08:41:24 2011
+From: strk at keybit.net (strk)
+Date: Thu Jan 13 08:41:32 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+Message-ID: <20110113134124.GE1385@keybit.net>
+
+On Wed, Jan 12, 2011 at 12:53:01PM +1030, James.Sewell@lisasoft.com wrote:
+> Sorry, I didn't include the actual error:
+
+You didn't include PostGIS and GEOS versions as well:
+SELECT postgis_full_version();
+
+> An example is:
+> 
+> NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+That's a NOTICE, shouldn't be a show-stopper.
+Did you really check your input with ST_IsValid, btw ?
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From James.Sewell at lisasoft.com  Thu Jan 13 17:47:44 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Thu Jan 13 17:47:50 2011
+Subject: [geos-devel] RE: geos-devel Digest, Vol 99, Issue 2
+In-Reply-To: <20110113170013.90BBFE02175@lists.osgeo.org>
+References: <20110113170013.90BBFE02175@lists.osgeo.org>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B98265A@optimus.ms.a2end.com>
+
+Sorry about that,
+
+My version is:
+
+POSTGIS="1.5.2" GEOS="3.2.2-CAPI-1.6.2" PROJ="Rel. 4.7.1, 23 September 2009"
+ LIBXML="2.6.26" USE_STATS
+
+I am running on CentOS 32 Bit
+
+The error is:
+
+GEOS union() threw an error!
+
+Which is accompanied by the notice:
+
+NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+It crashes the command.
+
+All inputs are clean (and are multilinestrings at this stage)
+
+Thanks for the reply, much appreciated.
+
+
+Cheers,
+James Sewell?
+Developer?
+LISAsoft?
+
+Ph:?+61 3 8680 3250?Fax:?+61 3 8680 3299?
+Level 9, 601 Bourke St, Melbourne Vic 3000
+
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au
+http://www.lisasoft.com
+http://www.terrapages.com
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of geos-devel-request@lists.osgeo.org
+Sent: Friday, 14 January 2011 4:00 AM
+To: geos-devel@lists.osgeo.org
+Subject: geos-devel Digest, Vol 99, Issue 2
+
+Send geos-devel mailing list submissions to
+	geos-devel@lists.osgeo.org
+
+To subscribe or unsubscribe via the World Wide Web, visit
+	http://lists.osgeo.org/mailman/listinfo/geos-devel
+or, via email, send a message with subject or body 'help' to
+	geos-devel-request@lists.osgeo.org
+
+You can reach the person managing the list at
+	geos-devel-owner@lists.osgeo.org
+
+When replying, please edit your Subject line so it is more specific
+than "Re: Contents of geos-devel digest..."
+
+
+Today's Topics:
+
+   1. Re: RE:  GEOS errors from PostGIS (strk)
+
+
+----------------------------------------------------------------------
+
+Message: 1
+Date: Thu, 13 Jan 2011 14:41:24 +0100
+From: strk <strk@keybit.net>
+Subject: Re: [geos-devel] RE:  GEOS errors from PostGIS
+To: GEOS Development List <geos-devel@lists.osgeo.org>
+Message-ID: <20110113134124.GE1385@keybit.net>
+Content-Type: text/plain; charset=us-ascii
+
+On Wed, Jan 12, 2011 at 12:53:01PM +1030, James.Sewell@lisasoft.com wrote:
+> Sorry, I didn't include the actual error:
+
+You didn't include PostGIS and GEOS versions as well:
+SELECT postgis_full_version();
+
+> An example is:
+> 
+> NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+That's a NOTICE, shouldn't be a show-stopper.
+Did you really check your input with ST_IsValid, btw ?
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+
+
+------------------------------
+
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+End of geos-devel Digest, Vol 99, Issue 2
+*****************************************
+From mtnclimb at telus.net  Thu Jan 13 22:51:16 2011
+From: mtnclimb at telus.net (Martin Davis)
+Date: Fri Jan 14 00:07:13 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+Message-ID: <4D2FC834.8040404@telus.net>
+
+James,
+
+I suspect this may be caused by a known bug in the Unary union.  This 
+was identified in this thread on the JTS list:
+
+http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+
+I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this 
+fix hasn't made it's way into GEOS and PostGIS yet.
+
+The thing to do is to get this fixed in GEOS, rolled into PostGIS, and 
+then you can retest your union case.
+
+Martin
+
+On 1/11/2011 6:23 PM, James.Sewell@lisasoft.com wrote:
+>
+> Sorry, I didn't include the actual error:
+>
+> An example is:
+>
+> NOTICE: TopologyException: found non-noded intersection between 
+> LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 
+> -36.881, 143.861 -36.881) at 143.861 -36.881
+>
+> This particular one is a two very small identical lines, this isn't 
+> always the case but seems to be the majority of the time.
+>
+> Cheers,
+>
+> James Sewell
+> Developer
+> LISAsoft
+>
+> ------------------------------------------------------------------------
+>
+> *Ph: *+61 3 8680 3250 *Fax: *+61 3 8680 3299
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+> ------------------------------------------------------------------------
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au <http://www.ardec.com.au/>
+> http://www.lisasoft.com <http://www.lisasoft.com/>
+> http://www.terrapages.com <http://www.terrapages.com/>
+>
+> *From:*James.Sewell@lisasoft.com
+> *Sent:* Wednesday, 12 January 2011 12:06 PM
+> *To:* 'geos-devel@lists.osgeo.org'
+> *Subject:* GEOS errors from PostGIS
+>
+> Hello All,
+>
+> I am currently creating an OSS Python app which uses PostGIS (and thus 
+> GEOS) to combines multiple layers and carries through attributes.
+>
+> I am using a method derived from Paul Ramsey's 
+> http://s3.opengeo.org/postgis-power.pdf document. The steps I am 
+> taking are as follows:
+>
+> ?Take the left and right layers and split them into smaller segments
+>
+> ?Iterate through the segments doing the following:
+>
+> oUse the following to dump each side to linework
+>
+> SELECT ST_Collect(a.the_geom) AS the_geom
+>
+>                             FROM (SELECT
+>
+>                                 (ST_Dump
+>
+>                                 (ST_Exteriorring(
+>
+>                                 (ST_Dumprings(
+>
+>                                 
+> (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+>
+> oPut two resulting multi-polygons into a table, make sure they are 
+> valid (and all encapsulated polys are valid),  and union to remove 
+> overlap as follows
+>
+> SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+>
+> oBuild the polygons back up as follows
+>
+> SELECT a.the_geom AS the_geom,
+>
+>                                 ST_pointonsurface(a.the_geom) AS point,
+>
+>                                 0 AS leftgid, 0 AS rightgid
+>
+> FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+>
+> oThen use an overlay to map the attributes back through from the left 
+> and the right.
+>
+> The process works, however I am getting problems with GEOS Non Noded 
+> Intersection ("GEOS union() threw an error!") crashes in some areas. 
+> These can often be fixed by rearranging the data (importing in a 
+> different order, snapping to a slightly different grid etc...).
+>
+> When a failure occurs I am given two linestrings and a point, however 
+> these usually bear no relationship to the lines in either the expected 
+> output, the left or the right side other than being in the same area.
+>
+> Unfortunately I can't provide data at the moment as any attempt to 
+> reduce the size of the dataset seems to remove (or relocate) the 
+> problem. I will try and get permission to release some data from the 
+> customer, but this will take some time.
+>
+> One thing to note is that the layers I am combining contain very 
+> complex and very similar linework. It would not be unexpected to get 
+> 10 sets of similar but not identical linework all running around an 
+> area. This is acceptable for the end product, but I am wondering if it 
+> is upsetting the Union somehow?
+>
+> If anyone has any ideas they would be most appreciated.
+>
+> Cheers,
+>
+> James Sewell
+> Developer
+> LISAsoft
+>
+> ------------------------------------------------------------------------
+>
+> *Ph: *+61 3 8680 3250 *Fax: *+61 3 8680 3299
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+> ------------------------------------------------------------------------
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au <http://www.ardec.com.au/>
+> http://www.lisasoft.com <http://www.lisasoft.com/>
+> http://www.terrapages.com <http://www.terrapages.com/>
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> No virus found in this message.
+> Checked by AVG - www.avg.com <http://www.avg.com>
+> Version: 10.0.1191 / Virus Database: 1435/3373 - Release Date: 01/11/11
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110113/a502a05d/attachment-0001.html
+From James.Sewell at lisasoft.com  Fri Jan 14 00:54:35 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Fri Jan 14 00:54:40 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <4D2FC834.8040404@telus.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+
+Thanks Martin,
+
+I'll install the latest nightly build of GEOS, recompile PostGIS and hope for the best.
+
+Reading the thread does that mean that st_union(geom, geom) should work in this case? I had previously done some testing and it didn't seem to, I'll test again though.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 2:51 PM
+To: geos-devel@lists.osgeo.org
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+James,
+
+I suspect this may be caused by a known bug in the Unary union.  This was identified in this thread on the JTS list:
+
+http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+
+I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this fix hasn't made it's way into GEOS and PostGIS yet.
+
+The thing to do is to get this fixed in GEOS, rolled into PostGIS, and then you can retest your union case.
+
+Martin
+
+On 1/11/2011 6:23 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Sorry, I didn't include the actual error:
+
+An example is:
+
+NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+This particular one is a two very small identical lines, this isn't always the case but seems to be the majority of the time.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com>
+Sent: Wednesday, 12 January 2011 12:06 PM
+To: 'geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>'
+Subject: GEOS errors from PostGIS
+
+Hello All,
+
+I am currently creating an OSS Python app which uses PostGIS (and thus GEOS) to combines multiple layers and carries through attributes.
+
+I am using a method derived from Paul Ramsey's http://s3.opengeo.org/postgis-power.pdf document. The steps I am taking are as follows:
+
+
+Take the left and right layers and split them into smaller segments
+
+Iterate through the segments doing the following:
+
+Use the following to dump each side to linework
+
+
+SELECT ST_Collect(a.the_geom) AS the_geom
+                            FROM (SELECT
+                                (ST_Dump
+                                (ST_Exteriorring(
+                                (ST_Dumprings(
+                                (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+
+
+Put two resulting multi-polygons into a table, make sure they are valid (and all encapsulated polys are valid),  and union to remove overlap as follows
+
+SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+
+
+Build the polygons back up as follows
+
+SELECT a.the_geom AS the_geom,
+                                ST_pointonsurface(a.the_geom) AS point,
+                                0 AS leftgid, 0 AS rightgid
+FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+
+
+
+Then use an overlay to map the attributes back through from the left and the right.
+
+
+The process works, however I am getting problems with GEOS Non Noded Intersection ("GEOS union() threw an error!") crashes in some areas. These can often be fixed by rearranging the data (importing in a different order, snapping to a slightly different grid etc...).
+
+When a failure occurs I am given two linestrings and a point, however these usually bear no relationship to the lines in either the expected output, the left or the right side other than being in the same area.
+
+Unfortunately I can't provide data at the moment as any attempt to reduce the size of the dataset seems to remove (or relocate) the problem. I will try and get permission to release some data from the customer, but this will take some time.
+
+One thing to note is that the layers I am combining contain very complex and very similar linework. It would not be unexpected to get 10 sets of similar but not identical linework all running around an area. This is acceptable for the end product, but I am wondering if it is upsetting the Union somehow?
+
+If anyone has any ideas they would be most appreciated.
+
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3373 - Release Date: 01/11/11
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110114/e3a2c263/attachment-0001.html
+From mtnclimb at telus.net  Fri Jan 14 01:11:45 2011
+From: mtnclimb at telus.net (Martin Davis)
+Date: Fri Jan 14 01:11:52 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+Message-ID: <4D2FE921.8060002@telus.net>
+
+In the case of lines, I think GEOS Unary Union just delegates to 
+union(lines, empty point).  So you could try running st_union(lines, 
+empty point) and see if that works.
+
+If this doesn't work, it could just be a case where the snapping 
+heuristic tolerances aren't being set large enough to handle the 
+linework.  Or, it could be some other limitation...
+
+If the problem persists, if you can send me a sample dataset (as 
+shapefile or WKB file) which shows the problem, I can try and see if JTS 
+has the same problem and if there's an obvious fix.
+
+Martin
+
+On 1/13/2011 9:54 PM, James.Sewell@lisasoft.com wrote:
+>
+> Thanks Martin,
+>
+> I'll install the latest nightly build of GEOS, recompile PostGIS and 
+> hope for the best.
+>
+> Reading the thread does that mean that st_union(geom, geom) should 
+> work in this case? I had previously done some testing and it didn't 
+> seem to, I'll test again though.
+>
+> Cheers,
+>
+> James Sewell
+> Developer
+> LISAsoft
+>
+> ------------------------------------------------------------------------
+>
+> *Ph: *+61 3 8680 3250 *Fax: *+61 3 8680 3299
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+> ------------------------------------------------------------------------
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au <http://www.ardec.com.au/>
+> http://www.lisasoft.com <http://www.lisasoft.com/>
+> http://www.terrapages.com <http://www.terrapages.com/>
+>
+> *From:*geos-devel-bounces@lists.osgeo.org 
+> [mailto:geos-devel-bounces@lists.osgeo.org] *On Behalf Of *Martin Davis
+> *Sent:* Friday, 14 January 2011 2:51 PM
+> *To:* geos-devel@lists.osgeo.org
+> *Subject:* Re: [geos-devel] RE: GEOS errors from PostGIS
+>
+> James,
+>
+> I suspect this may be caused by a known bug in the Unary union.  This 
+> was identified in this thread on the JTS list:
+>
+> http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user 
+> <http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user>
+>
+> I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps 
+> this fix hasn't made it's way into GEOS and PostGIS yet.
+>
+> The thing to do is to get this fixed in GEOS, rolled into PostGIS, and 
+> then you can retest your union case.
+>
+> Martin
+>
+> On 1/11/2011 6:23 PM, James.Sewell@lisasoft.com 
+> <mailto:James.Sewell@lisasoft.com> wrote:
+>
+> Sorry, I didn't include the actual error:
+>
+> An example is:
+>
+> NOTICE: TopologyException: found non-noded intersection between 
+> LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 
+> -36.881, 143.861 -36.881) at 143.861 -36.881
+>
+> This particular one is a two very small identical lines, this isn't 
+> always the case but seems to be the majority of the time.
+>
+> Cheers,
+>
+> James Sewell
+> Developer
+> LISAsoft
+>
+> ------------------------------------------------------------------------
+>
+> *Ph: *+61 3 8680 3250 *Fax: *+61 3 8680 3299
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+> ------------------------------------------------------------------------
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au <http://www.ardec.com.au/>
+> http://www.lisasoft.com <http://www.lisasoft.com/>
+> http://www.terrapages.com <http://www.terrapages.com/>
+>
+> *From:*James.Sewell@lisasoft.com <mailto:James.Sewell@lisasoft.com>
+> *Sent:* Wednesday, 12 January 2011 12:06 PM
+> *To:* 'geos-devel@lists.osgeo.org <mailto:geos-devel@lists.osgeo.org>'
+> *Subject:* GEOS errors from PostGIS
+>
+> Hello All,
+>
+> I am currently creating an OSS Python app which uses PostGIS (and thus 
+> GEOS) to combines multiple layers and carries through attributes.
+>
+> I am using a method derived from Paul Ramsey's 
+> http://s3.opengeo.org/postgis-power.pdf document. The steps I am 
+> taking are as follows:
+>
+> Take the left and right layers and split them into smaller segments
+>
+> Iterate through the segments doing the following:
+>
+> Use the following to dump each side to linework
+>
+> SELECT ST_Collect(a.the_geom) AS the_geom
+>
+>                             FROM (SELECT
+>
+>                                 (ST_Dump
+>
+>                                 (ST_Exteriorring(
+>
+>                                 (ST_Dumprings(
+>
+>                                 
+> (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+>
+> Put two resulting multi-polygons into a table, make sure they are 
+> valid (and all encapsulated polys are valid),  and union to remove 
+> overlap as follows
+>
+> SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+>
+> Build the polygons back up as follows
+>
+> SELECT a.the_geom AS the_geom,
+>
+>                                 ST_pointonsurface(a.the_geom) AS point,
+>
+>                                 0 AS leftgid, 0 AS rightgid
+>
+> FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+>
+> Then use an overlay to map the attributes back through from the left 
+> and the right.
+>
+> The process works, however I am getting problems with GEOS Non Noded 
+> Intersection ("GEOS union() threw an error!") crashes in some areas. 
+> These can often be fixed by rearranging the data (importing in a 
+> different order, snapping to a slightly different grid etc...).
+>
+> When a failure occurs I am given two linestrings and a point, however 
+> these usually bear no relationship to the lines in either the expected 
+> output, the left or the right side other than being in the same area.
+>
+> Unfortunately I can't provide data at the moment as any attempt to 
+> reduce the size of the dataset seems to remove (or relocate) the 
+> problem. I will try and get permission to release some data from the 
+> customer, but this will take some time.
+>
+> One thing to note is that the layers I am combining contain very 
+> complex and very similar linework. It would not be unexpected to get 
+> 10 sets of similar but not identical linework all running around an 
+> area. This is acceptable for the end product, but I am wondering if it 
+> is upsetting the Union somehow?
+>
+> If anyone has any ideas they would be most appreciated.
+>
+> Cheers,
+>
+> James Sewell
+> Developer
+> LISAsoft
+>
+> ------------------------------------------------------------------------
+>
+> *Ph: *+61 3 8680 3250 *Fax: *+61 3 8680 3299
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+> ------------------------------------------------------------------------
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au <http://www.ardec.com.au/>
+> http://www.lisasoft.com <http://www.lisasoft.com/>
+> http://www.terrapages.com <http://www.terrapages.com/>
+>
+>   
+>   
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org  <mailto:geos-devel@lists.osgeo.org>
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+>
+>
+> No virus found in this message.
+> Checked by AVG - www.avg.com <http://www.avg.com>
+> Version: 10.0.1191 / Virus Database: 1435/3373 - Release Date: 01/11/11
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> No virus found in this message.
+> Checked by AVG - www.avg.com <http://www.avg.com>
+> Version: 10.0.1191 / Virus Database: 1435/3377 - Release Date: 01/13/11
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110113/d7a4536c/attachment-0001.html
+From James.Sewell at lisasoft.com  Fri Jan 14 01:28:35 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Fri Jan 14 01:28:40 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <4D2FE921.8060002@telus.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+	<4D2FE921.8060002@telus.net>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+
+Heya,
+
+The particular error I had in front of me isn't fixed by ST_Union(the_geom, the_geom), but it is fixed by ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283)). This is good news (although the errors seem to sometimes occur in different places as I use different methods, cross fingers though).
+
+I am rerunning all my processes to see if there are any other GEOS errors with this method, will let you know after the weekend!
+
+Thanks again for the help.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 5:12 PM
+To: geos-devel@lists.osgeo.org
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+In the case of lines, I think GEOS Unary Union just delegates to union(lines, empty point).  So you could try running st_union(lines, empty point) and see if that works.
+
+If this doesn't work, it could just be a case where the snapping heuristic tolerances aren't being set large enough to handle the linework.  Or, it could be some other limitation...
+
+If the problem persists, if you can send me a sample dataset (as shapefile or WKB file) which shows the problem, I can try and see if JTS has the same problem and if there's an obvious fix.
+
+Martin
+
+On 1/13/2011 9:54 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Thanks Martin,
+
+I'll install the latest nightly build of GEOS, recompile PostGIS and hope for the best.
+
+Reading the thread does that mean that st_union(geom, geom) should work in this case? I had previously done some testing and it didn't seem to, I'll test again though.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org<mailto:geos-devel-bounces@lists.osgeo.org> [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 2:51 PM
+To: geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+James,
+
+I suspect this may be caused by a known bug in the Unary union.  This was identified in this thread on the JTS list:
+
+http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+
+I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this fix hasn't made it's way into GEOS and PostGIS yet.
+
+The thing to do is to get this fixed in GEOS, rolled into PostGIS, and then you can retest your union case.
+
+Martin
+
+On 1/11/2011 6:23 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Sorry, I didn't include the actual error:
+
+An example is:
+
+NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+This particular one is a two very small identical lines, this isn't always the case but seems to be the majority of the time.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com>
+Sent: Wednesday, 12 January 2011 12:06 PM
+To: 'geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>'
+Subject: GEOS errors from PostGIS
+
+Hello All,
+
+I am currently creating an OSS Python app which uses PostGIS (and thus GEOS) to combines multiple layers and carries through attributes.
+
+I am using a method derived from Paul Ramsey's http://s3.opengeo.org/postgis-power.pdf document. The steps I am taking are as follows:
+
+
+Take the left and right layers and split them into smaller segments
+
+Iterate through the segments doing the following:
+
+Use the following to dump each side to linework
+
+
+SELECT ST_Collect(a.the_geom) AS the_geom
+                            FROM (SELECT
+                                (ST_Dump
+                                (ST_Exteriorring(
+                                (ST_Dumprings(
+                                (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+
+
+Put two resulting multi-polygons into a table, make sure they are valid (and all encapsulated polys are valid),  and union to remove overlap as follows
+
+SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+
+
+Build the polygons back up as follows
+
+SELECT a.the_geom AS the_geom,
+                                ST_pointonsurface(a.the_geom) AS point,
+                                0 AS leftgid, 0 AS rightgid
+FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+
+
+
+Then use an overlay to map the attributes back through from the left and the right.
+
+
+The process works, however I am getting problems with GEOS Non Noded Intersection ("GEOS union() threw an error!") crashes in some areas. These can often be fixed by rearranging the data (importing in a different order, snapping to a slightly different grid etc...).
+
+When a failure occurs I am given two linestrings and a point, however these usually bear no relationship to the lines in either the expected output, the left or the right side other than being in the same area.
+
+Unfortunately I can't provide data at the moment as any attempt to reduce the size of the dataset seems to remove (or relocate) the problem. I will try and get permission to release some data from the customer, but this will take some time.
+
+One thing to note is that the layers I am combining contain very complex and very similar linework. It would not be unexpected to get 10 sets of similar but not identical linework all running around an area. This is acceptable for the end product, but I am wondering if it is upsetting the Union somehow?
+
+If anyone has any ideas they would be most appreciated.
+
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3373 - Release Date: 01/11/11
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3377 - Release Date: 01/13/11
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110114/d4c59a5b/attachment-0001.html
+From James.Sewell at lisasoft.com  Fri Jan 14 01:44:46 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Fri Jan 14 01:44:53 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+	<4D2FE921.8060002@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B982666@optimus.ms.a2end.com>
+
+Sorry false alarm, the UNION wasn't working properly and was getting overlapping polygons (so not really doing anything).
+
+Once I fixed this I got the same error when using:
+
+SELECT st_union(ST_snaptogrid(the_geom,10E-10), ST_SetSRID('LINESTRING EMPTY', 4283)) AS the_geom
+
+I'll try and get some demo data for you.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of James.Sewell@lisasoft.com
+Sent: Friday, 14 January 2011 5:29 PM
+To: GEOS Development List
+Subject: RE: [geos-devel] RE: GEOS errors from PostGIS
+
+Heya,
+
+The particular error I had in front of me isn't fixed by ST_Union(the_geom, the_geom), but it is fixed by ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283)). This is good news (although the errors seem to sometimes occur in different places as I use different methods, cross fingers though).
+
+I am rerunning all my processes to see if there are any other GEOS errors with this method, will let you know after the weekend!
+
+Thanks again for the help.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 5:12 PM
+To: geos-devel@lists.osgeo.org
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+In the case of lines, I think GEOS Unary Union just delegates to union(lines, empty point).  So you could try running st_union(lines, empty point) and see if that works.
+
+If this doesn't work, it could just be a case where the snapping heuristic tolerances aren't being set large enough to handle the linework.  Or, it could be some other limitation...
+
+If the problem persists, if you can send me a sample dataset (as shapefile or WKB file) which shows the problem, I can try and see if JTS has the same problem and if there's an obvious fix.
+
+Martin
+
+On 1/13/2011 9:54 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Thanks Martin,
+
+I'll install the latest nightly build of GEOS, recompile PostGIS and hope for the best.
+
+Reading the thread does that mean that st_union(geom, geom) should work in this case? I had previously done some testing and it didn't seem to, I'll test again though.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org<mailto:geos-devel-bounces@lists.osgeo.org> [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 2:51 PM
+To: geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+James,
+
+I suspect this may be caused by a known bug in the Unary union.  This was identified in this thread on the JTS list:
+
+http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+
+I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this fix hasn't made it's way into GEOS and PostGIS yet.
+
+The thing to do is to get this fixed in GEOS, rolled into PostGIS, and then you can retest your union case.
+
+Martin
+
+On 1/11/2011 6:23 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Sorry, I didn't include the actual error:
+
+An example is:
+
+NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+This particular one is a two very small identical lines, this isn't always the case but seems to be the majority of the time.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com>
+Sent: Wednesday, 12 January 2011 12:06 PM
+To: 'geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>'
+Subject: GEOS errors from PostGIS
+
+Hello All,
+
+I am currently creating an OSS Python app which uses PostGIS (and thus GEOS) to combines multiple layers and carries through attributes.
+
+I am using a method derived from Paul Ramsey's http://s3.opengeo.org/postgis-power.pdf document. The steps I am taking are as follows:
+
+
+Take the left and right layers and split them into smaller segments
+
+Iterate through the segments doing the following:
+
+Use the following to dump each side to linework
+
+
+SELECT ST_Collect(a.the_geom) AS the_geom
+                            FROM (SELECT
+                                (ST_Dump
+                                (ST_Exteriorring(
+                                (ST_Dumprings(
+                                (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+
+
+Put two resulting multi-polygons into a table, make sure they are valid (and all encapsulated polys are valid),  and union to remove overlap as follows
+
+SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+
+
+Build the polygons back up as follows
+
+SELECT a.the_geom AS the_geom,
+                                ST_pointonsurface(a.the_geom) AS point,
+                                0 AS leftgid, 0 AS rightgid
+FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+
+
+
+Then use an overlay to map the attributes back through from the left and the right.
+
+
+The process works, however I am getting problems with GEOS Non Noded Intersection ("GEOS union() threw an error!") crashes in some areas. These can often be fixed by rearranging the data (importing in a different order, snapping to a slightly different grid etc...).
+
+When a failure occurs I am given two linestrings and a point, however these usually bear no relationship to the lines in either the expected output, the left or the right side other than being in the same area.
+
+Unfortunately I can't provide data at the moment as any attempt to reduce the size of the dataset seems to remove (or relocate) the problem. I will try and get permission to release some data from the customer, but this will take some time.
+
+One thing to note is that the layers I am combining contain very complex and very similar linework. It would not be unexpected to get 10 sets of similar but not identical linework all running around an area. This is acceptable for the end product, but I am wondering if it is upsetting the Union somehow?
+
+If anyone has any ideas they would be most appreciated.
+
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3373 - Release Date: 01/11/11
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3377 - Release Date: 01/13/11
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110114/f42f29c7/attachment-0001.html
+From strk at keybit.net  Fri Jan 14 07:44:12 2011
+From: strk at keybit.net (strk)
+Date: Fri Jan 14 07:44:18 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <4D2FC834.8040404@telus.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+Message-ID: <20110114124412.GE6699@keybit.net>
+
+On Thu, Jan 13, 2011 at 07:51:16PM -0800, Martin Davis wrote:
+> James,
+> 
+> I suspect this may be caused by a known bug in the Unary union.  This 
+> was identified in this thread on the JTS list:
+> 
+> http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+> 
+> I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this 
+> fix hasn't made it's way into GEOS and PostGIS yet.
+
+Have a revision number of the fix ? 
+Haven't found one in the forum thread...
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From mtnclimb at telus.net  Fri Jan 14 11:14:40 2011
+From: mtnclimb at telus.net (Martin Davis)
+Date: Fri Jan 14 11:14:48 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <20110114124412.GE6699@keybit.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net> <20110114124412.GE6699@keybit.net>
+Message-ID: <4D307670.7030002@telus.net>
+
+Rev 110
+
+Modification was to switch to using SnapIfNeededOverlayOp
+
+     private Geometry unionNoOpt(Geometry g0)
+     {
+     Geometry empty = geomFact.createPoint((Coordinate) null);
+         return SnapIfNeededOverlayOp.overlayOp(g0, empty, OverlayOp.UNION);
+     }
+
+
+
+
+On 1/14/2011 4:44 AM, strk wrote:
+> On Thu, Jan 13, 2011 at 07:51:16PM -0800, Martin Davis wrote:
+>> James,
+>>
+>> I suspect this may be caused by a known bug in the Unary union.  This
+>> was identified in this thread on the JTS list:
+>>
+>> http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+>>
+>> I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this
+>> fix hasn't made it's way into GEOS and PostGIS yet.
+> Have a revision number of the fix ?
+> Haven't found one in the forum thread...
+>
+> --strk;
+>
+>    ()   Free GIS&  Flash consultant/developer
+>    /\   http://strk.keybit.net/services.html
+>
+>
+> -----
+> No virus found in this message.
+> Checked by AVG - www.avg.com
+> Version: 10.0.1191 / Virus Database: 1435/3378 - Release Date: 01/13/11
+>
+>
+From strk at keybit.net  Fri Jan 14 13:18:43 2011
+From: strk at keybit.net (strk)
+Date: Fri Jan 14 13:18:52 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <4D307670.7030002@telus.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net> <20110114124412.GE6699@keybit.net>
+	<4D307670.7030002@telus.net>
+Message-ID: <20110114181843.GA28633@keybit.net>
+
+On Fri, Jan 14, 2011 at 08:14:40AM -0800, Martin Davis wrote:
+> Rev 110
+>
+> Modification was to switch to using SnapIfNeededOverlayOp
+> 
+>     private Geometry unionNoOpt(Geometry g0)
+>     {
+>     Geometry empty = geomFact.createPoint((Coordinate) null);
+>         return SnapIfNeededOverlayOp.overlayOp(g0, empty, OverlayOp.UNION);
+>     }
+
+This one ?
+
+ | 2010-06-09 04:37  dr_jts
+ |
+ |      * [r110] jts/java/src/com/vividsolutions/jts/io/WKBWriter.java,
+ |        jts/java/src/com/vividsolutions/jts/noding/SegmentIntersector.java,
+ |        jts/java/src/com/vividsolutions/jts/noding/snapround/HotPixel.java,
+ |        jts/java/src/com/vividsolutions/jts/operation/overlay/snap/LineStringSnapper.java,
+ |        jts/java/src/com/vividsolutions/jts/operation/union/UnaryUnionOp.java,
+ |        jts/java/src/com/vividsolutions/jtstest/testbuilder/JTSTestBuilder.java:
+ |        Javadoc
+
+... commit message "Javadoc" doesn't really help :)
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From mtnclimb at telus.net  Fri Jan 14 20:37:05 2011
+From: mtnclimb at telus.net (Martin Davis)
+Date: Fri Jan 14 20:37:19 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <20110114181843.GA28633@keybit.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net> <20110114124412.GE6699@keybit.net>
+	<4D307670.7030002@telus.net> <20110114181843.GA28633@keybit.net>
+Message-ID: <4D30FA41.6020001@telus.net>
+
+Yes, I know it's a bad msg - it was a slip when commiting.  Too late to 
+change now though.
+
+On 1/14/2011 10:18 AM, strk wrote:
+> On Fri, Jan 14, 2011 at 08:14:40AM -0800, Martin Davis wrote:
+>> Rev 110
+>>
+>> Modification was to switch to using SnapIfNeededOverlayOp
+>>
+>>      private Geometry unionNoOpt(Geometry g0)
+>>      {
+>>      Geometry empty = geomFact.createPoint((Coordinate) null);
+>>          return SnapIfNeededOverlayOp.overlayOp(g0, empty, OverlayOp.UNION);
+>>      }
+> This one ?
+>
+>   | 2010-06-09 04:37  dr_jts
+>   |
+>   |      * [r110] jts/java/src/com/vividsolutions/jts/io/WKBWriter.java,
+>   |        jts/java/src/com/vividsolutions/jts/noding/SegmentIntersector.java,
+>   |        jts/java/src/com/vividsolutions/jts/noding/snapround/HotPixel.java,
+>   |        jts/java/src/com/vividsolutions/jts/operation/overlay/snap/LineStringSnapper.java,
+>   |        jts/java/src/com/vividsolutions/jts/operation/union/UnaryUnionOp.java,
+>   |        jts/java/src/com/vividsolutions/jtstest/testbuilder/JTSTestBuilder.java:
+>   |        Javadoc
+>
+> ... commit message "Javadoc" doesn't really help :)
+>
+> --strk;
+>
+>    ()   Free GIS&  Flash consultant/developer
+>    /\   http://strk.keybit.net/services.html
+>
+>
+> -----
+> No virus found in this message.
+> Checked by AVG - www.avg.com
+> Version: 10.0.1191 / Virus Database: 1435/3379 - Release Date: 01/14/11
+>
+>
+From strk at keybit.net  Sun Jan 16 02:55:17 2011
+From: strk at keybit.net (strk)
+Date: Sun Jan 16 02:55:25 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <4D30FA41.6020001@telus.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net> <20110114124412.GE6699@keybit.net>
+	<4D307670.7030002@telus.net> <20110114181843.GA28633@keybit.net>
+	<4D30FA41.6020001@telus.net>
+Message-ID: <20110116075517.GE52487@keybit.net>
+
+On Fri, Jan 14, 2011 at 05:37:05PM -0800, Martin Davis wrote:
+> Yes, I know it's a bad msg - it was a slip when commiting.  Too late to 
+> change now though.
+
+Ok, reviewed... UnaryUnionOp is still unported to GEOS,
+all the rest is up to date.
+
+If anyone is willing to sponsor the port I'm available.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From James.Sewell at lisasoft.com  Sun Jan 16 19:35:42 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Sun Jan 16 19:35:49 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+	<4D2FE921.8060002@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B98266F@optimus.ms.a2end.com>
+
+The latest daily doesn't help the problem so I've reverted to 3.2.2 and performed some more testing.
+
+I have a dataset where:
+
+ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283))
+
+Fails, yet
+
+ST_Union(the_geom).
+
+Works. There are other datasets which fail on both versions, and I have no doubt I can find one which works in the reverse manner.
+
+I am seeking clearance to release one of the datasets now.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of James.Sewell@lisasoft.com
+Sent: Friday, 14 January 2011 5:29 PM
+To: GEOS Development List
+Subject: RE: [geos-devel] RE: GEOS errors from PostGIS
+
+Heya,
+
+The particular error I had in front of me isn't fixed by ST_Union(the_geom, the_geom), but it is fixed by ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283)). This is good news (although the errors seem to sometimes occur in different places as I use different methods, cross fingers though).
+
+I am rerunning all my processes to see if there are any other GEOS errors with this method, will let you know after the weekend!
+
+Thanks again for the help.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 5:12 PM
+To: geos-devel@lists.osgeo.org
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+In the case of lines, I think GEOS Unary Union just delegates to union(lines, empty point).  So you could try running st_union(lines, empty point) and see if that works.
+
+If this doesn't work, it could just be a case where the snapping heuristic tolerances aren't being set large enough to handle the linework.  Or, it could be some other limitation...
+
+If the problem persists, if you can send me a sample dataset (as shapefile or WKB file) which shows the problem, I can try and see if JTS has the same problem and if there's an obvious fix.
+
+Martin
+
+On 1/13/2011 9:54 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Thanks Martin,
+
+I'll install the latest nightly build of GEOS, recompile PostGIS and hope for the best.
+
+Reading the thread does that mean that st_union(geom, geom) should work in this case? I had previously done some testing and it didn't seem to, I'll test again though.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org<mailto:geos-devel-bounces@lists.osgeo.org> [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis
+Sent: Friday, 14 January 2011 2:51 PM
+To: geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+James,
+
+I suspect this may be caused by a known bug in the Unary union.  This was identified in this thread on the JTS list:
+
+http://sourceforge.net/mailarchive/forum.php?thread_name=4C0FB4A5.2010304%40refractions.net&forum_name=jts-topo-suite-user
+
+I fixed this in JTS, in the soon-to-be-released ver 1.12.  Perhaps this fix hasn't made it's way into GEOS and PostGIS yet.
+
+The thing to do is to get this fixed in GEOS, rolled into PostGIS, and then you can retest your union case.
+
+Martin
+
+On 1/11/2011 6:23 PM, James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com> wrote:
+Sorry, I didn't include the actual error:
+
+An example is:
+
+NOTICE: TopologyException: found non-noded intersection between LINESTRING (143.861 -36.881, 143.861 -36.881) and LINESTRING (143.861 -36.881, 143.861 -36.881) at 143.861 -36.881
+
+This particular one is a two very small identical lines, this isn't always the case but seems to be the majority of the time.
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: James.Sewell@lisasoft.com<mailto:James.Sewell@lisasoft.com>
+Sent: Wednesday, 12 January 2011 12:06 PM
+To: 'geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>'
+Subject: GEOS errors from PostGIS
+
+Hello All,
+
+I am currently creating an OSS Python app which uses PostGIS (and thus GEOS) to combines multiple layers and carries through attributes.
+
+I am using a method derived from Paul Ramsey's http://s3.opengeo.org/postgis-power.pdf document. The steps I am taking are as follows:
+
+
+Take the left and right layers and split them into smaller segments
+
+Iterate through the segments doing the following:
+
+Use the following to dump each side to linework
+
+
+SELECT ST_Collect(a.the_geom) AS the_geom
+                            FROM (SELECT
+                                (ST_Dump
+                                (ST_Exteriorring(
+                                (ST_Dumprings(
+                                (ST_Dump(the_geom)).geom)).geom))).geom AS the_geom
+
+
+Put two resulting multi-polygons into a table, make sure they are valid (and all encapsulated polys are valid),  and union to remove overlap as follows
+
+SELECT ST_Union(ST_snaptogrid(the_geom,10E-10)) AS the_geom
+
+
+Build the polygons back up as follows
+
+SELECT a.the_geom AS the_geom,
+                                ST_pointonsurface(a.the_geom) AS point,
+                                0 AS leftgid, 0 AS rightgid
+FROM (SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom
+
+
+
+Then use an overlay to map the attributes back through from the left and the right.
+
+
+The process works, however I am getting problems with GEOS Non Noded Intersection ("GEOS union() threw an error!") crashes in some areas. These can often be fixed by rearranging the data (importing in a different order, snapping to a slightly different grid etc...).
+
+When a failure occurs I am given two linestrings and a point, however these usually bear no relationship to the lines in either the expected output, the left or the right side other than being in the same area.
+
+Unfortunately I can't provide data at the moment as any attempt to reduce the size of the dataset seems to remove (or relocate) the problem. I will try and get permission to release some data from the customer, but this will take some time.
+
+One thing to note is that the layers I am combining contain very complex and very similar linework. It would not be unexpected to get 10 sets of similar but not identical linework all running around an area. This is acceptable for the end product, but I am wondering if it is upsetting the Union somehow?
+
+If anyone has any ideas they would be most appreciated.
+
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3373 - Release Date: 01/11/11
+
+
+
+
+
+_______________________________________________
+
+geos-devel mailing list
+
+geos-devel@lists.osgeo.org<mailto:geos-devel@lists.osgeo.org>
+
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+
+No virus found in this message.
+Checked by AVG - www.avg.com<http://www.avg.com>
+Version: 10.0.1191 / Virus Database: 1435/3377 - Release Date: 01/13/11
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110117/ee990910/attachment-0001.html
+From James.Sewell at lisasoft.com  Sun Jan 16 19:36:54 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Sun Jan 16 19:36:59 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <20110116075517.GE52487@keybit.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net> <20110114124412.GE6699@keybit.net>
+	<4D307670.7030002@telus.net> <20110114181843.GA28633@keybit.net>
+	<4D30FA41.6020001@telus.net> <20110116075517.GE52487@keybit.net>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B982670@optimus.ms.a2end.com>
+
+If UnaryUnionOp is not ported would that mean I am hitting a different bug to the Unary Union bug mentioned in the thread below?
+
+Cheers,
+James Sewell?
+Developer?
+LISAsoft?
+
+Ph:?+61 3 8680 3250?Fax:?+61 3 8680 3299?
+Level 9, 601 Bourke St, Melbourne Vic 3000
+
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au
+http://www.lisasoft.com
+http://www.terrapages.com
+
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+Sent: Sunday, 16 January 2011 6:55 PM
+To: Martin Davis
+Cc: geos-devel@lists.osgeo.org
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+On Fri, Jan 14, 2011 at 05:37:05PM -0800, Martin Davis wrote:
+> Yes, I know it's a bad msg - it was a slip when commiting.  Too late to 
+> change now though.
+
+Ok, reviewed... UnaryUnionOp is still unported to GEOS,
+all the rest is up to date.
+
+If anyone is willing to sponsor the port I'm available.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+From mtnclimb at telus.net  Mon Jan 17 00:36:04 2011
+From: mtnclimb at telus.net (Martin Davis)
+Date: Mon Jan 17 00:36:19 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B982670@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>	<4D2FC834.8040404@telus.net>
+	<20110114124412.GE6699@keybit.net>	<4D307670.7030002@telus.net>
+	<20110114181843.GA28633@keybit.net>	<4D30FA41.6020001@telus.net>
+	<20110116075517.GE52487@keybit.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982670@optimus.ms.a2end.com>
+Message-ID: <4D33D544.9040409@telus.net>
+
+Different code, but probably the same cause.  Due to the complexities of 
+computing line segment intersections, unless special measures are take, 
+TopologyExceptions can occur in some situations (and are most likely in 
+the kind of situation you mentioned, where you have a lot of segments 
+which are nearly but not perfectly coincident).  The new code in the JTS 
+UnaryUnionOp is meant to reduce the likelihood of these failures.
+
+
+On 1/16/2011 4:36 PM, James.Sewell@lisasoft.com wrote:
+> If UnaryUnionOp is not ported would that mean I am hitting a different bug to the Unary Union bug mentioned in the thread below?
+>
+> Cheers,
+> James Sewell 
+> Developer 
+> LISAsoft 
+>
+> Ph: +61 3 8680 3250 Fax: +61 3 8680 3299 
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au
+> http://www.lisasoft.com
+> http://www.terrapages.com
+>
+>
+> -----Original Message-----
+> From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+> Sent: Sunday, 16 January 2011 6:55 PM
+> To: Martin Davis
+> Cc: geos-devel@lists.osgeo.org
+> Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+>
+> On Fri, Jan 14, 2011 at 05:37:05PM -0800, Martin Davis wrote:
+>> Yes, I know it's a bad msg - it was a slip when commiting.  Too late to
+>> change now though.
+> Ok, reviewed... UnaryUnionOp is still unported to GEOS,
+> all the rest is up to date.
+>
+> If anyone is willing to sponsor the port I'm available.
+>
+> --strk;
+>
+>    ()   Free GIS&  Flash consultant/developer
+>    /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> -----
+> No virus found in this message.
+> Checked by AVG - www.avg.com
+> Version: 10.0.1191 / Virus Database: 1435/3384 - Release Date: 01/16/11
+>
+>
+>
+From strk at keybit.net  Mon Jan 17 10:48:18 2011
+From: strk at keybit.net (strk)
+Date: Mon Jan 17 10:48:26 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B98266F@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+	<4D2FE921.8060002@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+	<CB506E813C77E9498F043F1F951BB2768E3B98266F@optimus.ms.a2end.com>
+Message-ID: <20110117154818.GP66559@keybit.net>
+
+On Mon, Jan 17, 2011 at 11:05:42AM +1030, James.Sewell@lisasoft.com wrote:
+> The latest daily doesn't help the problem so I've reverted to 3.2.2 and performed some more testing.
+> 
+> I have a dataset where:
+> 
+> ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283))
+> 
+> Fails, yet
+> 
+> ST_Union(the_geom).
+> 
+> Works. There are other datasets which fail on both versions, and I have no doubt I can find one which works in the reverse manner.
+
+The latter uses CascadedUnion (the one UnaryUnion uses too).
+The former uses normal union (non-cascaded).
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From James.Sewell at lisasoft.com  Thu Jan 20 18:31:21 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Thu Jan 20 18:32:42 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <20110117154818.GP66559@keybit.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+	<4D2FE921.8060002@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+	<CB506E813C77E9498F043F1F951BB2768E3B98266F@optimus.ms.a2end.com>
+	<20110117154818.GP66559@keybit.net>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B9826FE@optimus.ms.a2end.com>
+
+Right,
+
+Once again thanks for the help on this.
+
+Attached is a zip with the two geometries that I am having problems unioning (2.7mb I'll up to an FTP if it doesn't get through), when testing I have them both in a table called alw as separate rows. I realise that the linework is very dirty, but it is what we have to work with in this case.
+
+The following commands will cause errors. If I don't include the snaptogrid there will not be an error in *this* case, but if I were to run the whole process with no snap there would be an error at some stage.
+
+Any help appreciated! I am working on getting a smaller dataset which exhibits the problem.
+
+--
+
+CREATE TABLE alwunionxx AS
+	SELECT 
+		st_union(st_collect(st_snaptogrid(the_geom,10E-8)), ST_SetSRID('LINESTRINGEMPTY', 4283)) 
+	AS the_geom 
+	FROM alw;
+
+NOTICE:  TopologyException: found non-noded intersection between LINESTRING (146.593 -37.2263, 146.593 -37.2263) and LINESTRING (146.593 -37.2263, 146.593 -37.2263) at 146.593 -37.2263
+ERROR:  GEOS union() threw an error!
+
+
+CREATE TABLE alwunionxx AS
+	SELECT 
+		st_union(st_snaptogrid(the_geom,10E-8)) 
+	AS the_geom    
+	FROM alw;
+
+NOTICE:  TopologyException: found non-noded intersection between LINESTRING (146.593 -37.2263, 146.593 -37.2263) and LINESTRING (146.593 -37.2263, 146.593 -37.2263) at 146.593 -37.2263
+ERROR:  GEOS union() threw an error!
+
+--
+
+Cheers,
+James Sewell?
+Developer?
+LISAsoft?
+
+Ph:?+61 3 8680 3250?Fax:?+61 3 8680 3299?
+Level 9, 601 Bourke St, Melbourne Vic 3000
+
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au
+http://www.lisasoft.com
+http://www.terrapages.com
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+Sent: Tuesday, 18 January 2011 2:48 AM
+To: GEOS Development List
+Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+
+On Mon, Jan 17, 2011 at 11:05:42AM +1030, James.Sewell@lisasoft.com wrote:
+> The latest daily doesn't help the problem so I've reverted to 3.2.2 and performed some more testing.
+> 
+> I have a dataset where:
+> 
+> ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283))
+> 
+> Fails, yet
+> 
+> ST_Union(the_geom).
+> 
+> Works. There are other datasets which fail on both versions, and I have no doubt I can find one which works in the reverse manner.
+
+The latter uses CascadedUnion (the one UnaryUnion uses too).
+The former uses normal union (non-cascaded).
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: errors.zip
+Type: application/x-zip-compressed
+Size: 2777981 bytes
+Desc: errors.zip
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20110121/f87c2be4/errors-0001.bin
+From mtnclimb at telus.net  Mon Jan 24 00:53:17 2011
+From: mtnclimb at telus.net (Martin Davis)
+Date: Mon Jan 24 00:51:21 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B9826FE@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>	<4D2FC834.8040404@telus.net>	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>	<4D2FE921.8060002@telus.net>	<CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>	<CB506E813C77E9498F043F1F951BB2768E3B98266F@optimus.ms.a2end.com>	<20110117154818.GP66559@keybit.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B9826FE@optimus.ms.a2end.com>
+Message-ID: <4D3D13CD.7030903@telus.net>
+
+FWIW, I ran this data through JTS 1.11 using both union(geom, geom) and 
+union(geom), and both operations completed without errors.
+
+Not sure what this says about the GEOS issue - other than more debugging 
+required...!
+
+On 1/20/2011 3:31 PM, James.Sewell@lisasoft.com wrote:
+> Right,
+>
+> Once again thanks for the help on this.
+>
+> Attached is a zip with the two geometries that I am having problems unioning (2.7mb I'll up to an FTP if it doesn't get through), when testing I have them both in a table called alw as separate rows. I realise that the linework is very dirty, but it is what we have to work with in this case.
+>
+> The following commands will cause errors. If I don't include the snaptogrid there will not be an error in *this* case, but if I were to run the whole process with no snap there would be an error at some stage.
+>
+> Any help appreciated! I am working on getting a smaller dataset which exhibits the problem.
+>
+> --
+>
+> CREATE TABLE alwunionxx AS
+> 	SELECT
+> 		st_union(st_collect(st_snaptogrid(the_geom,10E-8)), ST_SetSRID('LINESTRINGEMPTY', 4283))
+> 	AS the_geom
+> 	FROM alw;
+>
+> NOTICE:  TopologyException: found non-noded intersection between LINESTRING (146.593 -37.2263, 146.593 -37.2263) and LINESTRING (146.593 -37.2263, 146.593 -37.2263) at 146.593 -37.2263
+> ERROR:  GEOS union() threw an error!
+>
+>
+> CREATE TABLE alwunionxx AS
+> 	SELECT
+> 		st_union(st_snaptogrid(the_geom,10E-8))
+> 	AS the_geom
+> 	FROM alw;
+>
+> NOTICE:  TopologyException: found non-noded intersection between LINESTRING (146.593 -37.2263, 146.593 -37.2263) and LINESTRING (146.593 -37.2263, 146.593 -37.2263) at 146.593 -37.2263
+> ERROR:  GEOS union() threw an error!
+>
+> --
+>
+> Cheers,
+> James Sewell 
+> Developer 
+> LISAsoft 
+>
+> Ph: +61 3 8680 3250 Fax: +61 3 8680 3299 
+> Level 9, 601 Bourke St, Melbourne Vic 3000
+>
+>
+> LISAsoft is part of the A2end Group of Companies
+> http://www.ardec.com.au
+> http://www.lisasoft.com
+> http://www.terrapages.com
+>
+> -----Original Message-----
+> From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+> Sent: Tuesday, 18 January 2011 2:48 AM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] RE: GEOS errors from PostGIS
+>
+> On Mon, Jan 17, 2011 at 11:05:42AM +1030, James.Sewell@lisasoft.com wrote:
+>> The latest daily doesn't help the problem so I've reverted to 3.2.2 and performed some more testing.
+>>
+>> I have a dataset where:
+>>
+>> ST_Union(the_geom, ST_SetSRID('LINESTRING EMPTY', 4283))
+>>
+>> Fails, yet
+>>
+>> ST_Union(the_geom).
+>>
+>> Works. There are other datasets which fail on both versions, and I have no doubt I can find one which works in the reverse manner.
+> The latter uses CascadedUnion (the one UnaryUnion uses too).
+> The former uses normal union (non-cascaded).
+>
+> --strk;
+>
+>    ()   Free GIS&  Flash consultant/developer
+>    /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> No virus found in this message.
+> Checked by AVG - www.avg.com <http://www.avg.com>
+> Version: 10.0.1191 / Virus Database: 1435/3392 - Release Date: 01/20/11
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110123/1acbd2da/attachment.html
+From strk at keybit.net  Mon Jan 24 04:02:31 2011
+From: strk at keybit.net (strk)
+Date: Mon Jan 24 04:02:37 2011
+Subject: [geos-devel] RE:  GEOS errors from PostGIS
+In-Reply-To: <4D3D13CD.7030903@telus.net>
+References: <CB506E813C77E9498F043F1F951BB2768E3B982643@optimus.ms.a2end.com>
+	<4D2FC834.8040404@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982662@optimus.ms.a2end.com>
+	<4D2FE921.8060002@telus.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B982665@optimus.ms.a2end.com>
+	<CB506E813C77E9498F043F1F951BB2768E3B98266F@optimus.ms.a2end.com>
+	<20110117154818.GP66559@keybit.net>
+	<CB506E813C77E9498F043F1F951BB2768E3B9826FE@optimus.ms.a2end.com>
+	<4D3D13CD.7030903@telus.net>
+Message-ID: <20110124090231.GI71489@keybit.net>
+
+On Sun, Jan 23, 2011 at 09:53:17PM -0800, Martin Davis wrote:
+> FWIW, I ran this data through JTS 1.11 using both union(geom, geom) and 
+> union(geom), and both operations completed without errors.
+> 
+> Not sure what this says about the GEOS issue - other than more debugging 
+> required...!
+
+Time consuming job indeed.
+It takes a patient sponsor.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From strk at keybit.net  Thu Jan 27 05:02:10 2011
+From: strk at keybit.net (strk)
+Date: Thu Jan 27 05:02:13 2011
+Subject: [geos-devel] Requesting PHP component on trac
+Message-ID: <20110127100210.GB36934@keybit.net>
+
+GEOS/PHP just got its first ticket [1] 
+
+[1] http://trac.osgeo.org/geos/ticket/393
+
+But there's no PHP component on trac, so the reporter
+had to pick SWIG, which was close, but in reality
+completely unrelated (PHP bindings are not made with SWIG).
+
+So, can a PHP component be added ?
+
+Thank you.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From pramsey at opengeo.org  Thu Jan 27 13:05:59 2011
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Thu Jan 27 13:12:40 2011
+Subject: [geos-devel] Requesting PHP component on trac
+In-Reply-To: <20110127100210.GB36934@keybit.net>
+References: <20110127100210.GB36934@keybit.net>
+Message-ID: <AANLkTikDsmRMdcP7NbPRO5RT_9A4vm2BK7BA16k4uTB-@mail.gmail.com>
+
+Done.
+P
+
+
+On Thu, Jan 27, 2011 at 2:02 AM, strk <strk@keybit.net> wrote:
+> GEOS/PHP just got its first ticket [1]
+>
+> [1] http://trac.osgeo.org/geos/ticket/393
+>
+> But there's no PHP component on trac, so the reporter
+> had to pick SWIG, which was close, but in reality
+> completely unrelated (PHP bindings are not made with SWIG).
+>
+> So, can a PHP component be added ?
+>
+> Thank you.
+>
+> --strk;
+>
+> ?() ? Free GIS & Flash consultant/developer
+> ?/\ ? http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From geos-trac at osgeo.org  Fri Jan 28 05:13:02 2011
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Jan 28 05:13:04 2011
+Subject: [geos-devel] Re: [GEOS] #356: multilinestring buffer artifacts
+ (was: Buffer error)
+In-Reply-To: <049.df4e06055480a5bb59caf458d37a4314@osgeo.org>
+References: <049.df4e06055480a5bb59caf458d37a4314@osgeo.org>
+Message-ID: <058.411bf2ba3319fe8607ac908b189245f8@osgeo.org>
+
+#356: multilinestring buffer artifacts
+------------------------+---------------------------------------------------
+ Reporter:  aperi2007   |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.0                     
+Component:  Default     |     Version:  svn-trunk                 
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+  * version:  3.2.0 => svn-trunk
+  * milestone:  3.2.1 => 3.3.0
+
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/356#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Jan 28 05:16:50 2011
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Jan 28 05:16:52 2011
+Subject: [geos-devel] Re: [GEOS] #380: Buffer(Geometry,
+	0) deletes part of the polygon
+In-Reply-To: <050.a1157464fd11f98c44597e33386f6f10@osgeo.org>
+References: <050.a1157464fd11f98c44597e33386f6f10@osgeo.org>
+Message-ID: <059.5f9edfcf83c17e47baa1231a4e650923@osgeo.org>
+
+#380: Buffer(Geometry,0) deletes part of the polygon
+------------------------+---------------------------------------------------
+ Reporter:  jaapdekker  |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  minor       |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Can anyone check if JTS does a better job here ? If it does then it's a
+ bug in GEOS, otherwise it isn't.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/380#comment:5>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Jan 28 05:21:35 2011
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Jan 28 05:21:37 2011
+Subject: [geos-devel] Re: [GEOS] #336: Create union Fails
+In-Reply-To: <045.9c0753fedef90390382fad172ee2d1bb@osgeo.org>
+References: <045.9c0753fedef90390382fad172ee2d1bb@osgeo.org>
+Message-ID: <054.1d721b47975eb6de09a6440e089a1cc2@osgeo.org>
+
+#336: Create union Fails
+------------------------+---------------------------------------------------
+ Reporter:  PeteS       |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Nothing wrong I can think of. Try with current SVN version of GEOS, and
+ also see if you can produce an XML based testcase (see
+ tests/xmltester/tests/bug275.xml for an example)
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/336#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Jan 28 05:22:47 2011
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Jan 28 05:22:49 2011
+Subject: [geos-devel] Re: [GEOS] #336: Create union Fails
+In-Reply-To: <045.9c0753fedef90390382fad172ee2d1bb@osgeo.org>
+References: <045.9c0753fedef90390382fad172ee2d1bb@osgeo.org>
+Message-ID: <054.4ff59812b92d586903d4ae29d9498d9b@osgeo.org>
+
+#336: Create union Fails
+------------------------+---------------------------------------------------
+ Reporter:  PeteS       |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ FYI: using geos-svn here gives good result:
+  POLYGON((0 1,0 8,1 8,1 1,8 1,8 0,0 0,0 1))
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/336#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From oldschool.monday at gmail.com  Mon Jan 31 10:48:07 2011
+From: oldschool.monday at gmail.com (Steve Monday)
+Date: Mon Jan 31 10:48:11 2011
+Subject: [geos-devel] geos offset curve builder question
+Message-ID: <AANLkTi=L_Cd4sGLYUfbvyyQ81C_+xccrS3_yCTUZk9ZW@mail.gmail.com>
+
+All,
+
+I've been using geos successfully for many months.  I appreciate the work
+that has been invested in geos and the robustness of the api.
+
+I do have a "how to" question around the OffsetCurveBuilder but don't want
+to clutter this list if geos-devel is not intended to be a general purpose
+geos question/support mechanism.
+
+Am I in the right place?
+
+Thanks
+Steve
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110131/ce4d9b14/attachment.html
+From strk at keybit.net  Mon Jan 31 11:26:35 2011
+From: strk at keybit.net (strk)
+Date: Mon Jan 31 11:26:42 2011
+Subject: [geos-devel] geos offset curve builder question
+In-Reply-To: <AANLkTi=L_Cd4sGLYUfbvyyQ81C_+xccrS3_yCTUZk9ZW@mail.gmail.com>
+References: <AANLkTi=L_Cd4sGLYUfbvyyQ81C_+xccrS3_yCTUZk9ZW@mail.gmail.com>
+Message-ID: <20110131162635.GG23689@keybit.net>
+
+On Mon, Jan 31, 2011 at 09:48:07AM -0600, Steve Monday wrote:
+> All,
+> 
+> I've been using geos successfully for many months.  I appreciate the work
+> that has been invested in geos and the robustness of the api.
+> 
+> I do have a "how to" question around the OffsetCurveBuilder but don't want
+> to clutter this list if geos-devel is not intended to be a general purpose
+> geos question/support mechanism.
+> 
+> Am I in the right place?
+
+Yes, being the only GEOS mailing list.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From oldschool.monday at gmail.com  Mon Jan 31 11:54:34 2011
+From: oldschool.monday at gmail.com (Steve Monday)
+Date: Mon Jan 31 11:54:37 2011
+Subject: [geos-devel] geos offset curve builder question
+In-Reply-To: <20110131162635.GG23689@keybit.net>
+References: <AANLkTi=L_Cd4sGLYUfbvyyQ81C_+xccrS3_yCTUZk9ZW@mail.gmail.com>
+	<20110131162635.GG23689@keybit.net>
+Message-ID: <AANLkTi=h-AqJRGCyhgHG3bLrOOmr+9pg-3S59MD2nMJD@mail.gmail.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: example-offset.cpp
+Type: text/x-c++src
+Size: 4063 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20110131/88b49033/example-offset.bin
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: square_offset.kml
+Type: application/vnd.google-earth.kml+xml
+Size: 1253 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20110131/88b49033/square_offset.bin
+From dazuma at alumni.caltech.edu  Mon Jan 31 13:04:02 2011
+From: dazuma at alumni.caltech.edu (Daniel Azuma)
+Date: Mon Jan 31 13:24:40 2011
+Subject: [geos-devel] geos offset curve builder question
+In-Reply-To: <AANLkTi=h-AqJRGCyhgHG3bLrOOmr+9pg-3S59MD2nMJD@mail.gmail.com>
+References: <AANLkTi=L_Cd4sGLYUfbvyyQ81C_+xccrS3_yCTUZk9ZW@mail.gmail.com>
+	<20110131162635.GG23689@keybit.net>
+	<AANLkTi=h-AqJRGCyhgHG3bLrOOmr+9pg-3S59MD2nMJD@mail.gmail.com>
+Message-ID: <CFF2A08C-D925-4C79-A38A-E69CBEEF803D@alumni.caltech.edu>
+
+Steve,
+
+I suspect your issue is one of coordinate systems. GEOS works on a "flat" Cartesian coordinate system. If you were to plot those coordinates on a flat X-Y plane, I think you'll find that the offsets are as you expect. In other words, your polygon IS being offset correctly 0.0003 DEGREES both in the N-S and E-W directions. (At least, as far as I can tell by a quick glance at the KML.)
+
+However, the earth is not flat. As a result, at 46 degrees latitude where your polygon is, each degree of latitude represents a longer distance in real life units (say, meters) than does each degree of longitude. Hence, an offset of 0.0003 degrees latitude is a greater real-life offset than 0.0003 degrees longitude, even though they're the same number of "degrees". That's what you're seeing.
+
+GEOS does not take this into account. It does not know that your coordinates are actually longitude and latitude, and it does not try to correct for the fact that your coordinate system is not flat.
+
+One way to correct this is first to transform your coordinates into a projection where east-west units are roughly the same as north-south units (say, a Mercator projection). Do your buffer offset in the projection, and then unproject back into lat-long space. Mercator is an easy projection to compute, and it should work pretty well if you're not too close to the poles and the sizes of your objects aren't too large compared to the size of the earth. Your example is well within these tolerances. If you want to handle objects near or covering a pole, or handle very large objects, you may have to use non-Euclidean geometry to compute an accurate buffer, and in that case, GEOS, unfortunately, won't help you.
+
+Hope this helps,
+
+Daniel
+
+
+On 31 Jan, 2011, at 08:54, Steve Monday wrote:
+
+> 
+> All,
+> 
+> Given the following coordinates, I'm attempting to generate an geometry offset by a given distance.
+> 
+> Coordinates:
+> 
+> -95.00401669688529,46.00186834142991,0 -95.00107846495065,46.00180429960306,0 -95.00103515172066,46.00461557617567,0 -95.00407243675345,46.00464859106228,0 -95.00401669688529,46.00186834142991,0
+> 
+> Distance: 0.0003
+> 
+> The resulting geometry is indeed an offset from the original but not exactly what I expected.  The offset geometry seems to be offset by a greater distance on the "north/south" segments than the "east/west" segments.  I was expecting the offset geometry to be offset the same distance around the entire perimeter of the source. 
+> 
+> My goal is to create code that given a geometry and a distance can produce an inner offset geometry equidistant around the entire perimeter of the original.
+> 
+> Attached is a kml file containing the target geometry and the resulting inner offset produced by the attached code.
+> 
+> Thanks
+> Steve
+> 
+> 
+> 
+> 
+> On Mon, Jan 31, 2011 at 10:26 AM, strk <strk@keybit.net> wrote:
+> On Mon, Jan 31, 2011 at 09:48:07AM -0600, Steve Monday wrote:
+> > All,
+> >
+> > I've been using geos successfully for many months.  I appreciate the work
+> > that has been invested in geos and the robustness of the api.
+> >
+> > I do have a "how to" question around the OffsetCurveBuilder but don't want
+> > to clutter this list if geos-devel is not intended to be a general purpose
+> > geos question/support mechanism.
+> >
+> > Am I in the right place?
+> 
+> Yes, being the only GEOS mailing list.
+> 
+> --strk;
+> 
+>  ()   Free GIS & Flash consultant/developer
+>  /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+> 
+> <example-offset.cpp><square_offset.kml>_______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From James.Sewell at lisasoft.com  Mon Jan 31 19:11:03 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Mon Jan 31 19:11:09 2011
+Subject: [geos-devel] Building polygons from linework to replicate ESRI Union
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B9827AD@optimus.ms.a2end.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: test.zip
+Type: application/x-zip-compressed
+Size: 8547 bytes
+Desc: test.zip
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20110201/74e700c8/test-0001.bin
+From James.Sewell at lisasoft.com  Mon Jan 31 19:43:24 2011
+From: James.Sewell at lisasoft.com (James.Sewell@lisasoft.com)
+Date: Mon Jan 31 19:43:29 2011
+Subject: [geos-devel] RE: Building polygons from linework to replicate ESRI
+	Union
+In-Reply-To: <CB506E813C77E9498F043F1F951BB2768E3B9827AD@optimus.ms.a2end.com>
+References: <CB506E813C77E9498F043F1F951BB2768E3B9827AD@optimus.ms.a2end.com>
+Message-ID: <CB506E813C77E9498F043F1F951BB2768E3B9827AE@optimus.ms.a2end.com>
+
+Sorry the third SQL should be "FROM alineunion", not "FROM alwunionxx"
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of James.Sewell@lisasoft.com
+Sent: Tuesday, 1 February 2011 11:11 AM
+To: GEOS Development List
+Subject: [geos-devel] Building polygons from linework to replicate ESRI Union
+
+Hello All,
+
+I am encountering problems with my process when I am trying to create drop polygons to linework and rebuild to polygons (as described by Paul Ramsey at http://s3.opengeo.org/postgis-power.pdf). I am doing this to replicate the ESRI Union functionality in a timely manner for large datasets. It works for the most part, but the below case if frustrating me.
+
+The attached zip file contains SQL to insert two polygons to the ageoms table.
+
+If you run the import SQL then the code below you will see that the bottom geom in the apoly table is joined to the upper geom due to some of the line vanishing (I understand there will be some other small geometries and am fine with this). I am unsure how this is happening from the ST_Polygonize?
+
+Does anyone have any hints on how I could proceed in this case? If I snap to 10E-6 the problem disappears, but unfortunately 10E-8 is the maximum snap I can use on this data.
+
+CREATE TABLE aline AS
+SELECT a.the_geom AS the_geom FROM
+(SELECT
+(ST_Dump
+(ST_Exteriorring(
+(ST_Dumprings(
+(ST_Dump(the_geom)).geom)).geom))).geom
+AS the_geom FROM ageoms) AS a;
+
+CREATE TABLE alineunion AS
+SELECT st_union(st_collect(the_geom), ST_SetSRID('LINESTRING EMPTY', 4283)) AS the_geom FROM aline;
+
+
+CREATE TABLE apoly AS
+SELECT a.the_geom AS the_geom FROM
+(SELECT (ST_Dump(ST_polygonize(the_geom))).geom AS the_geom FROM alwunionxx) AS a;
+
+
+
+Cheers,
+James Sewell
+Developer
+LISAsoft
+________________________________
+Ph: +61 3 8680 3250 Fax: +61 3 8680 3299
+Level 9, 601 Bourke St, Melbourne Vic 3000
+________________________________
+
+LISAsoft is part of the A2end Group of Companies
+http://www.ardec.com.au<http://www.ardec.com.au/>
+http://www.lisasoft.com<http://www.lisasoft.com/>
+http://www.terrapages.com<http://www.terrapages.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20110201/11e03d78/attachment.html

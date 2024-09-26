@@ -1,0 +1,2761 @@
+From strk at keybit.net  Thu Jul  1 07:56:26 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Development plans
+Message-ID: <20040701115626.GA85592@freek.keybit.net>
+
+I'm working on providing both deep-copy and take-ownership
+behaviours for Geometry construction. This will be also
+available in GeometryFactory. Constructors taking
+pointer-to-initializer-data will take ownership, while those
+taking references-to-initializer-data will copy args.
+
+Supporting both old and new API will require preprocessor
+switches on ALL geometry constructions except Points, which
+are tipically constructed passing a Coordinate (copied).
+Extracting GEOS version for the switches is not going to be
+easy so you'll probably want to support new API only.
+If this is not the case you can look at how postgis will
+handle it.
+
+As part of the new API I plan to move all headers in
+the geos/ directory, so you can #include <geos/util.h> with
+no fear of name clashes. A geos/geos.h will also be available
+which will include some commonly needed header files 
+(currently geom.h, util.h and geos_version.h - feel free to
+ suggest any other candidate).
+
+The geos_version.h file will define major/minor/patchlevel version
+numbers and a version string, so you can check it to handle
+next API change ;)
+
+I'd include in next release some more examples in the doc/example.cpp
+with new features, and a doxygen documentation build rule.
+Also we'd need some more xml tests for buffer operations and new
+features. New features will also need to be handled by the XMLTester.
+
+Hopefully in 3 weeks we will be ready for next release.
+
+--strk;
+
+From strk at keybit.net  Thu Jul  1 08:19:29 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryEditor
+Message-ID: <20040701121929.GC85592@freek.keybit.net>
+
+GEOS implementation of GeometryEditor always return a newly
+allocated Geometry. Shouldn't it return the modified passed
+Geometry instead ?
+
+--strk;
+
+
+
+From strk at keybit.net  Thu Jul  1 10:48:08 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryFactory argument in Geometry constructors
+In-Reply-To: <20040630205829.GA77353@freek.keybit.net>
+References: <20040630194914.GA76624@freek.keybit.net>
+	<20040630205829.GA77353@freek.keybit.net>
+Message-ID: <20040701144808.GA86767@freek.keybit.net>
+
+I've found this change does not always work.
+Sometime client application does not have control over Geometries'
+factory. Namely the PrecisionReducer class creates a new GeometryFactory
+for the new Geometry. If Geometry do not take ownership of the factory 
+this results in a memory leak.
+
+Having Geometry own a private GeometryFactory means you have
+less memory management problems but memory occupation and CPU
+cycles will increase. Take a collection of 100 Geometries.
+This will have 101 GeometryFactories, 101 copies and 101 deletes.
+Each GeometryFactory copy will also copy its PrecisionModel.
+
+Apart from the fact that this duplication of info might be useless
+(is a collection of Geometries with different Factory valid ?)
+Do we really need it ?
+
+A possible solution is to specify wheter or not to take ownership of
+passed GeometryFactory. This specification would set a flag which 
+would be checked at Geometry destruction time. Taking ownership of
+a GeometryFactory could mean just destroy it at Geometry destruction
+time, without making any copy at construction time (duplicating 
+a GeometryFactory should be pretty easy). With this setup code
+willing to use a Geometry factory for constructing another Geometry
+should check ownership of it, as the new Geometry might refer to
+a factory which will be destructed by former Geometry destructor...
+
+Another solution might be reference counting, which I discouraged
+in the past (mainly due to my lack of experience).
+Actually reference counting might more closely reflect JTS, which
+gets memory management for free... This - again - would be a bigger
+change and will shift release time.
+
+Final and easier solution is to keep copying Factory and forget about
+it.
+
+Comments ?
+
+--strk;
+
+On Wed, Jun 30, 2004 at 10:58:29PM +0200, strk wrote:
+> I ask and answer myself :)
+> I've removed GeometryConstrauctor automatic copy from
+> Geometry constructors. This want change the way applications
+> will call them.
+> 
+> Now on with the ref/pointer switch for ownership...
+> 
+> --strk;
+> 
+> On Wed, Jun 30, 2004 at 09:49:14PM +0200, strk wrote:
+> > Another element which should be take part of the next API
+> > is GeoemtryFactory. GEOS-1.0 did not have geom constructors
+> > taking GeometryFactory (did have PrecisionModel and SRID which
+> > the constructors used to build a new Factory). Next GEOS will
+> > have GeometryFactory as an argument to the constructor (so to
+> > have PrecisionModel and SRID already defined there).
+> > 
+> > Would the factory element of each Geometry be better a pointer
+> > to external resource or a owned copy ? It is currently a copy
+> > so I was wondering. If we need both behaviour with this too
+> > it will make 4 constructor versions for each geometry :!!
+> > 
+> > Just a note: when building a geometry with no defined factory
+> > current behaviour is to create a new Factory (which would leak
+> > unless deleted at geometry destruction time). If we decide to
+> > go with pointer-to-external-object we could use an
+> > internalGeometryFactory in thee cases.
+> > 
+> > --strk;
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From ferdinando.villa at uvm.edu  Thu Jul  1 11:04:07 2004
+From: ferdinando.villa at uvm.edu (Ferdinando Villa)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryFactory argument in Geometry constructors
+In-Reply-To: <20040701144808.GA86767@freek.keybit.net>
+References: <20040630194914.GA76624@freek.keybit.net>
+	<20040630205829.GA77353@freek.keybit.net>
+	<20040701144808.GA86767@freek.keybit.net>
+Message-ID: <1088694247.4456.24.camel@basil.snr.uvm.edu>
+
+Sorry for not having answered previous aclocal-related questions - I was
+away. Anyway, I didn't have a clue....
+
+Although I have essentially no time until August or so, I can volunteer
+to implement a reference counted smart pointer layer over the current
+geos in late summer. That can be done by including the necessary parts
+of the boost library (not much) and can be implemented entirely on top
+of the existing API, declared in a different namespace. We can subclass
+a boost::shared_ptr to a geometry class that can be used with value
+semantics, just like an int, and give access to all public methods of
+the geometry pointed to. Users will be able to select implementations by
+just switching namespaces. I can show examples of this usage in
+unrelated code if you want me to - it's a totally fabulous way to work
+once it's done. It's thread safe, too, if a reliable smart pointer
+implementation is used. And I've been using boost for years in
+multithreaded servers without a problem.
+The other advantage is that all this is implementable in header files
+only, so no library change is required.
+
+Let me know if this sounds good and I'll put it in my priorities. 
+Ciao f
+
+On Thu, 2004-07-01 at 10:48, strk wrote:
+> I've found this change does not always work.
+> Sometime client application does not have control over Geometries'
+> factory. Namely the PrecisionReducer class creates a new GeometryFactory
+> for the new Geometry. If Geometry do not take ownership of the factory 
+> this results in a memory leak.
+> 
+> Having Geometry own a private GeometryFactory means you have
+> less memory management problems but memory occupation and CPU
+> cycles will increase. Take a collection of 100 Geometries.
+> This will have 101 GeometryFactories, 101 copies and 101 deletes.
+> Each GeometryFactory copy will also copy its PrecisionModel.
+> 
+> Apart from the fact that this duplication of info might be useless
+> (is a collection of Geometries with different Factory valid ?)
+> Do we really need it ?
+> 
+> A possible solution is to specify wheter or not to take ownership of
+> passed GeometryFactory. This specification would set a flag which 
+> would be checked at Geometry destruction time. Taking ownership of
+> a GeometryFactory could mean just destroy it at Geometry destruction
+> time, without making any copy at construction time (duplicating 
+> a GeometryFactory should be pretty easy). With this setup code
+> willing to use a Geometry factory for constructing another Geometry
+> should check ownership of it, as the new Geometry might refer to
+> a factory which will be destructed by former Geometry destructor...
+> 
+> Another solution might be reference counting, which I discouraged
+> in the past (mainly due to my lack of experience).
+> Actually reference counting might more closely reflect JTS, which
+> gets memory management for free... This - again - would be a bigger
+> change and will shift release time.
+> 
+> Final and easier solution is to keep copying Factory and forget about
+> it.
+> 
+> Comments ?
+> 
+> --strk;
+> 
+> On Wed, Jun 30, 2004 at 10:58:29PM +0200, strk wrote:
+> > I ask and answer myself :)
+> > I've removed GeometryConstrauctor automatic copy from
+> > Geometry constructors. This want change the way applications
+> > will call them.
+> > 
+> > Now on with the ref/pointer switch for ownership...
+> > 
+> > --strk;
+> > 
+> > On Wed, Jun 30, 2004 at 09:49:14PM +0200, strk wrote:
+> > > Another element which should be take part of the next API
+> > > is GeoemtryFactory. GEOS-1.0 did not have geom constructors
+> > > taking GeometryFactory (did have PrecisionModel and SRID which
+> > > the constructors used to build a new Factory). Next GEOS will
+> > > have GeometryFactory as an argument to the constructor (so to
+> > > have PrecisionModel and SRID already defined there).
+> > > 
+> > > Would the factory element of each Geometry be better a pointer
+> > > to external resource or a owned copy ? It is currently a copy
+> > > so I was wondering. If we need both behaviour with this too
+> > > it will make 4 constructor versions for each geometry :!!
+> > > 
+> > > Just a note: when building a geometry with no defined factory
+> > > current behaviour is to create a new Factory (which would leak
+> > > unless deleted at geometry destruction time). If we decide to
+> > > go with pointer-to-external-object we could use an
+> > > internalGeometryFactory in thee cases.
+> > > 
+> > > --strk;
+> > > 
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+-- 
+Ferdinando Villa, Ph.D., Associate Research Professor, Ecoinformatics
+Gund Institute for Ecological Economics and Dept of Botany, Univ. of Vermont
+http://ecoinformatics.uvm.edu
+
+
+From ferdinando.villa at uvm.edu  Thu Jul  1 11:12:00 2004
+From: ferdinando.villa at uvm.edu (Ferdinando Villa)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryFactory argument in Geometry constructors
+In-Reply-To: <20040701144808.GA86767@freek.keybit.net>
+References: <20040630194914.GA76624@freek.keybit.net>
+	<20040630205829.GA77353@freek.keybit.net>
+	<20040701144808.GA86767@freek.keybit.net>
+Message-ID: <1088694720.4456.29.camel@basil.snr.uvm.edu>
+
+strk,
+
+what you describe below is so naturally solved with shared pointers that
+I suggest to keep copying until I or someone else can integrate that in
+geos. I definitely suggest not to mess with flags and stuff. Meanwhile,
+a look at www.boost.org could start whetting your appetite for automatic
+memory management... we can copy only the relevant files from boost with
+(relatively) little effort. I've done it before.
+
+ferdinando
+
+On Thu, 2004-07-01 at 10:48, strk wrote:
+> I've found this change does not always work.
+> Sometime client application does not have control over Geometries'
+> factory. Namely the PrecisionReducer class creates a new GeometryFactory
+> for the new Geometry. If Geometry do not take ownership of the factory 
+> this results in a memory leak.
+> 
+> Having Geometry own a private GeometryFactory means you have
+> less memory management problems but memory occupation and CPU
+> cycles will increase. Take a collection of 100 Geometries.
+> This will have 101 GeometryFactories, 101 copies and 101 deletes.
+> Each GeometryFactory copy will also copy its PrecisionModel.
+> 
+> Apart from the fact that this duplication of info might be useless
+> (is a collection of Geometries with different Factory valid ?)
+> Do we really need it ?
+> 
+> A possible solution is to specify wheter or not to take ownership of
+> passed GeometryFactory. This specification would set a flag which 
+> would be checked at Geometry destruction time. Taking ownership of
+> a GeometryFactory could mean just destroy it at Geometry destruction
+> time, without making any copy at construction time (duplicating 
+> a GeometryFactory should be pretty easy). With this setup code
+> willing to use a Geometry factory for constructing another Geometry
+> should check ownership of it, as the new Geometry might refer to
+> a factory which will be destructed by former Geometry destructor...
+> 
+> Another solution might be reference counting, which I discouraged
+> in the past (mainly due to my lack of experience).
+> Actually reference counting might more closely reflect JTS, which
+> gets memory management for free... This - again - would be a bigger
+> change and will shift release time.
+> 
+> Final and easier solution is to keep copying Factory and forget about
+> it.
+> 
+> Comments ?
+> 
+> --strk;
+> 
+> On Wed, Jun 30, 2004 at 10:58:29PM +0200, strk wrote:
+> > I ask and answer myself :)
+> > I've removed GeometryConstrauctor automatic copy from
+> > Geometry constructors. This want change the way applications
+> > will call them.
+> > 
+> > Now on with the ref/pointer switch for ownership...
+> > 
+> > --strk;
+> > 
+> > On Wed, Jun 30, 2004 at 09:49:14PM +0200, strk wrote:
+> > > Another element which should be take part of the next API
+> > > is GeoemtryFactory. GEOS-1.0 did not have geom constructors
+> > > taking GeometryFactory (did have PrecisionModel and SRID which
+> > > the constructors used to build a new Factory). Next GEOS will
+> > > have GeometryFactory as an argument to the constructor (so to
+> > > have PrecisionModel and SRID already defined there).
+> > > 
+> > > Would the factory element of each Geometry be better a pointer
+> > > to external resource or a owned copy ? It is currently a copy
+> > > so I was wondering. If we need both behaviour with this too
+> > > it will make 4 constructor versions for each geometry :!!
+> > > 
+> > > Just a note: when building a geometry with no defined factory
+> > > current behaviour is to create a new Factory (which would leak
+> > > unless deleted at geometry destruction time). If we decide to
+> > > go with pointer-to-external-object we could use an
+> > > internalGeometryFactory in thee cases.
+> > > 
+> > > --strk;
+> > > 
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+-- 
+Ferdinando Villa, Ph.D., Associate Research Professor, Ecoinformatics
+Gund Institute for Ecological Economics and Dept of Botany, Univ. of Vermont
+http://ecoinformatics.uvm.edu
+
+
+From strk at keybit.net  Fri Jul  2 05:49:18 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryFactory argument in Geometry constructors
+In-Reply-To: <1088694720.4456.29.camel@basil.snr.uvm.edu>
+References: <20040630194914.GA76624@freek.keybit.net>
+	<20040630205829.GA77353@freek.keybit.net>
+	<20040701144808.GA86767@freek.keybit.net>
+	<1088694720.4456.29.camel@basil.snr.uvm.edu>
+Message-ID: <20040702094918.GA94998@freek.keybit.net>
+
+Ok. I reverted GeometryFactory semantic to copy arg, to avoid
+time shifts. 
+
+I'm not sure about the possibility of making the top layer
+transparent as users would still need to know what to do 
+with GeometryFactories passed to Geometry constructors.
+
+An example:
+	1: create factory
+	2: create geometry1
+	3: modify factory (precision model - for example)
+	4: create geometry1
+
+In the described situation factory modification at line 3 would
+modify geometry1 future behaviour unless it copied the passed
+factory. Using shared pointer will help avoiding memory leaks
+but will still require some semantic definitions.
+
+--strk;
+
+On Thu, Jul 01, 2004 at 11:12:00AM -0400, Ferdinando Villa wrote:
+> strk,
+> 
+> what you describe below is so naturally solved with shared pointers that
+> I suggest to keep copying until I or someone else can integrate that in
+> geos. I definitely suggest not to mess with flags and stuff. Meanwhile,
+> a look at www.boost.org could start whetting your appetite for automatic
+> memory management... we can copy only the relevant files from boost with
+> (relatively) little effort. I've done it before.
+> 
+> ferdinando
+> 
+> On Thu, 2004-07-01 at 10:48, strk wrote:
+> > I've found this change does not always work.
+> > Sometime client application does not have control over Geometries'
+> > factory. Namely the PrecisionReducer class creates a new GeometryFactory
+> > for the new Geometry. If Geometry do not take ownership of the factory 
+> > this results in a memory leak.
+> > 
+> > Having Geometry own a private GeometryFactory means you have
+> > less memory management problems but memory occupation and CPU
+> > cycles will increase. Take a collection of 100 Geometries.
+> > This will have 101 GeometryFactories, 101 copies and 101 deletes.
+> > Each GeometryFactory copy will also copy its PrecisionModel.
+> > 
+> > Apart from the fact that this duplication of info might be useless
+> > (is a collection of Geometries with different Factory valid ?)
+> > Do we really need it ?
+> > 
+> > A possible solution is to specify wheter or not to take ownership of
+> > passed GeometryFactory. This specification would set a flag which 
+> > would be checked at Geometry destruction time. Taking ownership of
+> > a GeometryFactory could mean just destroy it at Geometry destruction
+> > time, without making any copy at construction time (duplicating 
+> > a GeometryFactory should be pretty easy). With this setup code
+> > willing to use a Geometry factory for constructing another Geometry
+> > should check ownership of it, as the new Geometry might refer to
+> > a factory which will be destructed by former Geometry destructor...
+> > 
+> > Another solution might be reference counting, which I discouraged
+> > in the past (mainly due to my lack of experience).
+> > Actually reference counting might more closely reflect JTS, which
+> > gets memory management for free... This - again - would be a bigger
+> > change and will shift release time.
+> > 
+> > Final and easier solution is to keep copying Factory and forget about
+> > it.
+> > 
+> > Comments ?
+> > 
+> > --strk;
+> > 
+> > On Wed, Jun 30, 2004 at 10:58:29PM +0200, strk wrote:
+> > > I ask and answer myself :)
+> > > I've removed GeometryConstrauctor automatic copy from
+> > > Geometry constructors. This want change the way applications
+> > > will call them.
+> > > 
+> > > Now on with the ref/pointer switch for ownership...
+> > > 
+> > > --strk;
+> > > 
+> > > On Wed, Jun 30, 2004 at 09:49:14PM +0200, strk wrote:
+> > > > Another element which should be take part of the next API
+> > > > is GeoemtryFactory. GEOS-1.0 did not have geom constructors
+> > > > taking GeometryFactory (did have PrecisionModel and SRID which
+> > > > the constructors used to build a new Factory). Next GEOS will
+> > > > have GeometryFactory as an argument to the constructor (so to
+> > > > have PrecisionModel and SRID already defined there).
+> > > > 
+> > > > Would the factory element of each Geometry be better a pointer
+> > > > to external resource or a owned copy ? It is currently a copy
+> > > > so I was wondering. If we need both behaviour with this too
+> > > > it will make 4 constructor versions for each geometry :!!
+> > > > 
+> > > > Just a note: when building a geometry with no defined factory
+> > > > current behaviour is to create a new Factory (which would leak
+> > > > unless deleted at geometry destruction time). If we decide to
+> > > > go with pointer-to-external-object we could use an
+> > > > internalGeometryFactory in thee cases.
+> > > > 
+> > > > --strk;
+> > > > 
+> > > > _______________________________________________
+> > > > geos-devel mailing list
+> > > > geos-devel@geos.refractions.net
+> > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> -- 
+> Ferdinando Villa, Ph.D., Associate Research Professor, Ecoinformatics
+> Gund Institute for Ecological Economics and Dept of Botany, Univ. of Vermont
+> http://ecoinformatics.uvm.edu
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Fri Jul  2 10:03:26 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Development status
+Message-ID: <20040702140326.GA778@freek.keybit.net>
+
+(1)
+I've finished cracking Geometry API.
+For each Geometry type you now have a deep-copy constructor
+and a take-ownership one. The former takes arguments by reference
+while the latter takes them by pointer. The same semantic
+is available with GeometryFactory functions, including buildGeomtry().
+Client application switches seem not so hard, you can see current
+postgis repository for an example. You'll also find newer GEOS to
+be faster in conversion (mostly take-ownership semantic).
+
+(2)
+Headers cross-inclusion does now require you set the -I compiler
+flag the way geos-config suggests, which is one directory above
+actual stuff. You then include <geos/geom.h> etc...
+The -I requirement is there because some GEOS headers will include
+other GEOS headers using the 'geos/' prefix.
+As of GEOS-1.0 cross inclusion did happen with include "header.h"
+so in order to support both versions you might use 2 -I flags.
+Current postgis uses only the new layout since the headers it
+includes do only have 1 cross-reference to "platform.h" which 
+basically defines int64 already available through PostgreSQL headers.
+I've added a geos.h file which can be included without prefix and
+will include geos/geom.h, geos/version.h and geos/util.h.
+Please give me feedback about this: should it include more headers ?
+
+(3)
+Please test current CVS builds on your machine.
+Application developers (Frank?) please report any issues you
+found so to have them fixed in next release.
+
+
+Thanks
+
+--strk;
+
+
+From sdlime at comcast.net  Sat Jul  3 00:44:32 2004
+From: sdlime at comcast.net (Stephen Lime)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] geos-config
+In-Reply-To: <20040625084044.GC25925@freek.keybit.net>
+References: <7DE218E9-C661-11D8-BECC-000A95C8F1B4@comcast.net>
+	<20040625084044.GC25925@freek.keybit.net>
+Message-ID: <ACFF9DE4-CCAB-11D8-B580-000A95C8F1B4@comcast.net>
+
+Trying the new CVS version. build just fine on MacOS.  One comment on 
+the new geos-config behavior. Seems like --include should keep the -I 
+switch. That would make it behave just like --libs. Just a thought.
+
+Steve
+
+On Jun 25, 2004, at 3:40 AM, strk wrote:
+
+> I don't like this also.
+> I think it should produce just the path without the -I switch.
+> Anyway, you should find a geos.m4 file in the GEOS distribution
+> handy for application's configure scripts.
+>
+> --strk;
+>
+> On Thu, Jun 24, 2004 at 11:38:23PM -0500, Stephen Lime wrote:
+>> Hi folks: Trying to integrate geos into a configure script based on 
+>> the
+>> output from geos-config. I'm curious if the --includes and --cflags
+>> options should be producing the same output (they do). I expected one
+>> of them to produce "-I/usr/local/include/geos". I can work around this
+>> using the --prefix but was wondering if the behavior is as intended.
+>>
+>> Steve
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@geos.refractions.net
+>> http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+>
+
+
+From strk at keybit.net  Sat Jul  3 07:22:45 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] geos-config
+In-Reply-To: <ACFF9DE4-CCAB-11D8-B580-000A95C8F1B4@comcast.net>
+References: <7DE218E9-C661-11D8-BECC-000A95C8F1B4@comcast.net>
+	<20040625084044.GC25925@freek.keybit.net>
+	<ACFF9DE4-CCAB-11D8-B580-000A95C8F1B4@comcast.net>
+Message-ID: <20040703112245.GA1960@freek.keybit.net>
+
+On Fri, Jul 02, 2004 at 11:44:32PM -0500, Stephen Lime wrote:
+> Trying the new CVS version. build just fine on MacOS.  One comment on 
+> the new geos-config behavior. Seems like --include should keep the -I 
+> switch. That would make it behave just like --libs. Just a thought.
+> 
+> Steve
+
+You can use --cflags for that.
+(maybe --libs should actually be --ldflags)
+Please tell me if you find any uncomfortable call in the API
+as we are re-designing it for next release.
+
+> 
+> On Jun 25, 2004, at 3:40 AM, strk wrote:
+> 
+> >I don't like this also.
+> >I think it should produce just the path without the -I switch.
+> >Anyway, you should find a geos.m4 file in the GEOS distribution
+> >handy for application's configure scripts.
+> >
+> >--strk;
+> >
+> >On Thu, Jun 24, 2004 at 11:38:23PM -0500, Stephen Lime wrote:
+> >>Hi folks: Trying to integrate geos into a configure script based on 
+> >>the
+> >>output from geos-config. I'm curious if the --includes and --cflags
+> >>options should be producing the same output (they do). I expected one
+> >>of them to produce "-I/usr/local/include/geos". I can work around this
+> >>using the --prefix but was wondering if the behavior is as intended.
+> >>
+> >>Steve
+> >>
+> >>_______________________________________________
+> >>geos-devel mailing list
+> >>geos-devel@geos.refractions.net
+> >>http://geos.refractions.net/mailman/listinfo/geos-devel
+> >_______________________________________________
+> >geos-devel mailing list
+> >geos-devel@geos.refractions.net
+> >http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Sat Jul  3 09:53:36 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] headers layout
+Message-ID: <20040703135336.GA12033@freek.keybit.net>
+
+Having taken a deeper tour in header files I think we
+should require client applications include 'geos.h', since
+headers distribution is *very* mangled..
+
+utils.h, for example contains most exceptions + GeometryShapeFactory.
+a subclass of GEOSException is in geosAlgorhitms.h ...
+
+I think we should make some order in header files, so keeping
+geos.h as the entry level for client application seems to
+me a good start. What do you think ?
+
+--strk;
+
+From strk at keybit.net  Sat Jul  3 10:15:34 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryFactory argument in Geometry constructors
+In-Reply-To: <20040702094918.GA94998@freek.keybit.net>
+References: <20040630194914.GA76624@freek.keybit.net>
+	<20040630205829.GA77353@freek.keybit.net>
+	<20040701144808.GA86767@freek.keybit.net>
+	<1088694720.4456.29.camel@basil.snr.uvm.edu>
+	<20040702094918.GA94998@freek.keybit.net>
+Message-ID: <20040703141534.GB12033@freek.keybit.net>
+
+I've checked documentation, and saw that GeometryFactory is indeed
+an unmutable Class. Once you create it you cannot modify it in any
+way. It seems thus cleaner to use reference-counted pointers for
+it. Probably the same thing holds true for Geometry themselves,
+as editing of them should happen through the GeometryEditor
+class that in turn might return a newly allocated geom.
+
+I'll make some experimentations with reference counting...
+
+--strk;
+
+On Fri, Jul 02, 2004 at 11:49:18AM +0200, strk wrote:
+> Ok. I reverted GeometryFactory semantic to copy arg, to avoid
+> time shifts. 
+> 
+> I'm not sure about the possibility of making the top layer
+> transparent as users would still need to know what to do 
+> with GeometryFactories passed to Geometry constructors.
+> 
+> An example:
+> 	1: create factory
+> 	2: create geometry1
+> 	3: modify factory (precision model - for example)
+> 	4: create geometry1
+> 
+> In the described situation factory modification at line 3 would
+> modify geometry1 future behaviour unless it copied the passed
+> factory. Using shared pointer will help avoiding memory leaks
+> but will still require some semantic definitions.
+> 
+> --strk;
+> 
+> On Thu, Jul 01, 2004 at 11:12:00AM -0400, Ferdinando Villa wrote:
+> > strk,
+> > 
+> > what you describe below is so naturally solved with shared pointers that
+> > I suggest to keep copying until I or someone else can integrate that in
+> > geos. I definitely suggest not to mess with flags and stuff. Meanwhile,
+> > a look at www.boost.org could start whetting your appetite for automatic
+> > memory management... we can copy only the relevant files from boost with
+> > (relatively) little effort. I've done it before.
+> > 
+> > ferdinando
+> > 
+> > On Thu, 2004-07-01 at 10:48, strk wrote:
+> > > I've found this change does not always work.
+> > > Sometime client application does not have control over Geometries'
+> > > factory. Namely the PrecisionReducer class creates a new GeometryFactory
+> > > for the new Geometry. If Geometry do not take ownership of the factory 
+> > > this results in a memory leak.
+> > > 
+> > > Having Geometry own a private GeometryFactory means you have
+> > > less memory management problems but memory occupation and CPU
+> > > cycles will increase. Take a collection of 100 Geometries.
+> > > This will have 101 GeometryFactories, 101 copies and 101 deletes.
+> > > Each GeometryFactory copy will also copy its PrecisionModel.
+> > > 
+> > > Apart from the fact that this duplication of info might be useless
+> > > (is a collection of Geometries with different Factory valid ?)
+> > > Do we really need it ?
+> > > 
+> > > A possible solution is to specify wheter or not to take ownership of
+> > > passed GeometryFactory. This specification would set a flag which 
+> > > would be checked at Geometry destruction time. Taking ownership of
+> > > a GeometryFactory could mean just destroy it at Geometry destruction
+> > > time, without making any copy at construction time (duplicating 
+> > > a GeometryFactory should be pretty easy). With this setup code
+> > > willing to use a Geometry factory for constructing another Geometry
+> > > should check ownership of it, as the new Geometry might refer to
+> > > a factory which will be destructed by former Geometry destructor...
+> > > 
+> > > Another solution might be reference counting, which I discouraged
+> > > in the past (mainly due to my lack of experience).
+> > > Actually reference counting might more closely reflect JTS, which
+> > > gets memory management for free... This - again - would be a bigger
+> > > change and will shift release time.
+> > > 
+> > > Final and easier solution is to keep copying Factory and forget about
+> > > it.
+> > > 
+> > > Comments ?
+> > > 
+> > > --strk;
+> > > 
+> > > On Wed, Jun 30, 2004 at 10:58:29PM +0200, strk wrote:
+> > > > I ask and answer myself :)
+> > > > I've removed GeometryConstrauctor automatic copy from
+> > > > Geometry constructors. This want change the way applications
+> > > > will call them.
+> > > > 
+> > > > Now on with the ref/pointer switch for ownership...
+> > > > 
+> > > > --strk;
+> > > > 
+> > > > On Wed, Jun 30, 2004 at 09:49:14PM +0200, strk wrote:
+> > > > > Another element which should be take part of the next API
+> > > > > is GeoemtryFactory. GEOS-1.0 did not have geom constructors
+> > > > > taking GeometryFactory (did have PrecisionModel and SRID which
+> > > > > the constructors used to build a new Factory). Next GEOS will
+> > > > > have GeometryFactory as an argument to the constructor (so to
+> > > > > have PrecisionModel and SRID already defined there).
+> > > > > 
+> > > > > Would the factory element of each Geometry be better a pointer
+> > > > > to external resource or a owned copy ? It is currently a copy
+> > > > > so I was wondering. If we need both behaviour with this too
+> > > > > it will make 4 constructor versions for each geometry :!!
+> > > > > 
+> > > > > Just a note: when building a geometry with no defined factory
+> > > > > current behaviour is to create a new Factory (which would leak
+> > > > > unless deleted at geometry destruction time). If we decide to
+> > > > > go with pointer-to-external-object we could use an
+> > > > > internalGeometryFactory in thee cases.
+> > > > > 
+> > > > > --strk;
+> > > > > 
+> > > > > _______________________________________________
+> > > > > geos-devel mailing list
+> > > > > geos-devel@geos.refractions.net
+> > > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > > _______________________________________________
+> > > > geos-devel mailing list
+> > > > geos-devel@geos.refractions.net
+> > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > -- 
+> > Ferdinando Villa, Ph.D., Associate Research Professor, Ecoinformatics
+> > Gund Institute for Ecological Economics and Dept of Botany, Univ. of Vermont
+> > http://ecoinformatics.uvm.edu
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Mon Jul  5 15:39:10 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Development status
+Message-ID: <20040705193910.GA30125@freek.keybit.net>
+
+I've dropped support for deep-copying constructors
+in the Geometry classes and kept it in the GeometryFactory.
+I've added a clone() function for CoordinateList classes, to
+make manual copy easier, something similar could be done
+with vector<Geometry *>, maybe a GeometryList class or
+a static Geometry::copyGeometryVector...
+
+Hopefully documentation is now cleaner, but needs to be read
+by beta testers, anyone ? If you have doxygen installed you
+can run 'make doxygen' in the doc/ directory.
+
+As for memory management I tought we could give Geometry ownership
+to their factory and factory ownership to another manager class.
+This is probably something that won't go in next release but in
+the meanwhile I introduced a GeometryFactory::destroyGeometry
+to be preferred to direct Geometry deletion, similarly to what
+already happen with creation.
+
+--strk;
+
+From strk at keybit.net  Thu Jul  8 17:58:31 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] CoordinateSequence API
+Message-ID: <20040708215831.GA64803@freek.keybit.net>
+
+In order to get GEOS API closer to JTS API
+CoordinateList has been renamed to CoordinateSequence
+and the same happened for CoordinateListFactory.
+Default implementation is now DefaultCoordinateSequence
+(was: BasicCoordinateList) and can be created using
+DefaultCoordinateSequenceFactory::instance()->create(vector<Coordinate>*);
+
+Coordinate lists utility functions are currently all included
+in the CoordinateSequence virtual class, but will probably need
+a split to reflect JTS object model.
+In JTS-1.4 two additional classes help in the creation and editing
+of Coordinate lists: CoordinateList and CoordinateArray.
+Expect a change in that direction.
+
+--strk;
+
+From strk at keybit.net  Thu Jul  8 18:02:05 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GeometryFactory argument in Geometry constructors
+In-Reply-To: <20040703141534.GB12033@freek.keybit.net>
+References: <20040630194914.GA76624@freek.keybit.net>
+	<20040630205829.GA77353@freek.keybit.net>
+	<20040701144808.GA86767@freek.keybit.net>
+	<1088694720.4456.29.camel@basil.snr.uvm.edu>
+	<20040702094918.GA94998@freek.keybit.net>
+	<20040703141534.GB12033@freek.keybit.net>
+Message-ID: <20040708220205.GB64803@freek.keybit.net>
+
+I had a discussion with Martin on the topic and we decided
+to leave GeometryFactory ownership to the user, thus keeping
+just a reference to external factory inside Geometry objects.
+All deprecated constructors lacking a reference to a GeometryFactory
+had been dropped. All internal GeometryFactory constructions has
+been removed.
+
+--strk;
+
+On Sat, Jul 03, 2004 at 04:15:34PM +0200, strk wrote:
+> I've checked documentation, and saw that GeometryFactory is indeed
+> an unmutable Class. Once you create it you cannot modify it in any
+> way. It seems thus cleaner to use reference-counted pointers for
+> it. Probably the same thing holds true for Geometry themselves,
+> as editing of them should happen through the GeometryEditor
+> class that in turn might return a newly allocated geom.
+> 
+> I'll make some experimentations with reference counting...
+> 
+> --strk;
+> 
+> On Fri, Jul 02, 2004 at 11:49:18AM +0200, strk wrote:
+> > Ok. I reverted GeometryFactory semantic to copy arg, to avoid
+> > time shifts. 
+> > 
+> > I'm not sure about the possibility of making the top layer
+> > transparent as users would still need to know what to do 
+> > with GeometryFactories passed to Geometry constructors.
+> > 
+> > An example:
+> > 	1: create factory
+> > 	2: create geometry1
+> > 	3: modify factory (precision model - for example)
+> > 	4: create geometry1
+> > 
+> > In the described situation factory modification at line 3 would
+> > modify geometry1 future behaviour unless it copied the passed
+> > factory. Using shared pointer will help avoiding memory leaks
+> > but will still require some semantic definitions.
+> > 
+> > --strk;
+> > 
+> > On Thu, Jul 01, 2004 at 11:12:00AM -0400, Ferdinando Villa wrote:
+> > > strk,
+> > > 
+> > > what you describe below is so naturally solved with shared pointers that
+> > > I suggest to keep copying until I or someone else can integrate that in
+> > > geos. I definitely suggest not to mess with flags and stuff. Meanwhile,
+> > > a look at www.boost.org could start whetting your appetite for automatic
+> > > memory management... we can copy only the relevant files from boost with
+> > > (relatively) little effort. I've done it before.
+> > > 
+> > > ferdinando
+> > > 
+> > > On Thu, 2004-07-01 at 10:48, strk wrote:
+> > > > I've found this change does not always work.
+> > > > Sometime client application does not have control over Geometries'
+> > > > factory. Namely the PrecisionReducer class creates a new GeometryFactory
+> > > > for the new Geometry. If Geometry do not take ownership of the factory 
+> > > > this results in a memory leak.
+> > > > 
+> > > > Having Geometry own a private GeometryFactory means you have
+> > > > less memory management problems but memory occupation and CPU
+> > > > cycles will increase. Take a collection of 100 Geometries.
+> > > > This will have 101 GeometryFactories, 101 copies and 101 deletes.
+> > > > Each GeometryFactory copy will also copy its PrecisionModel.
+> > > > 
+> > > > Apart from the fact that this duplication of info might be useless
+> > > > (is a collection of Geometries with different Factory valid ?)
+> > > > Do we really need it ?
+> > > > 
+> > > > A possible solution is to specify wheter or not to take ownership of
+> > > > passed GeometryFactory. This specification would set a flag which 
+> > > > would be checked at Geometry destruction time. Taking ownership of
+> > > > a GeometryFactory could mean just destroy it at Geometry destruction
+> > > > time, without making any copy at construction time (duplicating 
+> > > > a GeometryFactory should be pretty easy). With this setup code
+> > > > willing to use a Geometry factory for constructing another Geometry
+> > > > should check ownership of it, as the new Geometry might refer to
+> > > > a factory which will be destructed by former Geometry destructor...
+> > > > 
+> > > > Another solution might be reference counting, which I discouraged
+> > > > in the past (mainly due to my lack of experience).
+> > > > Actually reference counting might more closely reflect JTS, which
+> > > > gets memory management for free... This - again - would be a bigger
+> > > > change and will shift release time.
+> > > > 
+> > > > Final and easier solution is to keep copying Factory and forget about
+> > > > it.
+> > > > 
+> > > > Comments ?
+> > > > 
+> > > > --strk;
+> > > > 
+> > > > On Wed, Jun 30, 2004 at 10:58:29PM +0200, strk wrote:
+> > > > > I ask and answer myself :)
+> > > > > I've removed GeometryConstrauctor automatic copy from
+> > > > > Geometry constructors. This want change the way applications
+> > > > > will call them.
+> > > > > 
+> > > > > Now on with the ref/pointer switch for ownership...
+> > > > > 
+> > > > > --strk;
+> > > > > 
+> > > > > On Wed, Jun 30, 2004 at 09:49:14PM +0200, strk wrote:
+> > > > > > Another element which should be take part of the next API
+> > > > > > is GeoemtryFactory. GEOS-1.0 did not have geom constructors
+> > > > > > taking GeometryFactory (did have PrecisionModel and SRID which
+> > > > > > the constructors used to build a new Factory). Next GEOS will
+> > > > > > have GeometryFactory as an argument to the constructor (so to
+> > > > > > have PrecisionModel and SRID already defined there).
+> > > > > > 
+> > > > > > Would the factory element of each Geometry be better a pointer
+> > > > > > to external resource or a owned copy ? It is currently a copy
+> > > > > > so I was wondering. If we need both behaviour with this too
+> > > > > > it will make 4 constructor versions for each geometry :!!
+> > > > > > 
+> > > > > > Just a note: when building a geometry with no defined factory
+> > > > > > current behaviour is to create a new Factory (which would leak
+> > > > > > unless deleted at geometry destruction time). If we decide to
+> > > > > > go with pointer-to-external-object we could use an
+> > > > > > internalGeometryFactory in thee cases.
+> > > > > > 
+> > > > > > --strk;
+> > > > > > 
+> > > > > > _______________________________________________
+> > > > > > geos-devel mailing list
+> > > > > > geos-devel@geos.refractions.net
+> > > > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > > > _______________________________________________
+> > > > > geos-devel mailing list
+> > > > > geos-devel@geos.refractions.net
+> > > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > > _______________________________________________
+> > > > geos-devel mailing list
+> > > > geos-devel@geos.refractions.net
+> > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > -- 
+> > > Ferdinando Villa, Ph.D., Associate Research Professor, Ecoinformatics
+> > > Gund Institute for Ecological Economics and Dept of Botany, Univ. of Vermont
+> > > http://ecoinformatics.uvm.edu
+> > > 
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From sgillies at frii.com  Mon Jul 12 10:41:07 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+Message-ID: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+
+Hi all,
+
+Yesterday I began to try to use SWIG to generate a Python
+GEOS module using the CVS GEOS.  To start, I am only wrapping
+the classes in geom.h and precision.h.
+
+SWIG 1.3.20 generates wrapper code with only a few warnings
+and the module does build, resulting in geos.py and a very
+large _geos.so (I have statically linked against libgeos.a).
+
+On import of the geos module, an import error is raised:
+
+   ImportError: 
+/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+   undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+
+I think there is a problem not just with this symbol but with others.
+If I comment out the reference to the above in the GEOS wrapper and
+rebuild, I get an ImportError with a different undefined symbol.
+The symbols *are* in libgeos.a, and I'm certain that I've properly 
+linked.
+I'm making sure to use g++ for the linker, avoiding one of the most
+common SWIG C++ module pitfalls.
+
+Anyone else taken a swing at a GEOS module with SWIG and run into
+this problem?
+
+Sean
+
+
+--
+Sean Gillies
+sgillies at frii dot com
+http://users.frii.com/sgillies
+
+
+From strk at keybit.net  Mon Jul 12 11:00:38 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+Message-ID: <20040712150038.GB99017@freek.keybit.net>
+
+On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+> Hi all,
+> 
+> Yesterday I began to try to use SWIG to generate a Python
+> GEOS module using the CVS GEOS.  To start, I am only wrapping
+> the classes in geom.h and precision.h.
+
+precision.h does not really contain 'basic' classes.
+PrecisionModel class is in geom.h.
+
+> SWIG 1.3.20 generates wrapper code with only a few warnings
+> and the module does build, resulting in geos.py and a very
+> large _geos.so (I have statically linked against libgeos.a).
+> 
+> On import of the geos module, an import error is raised:
+> 
+>   ImportError: 
+> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>   undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+
+Could you have built _geos.so and the geos.py in at different times ?
+CVS api is changing , and you get those kind of errors for every simple
+'const' addition.
+
+--strk;
+
+> 
+> I think there is a problem not just with this symbol but with others.
+> If I comment out the reference to the above in the GEOS wrapper and
+> rebuild, I get an ImportError with a different undefined symbol.
+> The symbols *are* in libgeos.a, and I'm certain that I've properly 
+> linked.
+> I'm making sure to use g++ for the linker, avoiding one of the most
+> common SWIG C++ module pitfalls.
+> 
+> Anyone else taken a swing at a GEOS module with SWIG and run into
+> this problem?
+> 
+> Sean
+> 
+> 
+> --
+> Sean Gillies
+> sgillies at frii dot com
+> http://users.frii.com/sgillies
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From sgillies at frii.com  Mon Jul 12 11:10:53 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <20040712150038.GB99017@freek.keybit.net>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+	<20040712150038.GB99017@freek.keybit.net>
+Message-ID: <AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+
+On Jul 12, 2004, at 9:00 AM, strk wrote:
+
+> On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+>> Hi all,
+>>
+>> Yesterday I began to try to use SWIG to generate a Python
+>> GEOS module using the CVS GEOS.  To start, I am only wrapping
+>> the classes in geom.h and precision.h.
+>
+> precision.h does not really contain 'basic' classes.
+> PrecisionModel class is in geom.h.
+>
+>> SWIG 1.3.20 generates wrapper code with only a few warnings
+>> and the module does build, resulting in geos.py and a very
+>> large _geos.so (I have statically linked against libgeos.a).
+>>
+>> On import of the geos module, an import error is raised:
+>>
+>>   ImportError:
+>> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>>   undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+>
+> Could you have built _geos.so and the geos.py in at different times ?
+> CVS api is changing , and you get those kind of errors for every simple
+> 'const' addition.
+>
+> --strk;
+>
+
+Thanks for the reply!  _geos.so and geos.py are synchronous, no problem
+there.  I was having this same issue with GEOS 1.0 and SWIG, so I am
+ruling out API changes.  It's either my lack of knowledge of C++, some
+undocumented SWIG issue or a combination of these.
+
+Sean
+
+>>
+>> I think there is a problem not just with this symbol but with others.
+>> If I comment out the reference to the above in the GEOS wrapper and
+>> rebuild, I get an ImportError with a different undefined symbol.
+>> The symbols *are* in libgeos.a, and I'm certain that I've properly
+>> linked.
+>> I'm making sure to use g++ for the linker, avoiding one of the most
+>> common SWIG C++ module pitfalls.
+>>
+>> Anyone else taken a swing at a GEOS module with SWIG and run into
+>> this problem?
+>>
+>> Sean
+>>
+>>
+>> --
+>> Sean Gillies
+>> sgillies at frii dot com
+>> http://users.frii.com/sgillies
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@geos.refractions.net
+>> http://geos.refractions.net/mailman/listinfo/geos-devel
+>
+
+
+From strk at keybit.net  Mon Jul 12 11:39:01 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+	<20040712150038.GB99017@freek.keybit.net>
+	<AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+Message-ID: <20040712153901.GC99017@freek.keybit.net>
+
+On Mon, Jul 12, 2004 at 09:10:53AM -0600, Sean Gillies wrote:
+> On Jul 12, 2004, at 9:00 AM, strk wrote:
+> 
+> >On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+> >>Hi all,
+> >>
+> >>Yesterday I began to try to use SWIG to generate a Python
+> >>GEOS module using the CVS GEOS.  To start, I am only wrapping
+> >>the classes in geom.h and precision.h.
+> >
+> >precision.h does not really contain 'basic' classes.
+> >PrecisionModel class is in geom.h.
+> >
+> >>SWIG 1.3.20 generates wrapper code with only a few warnings
+> >>and the module does build, resulting in geos.py and a very
+> >>large _geos.so (I have statically linked against libgeos.a).
+> >>
+> >>On import of the geos module, an import error is raised:
+> >>
+> >>  ImportError:
+> >>/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+> >>  undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+> >
+> >Could you have built _geos.so and the geos.py in at different times ?
+> >CVS api is changing , and you get those kind of errors for every simple
+> >'const' addition.
+> >
+> >--strk;
+> >
+> 
+> Thanks for the reply!  _geos.so and geos.py are synchronous, no problem
+> there.  I was having this same issue with GEOS 1.0 and SWIG, so I am
+> ruling out API changes.  It's either my lack of knowledge of C++, some
+> undocumented SWIG issue or a combination of these.
+> 
+> Sean
+
+I've checked the code. It seems a bug in both GEOS-1.0 and GEOS-CVS
+PrecisionModel::maximumPreciseValue is never given a value.
+
+geos::maximumPreciseValue is, but the header declare
+geos::PrecisionModel::maximumPreciseValue, which is not.
+
+I've fixed it, please try now.
+
+--strk;
+
+> 
+> >>
+> >>I think there is a problem not just with this symbol but with others.
+> >>If I comment out the reference to the above in the GEOS wrapper and
+> >>rebuild, I get an ImportError with a different undefined symbol.
+> >>The symbols *are* in libgeos.a, and I'm certain that I've properly
+> >>linked.
+> >>I'm making sure to use g++ for the linker, avoiding one of the most
+> >>common SWIG C++ module pitfalls.
+> >>
+> >>Anyone else taken a swing at a GEOS module with SWIG and run into
+> >>this problem?
+> >>
+> >>Sean
+> >>
+> >>
+> >>--
+> >>Sean Gillies
+> >>sgillies at frii dot com
+> >>http://users.frii.com/sgillies
+> >>
+> >>_______________________________________________
+> >>geos-devel mailing list
+> >>geos-devel@geos.refractions.net
+> >>http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+
+From sgillies at frii.com  Mon Jul 12 14:15:58 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <20040712153901.GC99017@freek.keybit.net>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+	<20040712150038.GB99017@freek.keybit.net>
+	<AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+	<20040712153901.GC99017@freek.keybit.net>
+Message-ID: <85C36F9A-D42F-11D8-A8CB-000D9329D732@frii.com>
+
+
+On Jul 12, 2004, at 9:39 AM, strk wrote:
+
+> On Mon, Jul 12, 2004 at 09:10:53AM -0600, Sean Gillies wrote:
+>> On Jul 12, 2004, at 9:00 AM, strk wrote:
+>>
+>>> On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+>>>> Hi all,
+>>>>
+>>>> Yesterday I began to try to use SWIG to generate a Python
+>>>> GEOS module using the CVS GEOS.  To start, I am only wrapping
+>>>> the classes in geom.h and precision.h.
+>>>
+>>> precision.h does not really contain 'basic' classes.
+>>> PrecisionModel class is in geom.h.
+>>>
+>>>> SWIG 1.3.20 generates wrapper code with only a few warnings
+>>>> and the module does build, resulting in geos.py and a very
+>>>> large _geos.so (I have statically linked against libgeos.a).
+>>>>
+>>>> On import of the geos module, an import error is raised:
+>>>>
+>>>>  ImportError:
+>>>> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>>>>  undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+>>>
+>>> Could you have built _geos.so and the geos.py in at different times ?
+>>> CVS api is changing , and you get those kind of errors for every 
+>>> simple
+>>> 'const' addition.
+>>>
+>>> --strk;
+>>>
+>>
+>> Thanks for the reply!  _geos.so and geos.py are synchronous, no 
+>> problem
+>> there.  I was having this same issue with GEOS 1.0 and SWIG, so I am
+>> ruling out API changes.  It's either my lack of knowledge of C++, some
+>> undocumented SWIG issue or a combination of these.
+>>
+>> Sean
+>
+> I've checked the code. It seems a bug in both GEOS-1.0 and GEOS-CVS
+> PrecisionModel::maximumPreciseValue is never given a value.
+>
+> geos::maximumPreciseValue is, but the header declare
+> geos::PrecisionModel::maximumPreciseValue, which is not.
+>
+> I've fixed it, please try now.
+>
+> --strk;
+>
+
+Yes, that one bug seems to be fixed.
+
+Now there is exposed another one :)
+
+   ImportError: 
+/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+   undefined symbol:   _ZNK4geos14CoordinateList17toCoordinateArrayEv
+
+If I direct SWIG to ignore the toCoordinateArray() method of 
+CoordinateList,
+then there is yet another undefined symbol:
+
+   ImportError: 
+/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+   undefined symbol: 
+_ZN4geos14CoordinateList3addEPSt6vectorINS_10CoordinateESaIS2_EEb
+
+Strk, I appreciate that you have taken the time to look into it,
+but this might be more time consuming.  I don't know if it will
+be possible to SWIG GEOS or if it is in the project's interest to
+be altered so that a SWIG module is possible.
+
+cheers,
+Sean
+
+--
+Sean Gillies
+sgillies at frii dot com
+http://users.frii.com/sgillies
+
+
+From strk at keybit.net  Mon Jul 12 15:13:23 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <85C36F9A-D42F-11D8-A8CB-000D9329D732@frii.com>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+	<20040712150038.GB99017@freek.keybit.net>
+	<AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+	<20040712153901.GC99017@freek.keybit.net>
+	<85C36F9A-D42F-11D8-A8CB-000D9329D732@frii.com>
+Message-ID: <20040712191323.GA1891@freek.keybit.net>
+
+On Mon, Jul 12, 2004 at 12:15:58PM -0600, Sean Gillies wrote:
+> 
+> On Jul 12, 2004, at 9:39 AM, strk wrote:
+> 
+> >On Mon, Jul 12, 2004 at 09:10:53AM -0600, Sean Gillies wrote:
+> >>On Jul 12, 2004, at 9:00 AM, strk wrote:
+> >>
+> >>>On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+> >>>>Hi all,
+> >>>>
+> >>>>Yesterday I began to try to use SWIG to generate a Python
+> >>>>GEOS module using the CVS GEOS.  To start, I am only wrapping
+> >>>>the classes in geom.h and precision.h.
+> >>>
+> >>>precision.h does not really contain 'basic' classes.
+> >>>PrecisionModel class is in geom.h.
+> >>>
+> >>>>SWIG 1.3.20 generates wrapper code with only a few warnings
+> >>>>and the module does build, resulting in geos.py and a very
+> >>>>large _geos.so (I have statically linked against libgeos.a).
+> >>>>
+> >>>>On import of the geos module, an import error is raised:
+> >>>>
+> >>>> ImportError:
+> >>>>/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+> >>>> undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+> >>>
+> >>>Could you have built _geos.so and the geos.py in at different times ?
+> >>>CVS api is changing , and you get those kind of errors for every 
+> >>>simple
+> >>>'const' addition.
+> >>>
+> >>>--strk;
+> >>>
+> >>
+> >>Thanks for the reply!  _geos.so and geos.py are synchronous, no 
+> >>problem
+> >>there.  I was having this same issue with GEOS 1.0 and SWIG, so I am
+> >>ruling out API changes.  It's either my lack of knowledge of C++, some
+> >>undocumented SWIG issue or a combination of these.
+> >>
+> >>Sean
+> >
+> >I've checked the code. It seems a bug in both GEOS-1.0 and GEOS-CVS
+> >PrecisionModel::maximumPreciseValue is never given a value.
+> >
+> >geos::maximumPreciseValue is, but the header declare
+> >geos::PrecisionModel::maximumPreciseValue, which is not.
+> >
+> >I've fixed it, please try now.
+> >
+> >--strk;
+> >
+> 
+> Yes, that one bug seems to be fixed.
+> 
+> Now there is exposed another one :)
+> 
+>   ImportError: 
+> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>   undefined symbol:   _ZNK4geos14CoordinateList17toCoordinateArrayEv
+> 
+> If I direct SWIG to ignore the toCoordinateArray() method of 
+> CoordinateList,
+> then there is yet another undefined symbol:
+> 
+>   ImportError: 
+> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>   undefined symbol: 
+> _ZN4geos14CoordinateList3addEPSt6vectorINS_10CoordinateESaIS2_EEb
+> 
+> Strk, I appreciate that you have taken the time to look into it,
+> but this might be more time consuming.  I don't know if it will
+> be possible to SWIG GEOS or if it is in the project's interest to
+> be altered so that a SWIG module is possible.
+> 
+> cheers,
+> Sean
+
+Sean, no problem, you might help us as well, as we are redefining
+the API, so every feedback is appreciated.
+The problem here is with CoordinateList being currently removed
+from interface. CoordinateList class reference is still in the
+geom.h file, but the corresponding module is not built into
+the library. We are still discussing wheter to keep or not that
+class. In the meanwhile, I commented out the definition,
+this should fix your problem.
+
+--strk;
+
+> 
+> --
+> Sean Gillies
+> sgillies at frii dot com
+> http://users.frii.com/sgillies
+
+From sgillies at frii.com  Mon Jul 12 18:05:48 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <20040712191323.GA1891@freek.keybit.net>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+	<20040712150038.GB99017@freek.keybit.net>
+	<AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+	<20040712153901.GC99017@freek.keybit.net>
+	<85C36F9A-D42F-11D8-A8CB-000D9329D732@frii.com>
+	<20040712191323.GA1891@freek.keybit.net>
+Message-ID: <A143B482-D44F-11D8-A8CB-000D9329D732@frii.com>
+
+On Jul 12, 2004, at 1:13 PM, strk wrote:
+
+> On Mon, Jul 12, 2004 at 12:15:58PM -0600, Sean Gillies wrote:
+>>
+>> On Jul 12, 2004, at 9:39 AM, strk wrote:
+>>
+>>> On Mon, Jul 12, 2004 at 09:10:53AM -0600, Sean Gillies wrote:
+>>>> On Jul 12, 2004, at 9:00 AM, strk wrote:
+>>>>
+>>>>> On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+>>>>>> Hi all,
+>>>>>>
+>>>>>> Yesterday I began to try to use SWIG to generate a Python
+>>>>>> GEOS module using the CVS GEOS.  To start, I am only wrapping
+>>>>>> the classes in geom.h and precision.h.
+>>>>>
+>>>>> precision.h does not really contain 'basic' classes.
+>>>>> PrecisionModel class is in geom.h.
+>>>>>
+>>>>>> SWIG 1.3.20 generates wrapper code with only a few warnings
+>>>>>> and the module does build, resulting in geos.py and a very
+>>>>>> large _geos.so (I have statically linked against libgeos.a).
+>>>>>>
+>>>>>> On import of the geos module, an import error is raised:
+>>>>>>
+>>>>>> ImportError:
+>>>>>> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>>>>>> undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+>>>>>
+>>>>> Could you have built _geos.so and the geos.py in at different 
+>>>>> times ?
+>>>>> CVS api is changing , and you get those kind of errors for every
+>>>>> simple
+>>>>> 'const' addition.
+>>>>>
+>>>>> --strk;
+>>>>>
+>>>>
+>>>> Thanks for the reply!  _geos.so and geos.py are synchronous, no
+>>>> problem
+>>>> there.  I was having this same issue with GEOS 1.0 and SWIG, so I am
+>>>> ruling out API changes.  It's either my lack of knowledge of C++, 
+>>>> some
+>>>> undocumented SWIG issue or a combination of these.
+>>>>
+>>>> Sean
+>>>
+>>> I've checked the code. It seems a bug in both GEOS-1.0 and GEOS-CVS
+>>> PrecisionModel::maximumPreciseValue is never given a value.
+>>>
+>>> geos::maximumPreciseValue is, but the header declare
+>>> geos::PrecisionModel::maximumPreciseValue, which is not.
+>>>
+>>> I've fixed it, please try now.
+>>>
+>>> --strk;
+>>>
+>>
+>> Yes, that one bug seems to be fixed.
+>>
+>> Now there is exposed another one :)
+>>
+>>   ImportError:
+>> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>>   undefined symbol:   _ZNK4geos14CoordinateList17toCoordinateArrayEv
+>>
+>> If I direct SWIG to ignore the toCoordinateArray() method of
+>> CoordinateList,
+>> then there is yet another undefined symbol:
+>>
+>>   ImportError:
+>> /home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+>>   undefined symbol:
+>> _ZN4geos14CoordinateList3addEPSt6vectorINS_10CoordinateESaIS2_EEb
+>>
+>> Strk, I appreciate that you have taken the time to look into it,
+>> but this might be more time consuming.  I don't know if it will
+>> be possible to SWIG GEOS or if it is in the project's interest to
+>> be altered so that a SWIG module is possible.
+>>
+>> cheers,
+>> Sean
+>
+> Sean, no problem, you might help us as well, as we are redefining
+> the API, so every feedback is appreciated.
+> The problem here is with CoordinateList being currently removed
+> from interface. CoordinateList class reference is still in the
+> geom.h file, but the corresponding module is not built into
+> the library. We are still discussing wheter to keep or not that
+> class. In the meanwhile, I commented out the definition,
+> this should fix your problem.
+>
+> --strk;
+>
+
+Strk,
+
+I decided to revert to GEOS-1.0.  Hiding CoordinateList helped,
+but there were then problems with GeometryCollection ... and I
+think I'll try to get it working with 1.0 first.  After a bit of
+tweaking, I have a Python geos module that I can import.
+
+* applied the change to PrecisionModel.cpp that you committed into
+   the CVS head.
+* directed SWIG to ignore declarations of 'throw_exception' because
+   of an undefined symbol related to Geometry::throw_exception
+* directed SWIG to ignore declarations of 'isClosed' because of an
+   undefined symbol: _ZNK4geos10MultiPoint8isClosedEv
+
+These last two changes leave the module in a less than fully
+functional state, but I am encouraged.  Any idea what might be
+the problem with Geometry::throw_exception and MultiPoint::isClosed?
+
+thanks again,
+Sean
+
+Here's a "screenshot" for the curious:
+
+Python 2.3.3 (#1, Jan  4 2004, 11:27:28)
+[GCC 3.2.2 20030222 (Red Hat Linux 3.2.2-5)] on linux2
+Type "help", "copyright", "credits" or "license" for more information.
+ >>> import geos
+ >>> dir(geos)
+['BasicCoordinateList', 'BasicCoordinateListFactory', 
+'BasicCoordinateListFactoryPtr', 'BasicCoordinateListPtr', 
+'Coordinate', 'CoordinateFilter', 'CoordinateFilterPtr', 
+'CoordinateList', 'CoordinateListFactory', 'CoordinateListFactoryPtr', 
+'CoordinateListPtr', 'CoordinateList_equals', 
+'CoordinateList_hasRepeatedPoints', 'CoordinateList_indexOf', 
+'CoordinateList_minCoordinate', 'CoordinateList_removeRepeatedPoints', 
+'CoordinateList_reverse', 'CoordinateList_scroll', 'CoordinatePtr', 
+'Dimension', 'DimensionPtr', 'Dimension_toDimensionSymbol', 
+'Dimension_toDimensionValue', 'Envelope', 'EnvelopePtr', 
+'GEOS_GEOMETRYCOLLECTION', 'GEOS_LINESTRING', 'GEOS_MULTILINESTRING', 
+'GEOS_MULTIPOINT', 'GEOS_MULTIPOLYGON', 'GEOS_POINT', 'GEOS_POLYGON', 
+'Geometry', 'GeometryCollection', 'GeometryCollectionIterator', 
+'GeometryCollectionIteratorPtr', 'GeometryCollectionPtr', 
+'GeometryComponentFilter', 'GeometryComponentFilterPtr', 
+'GeometryFactory', 'GeometryFactoryPtr', 
+'GeometryFactory_createPointFromInternalCoord', 
+'GeometryFactory_toGeometry', 'GeometryFilter', 'GeometryFilterPtr', 
+'GeometryPtr', 'IntersectionMatrix', 'IntersectionMatrixPtr', 
+'LineSegment', 'LineSegmentPtr', 'LineString', 'LineStringPtr', 
+'LinearRing', 'LinearRingPtr', 'Location', 'LocationPtr', 
+'Location_toLocationSymbol', 'MultiLineString', 'MultiLineStringPtr', 
+'MultiPoint', 'MultiPointPtr', 'MultiPolygon', 'MultiPolygonPtr', 
+'Point', 'PointCoordinateList', 'PointCoordinateListFactory', 
+'PointCoordinateListFactoryPtr', 'PointCoordinateListPtr', 'PointPtr', 
+'Polygon', 'PolygonPtr', 'PrecisionModel', 'PrecisionModelPtr', 
+'SFSCurve', 'SFSCurvePtr', 'SFSGeometry', 'SFSGeometryCollection', 
+'SFSGeometryCollectionPtr', 'SFSGeometryPtr', 'SFSLineString', 
+'SFSLineStringPtr', 'SFSLinearRing', 'SFSLinearRingPtr', 
+'SFSMultiCurve', 'SFSMultiCurvePtr', 'SFSMultiLineString', 
+'SFSMultiLineStringPtr', 'SFSMultiPoint', 'SFSMultiPointPtr', 
+'SFSMultiPolygon', 'SFSMultiPolygonPtr', 'SFSMultiSurface', 
+'SFSMultiSurfacePtr', 'SFSPoint', 'SFSPointPtr', 'SFSPolygon', 
+'SFSPolygonPtr', 'SFSSurface', 'SFSSurfacePtr', '__builtins__', 
+'__doc__', '__eq__', '__file__', '__name__', '_geos', 'cvar', 
+'greaterThen', 'lessThen', 'point_3d', 'point_3dPtr']
+ >>>
+
+
+From strk at keybit.net  Mon Jul 12 18:20:07 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using SWIG to interface with GEOS, undefined symbols
+In-Reply-To: <A143B482-D44F-11D8-A8CB-000D9329D732@frii.com>
+References: <82B6510F-D411-11D8-A8CB-000D9329D732@frii.com>
+	<20040712150038.GB99017@freek.keybit.net>
+	<AB2EFF88-D415-11D8-A8CB-000D9329D732@frii.com>
+	<20040712153901.GC99017@freek.keybit.net>
+	<85C36F9A-D42F-11D8-A8CB-000D9329D732@frii.com>
+	<20040712191323.GA1891@freek.keybit.net>
+	<A143B482-D44F-11D8-A8CB-000D9329D732@frii.com>
+Message-ID: <20040712222007.GA2302@freek.keybit.net>
+
+On Mon, Jul 12, 2004 at 04:05:48PM -0600, Sean Gillies wrote:
+> On Jul 12, 2004, at 1:13 PM, strk wrote:
+> 
+> >On Mon, Jul 12, 2004 at 12:15:58PM -0600, Sean Gillies wrote:
+> >>
+> >>On Jul 12, 2004, at 9:39 AM, strk wrote:
+> >>
+> >>>On Mon, Jul 12, 2004 at 09:10:53AM -0600, Sean Gillies wrote:
+> >>>>On Jul 12, 2004, at 9:00 AM, strk wrote:
+> >>>>
+> >>>>>On Mon, Jul 12, 2004 at 08:41:07AM -0600, Sean Gillies wrote:
+> >>>>>>Hi all,
+> >>>>>>
+> >>>>>>Yesterday I began to try to use SWIG to generate a Python
+> >>>>>>GEOS module using the CVS GEOS.  To start, I am only wrapping
+> >>>>>>the classes in geom.h and precision.h.
+> >>>>>
+> >>>>>precision.h does not really contain 'basic' classes.
+> >>>>>PrecisionModel class is in geom.h.
+> >>>>>
+> >>>>>>SWIG 1.3.20 generates wrapper code with only a few warnings
+> >>>>>>and the module does build, resulting in geos.py and a very
+> >>>>>>large _geos.so (I have statically linked against libgeos.a).
+> >>>>>>
+> >>>>>>On import of the geos module, an import error is raised:
+> >>>>>>
+> >>>>>>ImportError:
+> >>>>>>/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+> >>>>>>undefined symbol: _ZN4geos14PrecisionModel19maximumPreciseValueE
+> >>>>>
+> >>>>>Could you have built _geos.so and the geos.py in at different 
+> >>>>>times ?
+> >>>>>CVS api is changing , and you get those kind of errors for every
+> >>>>>simple
+> >>>>>'const' addition.
+> >>>>>
+> >>>>>--strk;
+> >>>>>
+> >>>>
+> >>>>Thanks for the reply!  _geos.so and geos.py are synchronous, no
+> >>>>problem
+> >>>>there.  I was having this same issue with GEOS 1.0 and SWIG, so I am
+> >>>>ruling out API changes.  It's either my lack of knowledge of C++, 
+> >>>>some
+> >>>>undocumented SWIG issue or a combination of these.
+> >>>>
+> >>>>Sean
+> >>>
+> >>>I've checked the code. It seems a bug in both GEOS-1.0 and GEOS-CVS
+> >>>PrecisionModel::maximumPreciseValue is never given a value.
+> >>>
+> >>>geos::maximumPreciseValue is, but the header declare
+> >>>geos::PrecisionModel::maximumPreciseValue, which is not.
+> >>>
+> >>>I've fixed it, please try now.
+> >>>
+> >>>--strk;
+> >>>
+> >>
+> >>Yes, that one bug seems to be fixed.
+> >>
+> >>Now there is exposed another one :)
+> >>
+> >>  ImportError:
+> >>/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+> >>  undefined symbol:   _ZNK4geos14CoordinateList17toCoordinateArrayEv
+> >>
+> >>If I direct SWIG to ignore the toCoordinateArray() method of
+> >>CoordinateList,
+> >>then there is yet another undefined symbol:
+> >>
+> >>  ImportError:
+> >>/home/sean/projects/PyGEOS/build/lib.linux-i686-2.3/_geos.so:
+> >>  undefined symbol:
+> >>_ZN4geos14CoordinateList3addEPSt6vectorINS_10CoordinateESaIS2_EEb
+> >>
+> >>Strk, I appreciate that you have taken the time to look into it,
+> >>but this might be more time consuming.  I don't know if it will
+> >>be possible to SWIG GEOS or if it is in the project's interest to
+> >>be altered so that a SWIG module is possible.
+> >>
+> >>cheers,
+> >>Sean
+> >
+> >Sean, no problem, you might help us as well, as we are redefining
+> >the API, so every feedback is appreciated.
+> >The problem here is with CoordinateList being currently removed
+> >from interface. CoordinateList class reference is still in the
+> >geom.h file, but the corresponding module is not built into
+> >the library. We are still discussing wheter to keep or not that
+> >class. In the meanwhile, I commented out the definition,
+> >this should fix your problem.
+> >
+> >--strk;
+> >
+> 
+> Strk,
+> 
+> I decided to revert to GEOS-1.0.  Hiding CoordinateList helped,
+> but there were then problems with GeometryCollection ... and I
+> think I'll try to get it working with 1.0 first.  After a bit of
+> tweaking, I have a Python geos module that I can import.
+> 
+> * applied the change to PrecisionModel.cpp that you committed into
+>   the CVS head.
+> * directed SWIG to ignore declarations of 'throw_exception' because
+>   of an undefined symbol related to Geometry::throw_exception
+> * directed SWIG to ignore declarations of 'isClosed' because of an
+>   undefined symbol: _ZNK4geos10MultiPoint8isClosedEv
+> 
+> These last two changes leave the module in a less than fully
+> functional state, but I am encouraged.  Any idea what might be
+> the problem with Geometry::throw_exception and MultiPoint::isClosed?
+> 
+> thanks again,
+> Sean
+
+Check definition of those functions, which might be missing from GEOS-1.0.
+Be warned that next GEOS release will have many API changes, if you can
+report GeometryCollection problem that would help in shorten next GEOS release.
+
+--strk;
+
+> 
+> Here's a "screenshot" for the curious:
+> 
+> Python 2.3.3 (#1, Jan  4 2004, 11:27:28)
+> [GCC 3.2.2 20030222 (Red Hat Linux 3.2.2-5)] on linux2
+> Type "help", "copyright", "credits" or "license" for more information.
+> >>> import geos
+> >>> dir(geos)
+> ['BasicCoordinateList', 'BasicCoordinateListFactory', 
+> 'BasicCoordinateListFactoryPtr', 'BasicCoordinateListPtr', 
+> 'Coordinate', 'CoordinateFilter', 'CoordinateFilterPtr', 
+> 'CoordinateList', 'CoordinateListFactory', 'CoordinateListFactoryPtr', 
+> 'CoordinateListPtr', 'CoordinateList_equals', 
+> 'CoordinateList_hasRepeatedPoints', 'CoordinateList_indexOf', 
+> 'CoordinateList_minCoordinate', 'CoordinateList_removeRepeatedPoints', 
+> 'CoordinateList_reverse', 'CoordinateList_scroll', 'CoordinatePtr', 
+> 'Dimension', 'DimensionPtr', 'Dimension_toDimensionSymbol', 
+> 'Dimension_toDimensionValue', 'Envelope', 'EnvelopePtr', 
+> 'GEOS_GEOMETRYCOLLECTION', 'GEOS_LINESTRING', 'GEOS_MULTILINESTRING', 
+> 'GEOS_MULTIPOINT', 'GEOS_MULTIPOLYGON', 'GEOS_POINT', 'GEOS_POLYGON', 
+> 'Geometry', 'GeometryCollection', 'GeometryCollectionIterator', 
+> 'GeometryCollectionIteratorPtr', 'GeometryCollectionPtr', 
+> 'GeometryComponentFilter', 'GeometryComponentFilterPtr', 
+> 'GeometryFactory', 'GeometryFactoryPtr', 
+> 'GeometryFactory_createPointFromInternalCoord', 
+> 'GeometryFactory_toGeometry', 'GeometryFilter', 'GeometryFilterPtr', 
+> 'GeometryPtr', 'IntersectionMatrix', 'IntersectionMatrixPtr', 
+> 'LineSegment', 'LineSegmentPtr', 'LineString', 'LineStringPtr', 
+> 'LinearRing', 'LinearRingPtr', 'Location', 'LocationPtr', 
+> 'Location_toLocationSymbol', 'MultiLineString', 'MultiLineStringPtr', 
+> 'MultiPoint', 'MultiPointPtr', 'MultiPolygon', 'MultiPolygonPtr', 
+> 'Point', 'PointCoordinateList', 'PointCoordinateListFactory', 
+> 'PointCoordinateListFactoryPtr', 'PointCoordinateListPtr', 'PointPtr', 
+> 'Polygon', 'PolygonPtr', 'PrecisionModel', 'PrecisionModelPtr', 
+> 'SFSCurve', 'SFSCurvePtr', 'SFSGeometry', 'SFSGeometryCollection', 
+> 'SFSGeometryCollectionPtr', 'SFSGeometryPtr', 'SFSLineString', 
+> 'SFSLineStringPtr', 'SFSLinearRing', 'SFSLinearRingPtr', 
+> 'SFSMultiCurve', 'SFSMultiCurvePtr', 'SFSMultiLineString', 
+> 'SFSMultiLineStringPtr', 'SFSMultiPoint', 'SFSMultiPointPtr', 
+> 'SFSMultiPolygon', 'SFSMultiPolygonPtr', 'SFSMultiSurface', 
+> 'SFSMultiSurfacePtr', 'SFSPoint', 'SFSPointPtr', 'SFSPolygon', 
+> 'SFSPolygonPtr', 'SFSSurface', 'SFSSurfacePtr', '__builtins__', 
+> '__doc__', '__eq__', '__file__', '__name__', '_geos', 'cvar', 
+> 'greaterThen', 'lessThen', 'point_3d', 'point_3dPtr']
+> >>>
+
+From sgillies at frii.com  Tue Jul 13 12:54:09 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Python interface to GEOS 1.0
+Message-ID: <427CB572-D4ED-11D8-B5CA-000D9329D732@frii.com>
+
+Hi all,
+
+With strk's help I was able to generate a swig-based Python
+module for GEOS 1.0.  If you are interested, the download is at
+
+   http://users.frii.com/sgillies/projects/PyGEOS.tgz
+
+I'd like to do this for the CVS GEOS as well, and, as strk
+pointed out yesterday, it's a good way to shed light on problems
+with the new GEOS API.  Importing the SWIG module runs a lot of
+code that you'd otherwise have to explicitly test.
+
+I'd be happy to donate this work to the GEOS project.  Let me
+know if you're interested.
+
+cheers,
+Sean
+
+--
+Sean Gillies
+sgillies at frii dot com
+http://users.frii.com/sgillies
+
+
+From pramsey at refractions.net  Tue Jul 13 13:09:59 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Python interface to GEOS 1.0
+In-Reply-To: <427CB572-D4ED-11D8-B5CA-000D9329D732@frii.com>
+References: <427CB572-D4ED-11D8-B5CA-000D9329D732@frii.com>
+Message-ID: <40F41767.6010202@refractions.net>
+
+Sean,
+Definately interested. Could you get together w/ strk and agree on a 
+directory layout for the SWIG wrappers, since once we have SWIG, I 
+assume we'll gradually acquire bindings for all the other SWIG-supported 
+languages. When you have he have agreement on how to layout the 
+contribution I'll set you up with write access to the repository.
+Thanks!
+Paul
+
+Sean Gillies wrote:
+
+> With strk's help I was able to generate a swig-based Python
+> module for GEOS 1.0.  If you are interested, the download is at
+> 
+>   http://users.frii.com/sgillies/projects/PyGEOS.tgz
+> 
+> I'd like to do this for the CVS GEOS as well, and, as strk
+> pointed out yesterday, it's a good way to shed light on problems
+> with the new GEOS API.  Importing the SWIG module runs a lot of
+> code that you'd otherwise have to explicitly test.
+> 
+> I'd be happy to donate this work to the GEOS project.  Let me
+> know if you're interested.
+> 
+> cheers,
+> Sean
+> 
+> -- 
+> Sean Gillies
+> sgillies at frii dot com
+> http://users.frii.com/sgillies
+
+
+From steve.lime at dnr.state.mn.us  Tue Jul 13 14:00:23 2004
+From: steve.lime at dnr.state.mn.us (Steve Lime)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Python interface to GEOS 1.0
+Message-ID: <s0f3dd00.034@co5.dnr.state.mn.us>
+
+Sean: Is your interface file python specific?
+
+Steve
+
+>>> sgillies@frii.com 7/13/2004 11:54:09 AM >>>
+Hi all,
+
+With strk's help I was able to generate a swig-based Python
+module for GEOS 1.0.  If you are interested, the download is at
+
+   http://users.frii.com/sgillies/projects/PyGEOS.tgz 
+
+I'd like to do this for the CVS GEOS as well, and, as strk
+pointed out yesterday, it's a good way to shed light on problems
+with the new GEOS API.  Importing the SWIG module runs a lot of
+code that you'd otherwise have to explicitly test.
+
+I'd be happy to donate this work to the GEOS project.  Let me
+know if you're interested.
+
+cheers,
+Sean
+
+--
+Sean Gillies
+sgillies at frii dot com
+http://users.frii.com/sgillies 
+
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net 
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From sgillies at frii.com  Tue Jul 13 14:16:13 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Python interface to GEOS 1.0
+In-Reply-To: <s0f3dd00.033@co5.dnr.state.mn.us>
+References: <s0f3dd00.033@co5.dnr.state.mn.us>
+Message-ID: <B970FDC2-D4F8-11D8-B5CA-000D9329D732@frii.com>
+
+No, but I didn't test any language other than Python.
+
+I read that you are looking to incorporate GEOS into
+MapServer -- the module could be very useful for
+prototyping.  And if you used Python we could turn
+prototype code into mapscript unit tests.  Just an
+off-topic thought.
+
+Sean
+
+On Jul 13, 2004, at 12:00 PM, Steve Lime wrote:
+
+> Sean: Is your interface file python specific?
+>
+> Steve
+
+
+From sgillies at frii.com  Tue Jul 13 15:01:40 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Python interface to GEOS 1.0
+In-Reply-To: <40F41767.6010202@refractions.net>
+References: <427CB572-D4ED-11D8-B5CA-000D9329D732@frii.com>
+	<40F41767.6010202@refractions.net>
+Message-ID: <12B24C84-D4FF-11D8-B5CA-000D9329D732@frii.com>
+
+OK.
+
+On Jul 13, 2004, at 11:09 AM, Paul Ramsey wrote:
+
+> Sean,
+> Definately interested. Could you get together w/ strk and agree on a 
+> directory layout for the SWIG wrappers, since once we have SWIG, I 
+> assume we'll gradually acquire bindings for all the other 
+> SWIG-supported languages. When you have he have agreement on how to 
+> layout the contribution I'll set you up with write access to the 
+> repository.
+> Thanks!
+> Paul
+>
+> Sean Gillies wrote:
+>
+>> With strk's help I was able to generate a swig-based Python
+>> module for GEOS 1.0.  If you are interested, the download is at
+>>   http://users.frii.com/sgillies/projects/PyGEOS.tgz
+>> I'd like to do this for the CVS GEOS as well, and, as strk
+>> pointed out yesterday, it's a good way to shed light on problems
+>> with the new GEOS API.  Importing the SWIG module runs a lot of
+>> code that you'd otherwise have to explicitly test.
+>> I'd be happy to donate this work to the GEOS project.  Let me
+>> know if you're interested.
+>> cheers,
+>> Sean
+>> -- 
+>> Sean Gillies
+>> sgillies at frii dot com
+>> http://users.frii.com/sgillies
+
+
+From strk at keybit.net  Wed Jul 14 05:50:58 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] ownership transfer && exceptions
+Message-ID: <20040714095058.GA18191@freek.keybit.net>
+
+All geometry contructors currently take
+ownership of one or more arguments.
+In case of an exception, do you think they should
+delete these arguments ? In other words, should
+ownership transfer happen at call time or at
+successfull completion time ?
+
+Call time transfer would forbid further handling
+of passed arguments by the caller in case of
+a failure. For example a caller might
+want to print a descriptive report of passed *offending*
+arguments which would have been destroied in that case.
+
+On the other hand, successfull competion time has
+the drawback that every geometry construction should
+be wrapped by a try/catch block to avoid memory leaks.
+
+What do you think ?
+
+--strk;
+
+From ross.elliott at ntlworld.com  Thu Jul 15 15:56:39 2004
+From: ross.elliott at ntlworld.com (ross)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] future changes
+Message-ID: <000801c46aa5$d7e08460$677ba8c0@ross>
+
+I've been fixing a bug in my application code recently and found two things in geos that could do with some attention:
+
+1/ have a getGeometryType member function that returns an integer rather than a string as testing integers is faster than a string compare;
+
+2/ make geometry.intersection always return a GeometryCollection, even if it only contains one geometry. This removes the need to check what has actually been returned, you only need to itterate through the GeometryCollection;
+
+Ross
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20040715/97190227/attachment.html
+From curtis at northwestern.edu  Thu Jul 15 16:18:03 2004
+From: curtis at northwestern.edu (Curtis Barrett)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] future changes
+In-Reply-To: <000801c46aa5$d7e08460$677ba8c0@ross>
+References: <000801c46aa5$d7e08460$677ba8c0@ross>
+Message-ID: <1089922683.2149.18.camel@train.civil.northwestern.edu>
+
+On Thu, 2004-07-15 at 14:56, ross wrote:
+> I've been fixing a bug in my application code recently and found two
+> things in geos that could do with some attention:
+>  
+> 1/ have a getGeometryType member function that returns an integer
+> rather than a string as testing integers is faster than a string
+> compare;
+
+getGeometryTypeId already does this.
+
+From strk at keybit.net  Fri Jul 16 04:54:28 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS library versioning
+Message-ID: <20040716085428.GA14950@freek.keybit.net>
+
+I've modified source/geom/Makefile.am
+to provide the -release Major.Minor.Patch switch to libtool
+instead of -version-info, which I could not understand usage of.
+
+Can you (and people on the list) try if this works on other
+systems then mine ?
+Also, I'm not sure about versioning of archive files (libgeos.a)
+any hint on how to check that ?
+
+TIA
+
+--strk;
+
+
+From strk at keybit.net  Fri Jul 16 11:47:42 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS library versioning
+In-Reply-To: <20040716085428.GA14950@freek.keybit.net>
+References: <20040716085428.GA14950@freek.keybit.net>
+Message-ID: <20040716154742.GA17470@freek.keybit.net>
+
+I've read libtool documentation (libtool.info).
+Libtool define its' own versioning system, consisting in
+tree numbers: CURRENT, REVISION and AGE.
+
+CURRENT is the current interface number.
+REVISION is the revision of the current interface.
+AGE is the number of previous interfaces supported.
+
+Following this scheme next geos library version should be
+coded as CURRENT:REVISION:AGE == 2:0:0.
+
+the -version-info flag provided to libtool takes this codification,
+and that is the flag used for GEOS-1.0 (CURRENT:REVISION:AGE == 1:0:0).
+
+Libtool also support using Major/Minor/Patchlevel scheme,
+but warns that binary compatibility between releases will
+not be mantained. Maybe omitting Patchlevel from the
+-release specification would allow binary compatibility between
+libraries with same Major and Minor, but I'm not sure about this.
+
+Note that Major/Minor/Patchlevel scheme does not account
+for multiple interface support, while current/revision/age
+does.
+
+Also note that this decision can not be procrastinated
+as once we have libgeos-1.4.0 we won't be able to switch
+to libtool versioning, as libgeos-1.4.0 would have a 
+completely different meaning with the two schemes.
+
+I'd go with libtool scheme.
+
+What do you think ?
+
+
+--strk;
+
+On Fri, Jul 16, 2004 at 10:54:28AM +0200, strk wrote:
+> I've modified source/geom/Makefile.am
+> to provide the -release Major.Minor.Patch switch to libtool
+> instead of -version-info, which I could not understand usage of.
+> 
+> Can you (and people on the list) try if this works on other
+> systems then mine ?
+> Also, I'm not sure about versioning of archive files (libgeos.a)
+> any hint on how to check that ?
+> 
+> TIA
+> 
+> --strk;
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Fri Jul 16 12:20:58 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS library versioning
+In-Reply-To: <20040716154742.GA17470@freek.keybit.net>
+References: <20040716085428.GA14950@freek.keybit.net>
+	<20040716154742.GA17470@freek.keybit.net>
+Message-ID: <20040716162058.GA18412@freek.keybit.net>
+
+I've adopted libtool versioning scheme for library versioning
+still keeping 'visible' versioning in the old Major/Minor/Patchlevel
+way. This is experimental.
+
+In order to exploit the full advantages of libtool versioning
+scheme CURRENT, AGE and REVISION numbers should also be
+provided as defines for client applications, as Major/Minor/Patchlevel
+defines will not be able to encode multiple interfaces support.
+
+Again. Every comment is appreciated.
+
+--strk;
+
+On Fri, Jul 16, 2004 at 05:47:42PM +0200, strk wrote:
+> I've read libtool documentation (libtool.info).
+> Libtool define its' own versioning system, consisting in
+> tree numbers: CURRENT, REVISION and AGE.
+> 
+> CURRENT is the current interface number.
+> REVISION is the revision of the current interface.
+> AGE is the number of previous interfaces supported.
+> 
+> Following this scheme next geos library version should be
+> coded as CURRENT:REVISION:AGE == 2:0:0.
+> 
+> the -version-info flag provided to libtool takes this codification,
+> and that is the flag used for GEOS-1.0 (CURRENT:REVISION:AGE == 1:0:0).
+> 
+> Libtool also support using Major/Minor/Patchlevel scheme,
+> but warns that binary compatibility between releases will
+> not be mantained. Maybe omitting Patchlevel from the
+> -release specification would allow binary compatibility between
+> libraries with same Major and Minor, but I'm not sure about this.
+> 
+> Note that Major/Minor/Patchlevel scheme does not account
+> for multiple interface support, while current/revision/age
+> does.
+> 
+> Also note that this decision can not be procrastinated
+> as once we have libgeos-1.4.0 we won't be able to switch
+> to libtool versioning, as libgeos-1.4.0 would have a 
+> completely different meaning with the two schemes.
+> 
+> I'd go with libtool scheme.
+> 
+> What do you think ?
+> 
+> 
+> --strk;
+> 
+> On Fri, Jul 16, 2004 at 10:54:28AM +0200, strk wrote:
+> > I've modified source/geom/Makefile.am
+> > to provide the -release Major.Minor.Patch switch to libtool
+> > instead of -version-info, which I could not understand usage of.
+> > 
+> > Can you (and people on the list) try if this works on other
+> > systems then mine ?
+> > Also, I'm not sure about versioning of archive files (libgeos.a)
+> > any hint on how to check that ?
+> > 
+> > TIA
+> > 
+> > --strk;
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Sat Jul 17 05:45:40 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS versioning scheme
+Message-ID: <20040717094540.GA25890@freek.keybit.net>
+
+GEOS adopted libtool suggested versioning scheme.
+This specifies a range of supported interface.
+Major/Minor/Patch numbers will represent:
+	Major: minimum interface supported
+	Minor: number of additional forward interfaces supported
+	Patch: current (max) interface revision
+
+Next release will be 2.0.0 as it will support the new
+interface and nothing else (backward compatibility has been broken).
+
+The <geos/version.h> header file will provide the following defines:
+	GEOS_FIRST_INTERFACE 2
+	GEOS_LAST_INTERFACE 2
+	GEOS_JTS_PORT "1.4"
+	GEOS_VERSION_MAJOR 2
+	GEOS_VERSION_MINOR 0
+	GEOS_VERSION_PATCH 0
+See postgis for an example of using FIRS/LAST interface for
+multi-inteface support.
+
+geos-config will continue to print GEOS_VERSION with the --version switch
+and has acquired a new --jtsport switch printing JTS release number
+current GEOS release has been ported from.
+
+A new string geos::version() has been introduced providing both
+GEOS and corrispondent JTS version at runtime (as a string).
+Let me know if you find the name too subject to name clashes...
+
+--strk;
+
+From strk at keybit.net  Mon Jul 19 10:54:24 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS documentation
+Message-ID: <20040719145423.GA46560@freek.keybit.net>
+
+I've been reducing GEOS documentation to expose a
+minimum API. I belive in this way we can more easily
+avoid future code breaks still keeping the important
+functionalities documented.
+
+Current documentation covers a subset of the classes 
+accessible including geos.h, and a few other needed
+to understand return types (HCoordinate and NonRapresentableException).
+
+On request I'd check and add other classes documentation,
+probably also providing 'wrapper' header files for 
+functionality subsets access (geos/index.h or similar).
+
+Please take a look at the generated documentation.
+
+--strk;
+
+From dhouston at beyondcompliance.ca  Mon Jul 19 14:46:01 2004
+From: dhouston at beyondcompliance.ca (Darren Houston)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS versioning
+In-Reply-To: <20040717094540.GA25890@freek.keybit.net>
+References: <20040717094540.GA25890@freek.keybit.net>
+Message-ID: <200407191246.02025.dhouston@beyondcompliance.ca>
+
+Hello all,
+
+I went to the GEOS site to download the hourly cvs snapshot of GEOS only to 
+find that the hourly snapshot is not being generated. This indicates to me 
+possibly a change in GEOS cvs that broke whatever script generates the hourly 
+cvs snapshot.
+
+Our company is going live with PostGIS/GEOS very soon (today I am setting up 
+the beta server to beta test). I realize GEOS versioning and interface is 
+changing. The current GEOS I use is from cvs from June. I have just grabbed 
+GEOS from cvs and will be installing this to the beta server. I have one 
+general question;
+
+Are there any caveats you see me running into with the major changes? I use an 
+unmodified GEOS accessed only by PostGIS functions through the database.
+
+Thanks for any insight,
+
+Darren H.
+
+From pramsey at refractions.net  Mon Jul 19 15:28:20 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] doc/Makefile.am
+Message-ID: <40FC20D4.1090206@refractions.net>
+
+I changed it somewhat so I could 'make dist' again, which is used for 
+CVS snapshot.
+
+It looks like this now:
+
+noinst_PROGRAMS = example
+
+LIBS = ../source/geom/libgeos.la
+
+example_SOURCES = example.cpp
+example_LDADD = $(LIBS)
+
+INCLUDES = -I../source/headers
+
+DOXYGEN = doxygen
+
+doxygen-html: Doxyfile
+         $(DOXYGEN) $<
+
+clean-generic:
+         rm -Rf doxygen_docs
+
+EXTRA_DIST = Doxyfile
+
+
+
+From pramsey at refractions.net  Mon Jul 19 15:36:38 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS documentation
+In-Reply-To: <20040719145423.GA46560@freek.keybit.net>
+References: <20040719145423.GA46560@freek.keybit.net>
+Message-ID: <40FC22C6.6080809@refractions.net>
+
+I have got the CVS stuff generating the web version of the docs now.
+Note that the documentation target is now 'doxygen-html', not 'doxygen'.
+
+Thanks,
+Paul
+
+PS - Much cleaner now, easier to read w/o all the member classes 
+cluttering things up.
+
+Nstrk wrote:
+
+> I've been reducing GEOS documentation to expose a
+> minimum API. I belive in this way we can more easily
+> avoid future code breaks still keeping the important
+> functionalities documented.
+> 
+> Current documentation covers a subset of the classes 
+> accessible including geos.h, and a few other needed
+> to understand return types (HCoordinate and NonRapresentableException).
+> 
+> On request I'd check and add other classes documentation,
+> probably also providing 'wrapper' header files for 
+> functionality subsets access (geos/index.h or similar).
+> 
+> Please take a look at the generated documentation.
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From strk at keybit.net  Tue Jul 20 03:40:32 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] GEOS versioning
+In-Reply-To: <200407191246.02025.dhouston@beyondcompliance.ca>
+References: <20040717094540.GA25890@freek.keybit.net>
+	<200407191246.02025.dhouston@beyondcompliance.ca>
+Message-ID: <20040720074032.GB48714@freek.keybit.net>
+
+On Mon, Jul 19, 2004 at 12:46:01PM -0600, Darren Houston wrote:
+> Hello all,
+> 
+> I went to the GEOS site to download the hourly cvs snapshot of GEOS only to 
+> find that the hourly snapshot is not being generated. This indicates to me 
+> possibly a change in GEOS cvs that broke whatever script generates the hourly 
+> cvs snapshot.
+> 
+> Our company is going live with PostGIS/GEOS very soon (today I am setting up 
+> the beta server to beta test). I realize GEOS versioning and interface is 
+> changing. The current GEOS I use is from cvs from June. I have just grabbed 
+> GEOS from cvs and will be installing this to the beta server. I have one 
+> general question;
+> 
+> Are there any caveats you see me running into with the major changes? I use an 
+> unmodified GEOS accessed only by PostGIS functions through the database.
+> 
+> Thanks for any insight,
+> 
+> Darren H.
+
+As far as you use GEOS only through PostGIS you should have no problems,
+but the API change in GEOS requires you to use CVS PostGIS (which is not
+*deeply* tested as of GEOS connectivity).
+I'd suggest you keep using old GEOS/PostGIS for a go-live and 
+use new GEOS/PostGIS for your internal work (new GEOS has robust
+algorithms).
+
+--strk;
+
+From maude_giasson at inrs-ete.uquebec.ca  Tue Jul 20 12:24:32 2004
+From: maude_giasson at inrs-ete.uquebec.ca (Maude Giasson)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] documentation 1.0.0
+Message-ID: <002b01c46e76$0a16a8f0$f5a249c6@kipawa>
+
+I am using the geos-1.0.0 revision.
+
+I didn't find any API documentation for that revision; is it possible to dowload any "already-generated" documentation ? If yes, where can I find it ?
+
+Thanks
+Maude Giasson
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20040720/18ab5414/attachment.html
+From strk at keybit.net  Tue Jul 20 12:55:31 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] documentation 1.0.0
+In-Reply-To: <002b01c46e76$0a16a8f0$f5a249c6@kipawa>
+References: <002b01c46e76$0a16a8f0$f5a249c6@kipawa>
+Message-ID: <20040720165531.GB57804@freek.keybit.net>
+
+On Tue, Jul 20, 2004 at 12:24:32PM -0400, Maude Giasson wrote:
+> I am using the geos-1.0.0 revision.
+> 
+> I didn't find any API documentation for that revision; is it possible to dowload any "already-generated" documentation ? If yes, where can I find it ?
+> 
+> Thanks
+> Maude Giasson
+
+If you have the source code you will find a file doc/example.cpp
+containing basic example usage of GEOS. Geometry construction
+and operations.
+
+Be aware that next GEOS release (coming out soon)
+will have a modified API (and also a shipped documentation). 
+
+--strk;
+
+
+From maude_giasson at inrs-ete.uquebec.ca  Wed Jul 21 14:34:27 2004
+From: maude_giasson at inrs-ete.uquebec.ca (Maude Giasson)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Iterate
+Message-ID: <001601c46f51$5afbebf0$f5a249c6@kipawa>
+
+In the GEOS documentation 2.0.0, I did'nt find how to iterate through a GeometryCollection neither through a Polygon.
+
+Now using the 1.0 revision (2003\11\06), I'll use the "getGeometyN(..)", "getInteriorRingN(..)"  and "getExteriorRing(..)" methods.
+
+1- What is the equivalent way to iterate with GEOS 2.0.0 ?
+2- Is there any documentation listing the differences between GEOS 1.0.0 and 2.0.0 revisions ?
+
+Thanks
+Maude Giasson
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20040721/b6e52e98/attachment.html
+From strk at keybit.net  Thu Jul 22 03:14:20 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Iterate
+In-Reply-To: <001601c46f51$5afbebf0$f5a249c6@kipawa>
+References: <001601c46f51$5afbebf0$f5a249c6@kipawa>
+Message-ID: <20040722071420.GB71622@freek.keybit.net>
+
+On Wed, Jul 21, 2004 at 02:34:27PM -0400, Maude Giasson wrote:
+> In the GEOS documentation 2.0.0, I did'nt find how to iterate through a GeometryCollection neither through a Polygon.
+> 
+> Now using the 1.0 revision (2003\11\06), I'll use the "getGeometyN(..)", "getInteriorRingN(..)"  and "getExteriorRing(..)" methods.
+> 
+> 1- What is the equivalent way to iterate with GEOS 2.0.0 ?
+
+Same way of GEOS 1.0.0, just lost from documentation, now fixed.
+
+> 2- Is there any documentation listing the differences between GEOS 1.0.0 and 2.0.0 revisions ?
+
+The NEWS file contains all changes which needs attention.
+Basically API change invested geometry constructors and
+CoordinateList->CoordinateSequence rename.
+
+Geometry constructors all take ownership of passed CoordinateSequence
+or vector<Geometry *>, and will store a pointer to the given
+GeometryFactory. This was a mixed strategy for GEOS-1.0.0, and there
+was no GeometryFactory, but PrecisionModel and SRID arguments.
+
+CoordinateList became CoordinateSequence and the basic implementation
+became DefaultCoordinateSequence (from BasicCoordinateList).
+Factory for DefaultCoordinateSequence is a singleton and is accessed
+with DefaultCoordinateSequenceFactory::instance().
+
+--strk;
+
+> Thanks
+> Maude Giasson
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From strk at keybit.net  Thu Jul 22 13:00:42 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] geos::geosversion() / geos::jtsport()
+Message-ID: <20040722170042.GA81236@freek.keybit.net>
+
+I've dropped the geos::version() function and replaced
+with the two functions geos::geosversion() and geos::jtsport().
+This way we will have less name clashes problems and will
+hopefully have life easier when parsing version infos.
+
+--strk;
+
+
+From maude_giasson at inrs-ete.uquebec.ca  Mon Jul 26 13:53:59 2004
+From: maude_giasson at inrs-ete.uquebec.ca (Maude Giasson)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] orientation of the rings in a polygon
+Message-ID: <008301c47339$87ae6560$f5a249c6@kipawa>
+
+Hi all,
+In the detailed description of the Polygon, it says that "The orientation of the rings in the polygon does not matter"
+
+However, in my particular application, the orientation of the rings does matter.
+
+The polygons I'm using are the result of an intersection in GEOS.
+
+1- Is it possible to get the orientation of a linearRing with GEOS ? How ?
+
+2- Is it possible to set something (i.e a factory) that would guaranty a specific orientation for the rings in the polygons.
+
+Thanks again
+Maude Giasson
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20040726/40b2ec15/attachment.html
+From sgillies at frii.com  Mon Jul 26 15:24:11 2004
+From: sgillies at frii.com (Sean Gillies)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] swig module committed to CVS
+Message-ID: <5F3F4D90-DF39-11D8-AA52-000D9329D732@frii.com>
+
+Hi,
+
+I've committed the start of a swig interface for GEOS
+scripting modules.  All the classes in geom.h, io.h, and
+util.h are wrapped, providing Geometry classes, WKTReader
+and WKTWriter, and the GEOSExceptions.
+
+Code examples for using it can be found in the unit tests
+under swig/python/tests/cases.
+
+cheers,
+Sean
+
+--
+Sean Gillies
+sgillies at frii dot com
+http://users.frii.com/sgillies
+
+
+From strk at keybit.net  Mon Jul 26 16:00:53 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] orientation of the rings in a polygon
+In-Reply-To: <008301c47339$87ae6560$f5a249c6@kipawa>
+References: <008301c47339$87ae6560$f5a249c6@kipawa>
+Message-ID: <20040726200053.GA87832@freek.keybit.net>
+
+On Mon, Jul 26, 2004 at 01:53:59PM -0400, Maude Giasson wrote:
+> Hi all,
+> In the detailed description of the Polygon, it says that "The orientation of the rings in the polygon does not matter"
+> 
+> However, in my particular application, the orientation of the rings does matter.
+> 
+> The polygons I'm using are the result of an intersection in GEOS.
+> 
+> 1- Is it possible to get the orientation of a linearRing with GEOS ? How ?
+
+bool CGAlgorithms::isCCW(CoordinateSequence *);
+void CoordinateSequence::reverse(CoordinateSequence *);
+
+> 2- Is it possible to set something (i.e a factory) that would guaranty a specific orientation for the rings in the polygons.
+
+You can derive a class from Polygon and force orientation there.
+
+> 
+> Thanks again
+> Maude Giasson
+
+--strk;
+
+From strk at keybit.net  Tue Jul 27 12:39:19 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] another API break (getEnvelopeInternal)
+Message-ID: <20040727163919.GD96412@freek.keybit.net>
+
+I've changed Geometry::getEnvelopeInternal() to 
+return a const Envelope *. This way memory copies
+are reduced and I think we are closer in specs as JTS.
+Each Geometry will keep its Envelope as a cache, computing
+it only once when requested.
+
+--strk;
+
+From maude_giasson at inrs-ete.uquebec.ca  Thu Jul 29 12:07:04 2004
+From: maude_giasson at inrs-ete.uquebec.ca (Maude Giasson)
+Date: Fri Nov  2 20:52:29 2007
+Subject: [geos-devel] Using GEOS intersection result
+Message-ID: <000f01c47586$176ec7a0$f5a249c6@kipawa>
+
+Hi all,
+I'm doing a small application using GEOS.
+
+Given two simple linearRings L1 and L2, my application create a new
+linearRing L3 which is similar to L1 but contains, in addition, new vertex
+at the points where L1 and L2 cross.
+
+If L1 and L2 cross on a edge of L1, no vertex is added.
+
+If L1 and L2 share a common lineSegment, vertex are added to L3 at the
+endPoints of the segment. (if they are not already vertex on L3).
+
+In consequence, every edges of L3 should be within L1.
+
+1- Does a similar function already exists in GEOS (I haven't find any) ?
+
+2- Later in my application, I look if the edges of L3 are within L1 or not
+(they should be within L1). It does not work pretty well. The problem seems
+to come from GEOS which is not always consistent in it's answers. In fact, I
+think the real problem is from my side because I do not know what I can
+expect from GEOS answers.
+I've made here a little example showing some GEOS results that I don't
+understand. Can someone please tell me what is wrong in that example?
+Understanding this particular example will help me solving problems in my
+application.
+
+In that example, GEOS says that the LineString AB intersects the LineString
+XCDY at the point E.
+However,  it says that LineString XCDY does not intersect point E.
+In consequence, the line segment ED is not within XCDY.
+
+//Coordinate :
+geos::Coordinate cA(3.8727033436298370, 34.142325401306152);
+geos::Coordinate cB(22.790718823671341, 34.684023857116699);
+geos::Coordinate cC(15.851628303527832, 42.153842926025391);
+geos::Coordinate cD(4.8595705032348633, 28.923076629638672);
+// E : 9.3254120334165922, 34.298458262089483
+geos::Coordinate cX(12,55);
+geos::Coordinate cY(4,28);
+geos::PrecisionModel g_precisionModel;
+int g_SRID = 1;
+//-- ls AB construction
+geos::BasicCoordinateList* bclAB = new geos::BasicCoordinateList();
+bclAB->add(cA);
+bclAB->add(cB);
+geos::LineString* lsAB = new geos::LineString(bclAB, &g_precisionModel,
+g_SRID);
+//-- ls XCDY construction
+geos::BasicCoordinateList* bclXCDY = new geos::BasicCoordinateList();
+bclXCDY->add(cX);
+bclXCDY->add(cC);
+bclXCDY->add(cD);
+bclXCDY->add(cY);
+geos::LineString* lsXCDY = new geos::LineString(bclXCDY, &g_precisionModel,
+g_SRID);
+
+//-- intersection between the 2 lineStrings
+geos::Geometry* gABinterXCDY = lsAB->intersection(lsXCDY);
+
+//The intersection between lineStrings AB and XCDY occurs at the single
+point of coordinate E.
+//E is on AB and on CD. Let's verify that XCDY contains line segment
+(lineString) ED.
+
+//-- ls ED construction
+geos::BasicCoordinateList* bclED = new geos::BasicCoordinateList();
+bclED->add( geos::Coordinate(*(gABinterXCDY->getCoordinate())) );
+bclED->add(cD);
+geos::LineString* lsED = new geos::LineString(bclED, &g_precisionModel,
+g_SRID);
+
+//-- lsXCDY should contain lsED but it does not; why ?
+Booleen test3 = lsXCDY->contains(lsED); // why is it false
+
+// gABinterXCDY = lsAB inter lsXYCD
+// but lsXCDY does not intersect gABinterXCDY.
+// Why does it occur ?
+Booleen test1 = lsXCDY->intersects(gABinterXCDY); // why is it false ?
+
+
+Thanks
+Maude Giasson
+
+
+

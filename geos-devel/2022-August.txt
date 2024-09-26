@@ -1,0 +1,120 @@
+From pramsey at cleverelephant.ca  Tue Aug 23 12:21:59 2022
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 23 Aug 2022 12:21:59 -0700
+Subject: [geos-devel] CoordinateArraySequence == CoordinateSequence
+Message-ID: <D8E82846-DDEA-4A1A-882F-65DB526A31A5@cleverelephant.ca>
+
+One of the things that tinkering with the SegmenString layer of overlay brought out to me was the extent to which we construct CoordinateSequence almost exclusively out of CoordinateArraySequence. Like, all the time. At yet, because we handle those CoordinateArraySequence at the API level almost exclusively as  CoordinateSequence we lose the ability to do some handy optimizations. 
+
+Like, if one were going to (as one does on every single CoordinateSequence that enters the overlay code) 
+(1) test if there are repeated points and 
+(2a) remove any if there are
+(2b) just return the untouched CoordinateSequence if there aren't
+a useful pattern would be for ::hasRepeatedPoints() to return/populate a list of indexes at which repeated points appear and for ::removeRepeatedPoints() to do bulk copies of all the points in between those indexes. This is foreclosed by the CoordinateSequence API, you can play this trick nicely with a std::vector living underneath, but the API doesn't let us see that (in fact) that's what we have 99.9% of the time.
+
+So, one obvious thing to do would be to remove the virtual methods in CoordinateSequence and pull the implementation up to that level, std::vector and all, and give up on the idea of an abstract interface that we don't actually use. For a handful of use cases, where data access cost is greater than computation cost (area, length, distance(?), some others (?)) this might be "bad" in some theoretical way, but note that currently we still don't actually have that abstract layer in place for a zero copy computation. Removing the virtual methods and inheritance from CoordinateSequence would foreclose an option that (a) we seem unlikely to ever deliver on and (b) has narrow performance benefits even if we did deliver on it.
+
+Meanwhile, the flip case seems to likely have a *lot* of performance benefits just hanging around waiting to be harvested. Coordinate access without going through the inheritance structure; access to some bulk operations like the repeated points case.
+
+For the "zero copy" crew, I feel like a big chunk of gains for them could be harvested by ensuring that point-based operations are available and don't require construction of a full Point() object. So things like PreparedGeometry->intersects(x, y). Sure, you still have to copy in your polygon feature and prepare it, but much of the overhead in that would still exist in a "zero copy" paradigm (all the internal index buildings). Meanwhile you'd no longer need to create a full Point() to do a point-in-poly test, and that would hopefully be a big win for most users.
+
+Random thoughs on a sunny day,
+P
+
+
+From dbaston at gmail.com  Wed Aug 24 04:49:43 2022
+From: dbaston at gmail.com (Daniel Baston)
+Date: Wed, 24 Aug 2022 07:49:43 -0400
+Subject: [geos-devel] CoordinateArraySequence == CoordinateSequence
+In-Reply-To: <D8E82846-DDEA-4A1A-882F-65DB526A31A5@cleverelephant.ca>
+References: <D8E82846-DDEA-4A1A-882F-65DB526A31A5@cleverelephant.ca>
+Message-ID: <CA+K_q_q0O=+WP0F=Wa5i3Ghmzq0v_0X52QYnqhhGD62RS58CPA@mail.gmail.com>
+
+This has come up a few times and despite some pushback from users [1] I
+agree that the benefits of the simplification probably outweigh the costs.
+Replacing CoordinateSequence with a concrete implementation is top on my
+list for the GDAL grant work [2] that I will be available to begin on
+September 1. My general plan was to
+
+1. Replace CoordinateSequence with CoordinateArraySequence and check
+performance improvement. Even without algorithmic improvements like the
+ones you're talking about, I would expect that devirtualizating Coordinate
+access, and the consequent enabling of inlining, will provide a good
+benefit across the board.
+2. Replace CoordinateArraySequence with a class backed by a buffer of
+doubles to support future generalization of Coordinate dimension. This may
+also allow us to offer zero-copy to clients that happen to use an XYXY
+representation internally (PostGIS)
+3. Experiment with a union or std::variant to sneak in an optimized
+stack-only implementation for Points
+
+I do wonder if our embrace of XYXY is the best choice here and if XXYY
+would enable vectorization in some cases. That would be a pretty invasive
+experiment to perform across the whole library, but maybe we could look at
+something like OrientationIndex in isolation.
+
+Dan
+
+[1] https://github.com/libgeos/geos/issues/564
+[2] https://lists.osgeo.org/pipermail/geos-devel/2022-March/010672.html
+
+On Tue, Aug 23, 2022 at 3:22 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> One of the things that tinkering with the SegmenString layer of overlay
+> brought out to me was the extent to which we construct CoordinateSequence
+> almost exclusively out of CoordinateArraySequence. Like, all the time. At
+> yet, because we handle those CoordinateArraySequence at the API level
+> almost exclusively as  CoordinateSequence we lose the ability to do some
+> handy optimizations.
+>
+> Like, if one were going to (as one does on every single CoordinateSequence
+> that enters the overlay code)
+> (1) test if there are repeated points and
+> (2a) remove any if there are
+> (2b) just return the untouched CoordinateSequence if there aren't
+> a useful pattern would be for ::hasRepeatedPoints() to return/populate a
+> list of indexes at which repeated points appear and for
+> ::removeRepeatedPoints() to do bulk copies of all the points in between
+> those indexes. This is foreclosed by the CoordinateSequence API, you can
+> play this trick nicely with a std::vector living underneath, but the API
+> doesn't let us see that (in fact) that's what we have 99.9% of the time.
+>
+> So, one obvious thing to do would be to remove the virtual methods in
+> CoordinateSequence and pull the implementation up to that level,
+> std::vector and all, and give up on the idea of an abstract interface that
+> we don't actually use. For a handful of use cases, where data access cost
+> is greater than computation cost (area, length, distance(?), some others
+> (?)) this might be "bad" in some theoretical way, but note that currently
+> we still don't actually have that abstract layer in place for a zero copy
+> computation. Removing the virtual methods and inheritance from
+> CoordinateSequence would foreclose an option that (a) we seem unlikely to
+> ever deliver on and (b) has narrow performance benefits even if we did
+> deliver on it.
+>
+> Meanwhile, the flip case seems to likely have a *lot* of performance
+> benefits just hanging around waiting to be harvested. Coordinate access
+> without going through the inheritance structure; access to some bulk
+> operations like the repeated points case.
+>
+> For the "zero copy" crew, I feel like a big chunk of gains for them could
+> be harvested by ensuring that point-based operations are available and
+> don't require construction of a full Point() object. So things like
+> PreparedGeometry->intersects(x, y). Sure, you still have to copy in your
+> polygon feature and prepare it, but much of the overhead in that would
+> still exist in a "zero copy" paradigm (all the internal index buildings).
+> Meanwhile you'd no longer need to create a full Point() to do a
+> point-in-poly test, and that would hopefully be a big win for most users.
+>
+> Random thoughs on a sunny day,
+> P
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20220824/0960411d/attachment.htm>
+

@@ -1,0 +1,615 @@
+From Peder.Axensten at slu.se  Sat May  1 06:28:24 2021
+From: Peder.Axensten at slu.se (Peder Axensten)
+Date: Sat, 1 May 2021 13:28:24 +0000
+Subject: [pdal] Intermittent crash calling LasReader::execute(
+ PointTable )
+In-Reply-To: <CACJ51z0OduATSc-dNS-PfbL1ENNox1tnGphxBCPZAJsd-VmXGA@mail.gmail.com>
+References: <9ED6476D-49BC-4AA6-8139-C8859B4968A7@slu.se>
+ <CACJ51z0OduATSc-dNS-PfbL1ENNox1tnGphxBCPZAJsd-VmXGA@mail.gmail.com>
+Message-ID: <FADCD4EB-2E46-4986-8A70-51B622952C7B@slu.se>
+
+I followed your advice and found a couple of issues that I?m happy I identified and fixed, one of which was related to the problem I had. In OS X all now compiles and runs without any error or warning, even with saitizers on. Also in Ubuntu under Docker if I compile without sanitizers. So thank you Andrew for the advice, my problem is solved.
+
+However, if I compile in Ubuntu with sanitizers on there are things flagged that seem unrelated to my code.
+
+==9474==ERROR: LeakSanitizer: detected memory leaks
+Direct leak of 15 byte(s) in 1 object(s) allocated from:
+    #0 0x7f8275f9f9f7 in __interceptor_strdup ../../../../src/libsanitizer/asan/asan_interceptors.cpp:454
+    #1 0x7f82741c2fb7 in __static_initialization_and_destruction_0 /tmp/PDAL/vendor/kazhdan/Ply.h:206
+SUMMARY: AddressSanitizer: 15 byte(s) leaked in 1 allocation(s).
+
+Also, reading a file that it reads with sanitizers off, I get an exception from pdal:
+'Invalid VLR offset - exceeds file size?.
+
+I realise that it might all be a bit vague, but does anyone understand the reasons for the above?
+Otherwise, I don?t plan to pursue this any longer.
+
+Best regards,
+
+Peder Axensten
+Research engineer
+
+Remote Sensing
+Department of Forest Resource Management
+Swedish University of Agricultural Sciences
+SE-901 83 Ume?
+Visiting address: Skogsmarksgr?nd
+Phone: +46 90 786 85 00
+peder.axensten at slu.se, www.slu.se/srh
+
+The Department of Forest Resource Management is environmentally certified in accordance with ISO 14001.
+
+> On 27 Apr 2021, at 13:47, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>
+> If your code runs on OSX but fails on Linux, it's likely you have an issue accessing invalid memory. You should run valgrind or compile with -fsanitize=address to help you find your error. There are also many working example and test programs as part of the PDAL distribution that may help.
+>
+> On Tue, Apr 27, 2021 at 6:46 AM Peder Axensten <Peder.Axensten at slu.se> wrote:
+> Hi,
+>
+> I?m in the process of changing from liblas to pdal and all our tools but one have now ? with great help from this list! ? been converted into pdal filters. The remaining tool reads all las/laz-files in a given directory. I have not yet figured out a good way to make it fit into the pdal filter paradigm, so for now I?ll keep the tool, but switch the file reading from liblas to pdal. I found information on how to do this at https://pdal.io/api/transition/index.html. I put the specific code into the class Point_file_reader, as seen below. It runs perfectly on OS X, but we process data in Ubuntu under Docker and this crashes under certain circumstances...
+>
+> If I simply construct a Point_file_reader object all works fine also in Ubuntu, but used in the processing environment it crashes with SIGSEGV - Segmentation violation signal. I really can not see how the processing environment could affect this isolated code as there are no apparent dependencies apart from the file path, but I?m obviously wrong. My next step will be to simplify until the crash goes away, but as this is rather cumbersome I first want to ask this list if someone have had similar experiences?
+>
+> The crash happens in laszip, called by pdal (as seen further below). In OS X I use clang, in Ubuntu I use gcc. The versions of pdal and laszip are as of last week.
+>
+> Any insights or ideas will be much appreciated!
+>
+> ==============================
+> #pragma once
+>
+> #include <filesystem>
+> #include <memory>
+> #include <pdal/PointTable.hpp>
+> #include <pdal/PointView.hpp>
+> #include <pdal/io/LasHeader.hpp>
+> #include <pdal/io/LasReader.hpp>
+> #include <pdal/Options.hpp>
+>
+> namespace pax {
+>
+> /// Open an aprs las file (possibly compressed).
+> /** Code from https://pdal.io/api/transition/index.html**/
+> class Point_file_reader {
+> pdal::LasReaderm_reader{};
+> pdal::PointTablem_table{};
+> pdal::PointViewSetm_point_view_set{};
+> pdal::PointViewPtrm_point_view{};
+>
+> public:
+> using point_type  = pdal::PointRef;
+> using header_type  = pdal::LasHeader;
+> using Id  = pdal::Dimension::Id;
+>
+> Point_file_reader( const std::filesystem::path & file_ ) {
+> pdal::Optionoption( "filename", file_.native() );
+> pdal::Optionsoptions;
+> options.add( option );
+> m_reader.setOptions( options );
+> m_reader.prepare( m_table );
+>
+> // Next line in Ubuntu 20.10 under Docker: SIGSEGV - Segmentation violation signal
+> m_point_view_set  = pdal::PointViewSet{ m_reader.execute( m_table ) };
+>
+> m_point_view  = pdal::PointViewPtr{ *m_point_view_set.begin() };
+> }
+>
+> const header_type & header() const {return m_reader.header();}
+> auto begin() const {return m_point_view->begin();}
+> auto end() const {return m_point_view->end();}
+> bool has_dim( const Id dim_)const {return m_point_view->hasDim( dim_ );}
+> };
+>
+> }//namespace pax
+> ==============================
+>
+> I?ve installed gdb in the Docker environment, but I?m not very familiar with it. This is what I get:
+>
+> ==============================
+> (gdb) run
+> Starting program: /pax/build/Linux/point-cloud
+> warning: Error disabling address space randomization: Operation not permitted
+> [Thread debugging using libthread_db enabled]
+> Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+> [doctest] run with "--help" for options
+>
+> Program received signal SIGSEGV, Segmentation fault.
+> 0x00007f55095c5cbd in std::istream::read(char*, long) () from /lib/x86_64-linux-gnu/libstdc++.so.6
+> (gdb) up
+> #1  0x00007f5509118ee3 in ByteStreamInIstream::getBytes(unsigned char*, unsigned int) () from /usr/local/lib/liblaszip.so.6
+> (gdb) up
+> #2  0x00007f5506055b73 in laszip_read_header (laszip_dll=0x557806355e30, is_compressed=0x7ffd6e735354) at /tmp/LASzip/src/laszip_dll.cpp:3454
+> 3454  try { laszip_dll->streamin->getBytes((U8*)file_signature, 4); } catch(...)
+> (gdb) up
+> #3  0x00007f5506059c44 in laszip_open_reader_stream (pointer=0x557806355e30, stream=..., is_compressed=is_compressed at entry=0x7ffd6e735354)
+>     at /tmp/LASzip/src/laszip_dll.cpp:4810
+> 4810    return laszip_read_header(laszip_dll, is_compressed);
+> (gdb) up
+> #4  0x00007f5509a817d0 in pdal::LasReader::ready (this=0x7ffd6e7359c0, table=...) at /usr/include/c++/10/bits/unique_ptr.h:421
+> 421      get() const noexcept
+> (gdb) up
+> #5  0x00007f5509bb75c9 in pdal::Stage::execute (this=0x7ffd6e735ac0, table=..., views=std::set with 1 element = {...}) at /usr/include/c++/10/ext/atomicity.h:84
+> 84      return __exchange_and_add(__mem, __val);
+> (gdb) up
+> #6  0x00007f5509bb7d7d in pdal::Stage::execute (this=<optimized out>, table=...) at /tmp/PDAL/pdal/Stage.cpp:235
+> 235        outViews = si.m_stage->execute(table, inViews);
+> (gdb) up
+> #7  0x0000557805cad5c8 in pax::Process_plots<pax::Aggregator_set<pax::Filtered_summary<float, 0u, pax::filter::Pass_all_filter>, pax::Filtered_summary<float, 4u, pax::filter::All_ge_level_filter>, pax::Filtered_summary<float, 0u, pax::filter::First_return_filter>, pax::Filtered_summary<float, 0u, pax::filter::First_return_ge_level_filter>, pax::Filtered_ordered<float, pax::filter::All_ge_level_filter, std::allocator<float> > > >::process_file (this=this at entry=0x7ffd6e735e80,
+>     file_=filesystem::path "../../doctests-data/point-cloud/original/09D037_68200_5175_25.laz" = {...}) at /usr/include/c++/10/ostream:517
+> 517    operator<<(basic_ostream<char, _Traits>& __out, char __c)
+> (gdb) up
+> #8  0x0000557805caf12e in pax::Process_plots<pax::Aggregator_set<pax::Filtered_summary<float, 0u, pax::filter::Pass_all_filter>, pax::Filtered_summary<float, 4u, pax::filter::All_ge_level_filter>, pax::Filtered_summary<float, 0u, pax::filter::First_return_filter>, pax::Filtered_summary<float, 0u, pax::filter::First_return_ge_level_filter>, pax::Filtered_ordered<float, pax::filter::All_ge_level_filter, std::allocator<float> > > >::process_directory (this=this at entry=0x7ffd6e735e80,
+>     pc_directory_=filesystem::path "../../doctests-data/point-cloud/original" = {...}) at /usr/include/c++/10/bits/fs_dir.h:161
+> 161    operator const filesystem::path& () const noexcept { return _M_path; }
+> (gdb) up
+> #9  0x0000557805caf5c5 in pax::process_plots<pax::Aggregator_set<pax::Filtered_summary<float, 0u, pax::filter::Pass_all_filter>, pax::Filtered_summary<float, 4u, pax::filter::All_ge_level_filter>, pax::Filtered_summary<float, 0u, pax::filter::First_return_filter>, pax::Filtered_summary<float, 0u, pax::filter::First_return_ge_level_filter>, pax::Filtered_ordered<float, pax::filter::All_ge_level_filter, std::allocator<float> > > > (pc_count_=0, do_progress_=<optimized out>,
+>     nilsson_=<optimized out>, pc_directory_=filesystem::path "../../doctests-data/point-cloud/original" = {...},
+>     plots_dest_=filesystem::path "/tmp/plots_result.csv" = {...}, plots_source_=filesystem::path "/tmp/plots_result.csv" = {...}, accessor_set_=...)
+>     at /pax/include/point-cloud/process/plot-metrics-implementation.hpp:190
+> 190Json_value process_plots(
+> (gdb) up
+> #10 pax::process_plots<std::filesystem::__cxx11::path const&, std::filesystem::__cxx11::path const&, std::filesystem::__cxx11::path const&, double, bool> (
+>     accessor_ref_set_=...) at /pax/include/point-cloud/process/plot-metrics-implementation.hpp:219
+> 219return process_plots( std::move( accessor_set ), std::forward< Args >( args_ )... );
+> (gdb) up
+> #11 0x0000557805c7f877 in pax::_DOCTEST_ANON_FUNC_4 () at /usr/include/c++/10/bits/stl_iterator.h:953
+> 953      __normal_iterator(const _Iterator& __i) _GLIBCXX_NOEXCEPT
+> (gdb) up
+> #12 0x0000557805cc89b8 in doctest::Context::run (this=0x7ffd6e736980) at /pax/include/3rd-party/doctest/doctest.h:6486
+> 6486                    tc.m_test();
+> (gdb) up
+> #13 0x0000557805bf059c in main (argc=1, argv=0x7ffd6e736a98) at /pax/doctests-src/main.doctest.cpp:42
+> 42const auto test_result = context.run();
+> (gdb) up
+> Initial frame selected; you cannot go up.
+> ==============================
+>
+>
+> Best regards,
+>
+> Peder Axensten
+> Research engineer
+>
+> Remote Sensing
+> Department of Forest Resource Management
+> Swedish University of Agricultural Sciences
+> SE-901 83 Ume?
+> Visiting address: Skogsmarksgr?nd
+> Phone: +46 90 786 85 00
+> peder.axensten at slu.se, www.slu.se/srh
+>
+> The Department of Forest Resource Management is environmentally certified in accordance with ISO 14001.
+>
+> ---
+> N?r du skickar e-post till SLU s? inneb?r detta att SLU behandlar dina personuppgifter. F?r att l?sa mer om hur detta g?r till, klicka h?r <https://www.slu.se/om-slu/kontakta-slu/personuppgifter/>
+> E-mailing SLU will result in SLU processing your personal data. For more information on how this is done, click here <https://www.slu.se/en/about-slu/contact-slu/personal-data/>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+
+---
+N?r du skickar e-post till SLU s? inneb?r detta att SLU behandlar dina personuppgifter. F?r att l?sa mer om hur detta g?r till, klicka h?r <https://www.slu.se/om-slu/kontakta-slu/personuppgifter/>
+E-mailing SLU will result in SLU processing your personal data. For more information on how this is done, click here <https://www.slu.se/en/about-slu/contact-slu/personal-data/>
+
+From andrew.bell.ia at gmail.com  Sat May  1 07:11:40 2021
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Sat, 1 May 2021 10:11:40 -0400
+Subject: [pdal] Intermittent crash calling LasReader::execute(
+ PointTable )
+In-Reply-To: <FADCD4EB-2E46-4986-8A70-51B622952C7B@slu.se>
+References: <9ED6476D-49BC-4AA6-8139-C8859B4968A7@slu.se>
+ <CACJ51z0OduATSc-dNS-PfbL1ENNox1tnGphxBCPZAJsd-VmXGA@mail.gmail.com>
+ <FADCD4EB-2E46-4986-8A70-51B622952C7B@slu.se>
+Message-ID: <CACJ51z0p2z9AdzTPJbS-0Zhp7N+k66kUmXz0eOR9uEtK5n9RCA@mail.gmail.com>
+
+On Sat, May 1, 2021 at 9:28 AM Peder Axensten <Peder.Axensten at slu.se> wrote:
+
+> I followed your advice and found a couple of issues that I?m happy I
+> identified and fixed, one of which was related to the problem I had. In OS
+> X all now compiles and runs without any error or warning, even with
+> saitizers on. Also in Ubuntu under Docker if I compile without sanitizers.
+> So thank you Andrew for the advice, my problem is solved.
+>
+> However, if I compile in Ubuntu with sanitizers on there are things
+> flagged that seem unrelated to my code.
+>
+> ==9474==ERROR: LeakSanitizer: detected memory leaks
+> Direct leak of 15 byte(s) in 1 object(s) allocated from:
+>     #0 0x7f8275f9f9f7 in __interceptor_strdup
+> ../../../../src/libsanitizer/asan/asan_interceptors.cpp:454
+>     #1 0x7f82741c2fb7 in __static_initialization_and_destruction_0
+> /tmp/PDAL/vendor/kazhdan/Ply.h:206
+> SUMMARY: AddressSanitizer: 15 byte(s) leaked in 1 allocation(s).
+>
+
+I'll look at this if I remember, but it's 15 bytes. ;)
+
+Also, reading a file that it reads with sanitizers off, I get an exception
+> from pdal:
+> 'Invalid VLR offset - exceeds file size?.
+>
+
+This says that you have a bad VLR and a corrupt LAS file.  You should
+contact the provider of your file and request a valid file.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210501/40d66fdd/attachment.html>
+
+From Peder.Axensten at slu.se  Sat May  1 08:01:00 2021
+From: Peder.Axensten at slu.se (Peder Axensten)
+Date: Sat, 1 May 2021 15:01:00 +0000
+Subject: [pdal] Intermittent crash calling LasReader::execute(
+ PointTable )
+In-Reply-To: <CACJ51z0p2z9AdzTPJbS-0Zhp7N+k66kUmXz0eOR9uEtK5n9RCA@mail.gmail.com>
+References: <9ED6476D-49BC-4AA6-8139-C8859B4968A7@slu.se>
+ <CACJ51z0OduATSc-dNS-PfbL1ENNox1tnGphxBCPZAJsd-VmXGA@mail.gmail.com>
+ <FADCD4EB-2E46-4986-8A70-51B622952C7B@slu.se>,
+ <CACJ51z0p2z9AdzTPJbS-0Zhp7N+k66kUmXz0eOR9uEtK5n9RCA@mail.gmail.com>
+Message-ID: <316D067C-E69D-410E-AC9D-FF22D47C9D18@slu.se>
+
+
+
+1 maj 2021 kl. 16:11 skrev Andrew Bell <andrew.bell.ia at gmail.com>:
+
+?
+On Sat, May 1, 2021 at 9:28 AM Peder Axensten <Peder.Axensten at slu.se<mailto:Peder.Axensten at slu.se>> wrote:
+I followed your advice and found a couple of issues that I?m happy I identified and fixed, one of which was related to the problem I had. In OS X all now compiles and runs without any error or warning, even with saitizers on. Also in Ubuntu under Docker if I compile without sanitizers. So thank you Andrew for the advice, my problem is solved.
+
+However, if I compile in Ubuntu with sanitizers on there are things flagged that seem unrelated to my code.
+
+==9474==ERROR: LeakSanitizer: detected memory leaks
+Direct leak of 15 byte(s) in 1 object(s) allocated from:
+    #0 0x7f8275f9f9f7 in __interceptor_strdup ../../../../src/libsanitizer/asan/asan_interceptors.cpp:454
+    #1 0x7f82741c2fb7 in __static_initialization_and_destruction_0 /tmp/PDAL/vendor/kazhdan/Ply.h:206
+SUMMARY: AddressSanitizer: 15 byte(s) leaked in 1 allocation(s).
+
+I'll look at this if I remember, but it's 15 bytes. ;)
+
+Yes :-).
+And it was the only pdal one ? gdal had more?
+
+Also, reading a file that it reads with sanitizers off, I get an exception from pdal:
+'Invalid VLR offset - exceeds file size?.
+
+This says that you have a bad VLR and a corrupt LAS file.  You should contact the provider of your file and request a valid file.
+
+I can open the file with lasinfo as well as pdal info without a problem on both OS X and Docker/Ubuntu (I tried it again just now). And it reads fine in my code in all cases except Ubuntu+sanitizers. The file in question is choosen from a set of 60000+ files produced in the same manner by the Swedish mapping, cadastral and land registration authoroty as part of the official national scan ? and this is the only occurance of this problem I have seen. We have previously processed all files using pdal tools in Docker/Ubuntu? I really find it hard to believe it is corrupt, although I can?t prove it.
+
+? If the file is corrupt, should not pdal say so also without sanitisers?
+? And if the file is not corrupt, is this something that needs looking into?
+
+--
+Andrew Bell
+andrew.bell.ia at gmail.com<mailto:andrew.bell.ia at gmail.com>
+
+---
+N?r du skickar e-post till SLU s? inneb?r detta att SLU behandlar dina personuppgifter. F?r att l?sa mer om hur detta g?r till, klicka h?r <https://www.slu.se/om-slu/kontakta-slu/personuppgifter/>
+E-mailing SLU will result in SLU processing your personal data. For more information on how this is done, click here <https://www.slu.se/en/about-slu/contact-slu/personal-data/>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210501/0a3aab48/attachment-0001.html>
+
+From andrew.bell.ia at gmail.com  Mon May  3 08:13:32 2021
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 3 May 2021 11:13:32 -0400
+Subject: [pdal] Intermittent crash calling LasReader::execute(
+ PointTable )
+In-Reply-To: <316D067C-E69D-410E-AC9D-FF22D47C9D18@slu.se>
+References: <9ED6476D-49BC-4AA6-8139-C8859B4968A7@slu.se>
+ <CACJ51z0OduATSc-dNS-PfbL1ENNox1tnGphxBCPZAJsd-VmXGA@mail.gmail.com>
+ <FADCD4EB-2E46-4986-8A70-51B622952C7B@slu.se>
+ <CACJ51z0p2z9AdzTPJbS-0Zhp7N+k66kUmXz0eOR9uEtK5n9RCA@mail.gmail.com>
+ <316D067C-E69D-410E-AC9D-FF22D47C9D18@slu.se>
+Message-ID: <CACJ51z0iJH6gCmmz9LbK_w2PiHV5TwTJJFKb_Cf0+o4g5ZWExw@mail.gmail.com>
+
+On Sat, May 1, 2021 at 11:01 AM Peder Axensten <Peder.Axensten at slu.se>
+wrote:
+
+>
+> I can open the file with lasinfo as well as pdal info without a problem on
+> both OS X and Docker/Ubuntu (I tried it again just now). And it reads fine
+> in my code in all cases except Ubuntu+sanitizers. The file in question is
+> choosen from a set of 60000+ files produced in the same manner by the
+> Swedish mapping, cadastral and land registration authoroty as part of the
+> official national scan ? and this is the only occurance of this problem I
+> have seen. We have previously processed all files using pdal tools in
+> Docker/Ubuntu? I really find it hard to believe it is corrupt, although I
+> can?t prove it.
+>
+> ? If the file is corrupt, should not pdal say so also without sanitisers?
+> ? And if the file is not corrupt, is this something that needs looking
+> into?
+>
+
+I have no idea. If you want to open a ticket and provide the file in
+question, I can check.
+
+Best,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210503/3ba455f2/attachment.html>
+
+From andreas at yank.to  Tue May  4 14:06:03 2021
+From: andreas at yank.to (Andreas Yankopolus)
+Date: Tue, 4 May 2021 17:06:03 -0400
+Subject: [pdal] Filtering power lines and transmission towers
+Message-ID: <47386121-DE45-496A-AB7A-CE4BDEA19DF9@yank.to>
+
+All?
+
+I?m getting promising results using a density filter for filtering out power lines and transmission towers, I got the idea from looking at point clouds in plas.io <http://plas.io/> and noticing the low density of points compared to trees, buildings, etc.
+
+The pipeline first removes outliers:
+
+    {
+        "type": "filters.outlier",
+        "method": "statistical",
+        "mean_k": 16,
+        "multiplier": 2
+    },
+    {
+        "type": "filters.range",
+        "limits": "Classification![7:7]"
+    },
+
+Then removes points under a threshold density. I haven?t tinkered much with the radius and density values.
+
+    {
+        "type": "filters.radialdensity",
+        "radius": 2.0
+    },
+    {
+        "type": "filters.range",
+        "limits": "RadialDensity[:2]"
+    },
+
+Curious to hear if developers are finding this or other filters useful for removing wires/mesh.
+
+?Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210504/45ef964e/attachment.html>
+
+From andreas at yank.to  Thu May  6 10:36:52 2021
+From: andreas at yank.to (Andreas Yankopolus)
+Date: Thu, 6 May 2021 13:36:52 -0400
+Subject: [pdal] Dimensions and open-source LPC visualization
+Message-ID: <4AEA5439-FF1C-493F-A80A-605AB612C737@yank.to>
+
+All?
+
+Is there an open-source LPC visualization tool that allows coloring points by arbitrary dimension? I?m experimenting with different filters and would like to visualize point clouds where dot color is based on PDAL-calculated dimensions like density, linearity, scattering, etc.
+
+I?ve been fiddling with plas.io <http://plas.io/> for visualization and am setting up a filters.colorinterp stage to do this on a dimension-by-dimension basis, but it would be nice to quickly flip through a bunch of dimensions.
+
+Cheers,
+
+Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210506/cfdcb897/attachment.html>
+
+From brad.chambers at gmail.com  Thu May  6 10:54:41 2021
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Thu, 6 May 2021 12:54:41 -0500
+Subject: [pdal] Dimensions and open-source LPC visualization
+In-Reply-To: <4AEA5439-FF1C-493F-A80A-605AB612C737@yank.to>
+References: <4AEA5439-FF1C-493F-A80A-605AB612C737@yank.to>
+Message-ID: <CAJyqqPyCBRcfrO+f=+kr8B4JYO9gfnS87ERfL-b2Q07Q0aZgJg@mail.gmail.com>
+
+CloudCompare will load scalar fields written to LAS extra dimensions. I
+frequently define my LAS writer as follows.
+
+{
+    "type":"writers.las",
+    "filename":"output.laz",
+    "forward":"all",
+    "minor_version":4,
+    "extra_dims":"all"
+}
+
+On Thu, May 6, 2021 at 12:37 PM Andreas Yankopolus <andreas at yank.to> wrote:
+
+> All?
+>
+> Is there an open-source LPC visualization tool that allows coloring points
+> by arbitrary dimension? I?m experimenting with different filters and would
+> like to visualize point clouds where dot color is based on PDAL-calculated
+> dimensions like density, linearity, scattering, etc.
+>
+> I?ve been fiddling with plas.io for visualization and am setting up a
+> filters.colorinterp stage to do this on a dimension-by-dimension basis, but
+> it would be nice to quickly flip through a bunch of dimensions.
+>
+> Cheers,
+>
+> Andreas
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210506/c0829840/attachment.html>
+
+From ben.southall at sri.com  Thu May  6 10:50:08 2021
+From: ben.southall at sri.com (Ben Southall)
+Date: Thu, 6 May 2021 17:50:08 +0000
+Subject: [pdal] [EXTERNAL] Dimensions and open-source LPC visualization
+In-Reply-To: <4AEA5439-FF1C-493F-A80A-605AB612C737@yank.to>
+References: <4AEA5439-FF1C-493F-A80A-605AB612C737@yank.to>
+Message-ID: <SN5P110MB055823751356B70063C389F68E589@SN5P110MB0558.NAMP110.PROD.OUTLOOK.COM>
+
+CloudCompare can do this.
+
+https://www.danielgm.net/cc/
+
+Ben
+
+From: pdal <pdal-bounces at lists.osgeo.org> On Behalf Of Andreas Yankopolus
+Sent: Thursday, May 6, 2021 1:37 PM
+To: PDAL mailing list <pdal at lists.osgeo.org>
+Subject: [EXTERNAL] [pdal] Dimensions and open-source LPC visualization
+
+All?
+
+Is there an open-source LPC visualization tool that allows coloring points by arbitrary dimension? I?m experimenting with different filters and would like to visualize point clouds where dot color is based on PDAL-calculated dimensions like density, linearity, scattering, etc.
+
+I?ve been fiddling with plas.io<https://urldefense.us/v3/__http:/plas.io__;!!Nv3xtKNH_4uope0!116RUbm0S3QyG0OXCuz6K0Z3xvCjmMjclJ_7zQVCNmlFB7a1PdTHQqQKB7B-hIY$> for visualization and am setting up a filters.colorinterp stage to do this on a dimension-by-dimension basis, but it would be nice to quickly flip through a bunch of dimensions.
+
+Cheers,
+
+Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210506/15402193/attachment.html>
+
+From andreas at yank.to  Mon May 10 13:56:39 2021
+From: andreas at yank.to (Andreas Yankopolus)
+Date: Mon, 10 May 2021 16:56:39 -0400
+Subject: [pdal] [EXTERNAL] Dimensions and open-source LPC visualization
+In-Reply-To: <SN5P110MB055823751356B70063C389F68E589@SN5P110MB0558.NAMP110.PROD.OUTLOOK.COM>
+References: <4AEA5439-FF1C-493F-A80A-605AB612C737@yank.to>
+ <SN5P110MB055823751356B70063C389F68E589@SN5P110MB0558.NAMP110.PROD.OUTLOOK.COM>
+Message-ID: <C45618FE-A913-4C10-9A28-E12302137414@yank.to>
+
+Ben & Bradley,
+
+> On May 6, 2021, at 13:50, Ben Southall <ben.southall at sri.com> wrote:
+> 
+> CloudCompare can do this. 
+>  
+> https://www.danielgm.net/cc/ <https://www.danielgm.net/cc/>
+Thanks. CloudCompare with PDAL support looks like it will do the trick, and writing all the dimensions should make for some helpful visualization. I?m having trouble building it with cmake-gui on MacOS but will get that resolved.
+
+Cheers,
+
+Andreas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210510/784260eb/attachment.html>
+
+From andrew.bell.ia at gmail.com  Wed May 19 06:47:51 2021
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Wed, 19 May 2021 09:47:51 -0400
+Subject: [pdal] Version 2.3 RC1
+Message-ID: <CACJ51z0pFpmQQcGa-w_9Uj7F+7Yt_oTY-Qz0UtrQQDH8Qob=tA@mail.gmail.com>
+
+Hi,
+
+I've just posted the release for PDAL version 2.3. This is a release
+candidate.  The link to the source code is:
+
+https://github.com/PDAL/PDAL/releases/tag/2.3RC1
+
+Note that in order to build this version you will need GDAL version 3.X.
+
+This version supports MSVC 2019, provides a simple way to limit the number
+of dimensions loaded and support for the Draco format.  Please read the
+release notes for more details.
+
+Write if you have any questions,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210519/2408ef14/attachment.html>
+
+From andrew.bell.ia at gmail.com  Fri May 28 04:23:43 2021
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Fri, 28 May 2021 07:23:43 -0400
+Subject: [pdal] 2.3 Release
+Message-ID: <CACJ51z3ps8zc_LhC5FaN-rrOhS7AdSq80n-8B43J0reGDkMymw@mail.gmail.com>
+
+Hi all,
+
+PDAL version 2.3 is now available.
+
+https://github.com/PDAL/PDAL/releases/tag/2.3
+
+Please see the release notes for changes, but feel free to ask questions. A
+conda build will follow shortly.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210528/37dc0acc/attachment.html>
+
+From runette at gmail.com  Fri May 28 04:30:17 2021
+From: runette at gmail.com (Paul Harwood)
+Date: Fri, 28 May 2021 12:30:17 +0100
+Subject: [pdal] 2.3 Release
+In-Reply-To: <CACJ51z3ps8zc_LhC5FaN-rrOhS7AdSq80n-8B43J0reGDkMymw@mail.gmail.com>
+References: <CACJ51z3ps8zc_LhC5FaN-rrOhS7AdSq80n-8B43J0reGDkMymw@mail.gmail.com>
+Message-ID: <CAE8nN5P31nw3L25Xyk=sRoJ82oRV76ACtEF=dbybWqYy=VuMhA@mail.gmail.com>
+
++1
+
+On Fri, 28 May 2021 at 12:24, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+
+> Hi all,
+>
+> PDAL version 2.3 is now available.
+>
+> https://github.com/PDAL/PDAL/releases/tag/2.3
+>
+> Please see the release notes for changes, but feel free to ask questions.
+> A conda build will follow shortly.
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20210528/e743d3f0/attachment.html>
+
+From howard at hobu.co  Fri May 28 07:39:32 2021
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 28 May 2021 09:39:32 -0500
+Subject: [pdal] 2.3 Release
+In-Reply-To: <CACJ51z3ps8zc_LhC5FaN-rrOhS7AdSq80n-8B43J0reGDkMymw@mail.gmail.com>
+References: <CACJ51z3ps8zc_LhC5FaN-rrOhS7AdSq80n-8B43J0reGDkMymw@mail.gmail.com>
+Message-ID: <38D02131-ADD3-40A3-A4C4-D947C2B7DCC2@hobu.co>
+
+
+
+> On May 28, 2021, at 6:23 AM, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+> 
+> Hi all,
+> 
+> PDAL version 2.3 is now available.
+> 
+> https://github.com/PDAL/PDAL/releases/tag/2.3
+> 
+> Please see the release notes for changes, but feel free to ask questions. A conda build will follow shortly.
+
+Updated release tag/link
+
+https://github.com/PDAL/PDAL/releases/tag/2.3.0
+
+Howard
+
+

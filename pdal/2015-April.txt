@@ -1,0 +1,728 @@
+From o.martinezrubi at tudelft.nl  Fri Apr 17 09:33:12 2015
+From: o.martinezrubi at tudelft.nl (Oscar Martinez Rubi)
+Date: Fri, 17 Apr 2015 18:33:12 +0200
+Subject: [pdal] PDAL Oracle small benchmark
+Message-ID: <553135C8.8070709@tudelft.nl>
+
+Hi,
+
+After the latest fixs (thanks Howard, Connor, Andrew and the rest of 
+PDAL guys!) in OCI writer and reader and the fact that I found out about 
+laz-perf I have done this new small test with PDAL and Oracle to see how 
+the two systems behave with different configurations. I tried 
+with/without laz-perf, with point/dimension major, with all columns or 
+only xyz, with/without BLOB compression and with/without offsets and 
+scales (i.e. 64 or 32 bit per coord).
+
+There are 32 combinations, but since lazperf requires dimension major, 
+there 24 valid "only" combinations. For each one I have loaded a single 
+LAS file with 20M points (size 380 MB, 38MB in LAZ) with the PDAL OCI 
+writer and I have queried a small rectangle (80000 points) with PDAL OCI 
+reader. I have done the query twice.
+
+ From the attached table is clear that using lazperf is very good in 
+size terms (almost factor 2 compared to LAZ), loading time and query 
+time!. The best approach is to use lazperf, scales and offsets and 
+without BLOB compression.
+
+Regarding the loading times:
+  - Adding BLOB compression generally makes the loading slower.
+  - Using all columns instead of only xyz also makes it slower.
+  - Adding offsets makes it faster.
+  - Using lazperf does not seem to have a visible effect in loading time.
+  - The point/dimension major doe snot have any visible effect
+
+Regarding the queries the only difference seems to be if using all 
+columns or only xyz. In general by having only xyz instead of all 
+columns the queries are faster.
+
+Regarding the size/storage the are some strange issues in the numbers of 
+the table:
+
+  - When lazperf is used and offsets are used it does not matter in 
+storage terms whether I specify BLOB compression or not (I guess that 
+BLOB compression just can not squeeze the data anymore, right? or maybe 
+it is somehow ignored?)
+
+  - When lazperf is used and offsets are not used the BLOB compression 
+actually increases the size (Seems like the BLOB compression messes up 
+what lazperf did, strange though...)
+
+  - When lazperf is used it does not matter in storage terms whether I 
+specify only x,y,z or all columns. Why is this?
+
+  - When lazperf is not used, the difference in size between point and 
+dimension orientation is only visible when using all the columns, BLOB 
+compression and offsets
+
+  - When lazperf is not used and only xyz are used the BLOB compression 
+offsers same compression factor that using offsets but in twice the 
+time, both 278MB. Combining both gives 212MB.
+
+  - When lazperf is not used and all columns are used the BLOB 
+compression gives better compression factor that using offsets (343MB vs 
+538MB).
+
+  - If BLOB compression is used and offset are not used the lazperf 
+compression adds nothing. In fact in this case and having only xyz using 
+lazperf is actually worse than not using it (which makes me thing that 
+in lazperf all the columns are stored even if you do not want it)
+
+I am aware that the estimation of the size in oracle can be tricky. I 
+sum the size of the user segments related to my "blocks" table, i.e.:
+
+SELECT sum(bytes/1024/1024) size_in_MB
+FROM user_segments
+WHERE (segment_name LIKE : 'blocks%'
+    OR segment_name in (
+       SELECT segment_name
+       FROM user_lobs
+       WHERE table_name LIKE : 'blocks%'
+       UNION
+       SELECT index_name
+       FROM user_lobs
+       WHERE table_name LIKE : 'blocks%'
+       )
+);
+
+Kind Regards,
+
+O.
+-------------- next part --------------
+lazperf dimOri  Cols    BlobCom Offsets LTime   Size    QTime1  Qtime2
+True	False	xyz	False	True	30.45	82	0.4	0.37
+True	False	all	False	True	41.47	82	0.74	0.67
+
+True	False	xyz	True	True	37.05	82	0.84	0.38
+True	False	all	True	True	41.16	82	0.7	0.66
+
+True	False	xyz	False	False	34.45	277	0.44	0.41
+True	False	all	False	False	46.26	277	0.72	0.69
+
+True	False	xyz	True	False	45.83	343	0.45	0.41
+True	False	all	True	False	50.88	343	1.76	0.72
+
+
+False	True	xyz	True	True	46.09	212	0.39	0.36
+False	False	xyz	True	True	48.36	212	0.38	0.36
+
+False	True	xyz	False	True	28.53	278	0.38	0.42
+False	False	xyz	False	True	27.24	278	0.37	0.34
+
+False	True	xyz	True	False	57.39	278	0.39	0.35
+False	False	xyz	True	False	76.13	278	0.38	0.42
+
+False	True	all	True	True	57.24	306	0.63	1.44
+False	False	all	True	True	58.61	278	0.62	0.59
+
+False	True	all	True	False	68.81	343	0.63	0.6
+False	False	all	True	False	68.49	343	0.68	0.6
+
+False	True	all	False	True	37.45	538	0.71	0.6
+False	False	all	False	True	43.09	538	0.62	0.79
+
+False	True	xyz	False	False	37.66	538	0.38	0.35
+False	False	xyz	False	False	27.7	538	0.41	0.35
+
+False	True	all	False	False	49.74	733	0.63	0.64
+False	False	all	False	False	34.31	733	0.68	1.46
+
+
+From howard at hobu.co  Fri Apr 17 10:16:38 2015
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 17 Apr 2015 12:16:38 -0500
+Subject: [pdal] PDAL Oracle small benchmark
+In-Reply-To: <553135C8.8070709@tudelft.nl>
+References: <553135C8.8070709@tudelft.nl>
+Message-ID: <F7A9D41D-05B3-4E60-AD1A-1F2AC5F27D2C@hobu.co>
+
+
+> On Apr 17, 2015, at 11:33 AM, Oscar Martinez Rubi <o.martinezrubi at tudelft.nl> wrote:
+> 
+> Hi,
+> 
+> After the latest fixs (thanks Howard, Connor, Andrew and the rest of PDAL guys!) in OCI writer and reader and the fact that I found out about laz-perf I have done this new small test with PDAL and Oracle to see how the two systems behave with different configurations. I tried with/without laz-perf, with point/dimension major, with all columns or only xyz, with/without BLOB compression and with/without offsets and scales (i.e. 64 or 32 bit per coord).
+> 
+> There are 32 combinations, but since lazperf requires dimension major, there 24 valid "only" combinations.
+
+IIRC, lazperf is point major only. Maybe we should tweak the PDAL writer to error if the user tries to set dimension major for the storage orientation and use lazperf as the compression.
+
+> For each one I have loaded a single LAS file with 20M points (size 380 MB, 38MB in LAZ) with the PDAL OCI writer and I have queried a small rectangle (80000 points) with PDAL OCI reader. I have done the query twice.
+> 
+> From the attached table is clear that using lazperf is very good in size terms (almost factor 2 compared to LAZ), loading time and query time!. The best approach is to use lazperf, scales and offsets and without BLOB compression.
+
+This confirms our performance characteristics with lazperf and Oracle as well. BLOB/securefile compression has a cost, and the win to be had is to push less i/o across the database, no matter how you do it. I?m curious as to why lazperf was 2x smaller than LAZ. Is this because you are only writing XYZ dimensions? LAZ will always be more efficient than the current lazperf implementation in PDAL. This is because LAZ compresses fields together, and our naive lazperf implementation treats them individually. It is the same enconder/decoder, but as a free-form schema, it seems hazardous to try to model the behavior of the fields. LAZ being mostly lidar gets that luxury.
+
+> 
+> Regarding the loading times:
+> - Adding BLOB compression generally makes the loading slower.
+
+More CPU usage
+
+> - Using all columns instead of only xyz also makes it slower.
+
+Less io
+
+> - Adding offsets makes it faster.
+
+Data are quantized from 64 bit doubles to 32 bit floats. 
+
+> - Using lazperf does not seem to have a visible effect in loading time.
+> - The point/dimension major doe snot have any visible effect
+
+As mentioned above, there is some combinations that probably shouldn?t be allowed.
+
+> Regarding the queries the only difference seems to be if using all columns or only xyz. In general by having only xyz instead of all columns the queries are faster.
+> 
+> Regarding the size/storage the are some strange issues in the numbers of the table:
+> 
+> - When lazperf is used and offsets are used it does not matter in storage terms whether I specify BLOB compression or not (I guess that BLOB compression just can not squeeze the data anymore, right? or maybe it is somehow ignored?)
+
+I assume this is true. lazperf assumes the periodicity of the data (because we model it using the schema), and the fields are compressed individually without regard to each other. This removes a lot of easy-to-compress bit duplication from the data stream.
+
+> 
+> - When lazperf is used and offsets are not used the BLOB compression actually increases the size (Seems like the BLOB compression messes up what lazperf did, strange though?)
+
+lazperf with doubles is not as efficient as it is with int32_t?s.
+
+> - When lazperf is used it does not matter in storage terms whether I specify only x,y,z or all columns. Why is this?
+
+The other dimensions compress very well with a differential encoder because they don?t change very fast.
+
+> - When lazperf is not used, the difference in size between point and dimension orientation is only visible when using all the columns, BLOB compression and offsets
+
+Dimension major orientation puts a bunch of similar values next together in the stream and BLOB compression can then easily squeeze them. In point major orientation, there are few runs to get.
+
+> 
+> - When lazperf is not used and only xyz are used the BLOB compression offsers same compression factor that using offsets but in twice the time, both 278MB. Combining both gives 212MB.
+
+Can you explain this one a bit more? I?m confused a bit by the wording.
+
+> 
+> - When lazperf is not used and all columns are used the BLOB compression gives better compression factor that using offsets (343MB vs 538MB).
+> 
+> - If BLOB compression is used and offset are not used the lazperf compression adds nothing. In fact in this case and having only xyz using lazperf is actually worse than not using it
+
+> (which makes me thing that in lazperf all the columns are stored even if you do not want it)
+
+This might be true. We should look at the code to confirm.
+
+> 
+> I am aware that the estimation of the size in oracle can be tricky. I sum the size of the user segments related to my "blocks" table, i.e.:
+> 
+> SELECT sum(bytes/1024/1024) size_in_MB
+> FROM user_segments
+> WHERE (segment_name LIKE : 'blocks%'
+>   OR segment_name in (
+>      SELECT segment_name
+>      FROM user_lobs
+>      WHERE table_name LIKE : 'blocks%'
+>      UNION
+>      SELECT index_name
+>      FROM user_lobs
+>      WHERE table_name LIKE : 'blocks%'
+>      )
+> );
+> 
+> Kind Regards,
+
+Thanks for the great report!
+
+Howard
+
+From albert.godfrind at oracle.com  Fri Apr 17 11:36:25 2015
+From: albert.godfrind at oracle.com (Albert Godfrind)
+Date: Fri, 17 Apr 2015 20:36:25 +0200
+Subject: [pdal] PDAL Oracle small benchmark
+In-Reply-To: <553135C8.8070709@tudelft.nl>
+References: <553135C8.8070709@tudelft.nl>
+Message-ID: <53EE1522-EDF0-456C-ABE4-6038142B6532@oracle.com>
+
+Great tests, Oscar. 
+
+One remark: to check the actual storage space used it is best to sum the length of the values in each BLOB rather than the allocations. Those will be rounded up to the next extent (whose size may vary and get larger for large segments). Also unless you truncate the target table(s) the database will reuse existing allocations. 
+
+You get a more accurate result by getting the length of each blob (using  LENGTH() ) and summing them. 
+
+Albert
+--
+Albert Godfrind
++33 6 09 97 27 23
+Sent from my iPhone
+
+> On 17 avr. 2015, at 18:33, Oscar Martinez Rubi <o.martinezrubi at tudelft.nl> wrote:
+> 
+> Hi,
+> 
+> After the latest fixs (thanks Howard, Connor, Andrew and the rest of PDAL guys!) in OCI writer and reader and the fact that I found out about laz-perf I have done this new small test with PDAL and Oracle to see how the two systems behave with different configurations. I tried with/without laz-perf, with point/dimension major, with all columns or only xyz, with/without BLOB compression and with/without offsets and scales (i.e. 64 or 32 bit per coord).
+> 
+> There are 32 combinations, but since lazperf requires dimension major, there 24 valid "only" combinations. For each one I have loaded a single LAS file with 20M points (size 380 MB, 38MB in LAZ) with the PDAL OCI writer and I have queried a small rectangle (80000 points) with PDAL OCI reader. I have done the query twice.
+> 
+> From the attached table is clear that using lazperf is very good in size terms (almost factor 2 compared to LAZ), loading time and query time!. The best approach is to use lazperf, scales and offsets and without BLOB compression.
+> 
+> Regarding the loading times:
+> - Adding BLOB compression generally makes the loading slower.
+> - Using all columns instead of only xyz also makes it slower.
+> - Adding offsets makes it faster.
+> - Using lazperf does not seem to have a visible effect in loading time.
+> - The point/dimension major doe snot have any visible effect
+> 
+> Regarding the queries the only difference seems to be if using all columns or only xyz. In general by having only xyz instead of all columns the queries are faster.
+> 
+> Regarding the size/storage the are some strange issues in the numbers of the table:
+> 
+> - When lazperf is used and offsets are used it does not matter in storage terms whether I specify BLOB compression or not (I guess that BLOB compression just can not squeeze the data anymore, right? or maybe it is somehow ignored?)
+> 
+> - When lazperf is used and offsets are not used the BLOB compression actually increases the size (Seems like the BLOB compression messes up what lazperf did, strange though...)
+> 
+> - When lazperf is used it does not matter in storage terms whether I specify only x,y,z or all columns. Why is this?
+> 
+> - When lazperf is not used, the difference in size between point and dimension orientation is only visible when using all the columns, BLOB compression and offsets
+> 
+> - When lazperf is not used and only xyz are used the BLOB compression offsers same compression factor that using offsets but in twice the time, both 278MB. Combining both gives 212MB.
+> 
+> - When lazperf is not used and all columns are used the BLOB compression gives better compression factor that using offsets (343MB vs 538MB).
+> 
+> - If BLOB compression is used and offset are not used the lazperf compression adds nothing. In fact in this case and having only xyz using lazperf is actually worse than not using it (which makes me thing that in lazperf all the columns are stored even if you do not want it)
+> 
+> I am aware that the estimation of the size in oracle can be tricky. I sum the size of the user segments related to my "blocks" table, i.e.:
+> 
+> SELECT sum(bytes/1024/1024) size_in_MB
+> FROM user_segments
+> WHERE (segment_name LIKE : 'blocks%'
+>   OR segment_name in (
+>      SELECT segment_name
+>      FROM user_lobs
+>      WHERE table_name LIKE : 'blocks%'
+>      UNION
+>      SELECT index_name
+>      FROM user_lobs
+>      WHERE table_name LIKE : 'blocks%'
+>      )
+> );
+> 
+> Kind Regards,
+> 
+> O.
+> <RESULTS>
+
+From o.martinezrubi at tudelft.nl  Mon Apr 20 01:47:57 2015
+From: o.martinezrubi at tudelft.nl (Oscar Martinez Rubi)
+Date: Mon, 20 Apr 2015 10:47:57 +0200
+Subject: [pdal] PDAL Oracle small benchmark
+In-Reply-To: <F7A9D41D-05B3-4E60-AD1A-1F2AC5F27D2C@hobu.co>
+References: <553135C8.8070709@tudelft.nl>
+	<F7A9D41D-05B3-4E60-AD1A-1F2AC5F27D2C@hobu.co>
+Message-ID: <5534BD3D.9070805@tudelft.nl>
+
+Hi,
+
+On 17-04-15 19:16, Howard Butler wrote:
+>> On Apr 17, 2015, at 11:33 AM, Oscar Martinez Rubi <o.martinezrubi at tudelft.nl> wrote:
+>>
+>> Hi,
+>>
+>> After the latest fixs (thanks Howard, Connor, Andrew and the rest of PDAL guys!) in OCI writer and reader and the fact that I found out about laz-perf I have done this new small test with PDAL and Oracle to see how the two systems behave with different configurations. I tried with/without laz-perf, with point/dimension major, with all columns or only xyz, with/without BLOB compression and with/without offsets and scales (i.e. 64 or 32 bit per coord).
+>>
+>> There are 32 combinations, but since lazperf requires dimension major, there 24 valid "only" combinations.
+> IIRC, lazperf is point major only. Maybe we should tweak the PDAL writer to error if the user tries to set dimension major for the storage orientation and use lazperf as the compression.
+I think PDAL already shows that error message, so it is fine!
+>
+>> For each one I have loaded a single LAS file with 20M points (size 380 MB, 38MB in LAZ) with the PDAL OCI writer and I have queried a small rectangle (80000 points) with PDAL OCI reader. I have done the query twice.
+>>
+>>  From the attached table is clear that using lazperf is very good in size terms (almost factor 2 compared to LAZ), loading time and query time!. The best approach is to use lazperf, scales and offsets and without BLOB compression.
+> This confirms our performance characteristics with lazperf and Oracle as well. BLOB/securefile compression has a cost, and the win to be had is to push less i/o across the database, no matter how you do it. I?m curious as to why lazperf was 2x smaller than LAZ. Is this because you are only writing XYZ dimensions? LAZ will always be more efficient than the current lazperf implementation in PDAL. This is because LAZ compresses fields together, and our naive lazperf implementation treats them individually. It is the same enconder/decoder, but as a free-form schema, it seems hazardous to try to model the behavior of the fields. LAZ being mostly lidar gets that luxury.
+As Peter pointed out I meant that lazperf with PDAL/Oracle requires 82MB 
+while the LAZ file was 37 MB so very decent in my opinion! I tested 
+writing both all the columns and only xyz and in both cases it gives 
+82MB but as Peter also suggested that maybe because this data only has 
+valuable values in xyz, the rest of fields have the default value (so I 
+guess the lazperf compression can compress them perfectly). From your 
+message I do not get if you are saying that we should be able to squeeze 
+it even more?
+>> Regarding the loading times:
+>> - Adding BLOB compression generally makes the loading slower.
+> More CPU usage
+>
+>> - Using all columns instead of only xyz also makes it slower.
+> Less io
+>
+>> - Adding offsets makes it faster.
+> Data are quantized from 64 bit doubles to 32 bit floats.
+>
+>> - Using lazperf does not seem to have a visible effect in loading time.
+>> - The point/dimension major doe snot have any visible effect
+> As mentioned above, there is some combinations that probably shouldn?t be allowed.
+>
+>> Regarding the queries the only difference seems to be if using all columns or only xyz. In general by having only xyz instead of all columns the queries are faster.
+>>
+>> Regarding the size/storage the are some strange issues in the numbers of the table:
+>>
+>> - When lazperf is used and offsets are used it does not matter in storage terms whether I specify BLOB compression or not (I guess that BLOB compression just can not squeeze the data anymore, right? or maybe it is somehow ignored?)
+> I assume this is true. lazperf assumes the periodicity of the data (because we model it using the schema), and the fields are compressed individually without regard to each other. This removes a lot of easy-to-compress bit duplication from the data stream.
+>
+>> - When lazperf is used and offsets are not used the BLOB compression actually increases the size (Seems like the BLOB compression messes up what lazperf did, strange though?)
+> lazperf with doubles is not as efficient as it is with int32_t?s.
+>
+>> - When lazperf is used it does not matter in storage terms whether I specify only x,y,z or all columns. Why is this?
+> The other dimensions compress very well with a differential encoder because they don?t change very fast.
+>
+>> - When lazperf is not used, the difference in size between point and dimension orientation is only visible when using all the columns, BLOB compression and offsets
+> Dimension major orientation puts a bunch of similar values next together in the stream and BLOB compression can then easily squeeze them. In point major orientation, there are few runs to get.
+>
+>> - When lazperf is not used and only xyz are used the BLOB compression offsers same compression factor that using offsets but in twice the time, both 278MB. Combining both gives 212MB.
+> Can you explain this one a bit more? I?m confused a bit by the wording.
+I meant that if you compare these lines:
+
+lazperf dimOri  Cols    BlobCom Offsets LTime   Size    QTime1 Qtime2
+False    True    xyz    True    True    46.09    212 0.39    0.36
+False    True    xyz    False   True    28.53    278 0.38    0.42
+False    True    xyz    True    False   57.39    278 0.39    0.35
+
+It is curious to see that using the offsets without BLOB compression 
+(line 2) gives 278MB which is the same size than using the BLOB 
+compression without offsets (line 3) but the latest takes 57 secs while 
+the first one takes only 28 sec. If you combine both, i.e. BLOB and 
+offsets then we squeeze a bit more to 212MB...anyway, this is not 
+important, it was just a comment...
+
+>> - When lazperf is not used and all columns are used the BLOB compression gives better compression factor that using offsets (343MB vs 538MB).
+>>
+>> - If BLOB compression is used and offset are not used the lazperf compression adds nothing. In fact in this case and having only xyz using lazperf is actually worse than not using it
+>> (which makes me thing that in lazperf all the columns are stored even if you do not want it)
+> This might be true. We should look at the code to confirm.
+After realizing that in the used data all the columns that are not xyz 
+have always the default values...maybe this is not the case, but I guess 
+it is good to check anyway
+>> I am aware that the estimation of the size in oracle can be tricky. I sum the size of the user segments related to my "blocks" table, i.e.:
+>>
+>> SELECT sum(bytes/1024/1024) size_in_MB
+>> FROM user_segments
+>> WHERE (segment_name LIKE : 'blocks%'
+>>    OR segment_name in (
+>>       SELECT segment_name
+>>       FROM user_lobs
+>>       WHERE table_name LIKE : 'blocks%'
+>>       UNION
+>>       SELECT index_name
+>>       FROM user_lobs
+>>       WHERE table_name LIKE : 'blocks%'
+>>       )
+>> );
+>>
+>> Kind Regards,
+> Thanks for the great report!
+Thanks!
+
+O.
+>
+> Howard
+
+
+From y_yamamoto at aitech.ac.jp  Wed Apr 22 17:49:11 2015
+From: y_yamamoto at aitech.ac.jp (yoshiyuki yamamoto)
+Date: Thu, 23 Apr 2015 09:49:11 +0900
+Subject: [pdal] install error
+Message-ID: <CABX0_CJzuFtUuP9oHOdLWLFvaRSMWSCkbC5U=AqgEPbvfTWGXg@mail.gmail.com>
+
+Hello,
+
+when pdal was installing, error on libgdal and libtiff were occurred.
+The log at that time is shown below.
+Let me know how to solve it.
+
+survey at SURVEY-C11:~/PDAL-master/build$ make
+[ 38%] Built target pdal_util
+[ 38%] Built target reader_bpf
+[ 38%] Built target reader_faux
+[ 38%] Built target lascommon
+[ 38%] Built target reader_las
+[ 38%] Built target writer_las
+[ 38%] Built target writer_null
+[ 38%] Built target reader_optech
+[ 38%] Built target reader_qfit
+[ 38%] Built target writer_rialto
+[ 38%] Built target reader_sbet
+[ 38%] Built target sbetcommon
+[ 38%] Built target writer_sbet
+[ 38%] Built target writer_text
+[ 38%] Built target reader_terrasolid
+[ 38%] Built target filter_chipper
+[ 38%] Built target filter_colorization
+[ 38%] Built target filter_crop
+[ 38%] Built target filter_decimation
+[ 38%] Built target filter_ferry
+[ 38%] Built target filter_merge
+[ 38%] Built target filter_mortonorder
+[ 38%] Built target filter_range
+[ 38%] Built target filter_reprojection
+[ 38%] Built target filter_sort
+[ 38%] Built target filter_splitter
+[ 38%] Built target filter_stats
+[ 38%] Built target filter_transformation
+[ 38%] Built target kernel_delta
+[ 38%] Built target kernel_diff
+[ 38%] Built target kernel_info
+[ 38%] Built target kernel_pipeline
+[ 38%] Built target kernel_random
+[ 38%] Built target kernel_sort
+[ 38%] Built target kernel_split
+[ 38%] Built target kernel_translate
+[ 38%] Built target pdalcpp
+[ 38%] Built target lasdump
+[ 38%] Built target gtest
+[ 38%] Built target gtest_main
+Linking CXX executable ../../bin/pc2pc_test
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFReadRGBAStrip at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `_TIFFmemcpy at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFReadDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFClientdata at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `_TIFFrealloc at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `_TIFFmemset at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFLastDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteEncodedStrip at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSwabArrayOfShort at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFIsTiled at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFIsByteSwapped at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFFlushData at LIBTIFF_4.0
+'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteCheck at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFDefaultStripSize at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFFdOpen at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteScanline at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `_TIFFfree at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFSwabShort at LIBTIFF_4.0
+'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFFreeDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFGetField at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFScanlineSize at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteEncodedTile at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFSwabLong at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFTileSize at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFReadEncodedTile at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFReadRGBATile at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFClose at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFClientOpen at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFFlush at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSetTagExtender at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFRGBAImageOK at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteRawStrip at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFErrorExt at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFGetFieldDefaulted at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSwabArrayOfLong at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFNumberOfDirectories at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFWriteRawTile at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFOpen at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFCreateDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSetSubDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFStripSize at LIBTIFF_4.0
+'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSwabArrayOfDouble at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFReadEncodedStrip at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFUnlinkDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFUnsetField at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFSetField at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFMergeFieldInfo at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFCurrentDirOffset at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFIsCODECConfigured at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFDataWidth at LIBTIFF_4.0
+'
+/usr/local/lib/libgdal.so: undefined reference to `TIFFError at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSetWarningHandler at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFGetConfiguredCODECs at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSetErrorHandler at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFGetSizeProc at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFRewriteDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to `_TIFFmalloc at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFSetDirectory at LIBTIFF_4.0'
+/usr/local/lib/libgdal.so: undefined reference to
+`TIFFReadScanline at LIBTIFF_4.0'
+collect2: error: ld returned 1 exit status
+test/unit/CMakeFiles/pc2pc_test.dir/build.make:153: recipe for target
+'bin/pc2pc_test' failed
+make[2]: *** [bin/pc2pc_test] Error 1
+CMakeFiles/Makefile2:2353: recipe for target
+'test/unit/CMakeFiles/pc2pc_test.dir/all' failed
+make[1]: *** [test/unit/CMakeFiles/pc2pc_test.dir/all] Error 2
+Makefile:146: recipe for target 'all' failed
+make: *** [all] Error 2
+
+
+-- 
+ ------------------------------------------------------------
+??????????????
+????
+?470-0392 ????????????1247
+TEL:(0565)48-8121?????FAX:(0565)48-3749????
+HP: http://www.ait.ac.jp/index.html
+Mail: y_yamamoto at aitech.ac.jp
+ ------------------------------------------------------------
+Department of Civil Engineering,
+Faculty of Engineering,
+Aichi Institute of Technology.
+Yoshiyuki Yamamoto
+1247 Yachikusa, Yakusa Cho, Toyota, Aichi 470-0392 JAPAN
+TEL:+81-565-48-8121 FAX:+81-565-48-3749
+HP: http://www.ait.ac.jp/index.html
+Mail: y_yamamoto at aitech.ac.jp
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20150423/92c8aec0/attachment.html>
+
+From andrew.bell.ia at gmail.com  Wed Apr 22 18:23:59 2015
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Wed, 22 Apr 2015 21:23:59 -0400
+Subject: [pdal] install error
+In-Reply-To: <CABX0_CJzuFtUuP9oHOdLWLFvaRSMWSCkbC5U=AqgEPbvfTWGXg@mail.gmail.com>
+References: <CABX0_CJzuFtUuP9oHOdLWLFvaRSMWSCkbC5U=AqgEPbvfTWGXg@mail.gmail.com>
+Message-ID: <CACJ51z1=ARsyrDsGg=adJEViXNiKeLNiAtEGDTjXUDqt8w81QA@mail.gmail.com>
+
+On Wed, Apr 22, 2015 at 8:49 PM, yoshiyuki yamamoto <y_yamamoto at aitech.ac.jp
+> wrote:
+
+> Hello,
+>
+> when pdal was installing, error on libgdal and libtiff were occurred.
+> The log at that time is shown below.
+> Let me know how to solve it.
+>
+
+It looks like the geotiff library isn't being found.  Make sure that
+GEOTIFF_LIBRARY in CMakeCache.txt refers to libgeotiff on your system.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20150422/037a1364/attachment.html>
+
+From mhanson at appliedgeosolutions.com  Fri Apr 24 12:30:46 2015
+From: mhanson at appliedgeosolutions.com (Matthew Hanson)
+Date: Fri, 24 Apr 2015 15:30:46 -0400
+Subject: [pdal] tmp directory
+Message-ID: <CA+BxjXLHK2RgmCYu56bciAJ3W75J0N9w289CQP_g59y=-hEnDQ@mail.gmail.com>
+
+Hi,
+
+We have been trying to classify a lot of images, however it looks like
+there's a bunch of tmp tif files created in the tmp directory that don't
+get automatically cleaned up.    So after we run pdal ground on several
+hundred images it fills up the disk.
+
+Has anyone else encountered this, is this the expected behavior?
+
+
+Matthew Hanson
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20150424/fb30b29c/attachment.html>
+
+From mhanson at appliedgeosolutions.com  Fri Apr 24 12:37:33 2015
+From: mhanson at appliedgeosolutions.com (Matthew Hanson)
+Date: Fri, 24 Apr 2015 15:37:33 -0400
+Subject: [pdal] tmp directory
+In-Reply-To: <553a9af7.86688c0a.75ec.fffffc41@mx.google.com>
+References: <CA+BxjXLHK2RgmCYu56bciAJ3W75J0N9w289CQP_g59y=-hEnDQ@mail.gmail.com>
+	<553a9af7.86688c0a.75ec.fffffc41@mx.google.com>
+Message-ID: <CA+BxjXLu=CZcA8PTW2S+sWXVneRWJEd0B_kbXGYNsGX8DFZKkg@mail.gmail.com>
+
+Randomly generated filename (like tmpwp90g.tif).....although now that I
+think about it, they could also have been generated during the p2g process.
+  However in any case they aren't automatically cleaned up and was
+wondering if anyone else had encountered it.
+
+Matthew Hanson
+Applied GeoSolutions
+(603) 659-3363 x91
+http://appliedgeosolutions.com
+mhanson at appliedgeosolutions.com
+
+
+On Fri, Apr 24, 2015 at 3:35 PM, Andrew <andrew.bell.ia at gmail.com> wrote:
+
+> What are the files?
+> ------------------------------
+> From: Matthew Hanson <mhanson at appliedgeosolutions.com>
+> Sent: ?4/?24/?2015 3:30 PM
+> To: pdal at lists.osgeo.org
+> Subject: [pdal] tmp directory
+>
+> Hi,
+>
+> We have been trying to classify a lot of images, however it looks like
+> there's a bunch of tmp tif files created in the tmp directory that don't
+> get automatically cleaned up.    So after we run pdal ground on several
+> hundred images it fills up the disk.
+>
+> Has anyone else encountered this, is this the expected behavior?
+>
+>
+> Matthew Hanson
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20150424/e9e60d37/attachment.html>
+
+From howard at hobu.co  Sun Apr 26 06:40:38 2015
+From: howard at hobu.co (Howard Butler)
+Date: Sun, 26 Apr 2015 08:40:38 -0500
+Subject: [pdal] tmp directory
+In-Reply-To: <CA+BxjXLu=CZcA8PTW2S+sWXVneRWJEd0B_kbXGYNsGX8DFZKkg@mail.gmail.com>
+References: <CA+BxjXLHK2RgmCYu56bciAJ3W75J0N9w289CQP_g59y=-hEnDQ@mail.gmail.com>
+	<553a9af7.86688c0a.75ec.fffffc41@mx.google.com>
+	<CA+BxjXLu=CZcA8PTW2S+sWXVneRWJEd0B_kbXGYNsGX8DFZKkg@mail.gmail.com>
+Message-ID: <08165A0A-9B31-4FAD-A78A-4D7230F5AAE4@hobu.co>
+
+
+> On Apr 24, 2015, at 2:37 PM, Matthew Hanson <mhanson at appliedgeosolutions.com> wrote:
+> 
+> Randomly generated filename (like tmpwp90g.tif).....although now that I think about it, they could also have been generated during the p2g process.   However in any case they aren't automatically cleaned up and was wondering if anyone else had encountered it.
+
+It?s the OutOfCore processing of p2g. It is probably not using the temporary filename stuff correctly, or simply not cleaning up after itself. File a bug in the points2grid repository.
+
+Howard
+
+

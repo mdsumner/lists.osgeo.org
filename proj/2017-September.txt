@@ -1,0 +1,1450 @@
+From even.rouault at spatialys.com  Sat Sep  2 11:31:08 2017
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 02 Sep 2017 20:31:08 +0200
+Subject: [Proj] [gdal-dev] Adding missing EPSG codes to PROJ.4 and GDAL
+In-Reply-To: <ooekt1$tfv$1@blaine.gmane.org>
+References: <ooekt1$tfv$1@blaine.gmane.org>
+Message-ID: <2610448.U2XOFVNane@even-i700>
+
+Hi,
+
+> 
+> I have recently compared the downloadable SQL files of the EPSG database
+> (v9.1) with the output of gdalsrsinfo (v2.2.1). There are currently 368
+> CRS_codes missing, and I would like to have them reduced.
+> 
+> You can find a csv list at
+> https://github.com/Andre-J/EPSG/blob/master/missing_epsg.csv
+> 
+> Some CRS might fail due to exotic projection definitions, but there are
+> also several transverse mercator based projections, which should be
+> integrateable into PROJ.4 and GDAL.
+> 
+> Has there anybody worked lately on integrating them, and what would be
+> the safest way to do that without them getting kicked out with the next
+> EPSG database update?.
+
+The procedure to integrate a new EPSG database in libgeotiff ==> GDAL ==> proj.4 + PostGIS 
+is described at:
+https://trac.osgeo.org/geotiff/browser/trunk/libgeotiff/csv/README
+
+If not done by anyone else, I generally run it a couple of months before each GDAL major 
+release to avoid doing it too often.
+
+> And where should doubts be discussed: on the
+> Proj.4 mailing list, the gdal-dev mailing list or as Github issues?
+
+Depends on the issue... Technically if it is an issue in the initial python import script, should be 
+in geotiff Trac. If it is an issue in the GDAL epsg_tr.py script / importFromEPSG() / missing 
+mapping from a method, then in GDAL. If it is missing support for a projection in proj.4, in 
+proj github issues.
+
+> 
+> There are a number of Colombian MAGNA-SIRGAS local grids, based on a
+> projection plane *above* the ellipsoid (unfortunately different for
+> every grid). This is similiar to the (now deprecated) NAD27 Michigan
+> based CRS EPSG:26811, 26812 and 26813. The solution there was to create
+> a new ellipsoid (EPSG:4268) with a and b increased by the projection
+> plane heigt above ellipsoid. This could be applied to the MAGNA SIRGAS
+> local grids as well, but would possibly need the creation of Geografic
+> CRS (without a EPSG code) for each case.
+
+It isn't obvious to me that the trick you describe above can be reused for those grids, but 
+they will indeed require code additions in proj.4 and GDAL. Looking at
+https://www.epsg-registry.org/export.htm?wkt=urn:ogc:def:crs:EPSG::6244
+and
+https://www.epsg-registry.org/export.htm?wkt=urn:ogc:def:crs:EPSG::6245
+use a "Colombia Urban" projection method that isn't AFAIK currently handled by proj.4 and 
+GDAL.
+
+This Columbian Urban projection is described in paragraph 1.3.19 of
+http://www.epsg.org/Portals/0/373-07-2.pdf , so could be served as the base to add support 
+for it in proj.4
+
+> 
+> The list also contains a number of "NAD83(HARN) / WISCRS" for Wisconsin
+> counties. I wonder why those got dropped, while the "NAD83(2011) /
+> WISCRS" codes for the same counties are included.
+
+They didn't get dropped. As far as I can see they are new in EPSG v9.1. "http://www.epsg.org/
+EPSGDataset/WhatIsNew.aspx" : "New data for ... United States (AZ and WI)"
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170902/f9278b61/attachment.html>
+
+From kreve at sdfe.dk  Thu Sep 14 11:44:34 2017
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 14 Sep 2017 18:44:34 +0000
+Subject: [Proj] Realigning velocity grid values by Helmert shift - is that
+	normal?
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEA3C8F9@S000013.PROD.SITAD.DK>
+
+All,
+
+In the ongoing effort of improving geodetic capabilities in PROJ.4 I've run into what I think is an unusual situation. Before I dismiss it as such, I would like to check with the list if this is more common than I think and it should receive special attention in PROJ.4. The topic is realignment of a gridded velocity model with a Helmert transform.
+
+I want to do transformations from ITRF2014 to ETRS89 in Scandinacia, using the transformations defined by the Nordic Geodetic Commision (NKG). The transformations are described by Häkli et al in [0]. For this transformation to work in PROJ.4 a velocity model operation is needed, which I intend to implement. Additionally, in this particular transformation a realignment of the velocity model is made with a Helmert shift. I am trying to determine the best way to handle this, hopefully the response to this post will help me do that. First a bit of background.
+
+Because of the post glacial uplift in the Scandinavian countries the usual EUREF transformations between various ITRFs and ETRS89 is not accurate enough, and hence the NKG has defined its own transformations from the various ITRF's to the local Scandinavian/Nordic realizations of ETRS89. All transformations go through a common reference frame, NKG_ETRF00, making it easier to bring data from the different countries into the same reference frame.
+
+The NKG_ETRF00 is defined as ETRF2000 at epoch 2000.0 adjusted for the post glacial uplift. The adjustment is done by applying a velocity model. This velocity model is a grid-based model originating from a GPS campaign in 2003, whereas the transformation described in [0] is based on a campaign from 2008. The results from the 2008 campaign reveals that the velocity model is not a good fit for the new data, and hence an adjustment is made to the model. In anticipation of a new velocity model being released soon, the original model is instead used by applying a Helmert shift to the gridded velocities. That is, the individual grid-values are realigned with a Helmert shift.
+
+I have not come across a solution like this before, so it strikes me as being a bit odd. It's a clever solution to the problem, but not very easy to work with in a generic transformation software as PROJ.4. It works out fine mathematically and in custom scripts, but I find it a bit hard to incorporate into the transformation pipeline framework, since it is parameters that are being transformed, and not coordinates. The simplest solution is to just create a new gridded model where the correction has been applied, and using it with a "velocitygrid" operation. Another option would be to incorporate the Helmert shift into the velocitygrid operation so that the realignment can be performed when loading the grid. A third option is to introduces some a form of nested operation in the pipeline framework.
+
+I don't want to make things more complicated than they need to be, so I will only consider option two and three above if the concept of "realigning gridded velocity models by Helmert shift" is a somewhat common operation. I have not come across a similar transformation before. Do other transformations that use a similar operation exist?
+
+Best regards,
+Kristian
+
+[0] https://www.degruyter.com/downloadpdf/j/jogs.2016.6.issue-1/jogs-2016-0001/jogs-2016-0001.pdf
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170914/1fabaf20/attachment.html>
+
+From even.rouault at spatialys.com  Thu Sep 14 12:10:47 2017
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 14 Sep 2017 21:10:47 +0200
+Subject: [Proj] Realigning velocity grid values by Helmert shift - is
+	that normal?
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0EAEA3C8F9@S000013.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0EAEA3C8F9@S000013.PROD.SITAD.DK>
+Message-ID: <1557298.8VmU5CghAP@even-i700>
+
+Hi Kristian,
+
+I have rather questions than feedback than geodesy business feedback ;-)
+
+> In anticipation of a new velocity model being released soon,
+> the original model is instead used by applying a Helmert shift to the
+> gridded velocities.
+
+What is the typical format into which you can store those gridded velocities: one of the 
+existing supported grid formats ?
+
+> The simplest
+> solution is to just create a new gridded model where the correction has
+> been applied, and using it with a "velocitygrid" operation.
+
+So the parameters of this Helmert Transform are always the same for a given grid ? Or per 
+year and/or country ? (this is probably explained in the paper...) If there's just one set of 
+parameter for the grid, this would perhaps make sense to have a pre-processing script to 
+correct the velocity grid.
+
+> Another option
+> would be to incorporate the Helmert shift into the velocitygrid operation
+> so that the realignment can be performed when loading the grid.
+
+Performed when *loading* the grid (ie correcting all values of the grid), or rather performed 
+when selecting the particular velocity of the grid that applies to the coordinate being 
+transformed ? The former could have performance implications if the grid is big and you need 
+to transform only a couple of coordinates.
+
+> A third
+> option is to introduces some a form of nested operation in the pipeline
+> framework.
+> 
+> I don't want to make things more complicated than they need to be, so I will
+> only consider option two and three above if the concept of "realigning
+> gridded velocity models by Helmert shift" is a somewhat common operation.
+
+Option 3 sounds like a complication in the general framework. Would probably require some 
+parenthesing syntax.
+
+Even
+
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170914/ff02e30e/attachment.html>
+
+From kreve at sdfe.dk  Thu Sep 14 12:37:46 2017
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 14 Sep 2017 19:37:46 +0000
+Subject: [Proj] Realigning velocity grid values by Helmert shift - is
+ that normal?
+In-Reply-To: <1557298.8VmU5CghAP@even-i700>
+References: <2E885BB293AF0448A0181138489E9A0EAEA3C8F9@S000013.PROD.SITAD.DK>
+	<1557298.8VmU5CghAP@even-i700>
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEA3E9C3@S000013.PROD.SITAD.DK>
+
+Hi Even, good questions. Might not be" geodesy business" but still helpful.
+
+
+
+> What is the typical format into which you can store those gridded velocities: one of the existing supported grid formats ?
+
+The grid that I have access to now is in a custom format used in the old Danish transformation library TrLib. It is a 3D-grid, but I would convert that to a 2D-grid in NTv2 format for the horizontal parts and a 1D-grid for the vertical part (gtx-format). So yes, formats already supported by PROJ.4.
+
+The bigger issue here is using the existing code for something else that simple coordinate offsets. If I remember correctly it is a bit complicated reading a single grid cell value with current setup. A bit of refactoring is probably warranted.
+
+
+> So the parameters of this Helmert Transform are always the same for a given grid ? Or per year and/or country ? (this is probably explained in the paper...) If there's just one set of parameter for the grid, this would perhaps make sense to have a pre-processing script to correct the velocity grid.
+
+Yes, always the same parameters. You multiply the grid cells by the timespan from the grid epoch to the desired epoch. That is why it is possible to create a derived grid. It is the solution I prefer, but it does have the slight problem of not being the official transformation. I don't mind that per se, but I do think it is best to implement transformations as close as possible to the original definition.
+
+
+> Performed when *loading* the grid (ie correcting all values of the grid), or rather performed when selecting the particular velocity of the grid that applies to the coordinate being transformed ? The former could have performance implications if the grid is big and you need to transform only a couple of coordinates.
+
+Implementation detail :-) Your latter proposal would be the way to go.
+
+
+> Option 3 sounds like a complication in the general framework. Would probably require some parenthesing syntax.
+
+Yes. It is not a path I want to go down, unless absolutely forced to. But it *could* solve the problem.
+
+Kristian
+
+Fra: Even Rouault [mailto:even.rouault at spatialys.com]
+Sendt: 14. september 2017 21:11
+Til: proj at lists.maptools.org
+Cc: Kristian Evers <kreve at sdfe.dk>
+Emne: Re: [Proj] Realigning velocity grid values by Helmert shift - is that normal?
+
+
+Hi Kristian,
+
+
+
+I have rather questions than feedback than geodesy business feedback ;-)
+
+
+
+> In anticipation of a new velocity model being released soon,
+
+> the original model is instead used by applying a Helmert shift to the
+
+> gridded velocities.
+
+
+
+What is the typical format into which you can store those gridded velocities: one of the existing supported grid formats ?
+
+
+
+> The simplest
+
+> solution is to just create a new gridded model where the correction has
+
+> been applied, and using it with a "velocitygrid" operation.
+
+
+
+So the parameters of this Helmert Transform are always the same for a given grid ? Or per year and/or country ? (this is probably explained in the paper...) If there's just one set of parameter for the grid, this would perhaps make sense to have a pre-processing script to correct the velocity grid.
+
+
+
+> Another option
+
+> would be to incorporate the Helmert shift into the velocitygrid operation
+
+> so that the realignment can be performed when loading the grid.
+
+
+
+Performed when *loading* the grid (ie correcting all values of the grid), or rather performed when selecting the particular velocity of the grid that applies to the coordinate being transformed ? The former could have performance implications if the grid is big and you need to transform only a couple of coordinates.
+
+
+
+> A third
+
+> option is to introduces some a form of nested operation in the pipeline
+
+> framework.
+
+>
+
+> I don't want to make things more complicated than they need to be, so I will
+
+> only consider option two and three above if the concept of "realigning
+
+> gridded velocity models by Helmert shift" is a somewhat common operation.
+
+
+
+Option 3 sounds like a complication in the general framework. Would probably require some parenthesing syntax.
+
+
+
+Even
+
+
+
+
+
+--
+
+Spatialys - Geospatial professional services
+
+http://www.spatialys.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170914/ac46e18f/attachment.html>
+
+From knudsen.thomas at gmail.com  Thu Sep 14 14:27:55 2017
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Thu, 14 Sep 2017 23:27:55 +0200
+Subject: [Proj] Realigning velocity grid values by Helmert shift - is
+	that normal?
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0EAEA3E9C3@S000013.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0EAEA3C8F9@S000013.PROD.SITAD.DK>
+	<1557298.8VmU5CghAP@even-i700>
+	<2E885BB293AF0448A0181138489E9A0EAEA3E9C3@S000013.PROD.SITAD.DK>
+Message-ID: <CAH0YoEPqfoMUjhvZ5Ykcw5_KgQj5Eu9ZjiauKMEdsWDuH2QStA@mail.gmail.com>
+
+2017-09-14 21:37 GMT+02:00 Kristian Evers <kreve at sdfe.dk>:
+
+>
+>
+> Yes. It is not a path I want to go down, unless absolutely forced to. But
+> it **could** solve the problem.
+>
+>
+Actually that was one of the cases anticipated by adding the "observation"
+registers in the PJ_OBS data type: You could have one step in the pipeline
+filling in stuff in the registers, passing them on to the next step, which
+would combine them with the coordinate stuff in whichever way it wants to.
+
+This was also one of the reasons to introduce the switch that makes it
+possible to mute steps in either forward or backward execution of the
+pipeline (you want parameters filled in before the step using them, so need
+to mirror the operation in cases of backward execution).
+
+So no pipeline-parenthesis needed - just put some slightly over-engineered
+elements from the early design phase into practical use :-)
+
+That being said: I would certainly prefer one of the other solutions!
+
+/Thomas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170914/d5852494/attachment.html>
+
+From mj10777 at googlemail.com  Thu Sep 21 04:00:22 2017
+From: mj10777 at googlemail.com (Mark Johnson)
+Date: Thu, 21 Sep 2017 13:00:22 +0200
+Subject: [Proj] Transformations with height data to bessel bring unrealistic
+	results
+Message-ID: <CAEEbjBgKYSiovd_rhBZ6P9dOt25iAHeRWXtfkmkUWmmzxkVFdw@mail.gmail.com>
+
+When transforming positions with DHHN92 (EPSG:5783) height data, to Bessel
+based projections are returned.
+For my area (Berlin, Germany) the lowest height is just over 24 meters.
+Transformations using 34.79 all return  -6.13930772151798 when using
+ST_Transform, which performs a pj_transform in the background.
+Using -6.13930772151798 to transform back will return the original value.
+
+Between WSG84 and epsg:25833 there are no problems.
+
+I would be interested in learning the reason why this is so.
+
+Here some cs2cs samples with the results:
+
+ETRS89 / UTM zone 33N [epsg:25833]
+# +proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs
+
+# DHDN / Soldner Berlin
+# +proj=cass +lat_0=52.41864827777778 +lon_0=13.62720366666667 +x_0=40000
++y_0=10000 +ellps=bessel +towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7
++units=m +no_defs
+echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
++to +init=epsg:3068
+23183.38 21047.17 -6.14
+echo 23183.38 21047.17 -6.139 | cs2cs +init=epsg:3068 +to +init=epsg:25833
+389918.07 5819698.62 34.79
+
+# DHDN
+# +proj=longlat +ellps=bessel
++towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +no_defs
+echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
++to +init=epsg:4314
+13d22'45.996"E 52d31'3.638"N -6.139
+echo 13.37770460000026 52.51627039998215 -6.139 | cs2cs +init=epsg:4314 +to
++init=epsg:25833
+389796.59 5819544.81 34.80
+
+# DHDN / 3-degree Gauss-Kruger zone 4
+# +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
++towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +units=m +no_defs
+echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
++to +init=epsg:31468
+4593626.95 5821241.65 -6.14
+echo "4593626.95 5821241.65 -6.14"  | cs2cs +init=epsg:31468 +to
++init=epsg:25833
+389918.07 5819698.62 34.79
+
+Mark Johnson, Berlin Germany
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170921/0ecc4c54/attachment.html>
+
+From mj10777 at googlemail.com  Thu Sep 21 04:26:16 2017
+From: mj10777 at googlemail.com (Mark Johnson)
+Date: Thu, 21 Sep 2017 13:26:16 +0200
+Subject: [Proj] Transformations with height data to bessel bring
+	unrealistic results
+Message-ID: <CAEEbjBh=cY4DDo=+C5WSJ1GVcySN+=Lj+s-u7qEp5yvBbS2GEQ@mail.gmail.com>
+
+In 2012 this was also meantioned here:
+https://lists.osgeo.org/pipermail/postgis-users/2012-April/033278.html
+
+There ED50 / UTM zone 30N, epsg:23030 was being used.
+
+The dhhn92 values are based on Amsterdam as 0, so what happen there on
+similar conditions? Drops down to -40 meters?
+
+Mark
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170921/768b9186/attachment.html>
+
+From even.rouault at spatialys.com  Thu Sep 21 14:19:22 2017
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 21 Sep 2017 23:19:22 +0200
+Subject: [Proj] Blog posts comparing proj.4 vs Apache SIS speed & accuracy
+Message-ID: <3310934.J0sk0ZsZk2@even-i700>
+
+Hi,
+
+Two technical in-depth comparisons between Apache SIS and proj.4 (pointed originally by Adam Estrada)
+
+https://www.geomatys.com/wordpress/index.php/2017/09/20/proj-4-versus-apache-sis-an-accuracy-comparison/?lang=en
+https://www.geomatys.com/wordpress/index.php/2017/08/28/english-proj-4-versus-apache-sis-a-performance-comparison/?lang=en
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170921/bec0cefb/attachment.html>
+
+From mkennedy2 at earthlink.net  Thu Sep 21 15:13:56 2017
+From: mkennedy2 at earthlink.net (Melita Kennedy)
+Date: Thu, 21 Sep 2017 15:13:56 -0700 (GMT-07:00)
+Subject: [Proj] Transformations with height data to bessel bring
+ unrealistic results
+Message-ID: <19318672.98508.1506032036904@wamui-cheeto.atl.sa.earthlink.net>
+
+
+Hello Mark, 
+
+The z values are being treated as ellipsoidal heights. Nowhere have you given any 
+information to PROJ.4 that they are any particular vertical coordinate reference 
+system. The transformation methods supported by the +wgs84 parameter work strictly 
+with ellipsoidal heights, not geoidal or other gravity-related heights.
+
+If you know you have gravity-related heights, you can either not pass them and ignore 
+the output ellipsoidal heights or pass them, but replace them with the input gravity-
+related heights. One reason to go ahead and pass in the gravity-related heights is 
+that they may approximate the ellipsoidal heights in the area better than using zeroes.
+
+Melita
+
+-----Original Message-----
+>
+>Date: Thu, 21 Sep 2017 13:00:22 +0200
+>From: Mark Johnson <mj10777 at googlemail.com>
+>Subject: [Proj] Transformations with height data to bessel bring
+>	unrealistic	results
+>To: proj at lists.maptools.org, a.furieri at lqt.it
+>
+>When transforming positions with DHHN92 (EPSG:5783) height data, to Bessel
+>based projections are returned.
+>For my area (Berlin, Germany) the lowest height is just over 24 meters.
+>Transformations using 34.79 all return  -6.13930772151798 when using
+>ST_Transform, which performs a pj_transform in the background.
+>Using -6.13930772151798 to transform back will return the original value.
+>
+>Between WSG84 and epsg:25833 there are no problems.
+>
+>I would be interested in learning the reason why this is so.
+>
+>Here some cs2cs samples with the results:
+>
+>ETRS89 / UTM zone 33N [epsg:25833]
+># +proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs
+>
+># DHDN / Soldner Berlin
+># +proj=cass +lat_0=52.41864827777778 +lon_0=13.62720366666667 +x_0=40000
+>+y_0=10000 +ellps=bessel +towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7
+>+units=m +no_defs
+>echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
+>+to +init=epsg:3068
+>23183.38 21047.17 -6.14
+>echo 23183.38 21047.17 -6.139 | cs2cs +init=epsg:3068 +to +init=epsg:25833
+>389918.07 5819698.62 34.79
+>
+># DHDN
+># +proj=longlat +ellps=bessel
+>+towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +no_defs
+>echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
+>+to +init=epsg:4314
+>13d22'45.996"E 52d31'3.638"N -6.139
+>echo 13.37770460000026 52.51627039998215 -6.139 | cs2cs +init=epsg:4314 +to
+>+init=epsg:25833
+>389796.59 5819544.81 34.80
+>
+># DHDN / 3-degree Gauss-Kruger zone 4
+># +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>+towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +units=m +no_defs
+>echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
+>+to +init=epsg:31468
+>4593626.95 5821241.65 -6.14
+>echo "4593626.95 5821241.65 -6.14"  | cs2cs +init=epsg:31468 +to
+>+init=epsg:25833
+>389918.07 5819698.62 34.79
+>
+>Mark Johnson, Berlin Germany
+>_______________________________________________
+>Proj mailing list
+>Proj at lists.maptools.org
+>http://lists.maptools.org/mailman/listinfo/proj
+>
+>End of Proj Digest, Vol 156, Issue 4
+>************************************
+
+
+From cjmce at lsu.edu  Thu Sep 21 15:32:25 2017
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Thu, 21 Sep 2017 22:32:25 +0000
+Subject: [Proj] Transformations with height data to bessel bring
+ unrealistic results
+In-Reply-To: <19318672.98508.1506032036904@wamui-cheeto.atl.sa.earthlink.net>
+References: <19318672.98508.1506032036904@wamui-cheeto.atl.sa.earthlink.net>
+Message-ID: <82B33F56-CE45-4C51-81B0-0698CAE4FAFA@lsu.edu>
+
+Also, you could use EGM96 to approximate the geoid height and back that out of the elevation to get a SWAG of the ellipsoid height.
+
+Sent from Cliff Mugnier's iPhone
+
+> On Sep 21, 2017, at 5:14 PM, Melita Kennedy <mkennedy2 at earthlink.net> wrote:
+> 
+> 
+> Hello Mark, 
+> 
+> The z values are being treated as ellipsoidal heights. Nowhere have you given any 
+> information to PROJ.4 that they are any particular vertical coordinate reference 
+> system. The transformation methods supported by the +wgs84 parameter work strictly 
+> with ellipsoidal heights, not geoidal or other gravity-related heights.
+> 
+> If you know you have gravity-related heights, you can either not pass them and ignore 
+> the output ellipsoidal heights or pass them, but replace them with the input gravity-
+> related heights. One reason to go ahead and pass in the gravity-related heights is 
+> that they may approximate the ellipsoidal heights in the area better than using zeroes.
+> 
+> Melita
+> 
+> -----Original Message-----
+>> 
+>> Date: Thu, 21 Sep 2017 13:00:22 +0200
+>> From: Mark Johnson <mj10777 at googlemail.com>
+>> Subject: [Proj] Transformations with height data to bessel bring
+>>    unrealistic    results
+>> To: proj at lists.maptools.org, a.furieri at lqt.it
+>> 
+>> When transforming positions with DHHN92 (EPSG:5783) height data, to Bessel
+>> based projections are returned.
+>> For my area (Berlin, Germany) the lowest height is just over 24 meters.
+>> Transformations using 34.79 all return  -6.13930772151798 when using
+>> ST_Transform, which performs a pj_transform in the background.
+>> Using -6.13930772151798 to transform back will return the original value.
+>> 
+>> Between WSG84 and epsg:25833 there are no problems.
+>> 
+>> I would be interested in learning the reason why this is so.
+>> 
+>> Here some cs2cs samples with the results:
+>> 
+>> ETRS89 / UTM zone 33N [epsg:25833]
+>> # +proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs
+>> 
+>> # DHDN / Soldner Berlin
+>> # +proj=cass +lat_0=52.41864827777778 +lon_0=13.62720366666667 +x_0=40000
+>> +y_0=10000 +ellps=bessel +towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7
+>> +units=m +no_defs
+>> echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
+>> +to +init=epsg:3068
+>> 23183.38 21047.17 -6.14
+>> echo 23183.38 21047.17 -6.139 | cs2cs +init=epsg:3068 +to +init=epsg:25833
+>> 389918.07 5819698.62 34.79
+>> 
+>> # DHDN
+>> # +proj=longlat +ellps=bessel
+>> +towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +no_defs
+>> echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
+>> +to +init=epsg:4314
+>> 13d22'45.996"E 52d31'3.638"N -6.139
+>> echo 13.37770460000026 52.51627039998215 -6.139 | cs2cs +init=epsg:4314 +to
+>> +init=epsg:25833
+>> 389796.59 5819544.81 34.80
+>> 
+>> # DHDN / 3-degree Gauss-Kruger zone 4
+>> # +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>> +towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7 +units=m +no_defs
+>> echo "389918.0707613 5819698.6197819 34.7900000"  | cs2cs +init=epsg:25833
+>> +to +init=epsg:31468
+>> 4593626.95 5821241.65 -6.14
+>> echo "4593626.95 5821241.65 -6.14"  | cs2cs +init=epsg:31468 +to
+>> +init=epsg:25833
+>> 389918.07 5819698.62 34.79
+>> 
+>> Mark Johnson, Berlin Germany
+>> _______________________________________________
+>> Proj mailing list
+>> Proj at lists.maptools.org
+>> http://lists.maptools.org/mailman/listinfo/proj
+>> 
+>> End of Proj Digest, Vol 156, Issue 4
+>> ************************************
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+From ndzinn at comcast.net  Thu Sep 21 17:44:40 2017
+From: ndzinn at comcast.net (Noel Zinn (cc))
+Date: Thu, 21 Sep 2017 19:44:40 -0500
+Subject: [Proj] Blog posts comparing proj.4 vs Apache SIS speed &
+	accuracy
+In-Reply-To: <3310934.J0sk0ZsZk2@even-i700>
+References: <3310934.J0sk0ZsZk2@even-i700>
+Message-ID: <04A0DA72DE4A4D9B91675874A8E8FA3E@NoelDellPC>
+
+Fascinating reads!  -Noel
+
+Noel Zinn, Principal, Hydrometronics LLC
++1-832-539-1472 (office), +1-281-221-0051 (cell)
+noel.zinn at hydrometronics.com (email)
+http://www.hydrometronics.com (website)
+
+
+From: Even Rouault 
+Sent: Thursday, September 21, 2017 4:19 PM
+To: proj at lists.maptools.org 
+Subject: [Proj] Blog posts comparing proj.4 vs Apache SIS speed & accuracy
+
+Hi,
+
+
+
+Two technical in-depth comparisons between Apache SIS and proj.4 (pointed originally by Adam Estrada)
+
+
+
+https://www.geomatys.com/wordpress/index.php/2017/09/20/proj-4-versus-apache-sis-an-accuracy-comparison/?lang=en
+
+https://www.geomatys.com/wordpress/index.php/2017/08/28/english-proj-4-versus-apache-sis-a-performance-comparison/?lang=en
+
+
+
+Even
+
+
+
+-- 
+
+Spatialys - Geospatial professional services
+
+http://www.spatialys.com
+
+
+
+--------------------------------------------------------------------------------
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170921/9c051025/attachment.html>
+
+From stevejking at talktalk.net  Fri Sep 22 05:44:40 2017
+From: stevejking at talktalk.net (stevejking)
+Date: Fri, 22 Sep 2017 05:44:40 -0700 (MST)
+Subject: [Proj] Transformations with height data to bessel bring
+ unrealistic results
+In-Reply-To: <19318672.98508.1506032036904@wamui-cheeto.atl.sa.earthlink.net>
+References: <CAEEbjBgKYSiovd_rhBZ6P9dOt25iAHeRWXtfkmkUWmmzxkVFdw@mail.gmail.com>
+	<19318672.98508.1506032036904@wamui-cheeto.atl.sa.earthlink.net>
+Message-ID: <1506084280374-0.post@n6.nabble.com>
+
+If you are working with non-ellipsoidal heights you can use grid files. One
+for the horizontal (lat/long shifts. Note proj4 internally converts your
+units if not in lat long already) and one for the vertical (eg. metres)
+datum shift to WGS84 ellipsoid (or a close approximation).
+
+eg. for Great Britain Ordnance Datum heights (above the geoid):
+from +proj=tmerc +lat_0=49 +lon_0=-2 +k=0.9996012717 +x_0=400000
++y_0=-100000 +ellps=airy +nadgrids=C:\temp\OSTN15_NTv2_OSGBtoETRS.gsb
++geoidgrids=c:\temp\OSGM15_GTX_OSGBtoGRS80.gtx +units=m +no_defs
+to +proj=longlat +ellps=WGS84 +towgs84=0,0,0,0,0,0,0 +no_defs
+
+Most national mapping agencies publish these grid files, or you can find
+them searching online.
+
+
+
+
+--
+Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+
+
+From felix-neko at list.ru  Fri Sep 22 11:33:53 2017
+From: felix-neko at list.ru (Felix Neko)
+Date: Fri, 22 Sep 2017 11:33:53 -0700 (MST)
+Subject: [Proj] Need a projection like Azimuthal Equidistant (AEQD),
+ but with polar coordinates. Do you have one?
+Message-ID: <1506105233610-0.post@n6.nabble.com>
+
+I have a geotiff in a simple *latlon* projection. I want to reproject its
+data on a plane tangential to Earth ellipsoid to make some further
+calculations.
+
+Just now I'm using *aeqd* projection for it, but I'm looking for some
+similar projection that would give me not cartesian, but *polar*
+coordinates.
+
+To reproject my geotiff raster I'm using *rasterio.reproject(...)* to
+convert my geotiff data (it's a good analog of *cs2cs* utility from
+*PROJ.4*):
+
+
+*lat_center* and *lon_center* were the center of my geotiff.
+
+*aeqd* projection gives me some raster in cartesian grid (*x_j* and *y_i* on
+the tangential plane):
+
+<http://osgeo-org.1560.x6.nabble.com/file/t381822/1cPVU.png> 
+
+But for my purposes it needs some extra interpolation to get the values in
+my polar mesh (by distance and azimuth on the tangent plane). Can you advice
+me some other projection?
+
+
+
+
+--
+Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+
+
+From mj10777 at googlemail.com  Mon Sep 25 05:16:52 2017
+From: mj10777 at googlemail.com (Mark Johnson)
+Date: Mon, 25 Sep 2017 14:16:52 +0200
+Subject: [Proj] Calculating +towgs84 values from source / dest .xyz file
+Message-ID: <CAEEbjBhvQyiZf0nqhJQSYA21tR8j4uQZRvGgyizY8avL7DvGzg@mail.gmail.com>
+
+Is there a c program source that can take a list of x/y/z points for a
+source and destination and calculate a valid 7 parameter +towgs84 value
+that could be used with cs2cs?
+
+I found something similar at http://helmparms3d.sourceforge.net/, called
+helmparms3d - but it seems calculate values that cannot be used for
++towgs84.
+
+Mark Johnson, Berlin Germany
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170925/088378b7/attachment.html>
+
+From jagoncal at gmail.com  Mon Sep 25 07:10:41 2017
+From: jagoncal at gmail.com (=?UTF-8?Q?Jose_Gon=C3=A7alves?=)
+Date: Mon, 25 Sep 2017 15:10:41 +0100
+Subject: [Proj] Calculating +towgs84 values from source / dest .xyz file
+In-Reply-To: <CAEEbjBhvQyiZf0nqhJQSYA21tR8j4uQZRvGgyizY8avL7DvGzg@mail.gmail.com>
+References: <CAEEbjBhvQyiZf0nqhJQSYA21tR8j4uQZRvGgyizY8avL7DvGzg@mail.gmail.com>
+Message-ID: <CALHLaOR-JGrqdvAm2vSiq5EAHuf14u1F7DyxNuEwc5LLchaUrg@mail.gmail.com>
+
+Hi
+That program provides the rotation matrix and not the angles, but you can
+easily convert them from radians to arcseconds, to use in string +towgs84.
+Check the formulas in page 134 of document http://www.epsg.org/Portals/0/
+373-07-2.pdf. <http://www.epsg.org/Portals/0/373-07-2.pdf> PROJ.4 uses the
+Position Vector" standard.
+You can get the angles from matrix elements:
+Rz = -r12 * 3600 *180 / PI
+Ry = r13 * 3600 * 180 / PI
+Rx = -r23 * 3600 * 180 / PI
+
+The scale factor must be converted to scale difference in ppm:
+DS = (s-1) * 1000000
+
+You don't need to change translation vector components.
+
+Regards
+
+José Gonçalves
+
+
+2017-09-25 13:16 GMT+01:00 Mark Johnson <mj10777 at googlemail.com>:
+
+> Is there a c program source that can take a list of x/y/z points for a
+> source and destination and calculate a valid 7 parameter +towgs84 value
+> that could be used with cs2cs?
+>
+> I found something similar at http://helmparms3d.sourceforge.net/, called
+> helmparms3d - but it seems calculate values that cannot be used for
+> +towgs84.
+>
+> Mark Johnson, Berlin Germany
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170925/82098e6c/attachment.html>
+
+From mj10777 at googlemail.com  Tue Sep 26 07:08:39 2017
+From: mj10777 at googlemail.com (Mark Johnson)
+Date: Tue, 26 Sep 2017 16:08:39 +0200
+Subject: [Proj] Calculating +towgs84 values from source / dest .xyz file
+Message-ID: <CAEEbjBjnFF5kSXDux9FKW-4vqUMwrsuKc19f3C0n8V_sBD4YWw@mail.gmail.com>
+
+José Gonçalves:: thank you for your answer, especially about which method
+PROJ.4 uses (Position Vector).
+Unfortunately this solution does not bring the expected result.
+
+The original problem was the the DHDN bessel setting
+(+towgs84=598.1,73.7,418.2,0.202,0.045,-2.455,6.7)
+does not bring usable results for heights.
+A manully worked
+out +towgs84=598.1,73.7,418.2,0.201,0.049430,-2.455,0.2685935, gets near to
+the expected result.
+
+----
+At present, the helmert3d program bring this for:
+epsg:25833: 389918.0121759 5819698.8688798 34.790000000
+to
+epsg:3068: 23183.320000000 21047.418000000 34.790000000
+
+reading helmert parameters...
+0.999819 -0.019023 0.000000
+0.019023 0.999819 -0.000000
+-0.000000 0.000000 1.000000
+-256025.393133 -5806493.649478 -1.442778
+1.000254
++towgs84=-256025.3931332280,-5806493.6494778264,-1.4427781980,-0.0526548512,-0.0275339109,-3923.8255017867,253.6560894575
+...done
+
+ dx[-256025.393133],dy[-5806493.649478],dz[-1.442778]
+ rx[0.052123]=-r23[0.000000252700] * 3600 * 180 / M_PI[3.141593]
+ ry[0.028526]= r13[0.000000138300] * 3600 * 180 / M_PI[3.141593];
+ rz[3923.825511]=-r12[0.019023242900] * 3600 *180 / M_PI[3.141593]
+ m[253.656100]=(scal[1.000254]-1) * 1000000]
+
+starting transformation...
+xout[23183.319992]=
+tx(-256025.393133)+m(1.000254) *(x[389918.012176]*r11(0.999819) +
+y[5819698.868880]*r12(-0.019023) + z[34.790000]*r13(0.000000))
+yout[21047.418119]=
+ty(-5806493.649478)+m(1.000254) *(x[389918.012176]*r21(0.019023) +
+y[5819698.868880]*r22(0.999819) + z[34.790000]*r23(-0.000000))
+zout[34.790125]=
+tz(-1.442778)+m(1.000254) *(x[389918.012176]*r31(-0.000000) +
+y[5819698.868880]*r32(0.000000) + z[34.790000]*r33(1.000000))
+
+...done
+
+with an exact result.
+
+But when trying to use the +towgs84 value with cs2cs:
+
+echo "389918.0121759 5819698.8688798 34.7900000"  | cs2cs -f "%.9f"
++init=epsg:25833 +to  +proj=cass +lat_0=52.41864827777778
++lon_0=13.62720366666667  +x_0=40000 +y_0=10000 +ellps=bessel
++datum=potsdam
++towgs84=+towgs84=-256025.3931332280,-5806493.6494778264,-1.4427781980,-0.0526548512,-0.0275339109,-3923.8255017867,253.6560894575
++units=m +no_defs
+4383595.094518717 -889411.002599155 2829803.867439098
+
+the result is completely off.
+So something is still not correct.
+
+Mark Johnson, Berlin Germany
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170926/88e5c1d4/attachment.html>
+
+From andre+joost at nurfuerspam.de  Tue Sep 26 08:50:42 2017
+From: andre+joost at nurfuerspam.de (Andre Joost)
+Date: Tue, 26 Sep 2017 17:50:42 +0200
+Subject: [Proj] Calculating +towgs84 values from source / dest .xyz file
+In-Reply-To: <CAEEbjBjnFF5kSXDux9FKW-4vqUMwrsuKc19f3C0n8V_sBD4YWw@mail.gmail.com>
+References: <CAEEbjBjnFF5kSXDux9FKW-4vqUMwrsuKc19f3C0n8V_sBD4YWw@mail.gmail.com>
+Message-ID: <oqdt3d$hhh$1@blaine.gmane.org>
+
+Am 26.09.2017 um 16:08 schrieb Mark Johnson:
+
+>
+> ----
+> At present, the helmert3d program bring this for:
+> epsg:25833: 389918.0121759 5819698.8688798 34.790000000
+> to
+> epsg:3068: 23183.320000000 21047.418000000 34.790000000
+>
+
+I don't think the program is designed for trasnformations between 
+different projections. EPSG:25833 is transverse mercator, while 
+EPSG:3068 is Cassini-Soldner.
+
+Helmert parameters are calculated on Earth-centered XYZ coordinates of 
+two different ellipsoids. See the sample test data at sourceforge.net
+
+HTH,
+André Joost
+
+
+
+
+From mateusz at loskot.net  Thu Sep 28 10:29:40 2017
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 28 Sep 2017 19:29:40 +0200
+Subject: [Proj] Remove Windows CE cruft (wince/msvc80)
+Message-ID: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+
+Hi,
+
+As original maintainer of the Windows CE port, I can confirm
+I no longer use it.
+Even if there are users, they should survive using CMake.
+
+So, I propose to remove it
+https://github.com/OSGeo/proj.4/issues/582
+
+Can I remove the wince/msvc80 folder and any mentions of Windows CE,
+if found anywhere?
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+
+
+From even.rouault at spatialys.com  Thu Sep 28 11:05:21 2017
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 28 Sep 2017 20:05:21 +0200
+Subject: [Proj] Remove Windows CE cruft (wince/msvc80)
+In-Reply-To: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+References: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+Message-ID: <1962753.eTknMG5LWR@even-i700>
+
+On jeudi 28 septembre 2017 19:29:40 CEST Mateusz Loskot wrote:
+> Hi,
+> 
+> As original maintainer of the Windows CE port, I can confirm
+> I no longer use it.
+> Even if there are users, they should survive using CMake.
+> 
+> So, I propose to remove it
+> https://github.com/OSGeo/proj.4/issues/582
+> 
+> Can I remove the wince/msvc80 folder and any mentions of Windows CE,
+> if found anywhere?
+
++1 from me (I have never used them)
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170928/ebb56149/attachment.html>
+
+From knudsen.thomas at gmail.com  Thu Sep 28 11:21:27 2017
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Thu, 28 Sep 2017 20:21:27 +0200
+Subject: [Proj] Remove Windows CE cruft (wince/msvc80)
+In-Reply-To: <1962753.eTknMG5LWR@even-i700>
+References: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+	<1962753.eTknMG5LWR@even-i700>
+Message-ID: <CAH0YoEMBHmF=QGDK61g-yoX=1Pkaw2+9vJ8im8o7fhrF-drvNA@mail.gmail.com>
+
++1
+
+2017-09-28 20:05 GMT+02:00 Even Rouault <even.rouault at spatialys.com>:
+
+> On jeudi 28 septembre 2017 19:29:40 CEST Mateusz Loskot wrote:
+>
+> > Hi,
+>
+> >
+>
+> > As original maintainer of the Windows CE port, I can confirm
+>
+> > I no longer use it.
+>
+> > Even if there are users, they should survive using CMake.
+>
+> >
+>
+> > So, I propose to remove it
+>
+> > https://github.com/OSGeo/proj.4/issues/582
+>
+> >
+>
+> > Can I remove the wince/msvc80 folder and any mentions of Windows CE,
+>
+> > if found anywhere?
+>
+>
+>
+> +1 from me (I have never used them)
+>
+>
+>
+> --
+>
+> Spatialys - Geospatial professional services
+>
+> http://www.spatialys.com
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170928/86fefec2/attachment.html>
+
+From schwehr at gmail.com  Thu Sep 28 12:43:39 2017
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Thu, 28 Sep 2017 12:43:39 -0700
+Subject: [Proj] Remove Windows CE cruft (wince/msvc80)
+In-Reply-To: <CAH0YoEMBHmF=QGDK61g-yoX=1Pkaw2+9vJ8im8o7fhrF-drvNA@mail.gmail.com>
+References: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+	<1962753.eTknMG5LWR@even-i700>
+	<CAH0YoEMBHmF=QGDK61g-yoX=1Pkaw2+9vJ8im8o7fhrF-drvNA@mail.gmail.com>
+Message-ID: <CACmBxyvw=pa-PDohMbWnuPa-qsydr5f_VCDv0LFQMJ7TA0TLEg@mail.gmail.com>
+
+I removed WinCE support from GDAL in 2015
+
+https://lists.osgeo.org/pipermail/gdal-dev/2015-October/042783.html
+
++1
+
+On Thu, Sep 28, 2017 at 11:21 AM, Thomas Knudsen <knudsen.thomas at gmail.com>
+wrote:
+
+> +1
+>
+> 2017-09-28 20:05 GMT+02:00 Even Rouault <even.rouault at spatialys.com>:
+>
+>> On jeudi 28 septembre 2017 19:29:40 CEST Mateusz Loskot wrote:
+>>
+>> > Hi,
+>>
+>> >
+>>
+>> > As original maintainer of the Windows CE port, I can confirm
+>>
+>> > I no longer use it.
+>>
+>> > Even if there are users, they should survive using CMake.
+>>
+>> >
+>>
+>> > So, I propose to remove it
+>>
+>> > https://github.com/OSGeo/proj.4/issues/582
+>>
+>> >
+>>
+>> > Can I remove the wince/msvc80 folder and any mentions of Windows CE,
+>>
+>> > if found anywhere?
+>>
+>>
+>>
+>> +1 from me (I have never used them)
+>>
+>>
+>>
+>> --
+>>
+>> Spatialys - Geospatial professional services
+>>
+>> http://www.spatialys.com
+>>
+>> _______________________________________________
+>> Proj mailing list
+>> Proj at lists.maptools.org
+>> http://lists.maptools.org/mailman/listinfo/proj
+>>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170928/8c5a4578/attachment.html>
+
+From jmckenna at gatewaygeomatics.com  Thu Sep 28 13:38:20 2017
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 28 Sep 2017 17:38:20 -0300
+Subject: [Proj] Remove Windows CE cruft (wince/msvc80)
+In-Reply-To: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+References: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+Message-ID: <23b53114-afea-3e88-b9d5-ab06e4cc4610@gatewaygeomatics.com>
+
++1
+
+-jeff
+
+
+
+On 2017-09-28 2:29 PM, Mateusz Loskot wrote:
+> Hi,
+> 
+> As original maintainer of the Windows CE port, I can confirm
+> I no longer use it.
+> Even if there are users, they should survive using CMake.
+> 
+> So, I propose to remove it
+> https://github.com/OSGeo/proj.4/issues/582
+> 
+> Can I remove the wince/msvc80 folder and any mentions of Windows CE,
+> if found anywhere?
+> 
+> Best regards,
+> 
+
+
+From mateusz at loskot.net  Thu Sep 28 14:00:46 2017
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 28 Sep 2017 23:00:46 +0200
+Subject: [Proj] Current master still at released 4.9.3?
+Message-ID: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+
+Hi,
+
+TL;TR: Shouldn't the current master be at 4.9.3 plus 'one'?
+
+I'm very late to the party since PROJ.4 moved to GitHub and
+I also haven't been able to find any related posts in the archives,
+(apart from the talk about 4.10.0 as next), sorry I'm missing
+versioning/tagging policies.
+
+The current release is 4.9.3, it is tagged in the repo.
+
+But, in the master, the 'big four' still declares 4.9.3
+
+https://github.com/OSGeo/proj.4/blob/master/CMakeLists.txt#L34
+https://github.com/OSGeo/proj.4/blob/master/configure.ac#L4
+https://github.com/OSGeo/proj.4/blob/master/proj.spec#L2
+https://github.com/OSGeo/proj.4/blob/master/src/proj_api.h#L43
+
+Isn't it confusing that the development head declares the same
+version as the released one?
+Shouldn't master be one step ahead?
+
+I'm not discussing what it should, 4.9.4 or 4.10.0, it doesn't
+really matter for development/unreleased branch, I think.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+
+
+From mcochran at athensal.us  Thu Sep 28 14:18:14 2017
+From: mcochran at athensal.us (Micah Cochran)
+Date: Thu, 28 Sep 2017 16:18:14 -0500
+Subject: [Proj] Current master still at released 4.9.3?
+In-Reply-To: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+References: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+Message-ID: <CAHLAsF13Rvj=RUSw5HZqY08JRWNWYtKixEQwr2E-DekYS1en_Q@mail.gmail.com>
+
+Hello Mateusz,
+
+There was a somewhat related discussion about the next version number that
+started on Jun 22.  Thread top link:
+http://lists.maptools.org/pipermail/proj/2017-June/007697.html
+
+I don't remember the outcome, but I don't think there was a consensus.  The
+version number may reflect API changes that are backward
+compatible/incompatible.
+
+Thanks,
+Micah
+
+On Thu, Sep 28, 2017 at 4:00 PM, Mateusz Loskot <mateusz at loskot.net> wrote:
+
+> Hi,
+>
+> TL;TR: Shouldn't the current master be at 4.9.3 plus 'one'?
+>
+> I'm very late to the party since PROJ.4 moved to GitHub and
+> I also haven't been able to find any related posts in the archives,
+> (apart from the talk about 4.10.0 as next), sorry I'm missing
+> versioning/tagging policies.
+>
+> The current release is 4.9.3, it is tagged in the repo.
+>
+> But, in the master, the 'big four' still declares 4.9.3
+>
+> https://github.com/OSGeo/proj.4/blob/master/CMakeLists.txt#L34
+> https://github.com/OSGeo/proj.4/blob/master/configure.ac#L4
+> https://github.com/OSGeo/proj.4/blob/master/proj.spec#L2
+> https://github.com/OSGeo/proj.4/blob/master/src/proj_api.h#L43
+>
+> Isn't it confusing that the development head declares the same
+> version as the released one?
+> Shouldn't master be one step ahead?
+>
+> I'm not discussing what it should, 4.9.4 or 4.10.0, it doesn't
+> really matter for development/unreleased branch, I think.
+>
+> Best regards,
+> --
+> Mateusz Loskot, http://mateusz.loskot.net
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170928/bdd75ae1/attachment.html>
+
+From mateusz at loskot.net  Thu Sep 28 15:18:59 2017
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri, 29 Sep 2017 00:18:59 +0200
+Subject: [Proj] Current master still at released 4.9.3?
+In-Reply-To: <CAHLAsF13Rvj=RUSw5HZqY08JRWNWYtKixEQwr2E-DekYS1en_Q@mail.gmail.com>
+References: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+	<CAHLAsF13Rvj=RUSw5HZqY08JRWNWYtKixEQwr2E-DekYS1en_Q@mail.gmail.com>
+Message-ID: <CABUeae-zb4EgUc22XDm6aNDWpzs=nBwrrMLMFn4XM3cRws4nqA@mail.gmail.com>
+
+On 28 Sep 2017 23:19, "Micah Cochran" <mcochran at athensal.us> wrote:
+
+Hello Mateusz,
+
+There was a somewhat related discussion about the next version number that
+started on Jun 22.  Thread top link:
+http://lists.maptools.org/pipermail/proj/2017-June/007697.html
+
+
+
+Thanks for the link, interesting discussion, however, it's heavy weight.
+
+My question doesn't try to go that far strategically.
+
+Mine is just about using different numbers thab the last  released.
+
+Mateusz
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170929/fa97665e/attachment.html>
+
+From kreve at sdfe.dk  Fri Sep 29 00:56:38 2017
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Fri, 29 Sep 2017 07:56:38 +0000
+Subject: [Proj] Remove Windows CE cruft (wince/msvc80)
+In-Reply-To: <CACmBxyvw=pa-PDohMbWnuPa-qsydr5f_VCDv0LFQMJ7TA0TLEg@mail.gmail.com>
+References: <CABUeae8k=aKXAt6FGL9y6bTVsSjW9rVVSby_FiRKk8pq8a=m=A@mail.gmail.com>
+	<1962753.eTknMG5LWR@even-i700>
+	<CAH0YoEMBHmF=QGDK61g-yoX=1Pkaw2+9vJ8im8o7fhrF-drvNA@mail.gmail.com>,
+	<CACmBxyvw=pa-PDohMbWnuPa-qsydr5f_VCDv0LFQMJ7TA0TLEg@mail.gmail.com>
+Message-ID: <C2DFC6A70DE88413.4dfd7289-e024-46d4-94d1-063a14d9200e@mail.outlook.com>
+
+I am also +1 on this.
+
+I suggest that we keep it in version 4.10.0/4.9.4 (whatever it ends up being), and announce in the release notes that this will be the final version with support for  WinCE. That way anyone who still rely on it has amble time to react.
+
+/Kristian
+
+
+
+On Thu, Sep 28, 2017 at 9:45 PM +0200, "Kurt Schwehr" <schwehr at gmail.com<mailto:schwehr at gmail.com>> wrote:
+
+I removed WinCE support from GDAL in 2015
+
+https://lists.osgeo.org/pipermail/gdal-dev/2015-October/042783.html
+
++1
+
+On Thu, Sep 28, 2017 at 11:21 AM, Thomas Knudsen <knudsen.thomas at gmail.com<mailto:knudsen.thomas at gmail.com>> wrote:
++1
+
+2017-09-28 20:05 GMT+02:00 Even Rouault <even.rouault at spatialys.com<mailto:even.rouault at spatialys.com>>:
+
+On jeudi 28 septembre 2017 19:29:40 CEST Mateusz Loskot wrote:
+
+> Hi,
+
+>
+
+> As original maintainer of the Windows CE port, I can confirm
+
+> I no longer use it.
+
+> Even if there are users, they should survive using CMake.
+
+>
+
+> So, I propose to remove it
+
+> https://github.com/OSGeo/proj.4/issues/582
+
+>
+
+> Can I remove the wince/msvc80 folder and any mentions of Windows CE,
+
+> if found anywhere?
+
+
+
++1 from me (I have never used them)
+
+
+
+--
+
+Spatialys - Geospatial professional services
+
+http://www.spatialys.com
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+--
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170929/ea1e47c7/attachment.html>
+
+From kreve at sdfe.dk  Fri Sep 29 01:07:20 2017
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Fri, 29 Sep 2017 08:07:20 +0000
+Subject: [Proj] Current master still at released 4.9.3?
+In-Reply-To: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+References: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+Message-ID: <C2DFC6A70DE88413.a33cacf0-32a9-4c1f-b42f-c9f0d99a664e@mail.outlook.com>
+
+proj.h has a different version number, but probably not the correct one either:
+
+https://github.com/OSGeo/proj.4/blob/master/src/proj.h#L157
+
+My guess is that no one really thought about changing version numbers. I agree that it is confusing. Somehow indicating the development status of builds  that are made between releases would be nice. Perhaps by adding the commit hash to the version number?
+
+/Kristian
+
+
+
+On Thu, Sep 28, 2017 at 11:03 PM +0200, "Mateusz Loskot" <mateusz at loskot.net<mailto:mateusz at loskot.net>> wrote:
+
+
+Hi,
+
+TL;TR: Shouldn't the current master be at 4.9.3 plus 'one'?
+
+I'm very late to the party since PROJ.4 moved to GitHub and
+I also haven't been able to find any related posts in the archives,
+(apart from the talk about 4.10.0 as next), sorry I'm missing
+versioning/tagging policies.
+
+The current release is 4.9.3, it is tagged in the repo.
+
+But, in the master, the 'big four' still declares 4.9.3
+
+https://github.com/OSGeo/proj.4/blob/master/CMakeLists.txt#L34
+https://github.com/OSGeo/proj.4/blob/master/configure.ac#L4
+https://github.com/OSGeo/proj.4/blob/master/proj.spec#L2
+https://github.com/OSGeo/proj.4/blob/master/src/proj_api.h#L43
+
+Isn't it confusing that the development head declares the same
+version as the released one?
+Shouldn't master be one step ahead?
+
+I'm not discussing what it should, 4.9.4 or 4.10.0, it doesn't
+really matter for development/unreleased branch, I think.
+
+Best regards,
+--
+Mateusz Loskot, http://mateusz.loskot.net
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20170929/28ca3896/attachment.html>
+
+From mateusz at loskot.net  Fri Sep 29 01:31:12 2017
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri, 29 Sep 2017 10:31:12 +0200
+Subject: [Proj] Current master still at released 4.9.3?
+In-Reply-To: <C2DFC6A70DE88413.a33cacf0-32a9-4c1f-b42f-c9f0d99a664e@mail.outlook.com>
+References: <CABUeae_-qxY6CeSMMPHK3YUwbkajoUMyp2pJFasvr9ZpiQPfkA@mail.gmail.com>
+	<C2DFC6A70DE88413.a33cacf0-32a9-4c1f-b42f-c9f0d99a664e@mail.outlook.com>
+Message-ID: <CABUeae_-U==-EzfTG5OjPDgOtAJOacAkkGJ-ywKvROTiN5gjKw@mail.gmail.com>
+
+On 29 September 2017 at 10:07, Kristian Evers <kreve at sdfe.dk> wrote:
+> proj.h has a different version number, but probably not the correct one
+> either:
+>
+> https://github.com/OSGeo/proj.4/blob/master/src/proj.h#L157
+>
+> My guess is that no one really thought about changing version numbers. I
+> agree that it is confusing.
+
+Perhaps one-for-all VERSION file would be better to maintain the number.
+
+> Somehow indicating the development status of
+> builds  that are made between releases would be nice.
+
+Yes.
+
+> Perhaps by adding the commit hash to the version number?
+
+IMO, version should always have X.Y.Z  format, without
+any suffixes like -dev, etc.
+
+AFAIK, typical practice is that after releasing X.Y.Z,
+development branch bumps to X.Y+1.Z.
+
+Why not bump to 4.10.0?
+It wouldn't mean a promise to version next release as 4.10.0.
+It would just mean the master is ahead of release.
+If master introduces incompatible API, it may become 5.0.0,
+it is unknown.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+
+

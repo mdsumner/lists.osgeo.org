@@ -1,0 +1,3242 @@
+From knudsen.thomas at gmail.com  Thu Mar  1 00:52:30 2018
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Thu, 1 Mar 2018 09:52:30 +0100
+Subject: [Proj] PROJ 5.0.0RC5
+In-Reply-To: <CAH0YoENXG=kZgZS+bFNooWN0BHwg=8NkCQyCFVa-Tpoh4OyiUw@mail.gmail.com>
+References: <7BE0C5E2-310B-432F-99EF-AB3F6844E7E3@sdfe.dk>
+	<df0f271c-75ba-f188-4418-933fe0577508@gatewaygeomatics.com>
+	<51f2ea7c-95fe-91e2-c688-e7956ae18853@gatewaygeomatics.com>
+	<19FD79C9-9167-4B90-99BB-89ECF5DFAF34@sdfe.dk>
+	<150961d6-0b98-f5a1-50d7-288ccff3e260@gatewaygeomatics.com>
+	<CAH0YoEMrboneuOajeEi-e3fLJo3Bt6YK5xj9u8NKnhmrsSoDqw@mail.gmail.com>
+	<CAH0YoEPjFL=K_Y4jaM6Ue_CnqxHZabObK+59CGr0TNnpd8h-Nw@mail.gmail.com>
+	<8F946A83-CD84-4DA8-B5CD-3233F3648A90@sdfe.dk>
+	<CAH0YoENXG=kZgZS+bFNooWN0BHwg=8NkCQyCFVa-Tpoh4OyiUw@mail.gmail.com>
+Message-ID: <CAH0YoEMYh9BG-8Ms7GJTv6NW39bLA7yW3k5u+ye2gvxtX2RC6A@mail.gmail.com>
+
+Yes, if datum is not specified on both sides, or if the two datums pass as
+identical, pj_transform() will not attempt to do any kind of datum shift.
+
+So do you imply that we have introduced a bug where specifying a non-null
+grid somehow passes as specifying a datum while specifying the null grid
+doesn't?
+
+Under all circumstances, I'm not sure how it should be interpreted: we
+claim to be on NAD83/WGS84 or whatever looks like it at the meter level. We
+will, however, insist on doing our inverse projection on a spherical,
+rather than ellipsoidal, reference surface.
+
+In the new API that kind of stuff make sense: We specify what we want done,
+and libproj does it for us, no matter how stupid it sounds.
+
+But for the old API, libproj is supposed to figure out what to do?
+
+I'm not sure this case makes strict geodetic sense, but somehow libproj
+used to do the right (for a certain definition of right) thing anyway - and
+obviously we need to convince it to keep doing that...
+
+
+
+Den 1. mar. 2018 8.45 AM skrev "Kristian Evers" <kreve at sdfe.dk>:
+
+I am not sure that is correct, Thomas. See the following output:
+
+$ echo 487147.594520173 4934316.46263998 | ./cs2cs -v +proj=utm +zone=15
++to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
++k=1.0 +units=m +nadgrids=@null
+# ---- From Coordinate System ----
+#Universal Transverse Mercator (UTM)
+#       Cyl, Sph
+#       zone= south
+# +proj=utm +zone=15 +ellps=WGS84
+# ---- To Coordinate System ----
+#Mercator
+#       Cyl, Sph&Ell
+#       lat_ts=
+# +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
++k=1.0
+# +units=m +nadgrids=@null
+-10370728.80    5552839.74 0.00
+
+$ echo 487147.594520173 4934316.46263998 | ./cs2cs -v +proj=utm +zone=15
++datum=NAD83 +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0
++x_0=0.0 +y_0=0 +k=1.0 +units=m
+# ---- From Coordinate System ----
+#Universal Transverse Mercator (UTM)
+#       Cyl, Sph
+#       zone= south
+# +proj=utm +zone=15 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0
+# ---- To Coordinate System ----
+#Mercator
+#       Cyl, Sph&Ell
+#       lat_ts=
+# +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
++k=1.0
+# +units=m
+-10370728.80    5552839.74 0.0
+
+It seems to be the combination of +datum=NAD83 in the input system and
++nadgrids=@null in the output system.
+When only one (either one) of them is present the transformation is fine.
+They are supposed to be treated as being
+the same datum, but isn’t. I have an idea where to fix this.
+
+/Kristian
+
+On 1 Mar 2018, at 08:15, Thomas Knudsen <knudsen.thomas at gmail.com> wrote:
+
+Actually, it seems related to handling of the null grid specificly: When
+using the conus grid, the 10 km jump into the lithosphere is avoided
+(although we get the 2D correction we ask for, but really don't want):
+
+$ echo 487147.594520173 4934316.46263998 0 | cs2cs -f %.16f %FROM% +to
++proj=latlong +datun=NAD83 | cs2cs +proj=latlong +datum=NAD83 +to
++proj=merc +R=6378137 +nadgrids=conus
+
+> -10370704.71    5552845.16    -0.00
+
+Note: Height set to negative zero... not sure yet whether this is a hint
+
+
+
+
+
+
+2018-03-01 7:58 GMT+01:00 Thomas Knudsen <knudsen.thomas at gmail.com>:
+
+> Jeff,
+>
+> That's interesting (although annoying!)
+>
+> When I leave out the final nadgrids=@null, I get the correct result from
+> PROJ v5RC6. Can you reproduce that?
+>
+> Note, I'm not implying that this should be considered a solution or
+> workaround, merely trying to narrow in on the
+> problem, which seems to be related to datum handling.
+>
+> /Thomas
+>
+>
+>
+>
+>
+> 2018-03-01 0:38 GMT+01:00 Jeff McKenna <jmckenna at gatewaygeomatics.com>:
+>
+>> Update: I never heard back from anyone else about testing PROJ v5 +
+>> MapServer (and GDAL), so in fact I may be the only person to test this
+>> combination so far.  Because this is a PROJ mailing list I first give
+>> some more feedback with PROJ utilities, then later will list results
+>> from other software for anyone interested.  (in reality I first noticed
+>> the problem in MapServer but then each test in GDAL then PROJ failed as
+>> well, on Windows with PROJ 5.0.0-RC6)
+>>
+>> cs2cs
+>> =====
+>>
+>> I wanted to test PROJ v5 by using a point
+>> (487147.594520173,4934316.46263998) in EPSG:26915 (UTM Zone 15) and
+>> reprojecting that to EPSG:3857 (Google's Mercator).
+>>
+>> with PROJ 4.9.3
+>> ---------------
+>>
+>> cs2cs -v +proj=utm +zone=15 +datum=NAD83 +to +proj=merc +a=6378137
+>> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+>> +nadgrids=@null
+>> # ---- From Coordinate System ----
+>> #Universal Transverse Mercator (UTM)
+>> #       Cyl, Sph
+>> #       zone= south
+>> # +proj=utm +zone=15 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0
+>> # ---- To Coordinate System ----
+>> #Mercator
+>> #       Cyl, Sph&Ell
+>> #       lat_ts=
+>> # +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+>> +y_0=0 +k=1.0
+>> # +units=m +nadgrids=@null
+>> 487147.594520173 4934316.46263998
+>>
+>> RESULT POINT: -10370728.80    5552839.74 -0.00
+>>
+>> with PROJ 5.0.0-RC6
+>> -------------------
+>>
+>>  >cs2cs -v +proj=utm +zone=15 +datum=NAD83 +to +proj=merc +a=6378137
+>> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+>> +nadgrids=@null
+>> # ---- From Coordinate System ----
+>> #Universal Transverse Mercator (UTM)
+>> #       Cyl, Sph
+>> #       zone= south
+>> # +proj=utm +zone=15 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0
+>> # ---- To Coordinate System ----
+>> #Mercator
+>> #       Cyl, Sph&Ell
+>> #       lat_ts=
+>> # +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+>> +y_0=0 +k=1.0
+>> # +units=m +nadgrids=@null
+>> 487147.594520173 4934316.46263998
+>>
+>> RESULT POINT: -10370728.80    5522830.15 -10484.03
+>>
+>> Discussion
+>> ----------
+>>
+>> PROJ 4.9.3 returns the correct value (I've confirmed this with many
+>> other tools including QGIS).  Can someone explain why those 2 results
+>> are different? (I have reproduced this problem on Windows and also
+>> Ubuntu 14.94)
+>>
+>> GDAL
+>> ====
+>>
+>> I wanted to test PROJ v5 by using that same test point (as a shapefile)
+>> in EPSG:26915 (UTM Zone 15) and reprojecting that to EPSG:3857 (Google's
+>> Mercator), using GDAL's ogr2ogr command.  (data used:
+>> https://www.gatewaygeomatics.com/dl/parcels-proj-v5-test.zip )  Below I
+>> have used the ogr2ogr command (included in the "commands.txt" file in
+>> that data download) and then ogrinfo on the reprojected file to output:
+>>
+>> with PROJ 4.9.3
+>> ---------------
+>>
+>> POINT (-10370728.7959208 5552839.74177463)
+>>
+>> with PROJ 5.0.0-RC6
+>> -------------------
+>>
+>> POINT (-10370728.7959208 5522830.1464459)
+>>
+>> Discussion
+>> ----------
+>>
+>> PROJ 4.9.3 compiled into GDAL 2.2.3 returns the correct point value, but
+>> returns a different point value with PROJ 5.0.0-RC6
+>>
+>> MapServer
+>> =========
+>>
+>> Same problems as GDAL (reprojected layer has different extents with PROJ
+>> 5.0.0-RC6, causing problems to display the reprojected layer in a map
+>> image).
+>>
+>>
+>> If you made it this far in my long email, thanks for listening (I am
+>> totally stumped on this one, again ha).
+>>
+>> -jeff
+>>
+>>
+>>
+>>
+>>
+>> On 2018-02-25 3:45 PM, Kristian Evers wrote:
+>> > Thanks for testing, Jeff. It is very appreciated. I hope you sort of
+>> your problems,
+>> > PROJ-related or not.
+>> >
+>> > /Kristian
+>> >
+>> >> On 25 Feb 2018, at 00:29, Jeff McKenna <jmckenna at gatewaygeomatics.com>
+>> wrote:
+>> >>
+>> >> Update: it seems many things were happening, causing me to look in
+>> wrong
+>> >> places.  But in the end MapServer was in fact reprojecting the points;
+>> >> what caused me total confusion was that I was testing with several
+>> >> MapServer-related applications that are part of MS4W (Mapbender,
+>> >> GeoMOOSE) and one application had a totally blank opening map image
+>> with
+>> >> PROJ v5.  In fact for some reason the old hardcoded map extents
+>> >> (displayed in EPSG:3857) no longer display the data (you have to now
+>> >> zoom out a bit to see the data, reprojected with PROJ v5).  I'll
+>> contact
+>> >> the GeoMOOSE team to let them dive into this (still, it could be my
+>> >> Windows environment, as no one else seems to be testing MapServer +
+>> PROJ
+>> >> v5 yet).
+>> >>
+>> >> Very sorry for all this noise!
+>> >>
+>> >> Short story: all is fine with RC5 here.
+>> >>
+>> >> Thank you again Kristian for your passion driving this.
+>> >>
+>> >> -jeff
+>> >>
+>> >>
+>> >>
+>> >>
+>> >>
+>> >> On 2018-02-23 5:33 PM, Jeff McKenna wrote:
+>> >>> Hi Kristian,
+>> >>>
+>> >>> No problems here on Windows in the MS4W environment, but I'm running
+>> >>> into odd errors when I have MapServer call PROJ 5
+>> >>> (https://lists.osgeo.org/pipermail/mapserver-dev/2018-Februa
+>> ry/015347.html).
+>> >>>    Obviously an issue downstream not here, but I thought I'd at least
+>> >>> mention it here that I am testing RC5 as well :)
+>> >>>
+>> >>> Thanks for pushing this release along.
+>> >>>
+>> >>> -jeff
+>> >>>
+>> >>>
+>> >>>
+>> >>>
+>> >>> On 2018-02-23 3:19 PM, Kristian Evers wrote:
+>> >>>> All,
+>> >>>>
+>> >>>> I have prepared PROJ 5.0.0RC5. Downloads are here:
+>> >>>>
+>> >>>>
+>> >>>> http://download.osgeo.org/proj/proj-5.0.0RC5.tar.gz (
+>> http://download.osgeo.org/proj/proj-5.0.0RC5.tar.gz.md5)
+>> >>>> http://download.osgeo.org/proj/proj-5.0.0RC5.zip (
+>> http://download.osgeo.org/proj/proj-5.0.0RC5.zip.md5)
+>> >>>>
+>> >>>>
+>> >>>> Since RC4 problems with vertical grid installation, the Horner
+>> >>>> transformation and faulty polygon area calculation
+>> >>>> in geodesic library has been fixed. Hopefully this will be the final
+>> >>>> release candidate. I will call for a vote for
+>> >>>> promotion to final release on the 27th. Unless serious issues are
+>> >>>> discovered in the mean time.
+>> >>>>
+>> >>>> /Kristian
+>> >>>>
+>> >>>>
+>> _______________________________________________
+>> Proj mailing list
+>> Proj at lists.maptools.org
+>> http://lists.maptools.org/mailman/listinfo/proj
+>>
+>
+>
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180301/6a9810ab/attachment.html>
+
+From knudsen.thomas at gmail.com  Thu Mar  1 01:29:50 2018
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Thu, 1 Mar 2018 10:29:50 +0100
+Subject: [Proj] PROJ 5.0.0RC5
+In-Reply-To: <CAH0YoEMYh9BG-8Ms7GJTv6NW39bLA7yW3k5u+ye2gvxtX2RC6A@mail.gmail.com>
+References: <7BE0C5E2-310B-432F-99EF-AB3F6844E7E3@sdfe.dk>
+	<df0f271c-75ba-f188-4418-933fe0577508@gatewaygeomatics.com>
+	<51f2ea7c-95fe-91e2-c688-e7956ae18853@gatewaygeomatics.com>
+	<19FD79C9-9167-4B90-99BB-89ECF5DFAF34@sdfe.dk>
+	<150961d6-0b98-f5a1-50d7-288ccff3e260@gatewaygeomatics.com>
+	<CAH0YoEMrboneuOajeEi-e3fLJo3Bt6YK5xj9u8NKnhmrsSoDqw@mail.gmail.com>
+	<CAH0YoEPjFL=K_Y4jaM6Ue_CnqxHZabObK+59CGr0TNnpd8h-Nw@mail.gmail.com>
+	<8F946A83-CD84-4DA8-B5CD-3233F3648A90@sdfe.dk>
+	<CAH0YoENXG=kZgZS+bFNooWN0BHwg=8NkCQyCFVa-Tpoh4OyiUw@mail.gmail.com>
+	<CAH0YoEMYh9BG-8Ms7GJTv6NW39bLA7yW3k5u+ye2gvxtX2RC6A@mail.gmail.com>
+Message-ID: <CAH0YoEMK6dgyuUSKB702mWEUfMp_Go3hGqv1-Qr21CLhTOCJFw@mail.gmail.com>
+
+Thinking it over once again: The -10 km you run into is the distance from
+your spherical reference body, down to the proper NAD83 ellipsoid. The
+change in northing then, is due to a reduction in latitude by measuring it
+geocentrically from the sphere, rather than perpendicularly from the
+ellipsoid.
+
+So in a sense, you get what you ask for - unfortunately, Google thinks you
+should interpret it differently (computing the latitude on the ellipsoid,
+then behaving as if if was defined on a sphere)...
+
+
+2018-03-01 9:52 GMT+01:00 Thomas Knudsen <knudsen.thomas at gmail.com>:
+
+> Yes, if datum is not specified on both sides, or if the two datums pass as
+> identical, pj_transform() will not attempt to do any kind of datum shift.
+>
+> So do you imply that we have introduced a bug where specifying a non-null
+> grid somehow passes as specifying a datum while specifying the null grid
+> doesn't?
+>
+> Under all circumstances, I'm not sure how it should be interpreted: we
+> claim to be on NAD83/WGS84 or whatever looks like it at the meter level. We
+> will, however, insist on doing our inverse projection on a spherical,
+> rather than ellipsoidal, reference surface.
+>
+> In the new API that kind of stuff make sense: We specify what we want
+> done, and libproj does it for us, no matter how stupid it sounds.
+>
+> But for the old API, libproj is supposed to figure out what to do?
+>
+> I'm not sure this case makes strict geodetic sense, but somehow libproj
+> used to do the right (for a certain definition of right) thing anyway - and
+> obviously we need to convince it to keep doing that...
+>
+>
+>
+> Den 1. mar. 2018 8.45 AM skrev "Kristian Evers" <kreve at sdfe.dk>:
+>
+> I am not sure that is correct, Thomas. See the following output:
+>
+> $ echo 487147.594520173 4934316.46263998 | ./cs2cs -v +proj=utm +zone=15
+> +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
+> +k=1.0 +units=m +nadgrids=@null
+> # ---- From Coordinate System ----
+> #Universal Transverse Mercator (UTM)
+> #       Cyl, Sph
+> #       zone= south
+> # +proj=utm +zone=15 +ellps=WGS84
+> # ---- To Coordinate System ----
+> #Mercator
+> #       Cyl, Sph&Ell
+> #       lat_ts=
+> # +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
+> +k=1.0
+> # +units=m +nadgrids=@null
+> -10370728.80    5552839.74 0.00
+>
+> $ echo 487147.594520173 4934316.46263998 | ./cs2cs -v +proj=utm +zone=15
+> +datum=NAD83 +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0
+> +x_0=0.0 +y_0=0 +k=1.0 +units=m
+> # ---- From Coordinate System ----
+> #Universal Transverse Mercator (UTM)
+> #       Cyl, Sph
+> #       zone= south
+> # +proj=utm +zone=15 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0
+> # ---- To Coordinate System ----
+> #Mercator
+> #       Cyl, Sph&Ell
+> #       lat_ts=
+> # +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0
+> +k=1.0
+> # +units=m
+> -10370728.80    5552839.74 0.0
+>
+> It seems to be the combination of +datum=NAD83 in the input system and
+> +nadgrids=@null in the output system.
+> When only one (either one) of them is present the transformation is fine.
+> They are supposed to be treated as being
+> the same datum, but isn’t. I have an idea where to fix this.
+>
+> /Kristian
+>
+> On 1 Mar 2018, at 08:15, Thomas Knudsen <knudsen.thomas at gmail.com> wrote:
+>
+> Actually, it seems related to handling of the null grid specificly: When
+> using the conus grid, the 10 km jump into the lithosphere is avoided
+> (although we get the 2D correction we ask for, but really don't want):
+>
+> $ echo 487147.594520173 4934316.46263998 0 | cs2cs -f %.16f %FROM% +to
+> +proj=latlong +datun=NAD83 | cs2cs +proj=latlong +datum=NAD83 +to
+> +proj=merc +R=6378137 +nadgrids=conus
+>
+> > -10370704.71    5552845.16    -0.00
+>
+> Note: Height set to negative zero... not sure yet whether this is a hint
+>
+>
+>
+>
+>
+>
+> 2018-03-01 7:58 GMT+01:00 Thomas Knudsen <knudsen.thomas at gmail.com>:
+>
+>> Jeff,
+>>
+>> That's interesting (although annoying!)
+>>
+>> When I leave out the final nadgrids=@null, I get the correct result from
+>> PROJ v5RC6. Can you reproduce that?
+>>
+>> Note, I'm not implying that this should be considered a solution or
+>> workaround, merely trying to narrow in on the
+>> problem, which seems to be related to datum handling.
+>>
+>> /Thomas
+>>
+>>
+>>
+>>
+>>
+>> 2018-03-01 0:38 GMT+01:00 Jeff McKenna <jmckenna at gatewaygeomatics.com>:
+>>
+>>> Update: I never heard back from anyone else about testing PROJ v5 +
+>>> MapServer (and GDAL), so in fact I may be the only person to test this
+>>> combination so far.  Because this is a PROJ mailing list I first give
+>>> some more feedback with PROJ utilities, then later will list results
+>>> from other software for anyone interested.  (in reality I first noticed
+>>> the problem in MapServer but then each test in GDAL then PROJ failed as
+>>> well, on Windows with PROJ 5.0.0-RC6)
+>>>
+>>> cs2cs
+>>> =====
+>>>
+>>> I wanted to test PROJ v5 by using a point
+>>> (487147.594520173,4934316.46263998) in EPSG:26915 (UTM Zone 15) and
+>>> reprojecting that to EPSG:3857 (Google's Mercator).
+>>>
+>>> with PROJ 4.9.3
+>>> ---------------
+>>>
+>>> cs2cs -v +proj=utm +zone=15 +datum=NAD83 +to +proj=merc +a=6378137
+>>> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+>>> +nadgrids=@null
+>>> # ---- From Coordinate System ----
+>>> #Universal Transverse Mercator (UTM)
+>>> #       Cyl, Sph
+>>> #       zone= south
+>>> # +proj=utm +zone=15 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0
+>>> # ---- To Coordinate System ----
+>>> #Mercator
+>>> #       Cyl, Sph&Ell
+>>> #       lat_ts=
+>>> # +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+>>> +y_0=0 +k=1.0
+>>> # +units=m +nadgrids=@null
+>>> 487147.594520173 4934316.46263998
+>>>
+>>> RESULT POINT: -10370728.80    5552839.74 -0.00
+>>>
+>>> with PROJ 5.0.0-RC6
+>>> -------------------
+>>>
+>>>  >cs2cs -v +proj=utm +zone=15 +datum=NAD83 +to +proj=merc +a=6378137
+>>> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+>>> +nadgrids=@null
+>>> # ---- From Coordinate System ----
+>>> #Universal Transverse Mercator (UTM)
+>>> #       Cyl, Sph
+>>> #       zone= south
+>>> # +proj=utm +zone=15 +datum=NAD83 +ellps=GRS80 +towgs84=0,0,0
+>>> # ---- To Coordinate System ----
+>>> #Mercator
+>>> #       Cyl, Sph&Ell
+>>> #       lat_ts=
+>>> # +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+>>> +y_0=0 +k=1.0
+>>> # +units=m +nadgrids=@null
+>>> 487147.594520173 4934316.46263998
+>>>
+>>> RESULT POINT: -10370728.80    5522830.15 -10484.03
+>>>
+>>> Discussion
+>>> ----------
+>>>
+>>> PROJ 4.9.3 returns the correct value (I've confirmed this with many
+>>> other tools including QGIS).  Can someone explain why those 2 results
+>>> are different? (I have reproduced this problem on Windows and also
+>>> Ubuntu 14.94)
+>>>
+>>> GDAL
+>>> ====
+>>>
+>>> I wanted to test PROJ v5 by using that same test point (as a shapefile)
+>>> in EPSG:26915 (UTM Zone 15) and reprojecting that to EPSG:3857 (Google's
+>>> Mercator), using GDAL's ogr2ogr command.  (data used:
+>>> https://www.gatewaygeomatics.com/dl/parcels-proj-v5-test.zip )  Below I
+>>> have used the ogr2ogr command (included in the "commands.txt" file in
+>>> that data download) and then ogrinfo on the reprojected file to output:
+>>>
+>>> with PROJ 4.9.3
+>>> ---------------
+>>>
+>>> POINT (-10370728.7959208 5552839.74177463)
+>>>
+>>> with PROJ 5.0.0-RC6
+>>> -------------------
+>>>
+>>> POINT (-10370728.7959208 5522830.1464459)
+>>>
+>>> Discussion
+>>> ----------
+>>>
+>>> PROJ 4.9.3 compiled into GDAL 2.2.3 returns the correct point value, but
+>>> returns a different point value with PROJ 5.0.0-RC6
+>>>
+>>> MapServer
+>>> =========
+>>>
+>>> Same problems as GDAL (reprojected layer has different extents with PROJ
+>>> 5.0.0-RC6, causing problems to display the reprojected layer in a map
+>>> image).
+>>>
+>>>
+>>> If you made it this far in my long email, thanks for listening (I am
+>>> totally stumped on this one, again ha).
+>>>
+>>> -jeff
+>>>
+>>>
+>>>
+>>>
+>>>
+>>> On 2018-02-25 3:45 PM, Kristian Evers wrote:
+>>> > Thanks for testing, Jeff. It is very appreciated. I hope you sort of
+>>> your problems,
+>>> > PROJ-related or not.
+>>> >
+>>> > /Kristian
+>>> >
+>>> >> On 25 Feb 2018, at 00:29, Jeff McKenna <jmckenna at gatewaygeomatics.com>
+>>> wrote:
+>>> >>
+>>> >> Update: it seems many things were happening, causing me to look in
+>>> wrong
+>>> >> places.  But in the end MapServer was in fact reprojecting the points;
+>>> >> what caused me total confusion was that I was testing with several
+>>> >> MapServer-related applications that are part of MS4W (Mapbender,
+>>> >> GeoMOOSE) and one application had a totally blank opening map image
+>>> with
+>>> >> PROJ v5.  In fact for some reason the old hardcoded map extents
+>>> >> (displayed in EPSG:3857) no longer display the data (you have to now
+>>> >> zoom out a bit to see the data, reprojected with PROJ v5).  I'll
+>>> contact
+>>> >> the GeoMOOSE team to let them dive into this (still, it could be my
+>>> >> Windows environment, as no one else seems to be testing MapServer +
+>>> PROJ
+>>> >> v5 yet).
+>>> >>
+>>> >> Very sorry for all this noise!
+>>> >>
+>>> >> Short story: all is fine with RC5 here.
+>>> >>
+>>> >> Thank you again Kristian for your passion driving this.
+>>> >>
+>>> >> -jeff
+>>> >>
+>>> >>
+>>> >>
+>>> >>
+>>> >>
+>>> >> On 2018-02-23 5:33 PM, Jeff McKenna wrote:
+>>> >>> Hi Kristian,
+>>> >>>
+>>> >>> No problems here on Windows in the MS4W environment, but I'm running
+>>> >>> into odd errors when I have MapServer call PROJ 5
+>>> >>> (https://lists.osgeo.org/pipermail/mapserver-dev/2018-Februa
+>>> ry/015347.html).
+>>> >>>    Obviously an issue downstream not here, but I thought I'd at least
+>>> >>> mention it here that I am testing RC5 as well :)
+>>> >>>
+>>> >>> Thanks for pushing this release along.
+>>> >>>
+>>> >>> -jeff
+>>> >>>
+>>> >>>
+>>> >>>
+>>> >>>
+>>> >>> On 2018-02-23 3:19 PM, Kristian Evers wrote:
+>>> >>>> All,
+>>> >>>>
+>>> >>>> I have prepared PROJ 5.0.0RC5. Downloads are here:
+>>> >>>>
+>>> >>>>
+>>> >>>> http://download.osgeo.org/proj/proj-5.0.0RC5.tar.gz (
+>>> http://download.osgeo.org/proj/proj-5.0.0RC5.tar.gz.md5)
+>>> >>>> http://download.osgeo.org/proj/proj-5.0.0RC5.zip (
+>>> http://download.osgeo.org/proj/proj-5.0.0RC5.zip.md5)
+>>> >>>>
+>>> >>>>
+>>> >>>> Since RC4 problems with vertical grid installation, the Horner
+>>> >>>> transformation and faulty polygon area calculation
+>>> >>>> in geodesic library has been fixed. Hopefully this will be the final
+>>> >>>> release candidate. I will call for a vote for
+>>> >>>> promotion to final release on the 27th. Unless serious issues are
+>>> >>>> discovered in the mean time.
+>>> >>>>
+>>> >>>> /Kristian
+>>> >>>>
+>>> >>>>
+>>> _______________________________________________
+>>> Proj mailing list
+>>> Proj at lists.maptools.org
+>>> http://lists.maptools.org/mailman/listinfo/proj
+>>>
+>>
+>>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180301/b2f88774/attachment.html>
+
+From kreve at sdfe.dk  Thu Mar  1 03:22:31 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 1 Mar 2018 11:22:31 +0000
+Subject: [Proj] PROJ 5.0.0RC5
+References: <7BE0C5E2-310B-432F-99EF-AB3F6844E7E3@sdfe.dk>
+	<df0f271c-75ba-f188-4418-933fe0577508@gatewaygeomatics.com>
+	<51f2ea7c-95fe-91e2-c688-e7956ae18853@gatewaygeomatics.com>
+	<19FD79C9-9167-4B90-99BB-89ECF5DFAF34@sdfe.dk>
+	<150961d6-0b98-f5a1-50d7-288ccff3e260@gatewaygeomatics.com>
+	<CAH0YoEMrboneuOajeEi-e3fLJo3Bt6YK5xj9u8NKnhmrsSoDqw@mail.gmail.com>
+	<CAH0YoEPjFL=K_Y4jaM6Ue_CnqxHZabObK+59CGr0TNnpd8h-Nw@mail.gmail.com>
+	<8F946A83-CD84-4DA8-B5CD-3233F3648A90@sdfe.dk>
+	<CAH0YoENXG=kZgZS+bFNooWN0BHwg=8NkCQyCFVa-Tpoh4OyiUw@mail.gmail.com>
+	<CAH0YoEMYh9BG-8Ms7GJTv6NW39bLA7yW3k5u+ye2gvxtX2RC6A@mail.gmail.com>
+	<CAH0YoEMK6dgyuUSKB702mWEUfMp_Go3hGqv1-Qr21CLhTOCJFw@mail.gmail.com> 
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEC5C871@S000014.PROD.SITAD.DK>
+
+This is a difficult nut to crack. On the hand one cs2cs/pj_transform can behave geodetically correct
+OR on the other hand it can behave in a slightly wrong manner but return the expected
+coordinates when the web Mercator is used.
+
+In https://github.com/OSGeo/proj.4/pull/743 the first situation was instated without realizing the
+full impact. Historically cs2cs has done the latter and should continue to do so in order to not screw
+up more or less all web mapping applications on the internet. I have reverted the fix in PR #743 here:
+
+https://github.com/OSGeo/proj.4/pull/830
+
+Granted that all tests pass the fix will be included in the final release of 5.0.0.
+
+Thanks for digging in to this Jeff!
+
+/Kristian
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180301/9051d0db/attachment.html>
+
+From sebastic at xs4all.nl  Thu Mar  1 09:28:13 2018
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Thu, 1 Mar 2018 18:28:13 +0100
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+Message-ID: <9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+
+On 02/25/2018 08:30 PM, Kristian Evers wrote:
+> A few problems was discovered in the last RC. Mostly related to the testing system. Unless serious issues are
+> discovered with this RC I will call for a vote for promotion to final release on the 27th.
+
+What are the plans for 5.0.1?
+
+More regressions like the MapServer issue reported by Jeff are likely to
+surface ones PROJ 5.0.0 makes it onto more users systems.
+
+Ideally a patch release is relatively soon, having to wait a year for a
+new release will be undesirable (which was about the release cyclce of
+PROJ 4.9).
+
+I'm sensing a bit of release fatigue which may hurt users if they have
+to wait a long time for a patch release to fix the regressions
+introduced in 5.0.0.
+
+Kind Regards,
+
+Bas
+
+
+From kreve at sdfe.dk  Thu Mar  1 09:39:22 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 1 Mar 2018 17:39:22 +0000
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+Message-ID: <30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+
+Bas,
+
+Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+less than an hour ago.
+
+See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+
+What are your thoughts on that?
+
+/Kristian
+
+On 1 Mar 2018, at 18:28, Sebastiaan Couwenberg <sebastic at xs4all.nl<mailto:sebastic at xs4all.nl>> wrote:
+
+On 02/25/2018 08:30 PM, Kristian Evers wrote:
+A few problems was discovered in the last RC. Mostly related to the testing system. Unless serious issues are
+discovered with this RC I will call for a vote for promotion to final release on the 27th.
+
+What are the plans for 5.0.1?
+
+More regressions like the MapServer issue reported by Jeff are likely to
+surface ones PROJ 5.0.0 makes it onto more users systems.
+
+Ideally a patch release is relatively soon, having to wait a year for a
+new release will be undesirable (which was about the release cyclce of
+PROJ 4.9).
+
+I'm sensing a bit of release fatigue which may hurt users if they have
+to wait a long time for a patch release to fix the regressions
+introduced in 5.0.0.
+
+Kind Regards,
+
+Bas
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180301/795a4f32/attachment.html>
+
+From sebastic at xs4all.nl  Thu Mar  1 10:07:25 2018
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Thu, 1 Mar 2018 19:07:25 +0100
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+Message-ID: <8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+
+On 03/01/2018 06:39 PM, Kristian Evers wrote:
+> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+> less than an hour ago.
+> 
+> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+> 
+> What are your thoughts on that?
+
+The next release in June is quite reasonable, although not strictly a
+bugfix release.
+
+If there aren't many regressions reported before that time, leaving the
+planned release dates as-is is probably fine.
+
+Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+the 5.0.0 release, is probably a good idea.
+
+Kind Regards,
+
+Bas
+
+
+From kreve at sdfe.dk  Thu Mar  1 10:18:46 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 1 Mar 2018 18:18:46 +0000
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+	<8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+Message-ID: <F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+
+I’ve been thinking about this all day. Initially I was planing to add the fix to the map server problem, but it is not
+particularly smart to add stuff without an RC I guess. The current release candidate seems to behave quite well,
+apart from that one thing which has a known work-around. I’ll plan for a patch release around April 1st. If the
+number of reported bugs is low I’ll consider not issuing 5.0.1.
+
+I’ll get to work on packing 5.0.0.
+
+/Kristian
+
+> On 1 Mar 2018, at 19:07, Sebastiaan Couwenberg <sebastic at xs4all.nl> wrote:
+> 
+> On 03/01/2018 06:39 PM, Kristian Evers wrote:
+>> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+>> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+>> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+>> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+>> less than an hour ago.
+>> 
+>> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+>> 
+>> What are your thoughts on that?
+> 
+> The next release in June is quite reasonable, although not strictly a
+> bugfix release.
+> 
+> If there aren't many regressions reported before that time, leaving the
+> planned release dates as-is is probably fine.
+> 
+> Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+> the 5.0.0 release, is probably a good idea.
+> 
+> Kind Regards,
+> 
+> Bas
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+From jmckenna at gatewaygeomatics.com  Thu Mar  1 10:52:20 2018
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 1 Mar 2018 14:52:20 -0400
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+	<8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+	<F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+Message-ID: <6bf8a040-000c-c9bc-ab75-d984033b19c3@gatewaygeomatics.com>
+
+Actually I assumed that this would call for an immediate RC7 release. 
+(as it affects so many projects downstream, for [unfortunately] the most 
+translated projection today).  -my thoughts, jeff
+
+
+
+
+On 2018-03-01 2:18 PM, Kristian Evers wrote:
+> I’ve been thinking about this all day. Initially I was planing to add the fix to the map server problem, but it is not
+> particularly smart to add stuff without an RC I guess. The current release candidate seems to behave quite well,
+> apart from that one thing which has a known work-around. I’ll plan for a patch release around April 1st. If the
+> number of reported bugs is low I’ll consider not issuing 5.0.1.
+> 
+> I’ll get to work on packing 5.0.0.
+> 
+> /Kristian
+> 
+>> On 1 Mar 2018, at 19:07, Sebastiaan Couwenberg <sebastic at xs4all.nl> wrote:
+>>
+>> On 03/01/2018 06:39 PM, Kristian Evers wrote:
+>>> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+>>> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+>>> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+>>> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+>>> less than an hour ago.
+>>>
+>>> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+>>>
+>>> What are your thoughts on that?
+>>
+>> The next release in June is quite reasonable, although not strictly a
+>> bugfix release.
+>>
+>> If there aren't many regressions reported before that time, leaving the
+>> planned release dates as-is is probably fine.
+>>
+>> Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+>> the 5.0.0 release, is probably a good idea.
+>>
+>> Kind Regards,
+>>
+>> Bas
+>> ________
+
+
+From jmckenna at gatewaygeomatics.com  Thu Mar  1 11:03:48 2018
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 1 Mar 2018 15:03:48 -0400
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <6bf8a040-000c-c9bc-ab75-d984033b19c3@gatewaygeomatics.com>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+	<8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+	<F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+	<6bf8a040-000c-c9bc-ab75-d984033b19c3@gatewaygeomatics.com>
+Message-ID: <04d8b9d9-4eaf-375b-234e-39fdf5513204@gatewaygeomatics.com>
+
+Anyway sorry that I caused all this grief with my testing.  Congrats on 
+this massive release!!
+
+-jeff
+
+
+
+On 2018-03-01 2:52 PM, Jeff McKenna wrote:
+> Actually I assumed that this would call for an immediate RC7 release.
+> (as it affects so many projects downstream, for [unfortunately] the most
+> translated projection today).  -my thoughts, jeff
+> 
+> 
+> 
+> 
+> On 2018-03-01 2:18 PM, Kristian Evers wrote:
+>> I’ve been thinking about this all day. Initially I was planing to add the fix to the map server problem, but it is not
+>> particularly smart to add stuff without an RC I guess. The current release candidate seems to behave quite well,
+>> apart from that one thing which has a known work-around. I’ll plan for a patch release around April 1st. If the
+>> number of reported bugs is low I’ll consider not issuing 5.0.1.
+>>
+>> I’ll get to work on packing 5.0.0.
+>>
+>> /Kristian
+>>
+>>> On 1 Mar 2018, at 19:07, Sebastiaan Couwenberg <sebastic at xs4all.nl> wrote:
+>>>
+>>> On 03/01/2018 06:39 PM, Kristian Evers wrote:
+>>>> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+>>>> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+>>>> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+>>>> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+>>>> less than an hour ago.
+>>>>
+>>>> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+>>>>
+>>>> What are your thoughts on that?
+>>>
+>>> The next release in June is quite reasonable, although not strictly a
+>>> bugfix release.
+>>>
+>>> If there aren't many regressions reported before that time, leaving the
+>>> planned release dates as-is is probably fine.
+>>>
+>>> Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+>>> the 5.0.0 release, is probably a good idea.
+>>>
+>>> Kind Regards,
+>>>
+>>> Bas
+>>
+
+
+From kreve at sdfe.dk  Thu Mar  1 11:10:17 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 1 Mar 2018 19:10:17 +0000
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <04d8b9d9-4eaf-375b-234e-39fdf5513204@gatewaygeomatics.com>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+	<8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+	<F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+	<6bf8a040-000c-c9bc-ab75-d984033b19c3@gatewaygeomatics.com>
+	<04d8b9d9-4eaf-375b-234e-39fdf5513204@gatewaygeomatics.com>
+Message-ID: <7C109218-0F5A-4F10-9C0E-F7A366C19FC4@sdfe.dk>
+
+Jeff,
+
+That would also be the ideal case, I agree. The release process was started two days ago with the vote on the MetaCRS list.
+Also, and this is actually the most pressing issue, my available time is limited the following weeks so I wouldn’t be able to
+properly follow up on yet another RC.
+
+Aside from the issue you have reported the release seem to be in good shape. There is a work around to the know issue
+with the web mercator (remove +nadgrids=@null from the proj-string) so early adopters should be able to get going anyway.
+
+I am sure more issues will rise to the surface once the final release is out in the wild. Those along with the web mercator
+thing will be fixed in a short while in 5.0.1.
+
+Don’t feel bad about improving the software! It is very appreciated and I can only hope that more will do the same in the future!
+
+/Kristian
+
+> On 1 Mar 2018, at 20:03, Jeff McKenna <jmckenna at gatewaygeomatics.com> wrote:
+> 
+> Anyway sorry that I caused all this grief with my testing.  Congrats on 
+> this massive release!!
+> 
+> -jeff
+> 
+> 
+> 
+> On 2018-03-01 2:52 PM, Jeff McKenna wrote:
+>> Actually I assumed that this would call for an immediate RC7 release.
+>> (as it affects so many projects downstream, for [unfortunately] the most
+>> translated projection today).  -my thoughts, jeff
+>> 
+>> 
+>> 
+>> 
+>> On 2018-03-01 2:18 PM, Kristian Evers wrote:
+>>> I’ve been thinking about this all day. Initially I was planing to add the fix to the map server problem, but it is not
+>>> particularly smart to add stuff without an RC I guess. The current release candidate seems to behave quite well,
+>>> apart from that one thing which has a known work-around. I’ll plan for a patch release around April 1st. If the
+>>> number of reported bugs is low I’ll consider not issuing 5.0.1.
+>>> 
+>>> I’ll get to work on packing 5.0.0.
+>>> 
+>>> /Kristian
+>>> 
+>>>> On 1 Mar 2018, at 19:07, Sebastiaan Couwenberg <sebastic at xs4all.nl> wrote:
+>>>> 
+>>>> On 03/01/2018 06:39 PM, Kristian Evers wrote:
+>>>>> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+>>>>> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+>>>>> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+>>>>> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+>>>>> less than an hour ago.
+>>>>> 
+>>>>> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+>>>>> 
+>>>>> What are your thoughts on that?
+>>>> 
+>>>> The next release in June is quite reasonable, although not strictly a
+>>>> bugfix release.
+>>>> 
+>>>> If there aren't many regressions reported before that time, leaving the
+>>>> planned release dates as-is is probably fine.
+>>>> 
+>>>> Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+>>>> the 5.0.0 release, is probably a good idea.
+>>>> 
+>>>> Kind Regards,
+>>>> 
+>>>> Bas
+>>> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+From jmckenna at gatewaygeomatics.com  Thu Mar  1 11:21:38 2018
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 1 Mar 2018 15:21:38 -0400
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <7C109218-0F5A-4F10-9C0E-F7A366C19FC4@sdfe.dk>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+	<8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+	<F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+	<6bf8a040-000c-c9bc-ab75-d984033b19c3@gatewaygeomatics.com>
+	<04d8b9d9-4eaf-375b-234e-39fdf5513204@gatewaygeomatics.com>
+	<7C109218-0F5A-4F10-9C0E-F7A366C19FC4@sdfe.dk>
+Message-ID: <882c484e-e608-7658-75ed-d3723118113f@gatewaygeomatics.com>
+
+Thanks Kristian.  Regarding the announcement, if you email the text you 
+need published to news_item(at)osgeo.org it will be magically sent 
+through Twitter, new website, Discuss list etc.
+
+-jeff
+
+
+
+On 2018-03-01 3:10 PM, Kristian Evers wrote:
+> Jeff,
+> 
+> That would also be the ideal case, I agree. The release process was started two days ago with the vote on the MetaCRS list.
+> Also, and this is actually the most pressing issue, my available time is limited the following weeks so I wouldn’t be able to
+> properly follow up on yet another RC.
+> 
+> Aside from the issue you have reported the release seem to be in good shape. There is a work around to the know issue
+> with the web mercator (remove +nadgrids=@null from the proj-string) so early adopters should be able to get going anyway.
+> 
+> I am sure more issues will rise to the surface once the final release is out in the wild. Those along with the web mercator
+> thing will be fixed in a short while in 5.0.1.
+> 
+> Don’t feel bad about improving the software! It is very appreciated and I can only hope that more will do the same in the future!
+> 
+> /Kristian
+> 
+>> On 1 Mar 2018, at 20:03, Jeff McKenna <jmckenna at gatewaygeomatics.com> wrote:
+>>
+>> Anyway sorry that I caused all this grief with my testing.  Congrats on
+>> this massive release!!
+>>
+>> -jeff
+>>
+>>
+>>
+>> On 2018-03-01 2:52 PM, Jeff McKenna wrote:
+>>> Actually I assumed that this would call for an immediate RC7 release.
+>>> (as it affects so many projects downstream, for [unfortunately] the most
+>>> translated projection today).  -my thoughts, jeff
+>>>
+>>>
+>>>
+>>>
+>>> On 2018-03-01 2:18 PM, Kristian Evers wrote:
+>>>> I’ve been thinking about this all day. Initially I was planing to add the fix to the map server problem, but it is not
+>>>> particularly smart to add stuff without an RC I guess. The current release candidate seems to behave quite well,
+>>>> apart from that one thing which has a known work-around. I’ll plan for a patch release around April 1st. If the
+>>>> number of reported bugs is low I’ll consider not issuing 5.0.1.
+>>>>
+>>>> I’ll get to work on packing 5.0.0.
+>>>>
+>>>> /Kristian
+>>>>
+>>>>> On 1 Mar 2018, at 19:07, Sebastiaan Couwenberg <sebastic at xs4all.nl> wrote:
+>>>>>
+>>>>> On 03/01/2018 06:39 PM, Kristian Evers wrote:
+>>>>>> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+>>>>>> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+>>>>>> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+>>>>>> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+>>>>>> less than an hour ago.
+>>>>>>
+>>>>>> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+>>>>>>
+>>>>>> What are your thoughts on that?
+>>>>>
+>>>>> The next release in June is quite reasonable, although not strictly a
+>>>>> bugfix release.
+>>>>>
+>>>>> If there aren't many regressions reported before that time, leaving the
+>>>>> planned release dates as-is is probably fine.
+>>>>>
+>>>>> Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+>>>>> the 5.0.0 release, is probably a good idea.
+>>>>>
+>>>>> Kind Regards,
+>>>>>
+>>>>> Bas
+>>>>
+
+
+From kreve at sdfe.dk  Thu Mar  1 11:27:41 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 1 Mar 2018 19:27:41 +0000
+Subject: [Proj] PROJ 5.0.0RC6
+In-Reply-To: <882c484e-e608-7658-75ed-d3723118113f@gatewaygeomatics.com>
+References: <5B6818DB-0428-47F3-8666-C078BA108585@sdfe.dk>
+	<9f5afe7e-cd81-e9f2-04a5-cd6db74b3add@xs4all.nl>
+	<30673EC6-4D7D-4BF3-9241-052E65A611A5@sdfe.dk>
+	<8eb47b67-e85d-3d2b-032f-7732f39113d4@xs4all.nl>
+	<F1E324CF-8DE4-4120-8966-8E7ABC70B234@sdfe.dk>
+	<6bf8a040-000c-c9bc-ab75-d984033b19c3@gatewaygeomatics.com>
+	<04d8b9d9-4eaf-375b-234e-39fdf5513204@gatewaygeomatics.com>
+	<7C109218-0F5A-4F10-9C0E-F7A366C19FC4@sdfe.dk>
+	<882c484e-e608-7658-75ed-d3723118113f@gatewaygeomatics.com>
+Message-ID: <6D3F3656-3264-4C5B-85D2-336E86BA9D1B@sdfe.dk>
+
+Thanks, I will do that!
+
+/Kristian
+
+> On 1 Mar 2018, at 20:21, Jeff McKenna <jmckenna at gatewaygeomatics.com> wrote:
+> 
+> Thanks Kristian.  Regarding the announcement, if you email the text you 
+> need published to news_item(at)osgeo.org it will be magically sent 
+> through Twitter, new website, Discuss list etc.
+> 
+> -jeff
+> 
+> 
+> 
+> On 2018-03-01 3:10 PM, Kristian Evers wrote:
+>> Jeff,
+>> 
+>> That would also be the ideal case, I agree. The release process was started two days ago with the vote on the MetaCRS list.
+>> Also, and this is actually the most pressing issue, my available time is limited the following weeks so I wouldn’t be able to
+>> properly follow up on yet another RC.
+>> 
+>> Aside from the issue you have reported the release seem to be in good shape. There is a work around to the know issue
+>> with the web mercator (remove +nadgrids=@null from the proj-string) so early adopters should be able to get going anyway.
+>> 
+>> I am sure more issues will rise to the surface once the final release is out in the wild. Those along with the web mercator
+>> thing will be fixed in a short while in 5.0.1.
+>> 
+>> Don’t feel bad about improving the software! It is very appreciated and I can only hope that more will do the same in the future!
+>> 
+>> /Kristian
+>> 
+>>> On 1 Mar 2018, at 20:03, Jeff McKenna <jmckenna at gatewaygeomatics.com> wrote:
+>>> 
+>>> Anyway sorry that I caused all this grief with my testing.  Congrats on
+>>> this massive release!!
+>>> 
+>>> -jeff
+>>> 
+>>> 
+>>> 
+>>> On 2018-03-01 2:52 PM, Jeff McKenna wrote:
+>>>> Actually I assumed that this would call for an immediate RC7 release.
+>>>> (as it affects so many projects downstream, for [unfortunately] the most
+>>>> translated projection today).  -my thoughts, jeff
+>>>> 
+>>>> 
+>>>> 
+>>>> 
+>>>> On 2018-03-01 2:18 PM, Kristian Evers wrote:
+>>>>> I’ve been thinking about this all day. Initially I was planing to add the fix to the map server problem, but it is not
+>>>>> particularly smart to add stuff without an RC I guess. The current release candidate seems to behave quite well,
+>>>>> apart from that one thing which has a known work-around. I’ll plan for a patch release around April 1st. If the
+>>>>> number of reported bugs is low I’ll consider not issuing 5.0.1.
+>>>>> 
+>>>>> I’ll get to work on packing 5.0.0.
+>>>>> 
+>>>>> /Kristian
+>>>>> 
+>>>>>> On 1 Mar 2018, at 19:07, Sebastiaan Couwenberg <sebastic at xs4all.nl> wrote:
+>>>>>> 
+>>>>>> On 03/01/2018 06:39 PM, Kristian Evers wrote:
+>>>>>>> Well, I was sort of going to play It by ear with regards to patch releases. 5.1.0 will be around June 1st.
+>>>>>>> But maybe it isn’t such a bad idea to already schedule the first pure bug-fixing release in a month time or so.
+>>>>>>> Jeff’s (well.. my bug, discovered by Jeff) could then be applied in that release instead of sneaking
+>>>>>>> It in the final release. The vote promoting RC6 to final has more or less passed on the MetaCRS list
+>>>>>>> less than an hour ago.
+>>>>>>> 
+>>>>>>> See the release schedule here: https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+>>>>>>> 
+>>>>>>> What are your thoughts on that?
+>>>>>> 
+>>>>>> The next release in June is quite reasonable, although not strictly a
+>>>>>> bugfix release.
+>>>>>> 
+>>>>>> If there aren't many regressions reported before that time, leaving the
+>>>>>> planned release dates as-is is probably fine.
+>>>>>> 
+>>>>>> Otherwise scheduling a bugfix release before that time, 4-6 weeks after
+>>>>>> the 5.0.0 release, is probably a good idea.
+>>>>>> 
+>>>>>> Kind Regards,
+>>>>>> 
+>>>>>> Bas
+>>>>> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+From kreve at sdfe.dk  Thu Mar  1 12:10:01 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 1 Mar 2018 20:10:01 +0000
+Subject: [Proj] PROJ 5.0.0 Released
+In-Reply-To: <9DE0F0E9-2FF4-4A51-A779-F01A67058143@sdfe.dk>
+References: <9DE0F0E9-2FF4-4A51-A779-F01A67058143@sdfe.dk>
+Message-ID: <0A926107-1A61-44E5-A13D-6BCCB20938FD@sdfe.dk>
+
+Dear all,
+
+We are pleased to announce that PROJ 5.0.0 has been released!
+
+This is the first major release of PROJ in over 25 years. The new release brings
+many updates including a new API, much improvement geodetic capabilities and
+a long list of bug fixes. The full release notes is included at the bottom of this mail.
+
+The documentation has been given a significant overhaul for this new release.
+Check it out on http://proj4.org/.
+
+The source distributions can be download here:
+
+http://download.osgeo.org/proj/proj-5.0.0.tar.gz
+http://download.osgeo.org/proj/proj-5.0.0.zip
+ 
+
+In addition to the new version of PROJ, updated datum grids packages has been
+released. On top of the existing proj-datumgrids package we have added regional
+packages with additional grids and init-files that are not essential to the
+functionality of PROJ, but very useful for PROJ users in those specific regions.
+
+More information on the datumgrid packages can be found at the GitHub repository:
+
+https://github.com/OSGeo/proj-datumgrid 
+
+Download the packages here:
+
+http://download.osgeo.org/proj/proj-datumgrid-1.7.tar.gz 
+http://download.osgeo.org/proj/proj-datumgrid-europe-1.0.tar.gz 
+http://download.osgeo.org/proj/proj-datumgrid-north-america-1.0.tar.gz 
+http://download.osgeo.org/proj/proj-datumgrid-oceania-1.0.tar.gz 
+
+Thanks to everyone who has contributed over the last year and a half to make this
+release of PROJ happen. 
+
+The PROJ development team.
+
+
+——————————————————————————————————————————————————————
+
+
+5.0.0 Release Notes
+-------------------
+
+This version of PROJ introduces some significant extensions and
+improvements to (primarily) the geodetic functionality of the system.
+
+The main driver for introducing the new features is the emergence of
+dynamic reference frames, the increasing use of high accuracy GNSS,
+and the related growing demand for accurate coordinate
+transformations.  While older versions of PROJ included some geodetic
+functionality, the new framework lays the foundation for turning PROJ
+into a generic geospatial coordinate transformation engine.
+
+The core of the library is still the well established projection code.
+The new functionality is primarily exposed in a new programming
+interface and a new command line utility, "cct" (for "Coordinate
+Conversion and Transformation").  The old programming interface is
+still available and can - to some extent - use the new geodetic
+transformation features.
+
+The internal architecture has also seen many changes and much
+improvement.  So far, these improvements respect the existing
+programming interface. But the process has revealed a need to simplify
+and reduce the code base, in order to support sustained active
+development.
+
+!!!
+!!! Therefore we have scheduled regular releases over the coming years
+!!! which will gradually remove the old programming interface.
+!!!
+!!! This will cause breaking changes with the next two major version
+!!! releases, which will affect all projects that depend on PROJ
+!!! (cf. section "deprecations" below).
+!!!
+
+The decision to break the existing API has not been easy, but has
+ultimately been deemed necessary to ensure the long term survival of
+the project. Not only by improving the maintainability immensely, but
+also by extending the potential user (and hence developer) community.
+
+The end goal is to deliver a generic coordinate transformation
+software package with a clean and concise code base appealing to
+both users and developers.
+
+
+VERSIONING AND NAMING
+---------------------
+
+For the first time in more than 25 years the major version number of
+the software is changed. The decision to do this is based on the many
+new features and new API. While backwards compatibility remains -
+except in a few rare corner cases - the addition of a new and improved
+programming interface warrants a new major release.
+
+The new major version number unfortunately leaves the project in a bit
+of a conundrum regarding the name. For the majority of the life-time
+of the product it has been known as PROJ.4, but since we have now
+reached version 5 the name is no longer aligned with the version
+number.
+
+Hence we have decided to decouple the name from the version number and
+from this version and onwards the product will simply be called PROJ.
+
+In recognition of the history of the software we are keeping PROJ.4 as
+the *name of the organizing project*. The same project team also
+produces the datum-grid package.
+
+In summary:
+
+o The PROJ.4 project provides the product PROJ, which is now at
+  version 5.0.0.
+
+o The foundational component of PROJ is the library libproj.
+
+o Other PROJ components include the application proj, which provides
+  a command line interface to libproj.
+
+o The PROJ.4 project also distributes the datum-grid package,
+  which at the time of writing is at version 1.6.0.
+
+
+ UPDATES
+ -------
+
+ o Introduced new API in proj.h.
+   - The new API is orthogonal to the existing proj_api.h API and the
+     internally used projects.h API.
+   - The new API adds the ability to transform spatiotemporal (4D)
+     coordinates.
+   - Functions in the new API use the "proj_" namespace.
+   - Data types in the new API use the "PJ_" namespace, with a few
+     historic exceptions such as XY, XYZ, LP and LPZ.
+
+ o Introduced the concept of "transformation pipelines" that makes it
+   possible to do complex geodetic transformations of spatiotemporal
+   coordinates by daisy chaining simple coordinate operations.
+
+ o Introduced cct, the Coordinate Conversion and Transformation
+   application.
+
+ o Introduced gie, the Geospatial Integrity Investigation Environment.
+   - Selftest invoked by -C flag in proj has been removed
+   - Ported approx. 1300 built-in selftests to gie format
+   - Ported approx. 1000 tests from the gigs test framework
+   - Added approx. 200 new tests
+
+ o Adopted terminology from the OGC/ISO-19100 geospatial standards
+   series. Key definitions are:
+   - At the most generic level, a *coordinate operation* is a change
+     of coordinates, based on a one-to-one relationship, from one
+     coordinate reference system to another.
+   - A *transformation* is a coordinate operation in which the two
+     coordinate reference systems are based on different datums, e.g.
+     a change from a global reference frame to a regional frame.
+   - A *conversion* is a coordinate operation in which both
+     coordinate reference systems are based on the same datum,
+     e.g. change of units of coordinates.
+   - A *projection* is a coordinate conversion from an ellipsoidal
+     coordinate system to a plane. Although projections are simply
+     conversions according to the standard, they are treated as
+     separate entities in PROJ as they make up the vast majority
+     of operations in the library.
+
+ o New operations:
+   - The pipeline operator (pipeline)
+   - Transformations:
+     + Helmert transform (helmert)
+     + Horner real and complex polynomial evaluation (horner)
+     + Horizontal gridshift (hgridshift)
+     + Vertical gridshift (vgridshift)
+     + Molodensky transform (molodensky)
+     + Kinematic gridshift with deformation model (deformation)
+   - Conversions:
+     + Unit conversion (unitconvert)
+     + Axis swap (axisswap)
+   - Projections:
+     + Central Conic projection (ccon)
+
+ o Significant documentation updates, including
+   - Overhaul of the structure of the documentation
+   - A better introduction to the use of PROJ
+   - A complete reference to the new proj.h API
+   - a complete rewrite of the section on geodesic calculations
+   - Figures for all projections
+
+ o New "free format" option for operation definitions, which
+   permits separating tokens by whitespace when specifying key/value-
+   pairs, e.g. "proj = merc lat_0 = 45".
+
+ o Added metadata to init-files that can be read with the
+   proj_init_info() function in the new proj.h API.
+
+ o Added ITRF2000, ITRF2008 and ITRF2014 init-files with ITRF
+   transformation parameters, including plate motion model
+   parameters.
+
+ o Added ellipsoid parameters for GSK2011, PZ90 and "danish". The
+   latter is similar to the already supported andrae ellipsoid,
+   but has a slightly different semimajor axis.
+
+ o Added Copenhagen prime meridian.
+
+ o Updated EPSG database to version 9.2.0.
+
+ o Geodesic library updated to version 1.49.2-c.
+
+ o Support for analytical partial derivatives has been removed.
+
+ o Improved performance in Winkel Tripel and Aitoff.
+
+ o Introduced pj_has_inverse() function to proj_api.h. Checks if an
+   operation has an inverse. Use this instead of checking whether
+   P->inv exists, since that can no longer be relied on.
+
+ o ABI version number updated to 13:0:0.
+
+ o Removed support for Windows CE.
+
+ o Removed the VB6 COM interface.
+
+ BUG FIXES
+ ------------
+
+ All bug fix numbers refer to issues indexed at
+ https://github.com/OSGeo/proj.4/issues/
+
+ o Fixed incorrect convergence calculation in Lambert Conformal
+   Conic. #16.
+
+ o Handle ellipsoid parameters correctly when using +nadgrids=@null.
+   #22.
+
+ o Return correct latitude when using negative northings in
+   Transverse Mercator (tmerc). #138.
+
+ o Return correct result at origin in inverse Mod. Stererographic
+   of Alaska. #161.
+
+ o Return correct result at origin in inverse Mod. Stererographic
+   of 48 U.S. #162.
+
+ o Return correct result at origin in inverse Mod. Stererographic
+   of 50 U.S. #163.
+
+ o Return correct result at origin in inverse Lee Oblated
+   Stereographic. #164.
+
+ o Return correct result at origin in inverse Miller Oblated
+   Stereographic. #164.
+
+ o Fixed scaling and wrap-around issues in Oblique Cylindrical
+   Equal Area. #166.
+
+ o Corrected a coefficient error in inverse Transverse Mercator. #174.
+
+ o Respect -r flag when calling proj with -V. #184.
+
+ o Remove multiplication by 2 at the equator error in Stereographic
+   projection. #194.
+
+ o Allow +alpha=0 and +gamma=0 when using Oblique Mercator. #195.
+
+ o Return correct result of inverse Oblique Mercator when alpha is
+   between 90 and 270. #331.
+
+ o Avoid segmentation fault when accessing point outside grid. #369.
+
+ o Avoid segmentation fault on NaN input in Robin inverse. #463.
+
+ o Very verbose use of proj (-V) on Windows is fixed. #484.
+
+ o Fixed memory leak in General Oblique Transformation. #497.
+
+ o Equations for meridian convergence and partial derivatives have
+   been corrected for non-conformal projections. #526.
+
+ o Fixed scaling of cartesian coordinates in pj_transform(). #726.
+
+ o Additional bug fixes courtesy of Google's OSS-Fuzz program:
+   https://bugs.chromium.org/p/oss-fuzz/issues/list?can=1&q=proj4
+
+
+ DEPRECATIONS
+ ------------
+
+ o The projects.h header and the functions related to it is
+   considered deprecated from version 5.0.0 and onwards.
+
+
+    !!!     PROJECTS.H WILL BE REMOVED FROM THE LIBRARY     !!!
+    !!!                 WITH VERSION 6.0.0                  !!!
+
+ o The nmake build system on Windows will not be supported from
+   version 6.0.0 on onwards. Use CMake instead.
+
+    !!! NMAKE BUILD SYSTEM WILL BE REMOVED FROM THE LIBRARY !!!
+    !!!                 WITH VERSION 6.0.0                  !!!
+
+ o The proj_api.h header and the functions related to it is
+   consided deprecated from version 5.0.0 and onwards.
+
+    !!!     PROJ_API.H WILL BE REMOVED FROM THE LIBRARY     !!!
+    !!!                 WITH VERSION 7.0.0                  !!!
+
+
+ THANKS TO
+ ------------
+
+ Version 5.0.0 is made possible by the following contributors:
+
+    Lukasz Komsta
+    Maxim Churilin
+    edechaux
+    dusanjovic
+    Zoltan Siki
+    Tom Fili
+    Nicolas David
+    Mike Toews
+    Micah Cochran
+    Luke Campbell
+    Ilya Oshchepkov
+    Adam Wulkiewicz
+    Jonas Tittmann
+    Mateusz Loskot
+    Etienne Jacques
+    Bas Couwenberg
+    Elliott Sales de Andrade
+    Charles Karney
+    Aaron Puchert
+    Julien Moquet
+    Charles Karney
+    Howard Butler
+    Even Rouault
+    Thomas Knudsen
+    Kristian Evers
+
+
+
+
+From sebastic at xs4all.nl  Thu Mar  1 12:31:44 2018
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Thu, 1 Mar 2018 21:31:44 +0100
+Subject: [Proj] PROJ 5.0.0 Released
+In-Reply-To: <0A926107-1A61-44E5-A13D-6BCCB20938FD@sdfe.dk>
+References: <9DE0F0E9-2FF4-4A51-A779-F01A67058143@sdfe.dk>
+	<0A926107-1A61-44E5-A13D-6BCCB20938FD@sdfe.dk>
+Message-ID: <6448279a-8a25-e175-6bcd-44955bc0e0c0@xs4all.nl>
+
+On 03/01/2018 09:10 PM, Kristian Evers wrote:
+> https://github.com/OSGeo/proj-datumgrid 
+> 
+> Download the packages here:
+> 
+> http://download.osgeo.org/proj/proj-datumgrid-1.7.tar.gz 
+> http://download.osgeo.org/proj/proj-datumgrid-europe-1.0.tar.gz 
+> http://download.osgeo.org/proj/proj-datumgrid-north-america-1.0.tar.gz 
+> http://download.osgeo.org/proj/proj-datumgrid-oceania-1.0.tar.gz 
+
+Please push the tags.
+
+Kind Regards,
+
+Bas
+
+
+From moquet.julien at gmail.com  Fri Mar  2 12:47:24 2018
+From: moquet.julien at gmail.com (Julien Moquet)
+Date: Fri, 2 Mar 2018 21:47:24 +0100
+Subject: [Proj] PROJ 5.0.0 Released
+In-Reply-To: <6448279a-8a25-e175-6bcd-44955bc0e0c0@xs4all.nl>
+References: <9DE0F0E9-2FF4-4A51-A779-F01A67058143@sdfe.dk>
+	<0A926107-1A61-44E5-A13D-6BCCB20938FD@sdfe.dk>
+	<6448279a-8a25-e175-6bcd-44955bc0e0c0@xs4all.nl>
+Message-ID: <CANigTqVscRBBrej+udnUFyQMWgqKtXYWCyk=PP82YVzkD+oQEQ@mail.gmail.com>
+
+Hi,
+
+Wikipedia 5.0.0 update : https://en.wikipedia.org/wiki/PROJ .
+
+Regards,
+Julien.
+
+2018-03-01 21:31 GMT+01:00 Sebastiaan Couwenberg <sebastic at xs4all.nl>:
+
+> On 03/01/2018 09:10 PM, Kristian Evers wrote:
+> > https://github.com/OSGeo/proj-datumgrid
+> >
+> > Download the packages here:
+> >
+> > http://download.osgeo.org/proj/proj-datumgrid-1.7.tar.gz
+> > http://download.osgeo.org/proj/proj-datumgrid-europe-1.0.tar.gz
+> > http://download.osgeo.org/proj/proj-datumgrid-north-america-1.0.tar.gz
+> > http://download.osgeo.org/proj/proj-datumgrid-oceania-1.0.tar.gz
+>
+> Please push the tags.
+>
+> Kind Regards,
+>
+> Bas
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180302/bad3dfbf/attachment.html>
+
+From kreve at sdfe.dk  Mon Mar  5 02:59:00 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Mon, 5 Mar 2018 10:59:00 +0000
+Subject: [Proj] Plan for 5.0.1 and 5.1.0
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEC63B9D@S000014.PROD.SITAD.DK>
+
+All,
+
+This is mostly a service announcement to PROJ devs, but might also be relevant for other.
+
+As mentioned in an earlier email I want to put out a patch release around April 1st, which will
+be version 5.0.1. This will only be fixes to bugs in 5.0.0. I have created a 5.0 branch in the git
+repository and plan on cherry-picking commits to master that fixes bugs in 5.0.0. Pull requests
+or issues to these commits will be tagged with the 5.0.1 milestone on GitHub. I'll try to be on
+top of things but in case I miss something please add the 5.0.1 milestone so I know that there
+are  commits to be cherry-pick into the 5.0 branch.
+
+In general I intend to use the milestones system on GitHub a lot more going forwards. It makes it
+a lot easier to plan what's coming up and keep track of what's gone into a new release. Pull requests
+or issues that relate to commits which fixes bugs or adds new functionality should always be tagged
+with the relevant milestone. The list of milestones/releases for next few years can be found here:
+
+https://github.com/OSGeo/proj.4/milestones?direction=asc&sort=due_date&state=open
+
+/Kristian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180305/89d3a817/attachment.html>
+
+From stevejking at talktalk.net  Tue Mar  6 23:44:43 2018
+From: stevejking at talktalk.net (stevejking)
+Date: Wed, 7 Mar 2018 00:44:43 -0700 (MST)
+Subject: [Proj] Understanding deformation model usage
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0EAEC5A38D@S000014.PROD.SITAD.DK>
+References: <1519717389403-0.post@n6.nabble.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC56DDB@S000014.PROD.SITAD.DK>
+	<1519739279217-0.post@n6.nabble.com>
+	<1519817339898-0.post@n6.nabble.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC5A38D@S000014.PROD.SITAD.DK>
+Message-ID: <1520408683933-0.post@n6.nabble.com>
+
+Kristian,
+Yes, that makes sense to me now. But that means those ETRF00 velocities
+(with a slight adjustment of position for epoch 2010.00 to 2000.00 should
+come close to the realigned NKG velocity grids you have?
+ 
+But although the z is reasonable, the xy don't look so good. Is it possible
+the velocity components have accidentally been transformed (ie. grid values
+treated as heights in gdalwarp GDAL 2.2.1 and above)?
+
+I've transformed the Cartesian EPN Stations ETRF00 to long lats at epoch
+2000.00 here 
+https://1drv.ms/u/s!AvBQ7Pt73oO6iS0Y_-aOIBqwxtEs
+
+Steve
+
+
+Kristian Evers-2 wrote
+> Steve,
+> 
+>> Are the Cartesian deformation grids tied to a particular TRF ? I was not
+>> expecting them to be.
+> 
+> At least for the use case that I developed this for, yes, the grids are
+> tied to a
+> particular frame.  In case of the Nordic ITRFyy(yy) -> ETRS89
+> transformations
+> that frame is ETRF00. That is, it is co-rotating with the Eurasian
+> continental
+> plate.
+> 
+> The EPN velocities you have linked to are relative to the various frames
+> in the list. So the ITRF velocities includes the rotation velocity
+> of the continent but the ETRF velocities doesn't (since the frame itself
+> is defined
+> as co-rotating with the continent).
+> 
+> Does that make sense to you?
+> 
+> /Kristian
+> 
+> -----Oprindelig meddelelse-----
+> Fra: 
+
+> proj-bounces at .maptools
+
+>  [mailto:
+
+> proj-bounces at .maptools
+
+> ] På vegne af stevejking
+> Sendt: 28. februar 2018 12:29
+> Til: 
+
+> proj at .maptools
+
+> Emne: Re: [Proj] Understanding deformation model usage
+> 
+> Kristian,
+> A follow up question, related to usage,
+> 
+> Are the Cartesian deformation grids tied to a particular TRF ? I was not
+> expecting them to be. The reason I ask is that on this website:
+> http://www.epncb.oma.be/_productsservices/coordinates/index.php
+> Station positions (I assume Cartesian) and velocities are given using
+> three
+> different reference frames. Drop down list top right you can select
+> individual stations. Class A have average velocities (to GPS week 1950).
+> And
+> although the Cartesian coordinates from each TRF don’t differ that much,
+> the
+> average velocities do?
+> 
+> In the proj documentation example I think it assumes the deformation grids
+> are not tied to a particular TRF.
+> 
+> Thanks again
+> 
+> Steve
+> 
+> 
+> 
+> --
+> Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+> _______________________________________________
+> Proj mailing list
+
+> Proj at .maptools
+
+> http://lists.maptools.org/mailman/listinfo/proj
+> _______________________________________________
+> Proj mailing list
+
+> Proj at .maptools
+
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+
+
+--
+Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+
+
+From kreve at sdfe.dk  Wed Mar  7 01:03:00 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Wed, 7 Mar 2018 09:03:00 +0000
+Subject: [Proj] Understanding deformation model usage
+In-Reply-To: <1520408683933-0.post@n6.nabble.com>
+References: <1519717389403-0.post@n6.nabble.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC56DDB@S000014.PROD.SITAD.DK>
+	<1519739279217-0.post@n6.nabble.com>	<1519817339898-0.post@n6.nabble.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC5A38D@S000014.PROD.SITAD.DK>
+	<1520408683933-0.post@n6.nabble.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEC679B5@S000014.PROD.SITAD.DK>
+
+Steve,
+
+I don't expect the EPN velocities to match the velocities in the NKG velocity grids.
+They are not supposed to be the same. The NKG velocity grids are modelling
+post-glacial uplift, whereas the EPN velocities are a record of how fast the various
+stations are moving. The EPN velocities are, among other things, used to determine
+a best fit for rigid plate motion of the Eurasian contintent (at least the European part).
+This plate motion fit is absorbed into the Helmert transformation parameters for
+ETRFxx transformations. So somewhat simplified you can say that the EPN velocities
+are made up of two components: Rigid plate motion and non-rigid plate motion.
+The NKG velocity model is only concerned with the latter. That is also why the
+full transformation include steps going from ITRSxx to ETRF00.
+
+I have tested the NKG transformations against results from two of the authors of
+the paper that describes the transformations. All three of us has developed our
+code independently of each other so I am quite confident that the end results
+is correct. But it is entirely plausible that I have mixed up grid dimensions
+somewhere but in a way that the errors cancels out. If you think that is the case
+please provide some "proof" so I can investigate it further.
+
+/Kristian
+
+-----Oprindelig meddelelse-----
+Fra: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] På vegne af stevejking
+Sendt: 7. marts 2018 08:45
+Til: proj at lists.maptools.org
+Emne: Re: [Proj] Understanding deformation model usage
+
+Kristian,
+Yes, that makes sense to me now. But that means those ETRF00 velocities
+(with a slight adjustment of position for epoch 2010.00 to 2000.00 should
+come close to the realigned NKG velocity grids you have?
+ 
+But although the z is reasonable, the xy don't look so good. Is it possible
+the velocity components have accidentally been transformed (ie. grid values
+treated as heights in gdalwarp GDAL 2.2.1 and above)?
+
+I've transformed the Cartesian EPN Stations ETRF00 to long lats at epoch
+2000.00 here 
+https://1drv.ms/u/s!AvBQ7Pt73oO6iS0Y_-aOIBqwxtEs
+
+Steve
+
+
+Kristian Evers-2 wrote
+> Steve,
+> 
+>> Are the Cartesian deformation grids tied to a particular TRF ? I was not
+>> expecting them to be.
+> 
+> At least for the use case that I developed this for, yes, the grids are
+> tied to a
+> particular frame.  In case of the Nordic ITRFyy(yy) -> ETRS89
+> transformations
+> that frame is ETRF00. That is, it is co-rotating with the Eurasian
+> continental
+> plate.
+> 
+> The EPN velocities you have linked to are relative to the various frames
+> in the list. So the ITRF velocities includes the rotation velocity
+> of the continent but the ETRF velocities doesn't (since the frame itself
+> is defined
+> as co-rotating with the continent).
+> 
+> Does that make sense to you?
+> 
+> /Kristian
+> 
+> -----Oprindelig meddelelse-----
+> Fra: 
+
+> proj-bounces at .maptools
+
+>  [mailto:
+
+> proj-bounces at .maptools
+
+> ] På vegne af stevejking
+> Sendt: 28. februar 2018 12:29
+> Til: 
+
+> proj at .maptools
+
+> Emne: Re: [Proj] Understanding deformation model usage
+> 
+> Kristian,
+> A follow up question, related to usage,
+> 
+> Are the Cartesian deformation grids tied to a particular TRF ? I was not
+> expecting them to be. The reason I ask is that on this website:
+> http://www.epncb.oma.be/_productsservices/coordinates/index.php
+> Station positions (I assume Cartesian) and velocities are given using
+> three
+> different reference frames. Drop down list top right you can select
+> individual stations. Class A have average velocities (to GPS week 1950).
+> And
+> although the Cartesian coordinates from each TRF don’t differ that much,
+> the
+> average velocities do?
+> 
+> In the proj documentation example I think it assumes the deformation grids
+> are not tied to a particular TRF.
+> 
+> Thanks again
+> 
+> Steve
+> 
+> 
+> 
+> --
+> Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+> _______________________________________________
+> Proj mailing list
+
+> Proj at .maptools
+
+> http://lists.maptools.org/mailman/listinfo/proj
+> _______________________________________________
+> Proj mailing list
+
+> Proj at .maptools
+
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+
+
+--
+Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+From schwehr at gmail.com  Wed Mar  7 09:33:32 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Wed, 7 Mar 2018 09:33:32 -0800
+Subject: [Proj] Testing of proj
+Message-ID: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+
+Hi all,
+
+In case anyone is interested, I've just pushed my first set of tests for
+proj to my GDAL autotest2 "third_party" trees.  Nothing super exciting, but
+this is some of the stuff I count on for CI.
+
+Python subprocess minimally testing cs2cs:
+
+https://github.com/schwehr/gdal-autotest2/tree/master/python/third_party/proj
+
+C++ gunit tests - not well thought out and very little coverage:
+
+https://github.com/schwehr/gdal-autotest2/tree/master/cpp/third_party/proj
+
+I have yet to wrap existing proj tests to a gunit/python unittest/bazel
+world.  Any chance someone could point me at more docs about the testing
+strategy for proj 5 and going forward?  There isn't much here:
+http://proj4.org/contributing.html
+
+I see these, but which are the most important going forward?  It appears
+that porting the gie infrastructure with the gigs test cases is probably
+the best place to start.  Does that make sense?
+
+Are binaries like cs2cs tested anywhere?  I can't seem to find anything.
+
+ls test
+CMakeLists.txt  Makefile.am     fuzzers         gie             gigs
+
+ls cmake | grep -i test
+Proj4Test.cmake
+
+cd src; ls | egrep -i 'gie|test'
+bin_geodtest.cmake
+bin_gie.cmake
+geodtest.c
+gie.c
+multistresstest.c
+runmultistresstest.sh
+test228.c
+
+-kurt
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180307/26660ce5/attachment.html>
+
+From kreve at sdfe.dk  Thu Mar  8 03:44:13 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 8 Mar 2018 11:44:13 +0000
+Subject: [Proj] Testing of proj
+In-Reply-To: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEC6938B@S000014.PROD.SITAD.DK>
+
+Hi Kurt,
+
+Very cool to increase the testing effort. Thanks!
+
+Testing is still a bit of a mess, although with the gie test program we’ve come a long way.
+There’s not much documentation on this yet (contributions welcome :-)). The best source
+right now is the Travis setup I guess. See that for details. I’ll try to give a brief explanation
+of what’s going on.
+
+There’s tests in two places in the source tree at the moment. In nad/ and in test/. The tests
+in nad/ are from way back when and are made up of a set of shell scripts that call cs2cs
+and checks the results by diff’ing the output towards an existing “solution”. The other tests
+in test/ are the new setup which eventually will be the main test setup I think. They only test
+the new API though, so the old tests are the only place where cs2cs is properly tested.
+
+I’d like to clean this stuff up a bit. I’ll try to find the time and energy to lay out a proper plan
+for that effort.
+
+You can run all tests with either `make check´ (autotools builds) or `ctest` (cmake builds).
+
+I hope that is good enough for now. Suggestions on how and where to document this stuff
+are welcome.
+
+/Kristian
+
+Fra: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] På vegne af Kurt Schwehr
+Sendt: 7. marts 2018 18:34
+Til: PROJ.4 and general Projections Discussions <proj at lists.maptools.org>
+Emne: [Proj] Testing of proj
+
+Hi all,
+
+In case anyone is interested, I've just pushed my first set of tests for proj to my GDAL autotest2 "third_party" trees.  Nothing super exciting, but this is some of the stuff I count on for CI.
+
+Python subprocess minimally testing cs2cs:
+    https://github.com/schwehr/gdal-autotest2/tree/master/python/third_party/proj
+
+C++ gunit tests - not well thought out and very little coverage:
+    https://github.com/schwehr/gdal-autotest2/tree/master/cpp/third_party/proj
+
+I have yet to wrap existing proj tests to a gunit/python unittest/bazel world.  Any chance someone could point me at more docs about the testing strategy for proj 5 and going forward?  There isn't much here: http://proj4.org/contributing.html
+
+I see these, but which are the most important going forward?  It appears that porting the gie infrastructure with the gigs test cases is probably the best place to start.  Does that make sense?
+
+Are binaries like cs2cs tested anywhere?  I can't seem to find anything.
+
+ls test
+CMakeLists.txt  Makefile.am     fuzzers         gie             gigs
+
+ls cmake | grep -i test
+Proj4Test.cmake
+
+cd src; ls | egrep -i 'gie|test'
+bin_geodtest.cmake
+bin_gie.cmake
+geodtest.c
+gie.c
+multistresstest.c
+runmultistresstest.sh
+test228.c
+
+-kurt
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180308/3b7683f5/attachment.html>
+
+From support at mnspoint.com  Fri Mar  9 01:49:19 2018
+From: support at mnspoint.com (support at mnspoint.com)
+Date: Fri, 09 Mar 2018 11:49:19 +0200
+Subject: [Proj] Testing of proj
+In-Reply-To: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+Message-ID: <750f6a9b2727bd0737be649fb26f1cb2@mnspoint.com>
+
+Hello, 
+
+we would also like to see MS Windows tests (Visual Studio etc.) !? 
+
+Targets to the person who ever created the new versions. 
+
+Janne. 
+
+-------------------------------------------------------------- 
+
+Kurt Schwehr kirjoitti 2018-03-07 19:33:
+
+> Hi all, 
+> 
+> In case anyone is interested, I've just pushed my first set of tests for proj to my GDAL autotest2 "third_party" trees.  Nothing super exciting, but this is some of the stuff I count on for CI. 
+> 
+> Python subprocess minimally testing cs2cs: 
+> https://github.com/schwehr/gdal-autotest2/tree/master/python/third_party/proj 
+> 
+> C++ gunit tests - not well thought out and very little coverage: 
+> https://github.com/schwehr/gdal-autotest2/tree/master/cpp/third_party/proj 
+> 
+> I have yet to wrap existing proj tests to a gunit/python unittest/bazel world.  Any chance someone could point me at more docs about the testing strategy for proj 5 and going forward?  There isn't much here: http://proj4.org/contributing.html 
+> 
+> I see these, but which are the most important going forward?  It appears that porting the gie infrastructure with the gigs test cases is probably the best place to start.  Does that make sense? 
+> 
+> Are binaries like cs2cs tested anywhere?  I can't seem to find anything. 
+> 
+> ls test 
+> CMakeLists.txt  Makefile.am     fuzzers         gie             gigs 
+> 
+> ls cmake | grep -i test 
+> Proj4Test.cmake 
+> 
+> cd src; ls | egrep -i 'gie|test' 
+> bin_geodtest.cmake 
+> bin_gie.cmake 
+> geodtest.c 
+> gie.c 
+> multistresstest.c 
+> runmultistresstest.sh 
+> test228.c 
+> 
+> -kurt 
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180309/f1006a14/attachment.html>
+
+From mateusz at loskot.net  Fri Mar  9 03:19:59 2018
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri, 9 Mar 2018 12:19:59 +0100
+Subject: [Proj] Testing of proj
+In-Reply-To: <750f6a9b2727bd0737be649fb26f1cb2@mnspoint.com>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+	<750f6a9b2727bd0737be649fb26f1cb2@mnspoint.com>
+Message-ID: <CABUeae-tm3apW+yGLZUgD3t3CGe-EzjrELGXY+KjLq=uXTsbEQ@mail.gmail.com>
+
+On 9 March 2018 at 10:49,  <support at mnspoint.com> wrote:
+> Hello,
+>
+> we would also like to see MS Windows tests (Visual Studio etc.) !?
+> Targets to the person who ever created the new versions.
+
+Janne,
+
+What prevents you from contributing to development of some?
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+
+
+From knudsen.thomas at gmail.com  Fri Mar  9 03:44:01 2018
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Fri, 9 Mar 2018 12:44:01 +0100
+Subject: [Proj] Testing of proj
+In-Reply-To: <750f6a9b2727bd0737be649fb26f1cb2@mnspoint.com>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+	<750f6a9b2727bd0737be649fb26f1cb2@mnspoint.com>
+Message-ID: <CAH0YoEMByXRKn0zBxxXL8P7E5s7CP9Ji-=GEJ50VOXXzsSvVkw@mail.gmail.com>
+
+Hello Janne,
+
+I'm not quite sure what you need - but the code is regression
+tested before every pull-request merge. This includes testing
+with a number of Microsoft compilers, cf. eg.
+https://ci.appveyor.com/project/OSGeo/proj-4/build/1.0.1584
+for at recent case.
+
+Also, all gie tests can be run under Windows - take a look
+in the files in tests/gie. All in all around 2500 test cases are
+currently available.
+
+If you have specific corner cases you need tests for, a
+pull request or even just a list of input and expected output
+cases would be much appreciated: Better test coverage is
+always a priority.
+
+/Thomas
+
+2018-03-09 10:49 GMT+01:00 <support at mnspoint.com>:
+
+> Hello,
+>
+>
+> we would also like to see MS Windows tests (Visual Studio etc.) !?
+>
+> Targets to the person who ever created the new versions.
+>
+>
+> Janne.
+>
+>
+> --------------------------------------------------------------
+>
+>
+> Kurt Schwehr kirjoitti 2018-03-07 19:33:
+>
+> Hi all,
+>
+> In case anyone is interested, I've just pushed my first set of tests for
+> proj to my GDAL autotest2 "third_party" trees.  Nothing super exciting, but
+> this is some of the stuff I count on for CI.
+>
+> Python subprocess minimally testing cs2cs:
+>     https://github.com/schwehr/gdal-autotest2/tree/master/
+> python/third_party/proj
+>
+> C++ gunit tests - not well thought out and very little coverage:
+>     https://github.com/schwehr/gdal-autotest2/tree/master/
+> cpp/third_party/proj
+>
+> I have yet to wrap existing proj tests to a gunit/python unittest/bazel
+> world.  Any chance someone could point me at more docs about the testing
+> strategy for proj 5 and going forward?  There isn't much here:
+> http://proj4.org/contributing.html
+>
+> I see these, but which are the most important going forward?  It appears
+> that porting the gie infrastructure with the gigs test cases is probably
+> the best place to start.  Does that make sense?
+>
+> Are binaries like cs2cs tested anywhere?  I can't seem to find anything.
+>
+> ls test
+> CMakeLists.txt  Makefile.am     fuzzers         gie             gigs
+>
+> ls cmake | grep -i test
+> Proj4Test.cmake
+>
+> cd src; ls | egrep -i 'gie|test'
+> bin_geodtest.cmake
+> bin_gie.cmake
+> geodtest.c
+> gie.c
+> multistresstest.c
+> runmultistresstest.sh
+> test228.c
+>
+> -kurt
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180309/1352da1f/attachment.html>
+
+From roger.oberholtzer at gmail.com  Fri Mar  9 03:49:25 2018
+From: roger.oberholtzer at gmail.com (Roger Oberholtzer)
+Date: Fri, 9 Mar 2018 12:49:25 +0100
+Subject: [Proj] checks failing on Linux
+Message-ID: <CANkOqwMMT5wQ5rnWjr4QYZCBFhNcm8UCzB9-GhrJztWjrJz_7w@mail.gmail.com>
+
+When I run make checks, I get the failure at the end of this listing.
+I have no idea why. I am running the tests in the build tree (I have
+not done a make install), if that matters.
+
+make[3]: Entering directory '/tmp/proj-5.0.0/test/gie'
+PROJ_LIB=../../nad ../../src/gie 4D-API_cs2cs-style.gie
+-------------------------------------------------------------------------------
+Reading file '4D-API_cs2cs-style.gie'
+-------------------------------------------------------------------------------
+total:  4 tests succeeded, 12 tests skipped,  0 tests failed.
+-------------------------------------------------------------------------------
+PROJ_LIB=../../nad ../../src/gie GDA.gie
+-------------------------------------------------------------------------------
+Reading file 'GDA.gie'
+-------------------------------------------------------------------------------
+total:  3 tests succeeded,  0 tests skipped,  0 tests failed.
+-------------------------------------------------------------------------------
+PROJ_LIB=../../nad ../../src/gie axisswap.gie
+-------------------------------------------------------------------------------
+Reading file 'axisswap.gie'
+-------------------------------------------------------------------------------
+total: 27 tests succeeded,  0 tests skipped,  0 tests failed.
+-------------------------------------------------------------------------------
+PROJ_LIB=../../nad ../../src/gie builtins.gie
+-------------------------------------------------------------------------------
+Reading file 'builtins.gie'
+-------------------------------------------------------------------------------
+total: 1315 tests succeeded,  0 tests skipped,  0 tests failed.
+-------------------------------------------------------------------------------
+PROJ_LIB=../../nad ../../src/gie deformation.gie
+-------------------------------------------------------------------------------
+Reading file 'deformation.gie'
+-------------------------------------------------------------------------------
+total:  5 tests succeeded,  4 tests skipped,  0 tests failed.
+-------------------------------------------------------------------------------
+PROJ_LIB=../../nad ../../src/gie ellipsoid.gie
+-------------------------------------------------------------------------------
+Reading file 'ellipsoid.gie'
+-------------------------------------------------------------------------------
+total: 30 tests succeeded,  0 tests skipped,  0 tests failed.
+-------------------------------------------------------------------------------
+PROJ_LIB=../../nad ../../src/gie more_builtins.gie
+-------------------------------------------------------------------------------
+Reading file 'more_builtins.gie'
+pj_cart_selftest fails with 64
+-------------------------------------------------------------------------------
+total: 44 tests succeeded,  4 tests skipped,  1 tests FAILED!
+-------------------------------------------------------------------------------
+Makefile:470: recipe for target 'more_builtins' failed
+make[3]: *** [more_builtins] Error 1
+
+
+-- 
+Roger Oberholtzer
+
+
+From schwehr at gmail.com  Fri Mar  9 06:46:48 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Fri, 9 Mar 2018 06:46:48 -0800
+Subject: [Proj] Testing of proj
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0EAEC6938B@S000014.PROD.SITAD.DK>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC6938B@S000014.PROD.SITAD.DK>
+Message-ID: <CACmBxyvBzhKyfEmMohZmK6PboAQ+S-EZ-b1F4hubiWqJpwX_hg@mail.gmail.com>
+
+Kristian,
+
+Thanks for the overview!
+
+Turns out it is super easy to wrap gie and use it in my bazel world.  Just
+required the python below.  When it fails, the error message isn't pretty,
+but that's for another day :)
+
+-kurt
+
+class GigsTest(googletest.TestCase):
+
+  def setUp(self):
+    self.gie = os.path.join(resources.GetARootDirWithAllResources(),
+                            'third_party/proj4/gie')
+
+  def testAll(self):
+    glob_path = os.path.join(FLAGS.test_srcdir,
+                             'third_party/proj4/proj/test/gigs', '*.gie')
+    gie_files = glob.glob(glob_path)
+    self.assertTrue(gie_files)
+    for filepath in gie_files:
+      cmd = [self.gie, filepath]
+      result = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+      self.assertIn('0 tests failed', result)
+
+
+if __name__ == '__main__':
+  unittest.main()
+
+
+On Thu, Mar 8, 2018 at 3:44 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+
+> Hi Kurt,
+>
+>
+>
+> Very cool to increase the testing effort. Thanks!
+>
+>
+>
+> Testing is still a bit of a mess, although with the gie test program we’ve
+> come a long way.
+>
+> There’s not much documentation on this yet (contributions welcome :-)).
+> The best source
+>
+> right now is the Travis setup I guess. See that for details. I’ll try to
+> give a brief explanation
+>
+> of what’s going on.
+>
+>
+>
+> There’s tests in two places in the source tree at the moment. In nad/ and
+> in test/. The tests
+>
+> in nad/ are from way back when and are made up of a set of shell scripts
+> that call cs2cs
+>
+> and checks the results by diff’ing the output towards an existing
+> “solution”. The other tests
+>
+> in test/ are the new setup which eventually will be the main test setup I
+> think. They only test
+>
+> the new API though, so the old tests are the only place where cs2cs is
+> properly tested.
+>
+>
+>
+> I’d like to clean this stuff up a bit. I’ll try to find the time and
+> energy to lay out a proper plan
+>
+> for that effort.
+>
+>
+>
+> You can run all tests with either `make check´ (autotools builds) or
+> `ctest` (cmake builds).
+>
+>
+>
+> I hope that is good enough for now. Suggestions on how and where to
+> document this stuff
+>
+> are welcome.
+>
+>
+>
+> /Kristian
+>
+>
+>
+> *Fra:* proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.
+> maptools.org] *På vegne af *Kurt Schwehr
+> *Sendt:* 7. marts 2018 18:34
+> *Til:* PROJ.4 and general Projections Discussions <proj at lists.maptools.org
+> >
+> *Emne:* [Proj] Testing of proj
+>
+>
+>
+> Hi all,
+>
+>
+>
+> In case anyone is interested, I've just pushed my first set of tests for
+> proj to my GDAL autotest2 "third_party" trees.  Nothing super exciting, but
+> this is some of the stuff I count on for CI.
+>
+>
+>
+> Python subprocess minimally testing cs2cs:
+>
+>     https://github.com/schwehr/gdal-autotest2/tree/master/
+> python/third_party/proj
+>
+>
+>
+> C++ gunit tests - not well thought out and very little coverage:
+>
+>     https://github.com/schwehr/gdal-autotest2/tree/master/
+> cpp/third_party/proj
+>
+>
+>
+> I have yet to wrap existing proj tests to a gunit/python unittest/bazel
+> world.  Any chance someone could point me at more docs about the testing
+> strategy for proj 5 and going forward?  There isn't much here:
+> http://proj4.org/contributing.html
+>
+>
+>
+> I see these, but which are the most important going forward?  It appears
+> that porting the gie infrastructure with the gigs test cases is probably
+> the best place to start.  Does that make sense?
+>
+>
+>
+> Are binaries like cs2cs tested anywhere?  I can't seem to find anything.
+>
+>
+>
+> ls test
+>
+> CMakeLists.txt  Makefile.am     fuzzers         gie             gigs
+>
+>
+>
+> ls cmake | grep -i test
+>
+> Proj4Test.cmake
+>
+>
+>
+> cd src; ls | egrep -i 'gie|test'
+>
+> bin_geodtest.cmake
+>
+> bin_gie.cmake
+>
+> geodtest.c
+>
+> gie.c
+>
+> multistresstest.c
+>
+> runmultistresstest.sh
+>
+> test228.c
+>
+>
+>
+> -kurt
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180309/021ecc15/attachment.html>
+
+From mankoff at gmail.com  Tue Mar 13 06:00:18 2018
+From: mankoff at gmail.com (Ken Mankoff)
+Date: Tue, 13 Mar 2018 14:00:18 +0100
+Subject: [Proj] How can I get transformation matrix from `invproj`?
+Message-ID: <CAFdBzErJDse-W9wWFm-05SdcNnCzBSC8RwwnaQh3JNTWEFv7Xw@mail.gmail.com>
+
+I'm working with data on a rotated pole. I can project from "real world" to
+"rotated" coordinates with the following command:
+
+invproj -f "%f" +proj=ob_tran +o_proj=latlon +o_lon_p=-200 +o_lat_p=18
++lon_0=180 -m 57.295779506
+
+I'd like to adjust some GRASS vectors. They aren't simple point vectors so
+I can't easily export | invproj | import. However, GRASS does have a
+v.transform command https://grass.osgeo.org/grass74/manuals/v.transform.html
+
+I'm having trouble figuring out two things:
+
+1) What is the translation and rotation that occurs based on the invproj
+command above
+2) How to I convert that information to the x y shift and z rotate expected
+by the v.transform command.
+
+I'm hoping this list can help with the first?
+
+Thank you,
+
+  Ken Mankoff
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180313/8cdb35e1/attachment.html>
+
+From kreve at sdfe.dk  Fri Mar 16 04:26:18 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Fri, 16 Mar 2018 11:26:18 +0000
+Subject: [Proj] Release plan for 5.0.1
+Message-ID: <2E885BB293AF0448A0181138489E9A0EAEC81E5C@S000014.PROD.SITAD.DK>
+
+All (cross-posted to PROJ and MetaCRS),
+
+As previously announced (on the PROJ list), I plan on releasing PROJ 5.0.1 on April 1st.
+This is a bug-fix release only. A bunch of bugs has already been found and fixed [0].
+Some of them rather serious so this release will be useful for many.
+
+I plan on issuing a release candidate next week on Wednesday the 21st . I don't expect a lot of
+complications so hopefully a week for testing the release candidate will be sufficient. If no complications
+are discovered I will start the vote for promotion to final release on Wednesday the 28th which leaves two
+working days for the vote to finish. In case more than one release candidate is needed new RC's will be
+issued and I will announce a new time schedule.
+
+If you plan on submitting a bug fix for 5.0.1, please do so before March 21st.
+
+Voting MetaCRS members, please take note of the above dates so the vote can be passed successfully
+within the two-day voting period.
+
+/Kristian
+
+[0] https://github.com/OSGeo/proj.4/milestone/14?closed=1
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180316/beb0fcec/attachment.html>
+
+From dan.crosby at lincolnagritech.co.nz  Mon Mar 19 15:15:55 2018
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Tue, 20 Mar 2018 11:15:55 +1300
+Subject: [Proj] Proj4 Datum Grids
+Message-ID: <fc7ea30c-e4c8-4356-9cce-738b3ee82bcf@lincolnagritech.co.nz>
+
+Hi all,
+ 
+I’m just looking for some clarifications as to what I can do with Proj, bearing in mind GIS related activities aren’t my bread-and-butter. We have a CAD based product (i.e., planar) that operates, when necessary, in WGS84 UTM. I previously built a GIS library of tools to assist with this and other related things, including the Proj library.
+ 
+Currently we support KML import / export, and thus lat/long conversion to WGS84 UTM. However, we are having some instance of users complaining that the KML export doesn’t work when they have UTM data using a different datum (obviously!). So I’m looking in to adding support for conversions from different datums.
+ 
+I suspect support for a handful of different datums will probably cover most of my users issues  - WGS84, NAD83, NAD72, NZGD49, NZGD2000 and GDA94 to start with. Do I need to include the datum grid files in my product install to make these work? (i.e., I anticipate having UTM coordinates based on these datums and needing to convert them to WGS84 lat/long for KML export)
+ 
+I thought of putting the Proj strings (e.g., "+proj=longlat +datum=NAD83 +no_defs") in an ini file so that I could add new ones without recompiling, but again I’m not sure when/if a datum grid file would be required?
+ 
+Am I correct in thinking that, provided the relevant ellipse is defined in Proj, I can perform any datum shift with the appropriate +towgs84 entry?
+ 
+Thanks for putting this amateur straight! J
+ 
+Dan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180320/2a5ec523/attachment.html>
+
+From martin.desruisseaux at geomatys.com  Mon Mar 19 16:44:43 2018
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Tue, 20 Mar 2018 00:44:43 +0100
+Subject: [Proj] Proj4 Datum Grids
+In-Reply-To: <fc7ea30c-e4c8-4356-9cce-738b3ee82bcf@lincolnagritech.co.nz>
+References: <fc7ea30c-e4c8-4356-9cce-738b3ee82bcf@lincolnagritech.co.nz>
+Message-ID: <64fda29b-12c2-6d0a-dcc6-f2e5a229e1b6@geomatys.com>
+
+Hello Dan
+
+Le 19/03/2018 à 23:15, Dan Crosby a écrit :
+
+> Am I correct in thinking that, provided the relevant ellipse is
+> defined in Proj, I can perform any datum shift with the appropriate
+> +towgs84 entry?
+>
+It depends on the desired accuracy; transformations done with +towgs84
+are only approximations. For example the accuracy is about 20 metres for
+NAD27 to WGS84 datum shift in Canada. For determining the operation
+accuracy (if the library does not provide this information by itself),
+one can consult http://epsg-registry.org/ (e.g. enter "NAD27 to WGS 84"
+in the name field).
+
+For better accuracy, datum shift grids are required. With those grids,
+an accuracy closer to 1 metre can be achieved. Note however that many
+datum shift grids are defined between two national datum (for example
+from NAD27 to NAD83), not necessarily to WGS 84. The national datum are
+often related to a continental plate while WGS 84 is related to Earth
+center; those two kinds of datum do not move in the same way. But a
+transformation to WGS 84 may nevertheless be performed on the assumption
+that one of the national datum is close enough to WGS 84. One may need
+to chain two grids however (e.g. NAD27 to NAD83 followed by NAD83 to
+NAD83(HARN) on the assumption that the later is equivalent to WGS 84
+within the accuracy of the transformation).
+
+Note that not all datum shifts can be relative to WGS 84. For example in
+Martinique (for transformation from 1938 system), any datum shifts going
+through WGS 84 will put errors; this transformation can not be described
+accurately by +towgs84. Note also that there is no longer a single WGS
+84 system, but currently 6 versions of WGS 84 with a difference up to
+about 1~2 metres between them, which make the use of +towgs84 ambiguous.
+
+Whether you need to care about the above or not depend on the desired
+accuracy. An issue is that current Proj.4 version gives no hint about
+the accuracy of its operation, but I believe that providing this kind of
+information is on the roadmap for future versions.
+
+    Martin
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180320/a1f79bea/attachment.html>
+
+From dan.crosby at lincolnagritech.co.nz  Tue Mar 20 21:15:29 2018
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Wed, 21 Mar 2018 17:15:29 +1300
+Subject: [Proj] Proj4 Datum Grids
+In-Reply-To: <64fda29b-12c2-6d0a-dcc6-f2e5a229e1b6@geomatys.com>
+References: <fc7ea30c-e4c8-4356-9cce-738b3ee82bcf@lincolnagritech.co.nz>
+	<64fda29b-12c2-6d0a-dcc6-f2e5a229e1b6@geomatys.com>
+Message-ID: <60842b72-81a0-4bb1-ab6b-8e6cd84dbac9@lincolnagritech.co.nz>
+
+Hi again,
+Still trying to solve this – it’s sort of working, but accuracy isn’t quite there (possible inherent?)
+Could someone please explain how / where / when to use pj_set_searchpath?
+I’m currently using pj_init_plus followed by pj_transform, but have a feeling I should be setting a custom search path for the grid files.
+Do I just call pj_set_searchpath with my path first?
+Thanks,
+Dan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180321/c6d7c62d/attachment.html>
+
+From kreve at sdfe.dk  Wed Mar 21 08:36:45 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Wed, 21 Mar 2018 15:36:45 +0000
+Subject: [Proj] PROJ 5.0.1RC1
+Message-ID: <928D4815-CD07-41D7-9243-2F6012E1CCE8@sdfe.dk>
+
+All,
+
+I have prepared the first release candidate for PROJ 5.0.1. This is a bug fix release only.
+
+Download it here:
+
+http://download.osgeo.org/proj/proj-5.0.1RC1.tar.gz (http://download.osgeo.org/proj/proj-5.0.1RC1.tar.gz.md5)
+http://download.osgeo.org/proj/proj-5.0.1RC1.zip (http://download.osgeo.org/proj/proj-5.0.1RC1.zip.md5)
+
+A detailed list of the fixed issues can be found here: https://github.com/OSGeo/proj.4/issues?q=is%3Aclosed+milestone%3A5.0.1<https://github.com/OSGeo/proj.4/issues?q=is:closed+milestone:5.0.1>
+
+If no problems with this release candidate are found I will call the vote for promotion to
+final release in a week on March 28th.
+
+/Kristian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180321/0d0d53df/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Mar 22 14:44:45 2018
+From: andrew.bell.ia at gmail.com (andrew.bell.ia at gmail.com)
+Date: Thu, 22 Mar 2018 14:44:45 -0700 (MST)
+Subject: [Proj] Testing of proj
+In-Reply-To: <CACmBxyvBzhKyfEmMohZmK6PboAQ+S-EZ-b1F4hubiWqJpwX_hg@mail.gmail.com>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC6938B@S000014.PROD.SITAD.DK>
+	<CACmBxyvBzhKyfEmMohZmK6PboAQ+S-EZ-b1F4hubiWqJpwX_hg@mail.gmail.com>
+Message-ID: <1521755085288-0.post@n6.nabble.com>
+
+Hi,
+
+I build and tried running 5.0 tests on OSX with ctest. Many failed. Is this
+expected? Do I need to download other data or do some configuration to get
+the tests to pass?
+
+Thanks,
+
+-- Andrew Bell
+andrew.bell.ia at gmail.com
+
+
+
+--
+Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+
+
+From kreve at sdfe.dk  Sun Mar 25 08:00:49 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Sun, 25 Mar 2018 15:00:49 +0000
+Subject: [Proj] Testing of proj
+In-Reply-To: <1521755085288-0.post@n6.nabble.com>
+References: <CACmBxyvqQJ90mtfXdgAe+eroeDZHW1HBNtDnjyZP=TLhc0fbKA@mail.gmail.com>
+	<2E885BB293AF0448A0181138489E9A0EAEC6938B@S000014.PROD.SITAD.DK>
+	<CACmBxyvBzhKyfEmMohZmK6PboAQ+S-EZ-b1F4hubiWqJpwX_hg@mail.gmail.com>
+	<1521755085288-0.post@n6.nabble.com>
+Message-ID: <4F612D7F-A428-4585-846D-FB41DE82C234@sdfe.dk>
+
+Hi Andrew,
+
+Sorry for not getting back to you sooner. It is definitely not expected. I suspect there’s some
+issues with PROJ not finding either proj_def.dat, grid-files or a combination of both.
+It is hard to tell exactly without some output from the tests. A few pointers in the general
+right direction:
+
+Normally various resource files are installed into /usr/local/share/proj or alternatively
+into PROJ_LIB if specified during install. Check that proj_def.dat is to be found in
+one of those places. It could be that if you are running the tests without having installed
+PROJ previously that it doesn’t pick up the resource files. If that is the case it is a bug
+that needs fixing.
+Grid files are installed to the same directory as above. The test suite should ignore missing
+grids, but in case it isn’t try unzipp the grids from
+ http://download.osgeo.org/proj/proj-datumgrid-1.7.zip into /usr/local/share/proj or PROJ_LIB.
+
+We still need a proper installation guide in the documentation so this sort of thing can be
+simpler to figure out. For now the best start is probably the Travis setup script:
+https://github.com/OSGeo/proj.4/blob/master/travis/install.sh
+
+From that I think you should be able to figure most things out by yourself.
+
+/Kristian
+
+
+On 22 Mar 2018, at 22:44, andrew.bell.ia at gmail.com<mailto:andrew.bell.ia at gmail.com> wrote:
+
+Hi,
+
+I build and tried running 5.0 tests on OSX with ctest. Many failed. Is this
+expected? Do I need to download other data or do some configuration to get
+the tests to pass?
+
+Thanks,
+
+-- Andrew Bell
+andrew.bell.ia at gmail.com<mailto:andrew.bell.ia at gmail.com>
+
+
+
+--
+Sent from: http://osgeo-org.1560.x6.nabble.com/PROJ-4-f3840930.html
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180325/a35b4e25/attachment.html>
+
+From jstumpe.ho at gmail.com  Tue Mar 27 03:13:58 2018
+From: jstumpe.ho at gmail.com (Juergen Stumpe)
+Date: Tue, 27 Mar 2018 12:13:58 +0200
+Subject: [Proj] Convert MODIS Sinusoidal to WGS84
+Message-ID: <CAG4Z10aTO-mWjPEAKC--pPuYrHMREyWGE0NjzpFb7G4kuc36WQ@mail.gmail.com>
+
+Hello,
+
+I'm trying to convert Modis meter values to WGS84 decimal degrees,
+using the PROJ4 command line, but I'm not able to set the parameters
+correctly.
+
+E.g. the command "echo 4447802.078667 -1111950.519667 | cs2cs
++proj=sinu +to +proj=WSG84" fails with "projection initialization
+failurecause: Unknown error".
+
+Does anybody know how the define the PROJ4 command line properly, in
+order to achieve a conversion with parameters according the attached
+TWCC screen shot?
+
+Thanks in advance!
+
+Juergen
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: TWCC Screen Shot.PNG
+Type: image/png
+Size: 28120 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180327/4da51bde/attachment.png>
+
+From kreve at sdfe.dk  Tue Mar 27 03:23:13 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Tue, 27 Mar 2018 10:23:13 +0000
+Subject: [Proj] Convert MODIS Sinusoidal to WGS84
+In-Reply-To: <CAG4Z10aTO-mWjPEAKC--pPuYrHMREyWGE0NjzpFb7G4kuc36WQ@mail.gmail.com>
+References: <CAG4Z10aTO-mWjPEAKC--pPuYrHMREyWGE0NjzpFb7G4kuc36WQ@mail.gmail.com>
+Message-ID: <7E9B0717-308A-44F0-BF61-9FC9C04807C5@sdfe.dk>
+
+Hi Jürgen,
+
+Try this instead:
+
+$ echo 4447802.078667 -1111950.519667 | cs2cs +proj=sinu +to +proj=latlong +datum=WGS84
+40d34'27.915"E  10d3'18.399"S 0.000
+
+WGS84 is not an operation<http://proj4.org/operations/index.html> in PROJ. It is however a recognised as a datum that can be used in
+conjunction with an operation such as “latlong”.
+
+Since what you are doing is really just converting projected sinusoidal coordinates to it’s originating
+latitude and longitude you can also just do
+
+$ echo 4447802.078667 -1111950.519667 | proj -I +proj=sinu
+40d34'27.915"E 10d3'18.399”S
+
+To reach the same result.
+
+/Kristian
+
+On 27 Mar 2018, at 12:13, Juergen Stumpe <jstumpe.ho at gmail.com<mailto:jstumpe.ho at gmail.com>> wrote:
+
+Hello,
+
+I'm trying to convert Modis meter values to WGS84 decimal degrees,
+using the PROJ4 command line, but I'm not able to set the parameters
+correctly.
+
+E.g. the command "echo 4447802.078667 -1111950.519667 | cs2cs
++proj=sinu +to +proj=WSG84" fails with "projection initialization
+failurecause: Unknown error".
+
+Does anybody know how the define the PROJ4 command line properly, in
+order to achieve a conversion with parameters according the attached
+TWCC screen shot?
+
+Thanks in advance!
+
+Juergen
+<TWCC Screen Shot.PNG>_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180327/236fa4a0/attachment.html>
+
+From jstumpe.ho at gmail.com  Tue Mar 27 04:13:23 2018
+From: jstumpe.ho at gmail.com (Juergen Stumpe)
+Date: Tue, 27 Mar 2018 13:13:23 +0200
+Subject: [Proj] Convert MODIS Sinusoidal to WGS84
+In-Reply-To: <7E9B0717-308A-44F0-BF61-9FC9C04807C5@sdfe.dk>
+References: <CAG4Z10aTO-mWjPEAKC--pPuYrHMREyWGE0NjzpFb7G4kuc36WQ@mail.gmail.com>
+	<7E9B0717-308A-44F0-BF61-9FC9C04807C5@sdfe.dk>
+Message-ID: <CAG4Z10ahs8AGE6yMEsOKw12-=Et9aQtXbNogs=uFpTY58LCFpQ@mail.gmail.com>
+
+Hi Kristian,
+
+Thanks for the fast reply and explanation. It works.
+
+Is there also an option to specify the output format? In the given
+example, the output format is DMS.
+
+To get the result in decimal degrees (DD), is there an PROJ parameter
+option to specify the output to be in DD,
+or is an additional, separate PROJ conversion needed, to convert from DMS to DD?
+
+Bye,
+
+Juergen
+
+On Tue, Mar 27, 2018 at 12:23 PM, Kristian Evers <kreve at sdfe.dk> wrote:
+> Hi Jürgen,
+>
+> Try this instead:
+>
+> $ echo 4447802.078667 -1111950.519667 | cs2cs +proj=sinu +to +proj=latlong
+> +datum=WGS84
+> 40d34'27.915"E  10d3'18.399"S 0.000
+>
+> WGS84 is not an operation in PROJ. It is however a recognised as a datum
+> that can be used in
+> conjunction with an operation such as “latlong”.
+>
+> Since what you are doing is really just converting projected sinusoidal
+> coordinates to it’s originating
+> latitude and longitude you can also just do
+>
+> $ echo 4447802.078667 -1111950.519667 | proj -I +proj=sinu
+> 40d34'27.915"E 10d3'18.399”S
+>
+> To reach the same result.
+>
+> /Kristian
+>
+> On 27 Mar 2018, at 12:13, Juergen Stumpe <jstumpe.ho at gmail.com> wrote:
+>
+> Hello,
+>
+> I'm trying to convert Modis meter values to WGS84 decimal degrees,
+> using the PROJ4 command line, but I'm not able to set the parameters
+> correctly.
+>
+> E.g. the command "echo 4447802.078667 -1111950.519667 | cs2cs
+> +proj=sinu +to +proj=WSG84" fails with "projection initialization
+> failurecause: Unknown error".
+>
+> Does anybody know how the define the PROJ4 command line properly, in
+> order to achieve a conversion with parameters according the attached
+> TWCC screen shot?
+>
+> Thanks in advance!
+>
+> Juergen
+> <TWCC Screen Shot.PNG>_______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+From kreve at sdfe.dk  Tue Mar 27 04:18:09 2018
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Tue, 27 Mar 2018 11:18:09 +0000
+Subject: [Proj] Convert MODIS Sinusoidal to WGS84
+In-Reply-To: <CAG4Z10ahs8AGE6yMEsOKw12-=Et9aQtXbNogs=uFpTY58LCFpQ@mail.gmail.com>
+References: <CAG4Z10aTO-mWjPEAKC--pPuYrHMREyWGE0NjzpFb7G4kuc36WQ@mail.gmail.com>
+	<7E9B0717-308A-44F0-BF61-9FC9C04807C5@sdfe.dk>
+	<CAG4Z10ahs8AGE6yMEsOKw12-=Et9aQtXbNogs=uFpTY58LCFpQ@mail.gmail.com>
+Message-ID: <C0241EE2-DD67-4116-B9B4-DA4A7E729576@sdfe.dk>
+
+You can control the output format with the -f option<http://proj4.org/apps/proj.html#cmdoption-proj-f>:
+
+echo 4447802.078667 -1111950.519667 | proj -I -f %.3f +proj=sinu
+
+Works for both proj and cs2cs.
+
+/Kristian
+
+On 27 Mar 2018, at 13:13, Juergen Stumpe <jstumpe.ho at gmail.com<mailto:jstumpe.ho at gmail.com>> wrote:
+
+Hi Kristian,
+
+Thanks for the fast reply and explanation. It works.
+
+Is there also an option to specify the output format? In the given
+example, the output format is DMS.
+
+To get the result in decimal degrees (DD), is there an PROJ parameter
+option to specify the output to be in DD,
+or is an additional, separate PROJ conversion needed, to convert from DMS to DD?
+
+Bye,
+
+Juergen
+
+On Tue, Mar 27, 2018 at 12:23 PM, Kristian Evers <kreve at sdfe.dk<mailto:kreve at sdfe.dk>> wrote:
+Hi Jürgen,
+
+Try this instead:
+
+$ echo 4447802.078667 -1111950.519667 | cs2cs +proj=sinu +to +proj=latlong
++datum=WGS84
+40d34'27.915"E  10d3'18.399"S 0.000
+
+WGS84 is not an operation in PROJ. It is however a recognised as a datum
+that can be used in
+conjunction with an operation such as “latlong”.
+
+Since what you are doing is really just converting projected sinusoidal
+coordinates to it’s originating
+latitude and longitude you can also just do
+
+$ echo 4447802.078667 -1111950.519667 | proj -I +proj=sinu
+40d34'27.915"E 10d3'18.399”S
+
+To reach the same result.
+
+/Kristian
+
+On 27 Mar 2018, at 12:13, Juergen Stumpe <jstumpe.ho at gmail.com<mailto:jstumpe.ho at gmail.com>> wrote:
+
+Hello,
+
+I'm trying to convert Modis meter values to WGS84 decimal degrees,
+using the PROJ4 command line, but I'm not able to set the parameters
+correctly.
+
+E.g. the command "echo 4447802.078667 -1111950.519667 | cs2cs
++proj=sinu +to +proj=WSG84" fails with "projection initialization
+failurecause: Unknown error".
+
+Does anybody know how the define the PROJ4 command line properly, in
+order to achieve a conversion with parameters according the attached
+TWCC screen shot?
+
+Thanks in advance!
+
+Juergen
+<TWCC Screen Shot.PNG>_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20180327/05beaab7/attachment.html>
+
+From jstumpe.ho at gmail.com  Tue Mar 27 04:42:51 2018
+From: jstumpe.ho at gmail.com (Juergen Stumpe)
+Date: Tue, 27 Mar 2018 13:42:51 +0200
+Subject: [Proj] Convert MODIS Sinusoidal to WGS84
+In-Reply-To: <C0241EE2-DD67-4116-B9B4-DA4A7E729576@sdfe.dk>
+References: <CAG4Z10aTO-mWjPEAKC--pPuYrHMREyWGE0NjzpFb7G4kuc36WQ@mail.gmail.com>
+	<7E9B0717-308A-44F0-BF61-9FC9C04807C5@sdfe.dk>
+	<CAG4Z10ahs8AGE6yMEsOKw12-=Et9aQtXbNogs=uFpTY58LCFpQ@mail.gmail.com>
+	<C0241EE2-DD67-4116-B9B4-DA4A7E729576@sdfe.dk>
+Message-ID: <CAG4Z10ZO9qPn4qOnc45c9sEqzLcq7WmCSu0Z30o+bQc9Li7XTg@mail.gmail.com>
+
+Perfect. Thanks!!
+
+On Tue, Mar 27, 2018 at 1:18 PM, Kristian Evers <kreve at sdfe.dk> wrote:
+> You can control the output format with the -f option:
+>
+> echo 4447802.078667 -1111950.519667 | proj -I -f %.3f +proj=sinu
+>
+> Works for both proj and cs2cs.
+>
+> /Kristian
+>
+> On 27 Mar 2018, at 13:13, Juergen Stumpe <jstumpe.ho at gmail.com> wrote:
+>
+> Hi Kristian,
+>
+> Thanks for the fast reply and explanation. It works.
+>
+> Is there also an option to specify the output format? In the given
+> example, the output format is DMS.
+>
+> To get the result in decimal degrees (DD), is there an PROJ parameter
+> option to specify the output to be in DD,
+> or is an additional, separate PROJ conversion needed, to convert from DMS to
+> DD?
+>
+> Bye,
+>
+> Juergen
+>
+> On Tue, Mar 27, 2018 at 12:23 PM, Kristian Evers <kreve at sdfe.dk> wrote:
+>
+> Hi Jürgen,
+>
+> Try this instead:
+>
+> $ echo 4447802.078667 -1111950.519667 | cs2cs +proj=sinu +to +proj=latlong
+> +datum=WGS84
+> 40d34'27.915"E  10d3'18.399"S 0.000
+>
+> WGS84 is not an operation in PROJ. It is however a recognised as a datum
+> that can be used in
+> conjunction with an operation such as “latlong”.
+>
+> Since what you are doing is really just converting projected sinusoidal
+> coordinates to it’s originating
+> latitude and longitude you can also just do
+>
+> $ echo 4447802.078667 -1111950.519667 | proj -I +proj=sinu
+> 40d34'27.915"E 10d3'18.399”S
+>
+> To reach the same result.
+>
+> /Kristian
+>
+> On 27 Mar 2018, at 12:13, Juergen Stumpe <jstumpe.ho at gmail.com> wrote:
+>
+> Hello,
+>
+> I'm trying to convert Modis meter values to WGS84 decimal degrees,
+> using the PROJ4 command line, but I'm not able to set the parameters
+> correctly.
+>
+> E.g. the command "echo 4447802.078667 -1111950.519667 | cs2cs
+> +proj=sinu +to +proj=WSG84" fails with "projection initialization
+> failurecause: Unknown error".
+>
+> Does anybody know how the define the PROJ4 command line properly, in
+> order to achieve a conversion with parameters according the attached
+> TWCC screen shot?
+>
+> Thanks in advance!
+>
+> Juergen
+> <TWCC Screen Shot.PNG>_______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+

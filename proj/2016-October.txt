@@ -1,0 +1,1858 @@
+From vincent.mora at oslandia.com  Wed Oct  5 01:21:31 2016
+From: vincent.mora at oslandia.com (Vincent Mora)
+Date: Wed, 5 Oct 2016 10:21:31 +0200
+Subject: [Proj] vertical projection
+Message-ID: <c33d2842-d06f-f2dd-1994-2e68a6084bd0@oslandia.com>
+
+Hi,
+
+I need to draw terrain sections for several projects (hydrology, geology).
+
+The vertical section is defined by a linestring in the (x,y) plane (e.g.
++proj=lcc). Data in the vicinity of the section are ortho-projected on
+the folded plane with coordinates (s,z), where s is the point location
+on the line (meters or feet).
+
+For the moment the CRS part of the QGis plugin we are developping is a
+bit of a hack, and I'd like to introduce that kind of projection in
+proj4 since I believe it belongs there.
+
+A projection on a folded plane is rather common, but in this case:
+- the folds are sharp,
+- the projection is not well defined for points that lie on the bisector
+of two line-segments
+- the projection is meaninigless for points that are not in the plane
+vicinity.
+
+The proj4 string should contain:
+- the line definition (e.g. +wkt=LINESTRING(...))
+- the classical definition of the CRS of the line,
+- and a thickness (vicinity of the plane)
+
+Questions:
+- has such a CRS it's place in proj4 ?
+- do you see obvious errors/misconceptions ?
+
+Cheers,
+
+V.
+
+
+
+Some details here
+<https://github.com/vmora/qgis_section/blob/master/docs/source/design.rst>
+along with the current implementation of section in a QGis plugin.
+
+
+From even.rouault at spatialys.com  Wed Oct  5 03:18:05 2016
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 5 Oct 2016 12:18:05 +0200
+Subject: [Proj] vertical projection
+In-Reply-To: <c33d2842-d06f-f2dd-1994-2e68a6084bd0@oslandia.com>
+References: <c33d2842-d06f-f2dd-1994-2e68a6084bd0@oslandia.com>
+Message-ID: <201610051218.05175.even.rouault@spatialys.com>
+
+Le mercredi 05 octobre 2016 10:21:31, Vincent Mora a écrit :
+> Hi,
+> 
+> I need to draw terrain sections for several projects (hydrology, geology).
+> 
+> The vertical section is defined by a linestring in the (x,y) plane (e.g.
+> +proj=lcc). Data in the vicinity of the section are ortho-projected on
+> the folded plane with coordinates (s,z), where s is the point location
+> on the line (meters or feet).
+> 
+> For the moment the CRS part of the QGis plugin we are developping is a
+> bit of a hack, and I'd like to introduce that kind of projection in
+> proj4 since I believe it belongs there.
+> 
+> A projection on a folded plane is rather common, but in this case:
+> - the folds are sharp,
+> - the projection is not well defined for points that lie on the bisector
+> of two line-segments
+> - the projection is meaninigless for points that are not in the plane
+> vicinity.
+> 
+> The proj4 string should contain:
+> - the line definition (e.g. +wkt=LINESTRING(...))
+> - the classical definition of the CRS of the line,
+> - and a thickness (vicinity of the plane)
+> 
+> Questions:
+> - has such a CRS it's place in proj4 ?
+> - do you see obvious errors/misconceptions ?
+
+Vincent,
+
+The fact that the line definition can be defined in any CRS handled by proj.4
+would make it quite a odd object for proj.4 if we used current mechanisms.
+You'd need to have a definition like :
++proj=vertplane +wkt=LINESTRING(...) +wkt_proj=lcc +wkt_proj_lat_1= ...
+
+Probably a better fit would be to rely on Thomas Knudsen's ongoing work on
+transformation pipelines (
+http://osgeo-org.1560.x6.nabble.com/Transformation-pipelines-your-opinion-td5269960.html ,
+http://thomasknudsen.net/tran_users_guide.html ).
+I'm not sure this has yet landed into master. Perhaps Thomas can confirm ?
+
+With that framework, I think you could define a 2 stage pipeline :
+- first converting from geographical coordinates to LCC projected ones
+- then doing the projection onto the vertical plane
+
++proj=pipeline +step=lcc +lat_1=...  +step +proj=vertplane +wkt=LINESTRING(...) +thickness=
+
+Regarding QGIS integration, this would require some changes, due to pipeline support
+requiring a new dedicated API in proj.4 "TRIPLET pj_apply_projection (TRIPLET point, int direction, PJ *P)" since you cannot use the
+existing int pj_transform( projPJ srcdefn, projPJ dstdefn, long point_count, int point_offset, double *x, double *y, double *z )
+
+By the way, Thomas, wouldn't that make sense to have a pipeline transformation
+API that would accept several points at once ? The default implementation could
+just loop over them, but that would be a provision for potential later optimizations
+where you could potentially vectorize computations.
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From knudsen.thomas at gmail.com  Wed Oct 12 12:12:24 2016
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Wed, 12 Oct 2016 21:12:24 +0200
+Subject: [Proj] vertical projection
+In-Reply-To: <201610051218.05175.even.rouault@spatialys.com>
+References: <c33d2842-d06f-f2dd-1994-2e68a6084bd0@oslandia.com>
+	<201610051218.05175.even.rouault@spatialys.com>
+Message-ID: <CAH0YoEOmptQZocG=1VdMVJE_F-d0md9KPdfDQWn0SP+GzoB=3A@mail.gmail.com>
+
+Well, the pipeline code is under reconstruction: Having had to build a
+large amount of infrastructure while implementing the pipeline code, the
+pull request ended up somewhat messy, and I closed it,
+
+I am now in the process of refactoring in order to first build the
+infrastructure, then the solution on top of it. The first part appeared as
+pull request #431 yesterday (cf. https://github.com/OSGeo/proj.4/pull/431
+ -  I would be thankful for any comments you may have to offer).
+
+Next steps will probably be to reintroduce the +proj=pipeline "pseudo
+projection", followed by the elementary operations (Helmert, Horner,
+Cartesian/Ellipsoidal)., and finally the 3D-transformation program "tran",
+and some documentation.
+
+The intention is to make pipelines work transparently also for the original
+proj.4 2D API calls, and the more recently added 3D calls
+(pj_fwd3d/pj_inv3d): All the ugly stuff is taken care of inside the
+pipeline-pseudo-projection driver, so given the transformation intended
+makes sense in 2D it should work once I get around to polish it up -
+although the main intention of the work is to facilitate full 3D geodetic
+transformations in all their glorious convolution :-)
+
+So Vincent, as Even points out: The pipeline stuff may be what you need -
+but it is not ready for prime time yet.
+
+I do, however, believe that the refactoring of the code will make it much
+more comprehensible, and probably also more stable. But stability is
+correlated with usage as well, so I will highly appreciate any test efforts
+and/or guidance you may be able to provide as the work proceeds.
+
+Best regards
+Thomas
+
+
+
+2016-10-05 12:18 GMT+02:00 Even Rouault <even.rouault at spatialys.com>:
+
+> Le mercredi 05 octobre 2016 10:21:31, Vincent Mora a écrit :
+> > Hi,
+> >
+> > I need to draw terrain sections for several projects (hydrology,
+> geology).
+> >
+> > The vertical section is defined by a linestring in the (x,y) plane (e.g.
+> > +proj=lcc). Data in the vicinity of the section are ortho-projected on
+> > the folded plane with coordinates (s,z), where s is the point location
+> > on the line (meters or feet).
+> >
+> > For the moment the CRS part of the QGis plugin we are developping is a
+> > bit of a hack, and I'd like to introduce that kind of projection in
+> > proj4 since I believe it belongs there.
+> >
+> > A projection on a folded plane is rather common, but in this case:
+> > - the folds are sharp,
+> > - the projection is not well defined for points that lie on the bisector
+> > of two line-segments
+> > - the projection is meaninigless for points that are not in the plane
+> > vicinity.
+> >
+> > The proj4 string should contain:
+> > - the line definition (e.g. +wkt=LINESTRING(...))
+> > - the classical definition of the CRS of the line,
+> > - and a thickness (vicinity of the plane)
+> >
+> > Questions:
+> > - has such a CRS it's place in proj4 ?
+> > - do you see obvious errors/misconceptions ?
+>
+> Vincent,
+>
+> The fact that the line definition can be defined in any CRS handled by
+> proj.4
+> would make it quite a odd object for proj.4 if we used current mechanisms.
+> You'd need to have a definition like :
+> +proj=vertplane +wkt=LINESTRING(...) +wkt_proj=lcc +wkt_proj_lat_1= ...
+>
+> Probably a better fit would be to rely on Thomas Knudsen's ongoing work on
+> transformation pipelines (
+> http://osgeo-org.1560.x6.nabble.com/Transformation-pipelines-your-opinion-
+> td5269960.html ,
+> http://thomasknudsen.net/tran_users_guide.html ).
+> I'm not sure this has yet landed into master. Perhaps Thomas can confirm ?
+>
+> With that framework, I think you could define a 2 stage pipeline :
+> - first converting from geographical coordinates to LCC projected ones
+> - then doing the projection onto the vertical plane
+>
+> +proj=pipeline +step=lcc +lat_1=...  +step +proj=vertplane
+> +wkt=LINESTRING(...) +thickness=
+>
+> Regarding QGIS integration, this would require some changes, due to
+> pipeline support
+> requiring a new dedicated API in proj.4 "TRIPLET pj_apply_projection
+> (TRIPLET point, int direction, PJ *P)" since you cannot use the
+> existing int pj_transform( projPJ srcdefn, projPJ dstdefn, long
+> point_count, int point_offset, double *x, double *y, double *z )
+>
+> By the way, Thomas, wouldn't that make sense to have a pipeline
+> transformation
+> API that would accept several points at once ? The default implementation
+> could
+> just loop over them, but that would be a provision for potential later
+> optimizations
+> where you could potentially vectorize computations.
+>
+> Even
+>
+> --
+> Spatialys - Geospatial professional services
+> http://www.spatialys.com
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161012/65f65324/attachment.html>
+
+From baas at speerit.nl  Thu Oct 13 01:07:50 2016
+From: baas at speerit.nl (Jelmer Baas)
+Date: Thu, 13 Oct 2016 08:07:50 +0000
+Subject: [Proj] Differences between UTM Zone 30 (ED 50) projections
+Message-ID: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>
+
+Hello,
+
+I currently have a MapInfo file in UTM Zone 30 (ED 50) (EPSG: 23030) projection, which, after reprojection via OGR2OGR to EPSG:900913, moves a few meters East when compared to OSM.
+
+Oddly enough, the EPSG file defines 23030 as 
++proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs  <>
+
+Yet, spatialreference.org (http://spatialreference.org/ref/epsg/ed50-utm-zone-30n/ ) defines it as 
++proj=utm +zone=30 +ellps=intl +units=m +no_defs
+
+For completeness, MapInfo PRO defines this projection system as:
+UTM Zone 30 (ED 50)\p23030", 8, 28, 7, -3, 0, 0.9996, 500000, 0
+
+My test:
+Source From MapInfo	440151.086,	4494277.463
+Mercator MapInfo	-412840.28    	4952824.92 
+CS2CS Simple[1]	-412694.24      	4952997.17 0.00 (so without the +towgs84 bit)
+CS2CS towgs84[2]	-412694.24      	4952997.17 0.00
+PostgreSQL 9.4[3]	-412830.24      	4952825.873
+PostgreSQL Custom[4]	-412694.23 	4952997.16 
+
+>From a developer at MapInfo I got a tip to try to include an accurate datum transform file, like NTV2_0.GSB, but CS2CS doesn't want to use this: 
+This file doesn't even exist:
+cs2cs +nadgrids=blah.gsb +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+cs2cs +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m +nadgrids=blah.gsb
+[no error, Process Monitor shows cs2cs not even trying to open the file]
+
+[1] C:\OSGeo4W64\bin>cs2cs +proj=utm +zone=30 +ellps=intl +units=m  +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+[2] C:\OSGeo4W64\bin>cs2cs +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+[3] select ST_AsText(ST_Transform(ST_GeomFromText('POINT(440151.086 4494277.463)', 23030), 900913))
+[4] select ST_AsText(ST_Transform(ST_GeomFromText('POINT(440151.086 4494277.463)', 923030), 900913)) [5]
+[5] INSERT into spatial_ref_sys (srid, auth_name, auth_srid, proj4text, srtext) values ( 923030, 'epsg', 923030, '+proj=utm +zone=30 +ellps=intl +units=m +no_defs ', 'PROJCS["ED50 / UTM zone 30N",GEOGCS["ED50",DATUM["European_Datum_1950",SPHEROID["International 1924",6378388,297,AUTHORITY["EPSG","7022"]],AUTHORITY["EPSG","6230"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.01745329251994328,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4230"]],UNIT["metre",1,AUTHORITY["EPSG","9001"]],PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",0],PARAMETER["central_meridian",-3],PARAMETER["scale_factor",0.9996],PARAMETER["false_easting",500000],PARAMETER["false_northing",0],AUTHORITY["EPSG","23030"],AXIS["Easting",EAST],AXIS["Northing",NORTH]]');
+
+Can anyone tell me why there's a difference between the MapInfo PRO projection and the Proj.4 projection? And, hopefully, also a solution to correct this? Please note that I don't know whether MapInfo or Proj is at fault, I justk now that my data is drawn from MapInfo, where it's accurate compared to other data.
+
+Thanks,
+Jelmer 
+
+
+
+From ericnico.david at gmail.com  Thu Oct 13 01:41:25 2016
+From: ericnico.david at gmail.com (NDavid)
+Date: Thu, 13 Oct 2016 01:41:25 -0700 (MST)
+Subject: [Proj] Transformation pipelines - your opinion?
+In-Reply-To: <AB629BD0-74DD-446A-918F-853E42606946@hobu.co>
+References: <CAH0YoENp1A9QQL-ytbieWSbN5MTieqmaQ4P1ka4how=EghmbFA@mail.gmail.com>
+	<AB629BD0-74DD-446A-918F-853E42606946@hobu.co>
+Message-ID: <1476348085425-5290527.post@n6.nabble.com>
+
+Sorry for the (very) late reply, 
+
+I've read the discussion about this pipelines feature at github and your
+proj4 page and
+I've definitely see such coordinate transformation pipeline as very useful.
+BUT I'm more incline to keep only cartographic projection inside proj4 and
+to implement 
+pipeline and other coordinate transformation outside proj4 in another
+library/librairies. 
+And perhaps with a more C++ style than ANSI C.  
+
+Some potential coordinate transform that, I think, could fit into a pipeline
+are
+- cartographic projection (of course)
+- datum conversion with planar gridshift or use of geoid.
+- unit transform
+- cartesian <-> polar <-> cylindric coordinate
+- temporal transform (gps time to utc time ? )
+- trajectory georeferencing (for point cloud, mobile mapping camera) 
+- conversion between sensor coordinate system and platform/IMU
+- ..
+Some of this coordinate transformation need additional data (trajectory
+files, grid files, 
+datum/ellispoid dictionnary) and if implement inside proj4 that could lead
+to insert 
+into proj4 some dependencies or making it a bigger library. 
+And so people who are only interrested in cartographic transformation
+functions of 
+proj4 will have to pay for something they don't want.
+I know that pj_transform/cs2cs/pj_apply_gridshift are not only about
+cartographic 
+projection but also about datum transform. I understand to keep such
+function
+inside proj4 for historical and compatibility reasons but I don't think this
+is
+their "right" place. 
+
+ just my 2 cents about this pipeline proposal.
+Nicolas
+
+
+
+--
+View this message in context: http://osgeo-org.1560.x6.nabble.com/Transformation-pipelines-your-opinion-tp5269960p5290527.html
+Sent from the PROJ.4 mailing list archive at Nabble.com.
+
+
+From andre+joost at nurfuerspam.de  Thu Oct 13 11:09:34 2016
+From: andre+joost at nurfuerspam.de (Andre Joost)
+Date: Thu, 13 Oct 2016 20:09:34 +0200
+Subject: [Proj] Differences between UTM Zone 30 (ED 50) projections
+In-Reply-To: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>
+References: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>
+Message-ID: <ntoilu$n34$1@blaine.gmane.org>
+
+Am 13.10.2016 um 10:07 schrieb Jelmer Baas:
+> Hello,
+>
+> I currently have a MapInfo file in UTM Zone 30 (ED 50) (EPSG: 23030)
+> projection, which, after reprojection via OGR2OGR to EPSG:900913,
+> moves a few meters East when compared to OSM.
+
+Looks like a datum shift issue, but kkep in mind that OSM is not 
+necessarily "exact".
+
+
+>
+> Oddly enough, the EPSG file defines 23030 as +proj=utm +zone=30
+> +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs  <>
+
+... using a mean shift value for whole Europe.
+
+>
+> Yet, spatialreference.org
+> (http://spatialreference.org/ref/epsg/ed50-utm-zone-30n/ ) defines it
+> as +proj=utm +zone=30 +ellps=intl +units=m +no_defs
+
+... omitting the datum shift, which is surely wrong.
+
+>
+> For completeness, MapInfo PRO defines this projection system as: UTM
+> Zone 30 (ED 50)\p23030", 8, 28, 7, -3, 0, 0.9996, 500000, 0
+
+I'm not sure if this includes an explicit datum shift.
+
+
+> From a developer at MapInfo I got a tip to try to include an accurate
+> datum transform file, like NTV2_0.GSB, but CS2CS doesn't want to use
+> this: This file doesn't even exist: cs2cs +nadgrids=blah.gsb
+> +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m
+> +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+> +y_0=0 +k=1.0 +units=m cs2cs +proj=utm +zone=30 +ellps=intl
+> +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137
+> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+> +nadgrids=blah.gsb [no error, Process Monitor shows cs2cs not even
+> trying to open the file]
+
+What datum shift grid did you use? the files I know are mainly from 
+national coordinate systems to WGS84.
+
+
+
+>  Can anyone tell me why there's a difference between the MapInfo PRO
+> projection and the Proj.4 projection? And, hopefully, also a solution
+> to correct this? Please note that I don't know whether MapInfo or
+> Proj is at fault, I justk now that my data is drawn from MapInfo,
+> where it's accurate compared to other data.
+
+The EPSG registry lists 42 valid datum shift parameter sets from ED50 to 
+WGS84, each with a different area of use. As written above, the values 
+in EPSG:23030 are a mean value, which can not provide centimeter accuracy.
+
+HTH,
+André Joost
+
+
+
+
+From baas at speerit.nl  Thu Oct 13 11:36:04 2016
+From: baas at speerit.nl (Jelmer Baas)
+Date: Thu, 13 Oct 2016 18:36:04 +0000
+Subject: [Proj] Differences between UTM Zone 30 (ED 50) projections
+In-Reply-To: <ntoilu$n34$1@blaine.gmane.org>
+References: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>
+	<ntoilu$n34$1@blaine.gmane.org>
+Message-ID: <BC9747AD8551184D9B674A8310FE337B3179E052@mailserver>
+
+Hello Andre,
+
+Thanks for the reply. I'll study your replies some more tomorrow, but I also continued experimenting, and found that the following yields nearly exactly the same results as MapInfo:
+cs2cs +nadgrids=NTV2_0.GSB,BALEARES.gsb,PENINSULA.gsb +proj=utm +zone=30 +ellps=intl +units=m +to +proj=latlong +ellps=WGS84 +towgs84=0,0,0
+[.]
+pj_open_lib(BALEARES.gsb): call fopen(C:\OSGeo4W64\share\proj\BALEARES.gsb) - succeeded
+NTv2 BALEARES 93x68: LL=(0.833333333,38) UR=(4.66666667,40.7916667)
+pj_open_lib(PENINSULA.gsb): call fopen(C:\OSGeo4W64\share\proj\PENINSULA.gsb) - succeeded
+NTv2 PENINSUL 259x161: LL=(-10.1833333,35.5555556) UR=(4.15,44.4444444)
+NTv2 - loading grid PENINSUL
+pj_open_lib(PENINSULA.gsb): call fopen(C:\OSGeo4W64\share\proj\PENINSULA.gsb) - succeeded
+pj_apply_gridshift(): used PENINSUL
+3d42'30.984"W   40d35'42.94"N 0.000
+
+cs2cs +proj=latlong +ellps=WGS84 +towgs84=0,0,0 +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+3d42'30.984"W   40d35'42.94"N 0.000
+-412840.21      4952824.83 0.00
+
+So when doing UTM Zone 30 ED 50 -> WGS84 -> Mercator, I get results I expect. Note that I'm using the .gsb files provided with MapInfo PRO, which answers you question below: the projection system as defined in MapInfo doesn't have the datum shift, but it uses the shift defined in its .gsb files.
+Can I force this extra step in a proj wkt string? My goal is to have this working in PostgreSQL.
+
+Using a fixed shift value could also work, since I'm only intested in Spain at the moment.
+
+I'm not sure I understand this question of yours: " What datum shift grid did you use? the files I know are mainly from national coordinate systems to WGS84.". Care to eloborate?
+
+Thanks,
+
+Regards,
+Jelmer
+
+-----Original Message-----
+From: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] On Behalf Of Andre Joost
+Sent: donderdag 13 oktober 2016 20:10
+To: proj at lists.maptools.org
+Subject: Re: [Proj] Differences between UTM Zone 30 (ED 50) projections
+
+Am 13.10.2016 um 10:07 schrieb Jelmer Baas:
+> Hello,
+>
+> I currently have a MapInfo file in UTM Zone 30 (ED 50) (EPSG: 23030)
+> projection, which, after reprojection via OGR2OGR to EPSG:900913,
+> moves a few meters East when compared to OSM.
+
+Looks like a datum shift issue, but kkep in mind that OSM is not 
+necessarily "exact".
+
+
+>
+> Oddly enough, the EPSG file defines 23030 as +proj=utm +zone=30
+> +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs  <>
+
+... using a mean shift value for whole Europe.
+
+>
+> Yet, spatialreference.org
+> (http://spatialreference.org/ref/epsg/ed50-utm-zone-30n/ ) defines it
+> as +proj=utm +zone=30 +ellps=intl +units=m +no_defs
+
+... omitting the datum shift, which is surely wrong.
+
+>
+> For completeness, MapInfo PRO defines this projection system as: UTM
+> Zone 30 (ED 50)\p23030", 8, 28, 7, -3, 0, 0.9996, 500000, 0
+
+I'm not sure if this includes an explicit datum shift.
+
+
+> From a developer at MapInfo I got a tip to try to include an accurate
+> datum transform file, like NTV2_0.GSB, but CS2CS doesn't want to use
+> this: This file doesn't even exist: cs2cs +nadgrids=blah.gsb
+> +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m
+> +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+> +y_0=0 +k=1.0 +units=m cs2cs +proj=utm +zone=30 +ellps=intl
+> +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137
+> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+> +nadgrids=blah.gsb [no error, Process Monitor shows cs2cs not even
+> trying to open the file]
+
+What datum shift grid did you use? the files I know are mainly from 
+national coordinate systems to WGS84.
+
+
+
+>  Can anyone tell me why there's a difference between the MapInfo PRO
+> projection and the Proj.4 projection? And, hopefully, also a solution
+> to correct this? Please note that I don't know whether MapInfo or
+> Proj is at fault, I justk now that my data is drawn from MapInfo,
+> where it's accurate compared to other data.
+
+The EPSG registry lists 42 valid datum shift parameter sets from ED50 to 
+WGS84, each with a different area of use. As written above, the values 
+in EPSG:23030 are a mean value, which can not provide centimeter accuracy.
+
+HTH,
+André Joost
+
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+From cjmce at lsu.edu  Thu Oct 13 11:54:59 2016
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Thu, 13 Oct 2016 18:54:59 +0000
+Subject: [Proj] Differences between UTM Zone 30 (ED 50) projections
+In-Reply-To: <ntoilu$n34$1@blaine.gmane.org>
+References: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>
+	<ntoilu$n34$1@blaine.gmane.org>
+Message-ID: <951A03E8-16F8-4943-9663-EDEA7F71DBFF@lsu.edu>
+
+I find it hard to believe that ANY datum shift algorithm or data set is good to centimeters!
+
+If a classical horizontal datum is involved; that’s impossible.  Two inertial datums … maybe.
+
+European Datum 1950?  Not gonna happen.
+
+Clifford J. Mugnier, CP,CMS,FASPRS
+Chief of Geodesy,
+Center for GeoInformatics (C4G)
+266 ERAD (Research)
+3335 PFT  (Academic)
+Dept. of Civil & Environmental Engineering
+LOUISIANA STATE UNIVERSITY
+Baton Rouge, LA  70803
+Research  225-578-4578
+Academic   225-578-8536
+Cell          225-328-8975
+
+
+
+
+
+
+
+
+
+On 10/13/16, 1:09 PM, "proj-bounces at lists.maptools.org on behalf of Andre Joost" <proj-bounces at lists.maptools.org on behalf of andre+joost at nurfuerspam.de> wrote:
+
+>Am 13.10.2016 um 10:07 schrieb Jelmer Baas:
+>> Hello,
+>>
+>> I currently have a MapInfo file in UTM Zone 30 (ED 50) (EPSG: 23030)
+>> projection, which, after reprojection via OGR2OGR to EPSG:900913,
+>> moves a few meters East when compared to OSM.
+>
+>Looks like a datum shift issue, but kkep in mind that OSM is not 
+>necessarily "exact".
+>
+>
+>>
+>> Oddly enough, the EPSG file defines 23030 as +proj=utm +zone=30
+>> +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs  <>
+>
+>... using a mean shift value for whole Europe.
+>
+>>
+>> Yet, spatialreference.org
+>> (http://spatialreference.org/ref/epsg/ed50-utm-zone-30n/ ) defines it
+>> as +proj=utm +zone=30 +ellps=intl +units=m +no_defs
+>
+>... omitting the datum shift, which is surely wrong.
+>
+>>
+>> For completeness, MapInfo PRO defines this projection system as: UTM
+>> Zone 30 (ED 50)\p23030", 8, 28, 7, -3, 0, 0.9996, 500000, 0
+>
+>I'm not sure if this includes an explicit datum shift.
+>
+>
+>> From a developer at MapInfo I got a tip to try to include an accurate
+>> datum transform file, like NTV2_0.GSB, but CS2CS doesn't want to use
+>> this: This file doesn't even exist: cs2cs +nadgrids=blah.gsb
+>> +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m
+>> +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+>> +y_0=0 +k=1.0 +units=m cs2cs +proj=utm +zone=30 +ellps=intl
+>> +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137
+>> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+>> +nadgrids=blah.gsb [no error, Process Monitor shows cs2cs not even
+>> trying to open the file]
+>
+>What datum shift grid did you use? the files I know are mainly from 
+>national coordinate systems to WGS84.
+>
+>
+>
+>>  Can anyone tell me why there's a difference between the MapInfo PRO
+>> projection and the Proj.4 projection? And, hopefully, also a solution
+>> to correct this? Please note that I don't know whether MapInfo or
+>> Proj is at fault, I justk now that my data is drawn from MapInfo,
+>> where it's accurate compared to other data.
+>
+>The EPSG registry lists 42 valid datum shift parameter sets from ED50 to 
+>WGS84, each with a different area of use. As written above, the values 
+>in EPSG:23030 are a mean value, which can not provide centimeter accuracy.
+>
+>HTH,
+>André Joost
+>
+>
+>_______________________________________________
+>Proj mailing list
+>Proj at lists.maptools.org
+>http://lists.maptools.org/mailman/listinfo/proj
+
+From andre+joost at nurfuerspam.de  Thu Oct 13 22:39:35 2016
+From: andre+joost at nurfuerspam.de (Andre Joost)
+Date: Fri, 14 Oct 2016 07:39:35 +0200
+Subject: [Proj] Differences between UTM Zone 30 (ED 50) projections
+In-Reply-To: <BC9747AD8551184D9B674A8310FE337B3179E052@mailserver>
+References: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>	<ntoilu$n34$1@blaine.gmane.org>
+	<BC9747AD8551184D9B674A8310FE337B3179E052@mailserver>
+Message-ID: <ntpr3f$e6q$1@blaine.gmane.org>
+
+Hello Jelmer,
+
+Am 13.10.2016 um 20:36 schrieb Jelmer Baas:
+
+>
+> I'm not sure I understand this question of yours: " What datum shift
+> grid did you use? the files I know are mainly from national
+> coordinate systems to WGS84.". Care to eloborate?
+>
+
+I did not know that a grid shift file from ED50 to WGS84 exists. The one 
+you have is valid for Spain only.
+
+<http://terrasit.gva.es/val/kb/canvi-sistema-referencia-ed50-etrs89-transformacio-coordinades-utm-ed50-utm-etrs89-utilitzant-lli> 
+should help you on the way (I guess you understand Spanish better than I 
+do).
+
+
+ftp://ftp.rgan.navarra.es/docs/Rejilla_NTv2/Spain/ should contain the 
+gsb files for those who have no access to mapinfo.
+
+
+HTH,
+André Joost
+
+
+
+From baas at speerit.nl  Fri Oct 14 02:46:08 2016
+From: baas at speerit.nl (Jelmer Baas)
+Date: Fri, 14 Oct 2016 09:46:08 +0000
+Subject: [Proj] Differences between UTM Zone 30 (ED 50) projections
+In-Reply-To: <951A03E8-16F8-4943-9663-EDEA7F71DBFF@lsu.edu>
+References: <BC9747AD8551184D9B674A8310FE337B3179DD7F@mailserver>
+	<ntoilu$n34$1@blaine.gmane.org>
+	<951A03E8-16F8-4943-9663-EDEA7F71DBFF@lsu.edu>
+Message-ID: <BC9747AD8551184D9B674A8310FE337B3179E265@mailserver>
+
+The difference between MapInfo Pro and Proj4, when both using the datum shift file:
+MapInfo	-412840.21      	4952824.83
+Proj		-412840.28         	4952824.92
+Proj[1]		-412840.21      	4952824.84
+That's only a few centimers, which is acceptable for my purpose. 
+
+When removing the datum shift file from MapInfo, these are the results:
+Proj		-412830.24      	4952825.87
+PostgreSQL	-412830.24         	4952825.873
+MapInfo	-412830.25	4952825.87
+
+I'd say that's spot-on :)
+
+[1] cs2cs +nadgrids=NTV2_0.GSB,BALEARES.gsb,PENINSULA.gsb +init=epsg:23030 +to +init=epsg:3857
+
+I've now added the following to my epsg file:
+<923030> +nadgrids=BALEARES.gsb,PENINSULA.gsb +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs  <>
+
+Thanks.
+
+Regards,
+Jelmer Baas
+Speer IT B.V.
+
+
+-----Original Message-----
+From: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] On Behalf Of Clifford J Mugnier
+Sent: donderdag 13 oktober 2016 20:55
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] Differences between UTM Zone 30 (ED 50) projections
+
+I find it hard to believe that ANY datum shift algorithm or data set is good to centimeters!
+
+If a classical horizontal datum is involved; that’s impossible.  Two inertial datums … maybe.
+
+European Datum 1950?  Not gonna happen.
+
+Clifford J. Mugnier, CP,CMS,FASPRS
+Chief of Geodesy,
+Center for GeoInformatics (C4G)
+266 ERAD (Research)
+3335 PFT  (Academic)
+Dept. of Civil & Environmental Engineering
+LOUISIANA STATE UNIVERSITY
+Baton Rouge, LA  70803
+Research  225-578-4578
+Academic   225-578-8536
+Cell          225-328-8975
+
+
+
+
+
+
+
+
+
+On 10/13/16, 1:09 PM, "proj-bounces at lists.maptools.org on behalf of Andre Joost" <proj-bounces at lists.maptools.org on behalf of andre+joost at nurfuerspam.de> wrote:
+
+>Am 13.10.2016 um 10:07 schrieb Jelmer Baas:
+>> Hello,
+>>
+>> I currently have a MapInfo file in UTM Zone 30 (ED 50) (EPSG: 23030)
+>> projection, which, after reprojection via OGR2OGR to EPSG:900913,
+>> moves a few meters East when compared to OSM.
+>
+>Looks like a datum shift issue, but kkep in mind that OSM is not 
+>necessarily "exact".
+>
+>
+>>
+>> Oddly enough, the EPSG file defines 23030 as +proj=utm +zone=30
+>> +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m +no_defs  <>
+>
+>... using a mean shift value for whole Europe.
+>
+>>
+>> Yet, spatialreference.org
+>> (http://spatialreference.org/ref/epsg/ed50-utm-zone-30n/ ) defines it
+>> as +proj=utm +zone=30 +ellps=intl +units=m +no_defs
+>
+>... omitting the datum shift, which is surely wrong.
+>
+>>
+>> For completeness, MapInfo PRO defines this projection system as: UTM
+>> Zone 30 (ED 50)\p23030", 8, 28, 7, -3, 0, 0.9996, 500000, 0
+>
+>I'm not sure if this includes an explicit datum shift.
+>
+>
+>> From a developer at MapInfo I got a tip to try to include an accurate
+>> datum transform file, like NTV2_0.GSB, but CS2CS doesn't want to use
+>> this: This file doesn't even exist: cs2cs +nadgrids=blah.gsb
+>> +proj=utm +zone=30 +ellps=intl +towgs84=-87,-98,-121,0,0,0,0 +units=m
+>> +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0
+>> +y_0=0 +k=1.0 +units=m cs2cs +proj=utm +zone=30 +ellps=intl
+>> +towgs84=-87,-98,-121,0,0,0,0 +units=m +to +proj=merc +a=6378137
+>> +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +k=1.0 +units=m
+>> +nadgrids=blah.gsb [no error, Process Monitor shows cs2cs not even
+>> trying to open the file]
+>
+>What datum shift grid did you use? the files I know are mainly from 
+>national coordinate systems to WGS84.
+>
+>
+>
+>>  Can anyone tell me why there's a difference between the MapInfo PRO
+>> projection and the Proj.4 projection? And, hopefully, also a solution
+>> to correct this? Please note that I don't know whether MapInfo or
+>> Proj is at fault, I justk now that my data is drawn from MapInfo,
+>> where it's accurate compared to other data.
+>
+>The EPSG registry lists 42 valid datum shift parameter sets from ED50 to 
+>WGS84, each with a different area of use. As written above, the values 
+>in EPSG:23030 are a mean value, which can not provide centimeter accuracy.
+>
+>HTH,
+>André Joost
+>
+>
+>_______________________________________________
+>Proj mailing list
+>Proj at lists.maptools.org
+>http://lists.maptools.org/mailman/listinfo/proj
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+From support at mnspoint.com  Wed Oct 19 20:55:14 2016
+From: support at mnspoint.com (support at mnspoint.com)
+Date: Thu, 20 Oct 2016 06:55:14 +0300
+Subject: [Proj] Review of proj.4 pull request
+In-Reply-To: <CACmBxysriNs0doUdkRhdwxmLQVmXHehvrL2qgp+8o593izkyPw@mail.gmail.com>
+References: <CACmBxytLR42TBQPnThrBHO_CKFE6kCG3fP3rC+XtJNq5FOk+eA@mail.gmail.com>
+	<5DF97AE0-E29F-46BB-BEDF-B5C1338C2255@hobu.co>
+	<20160927011644.GA1126@granicus.if.org>
+	<CACmBxysriNs0doUdkRhdwxmLQVmXHehvrL2qgp+8o593izkyPw@mail.gmail.com>
+Message-ID: <341bdcc484c6111432ae46be6c4f2f59@mnspoint.com>
+
+I just hope that this messy untested stuff (PJ_isea.c) is not in the
+official distribution of Proj.4 ?! 
+
+Janne. 
+
+----------------------------------- 
+
+Kurt Schwehr kirjoitti 27.09.2016 08:35:
+
+> Try #2 to the proj mailing list now that I've actually confirmed my email address :) 
+> 
+> There is no rush on this.  It was just a dead code complaint by a linter, not a failure seen with actual code. 
+> 
+> On Mon, Sep 26, 2016 at 6:16 PM, Nathan Wagner <nw at hydaspes.if.org> wrote:
+> 
+>> On Mon, Sep 26, 2016 at 06:42:58PM -0500, Howard Butler wrote:
+>>>> On Sep 26, 2016, at 4:04 PM, Kurt Schwehr <schwehr at gmail.com> wrote:
+>> 
+>>>> The code says it was written by Nathan, so that would likely be the
+>>>> best one of you to give it a look over, but maybe someone else might
+>>>> know.
+>> 
+>>>> Any chance one of you could take a look at pr 418?  It's my first
+>>>> proj.4 patch...  Am I missing anything with this?  Was there a
+>>>> missing if?
+>> 
+>>>> https://github.com/OSGeo/proj.4/pull/418 [1]
+>> 
+>>> Please bring this up on the proj4 list, as I am happy to approve all
+>>> changesets that do not disrupt the tests -- for both good and bad ;)
+>> 
+>> I'm looking into it.  I'll have an answer later tonight.  Three to four
+>> hours.  Preliminary conclusion is that I had no idea what I was thinking
+>> when I wrote that code, and the code after the return is the right code,
+>> but maybe there's a bug or something that I missed.  My tests don't
+>> exercise that code path.
+>> 
+>> --
+>> nw
+> 
+> -- 
+> -- 
+> http://schwehr.org 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+ 
+
+Links:
+------
+[1] https://github.com/OSGeo/proj.4/pull/418
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161020/096e281a/attachment.html>
+
+From kreve at sdfe.dk  Thu Oct 20 02:10:28 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 20 Oct 2016 09:10:28 +0000
+Subject: [Proj] Review of proj.4 pull request
+In-Reply-To: <341bdcc484c6111432ae46be6c4f2f59@mnspoint.com>
+References: <CACmBxytLR42TBQPnThrBHO_CKFE6kCG3fP3rC+XtJNq5FOk+eA@mail.gmail.com>
+	<5DF97AE0-E29F-46BB-BEDF-B5C1338C2255@hobu.co>
+	<20160927011644.GA1126@granicus.if.org>
+	<CACmBxysriNs0doUdkRhdwxmLQVmXHehvrL2qgp+8o593izkyPw@mail.gmail.com>
+	<341bdcc484c6111432ae46be6c4f2f59@mnspoint.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E7A85641C@S000014.PROD.SITAD.DK>
+
+Hi Janne,
+
+Sure it is! At the moment there are around 20 known and unfixed bugs in proj.4. That’s just the nature of software… You are very welcome to improve the situation and compile a set of test coordinates that we can use in the existing test framework. Also, it would seem that Nathan is working on a fix, so things will probably be less messy in the near future.
+
+Cheers,
+Kristian
+
+Fra: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] På vegne af support at mnspoint.com
+Sendt: 20. oktober 2016 05:55
+Til: PROJ.4 and general Projections Discussions
+Emne: Re: [Proj] Review of proj.4 pull request
+
+
+I just hope that this messy untested stuff (PJ_isea.c) is not in the official distribution of Proj.4 ?!
+
+
+
+Janne.
+
+
+
+-----------------------------------
+
+
+
+Kurt Schwehr kirjoitti 27.09.2016 08:35:
+Try #2 to the proj mailing list now that I've actually confirmed my email address :)
+
+There is no rush on this.  It was just a dead code complaint by a linter, not a failure seen with actual code.
+
+On Mon, Sep 26, 2016 at 6:16 PM, Nathan Wagner <nw at hydaspes.if.org<mailto:nw at hydaspes.if.org>> wrote:
+On Mon, Sep 26, 2016 at 06:42:58PM -0500, Howard Butler wrote:
+> > On Sep 26, 2016, at 4:04 PM, Kurt Schwehr <schwehr at gmail.com<mailto:schwehr at gmail.com>> wrote:
+
+> > The code says it was written by Nathan, so that would likely be the
+> > best one of you to give it a look over, but maybe someone else might
+> > know.
+
+> > Any chance one of you could take a look at pr 418?  It's my first
+> > proj.4 patch...  Am I missing anything with this?  Was there a
+> > missing if?
+
+> > https://github.com/OSGeo/proj.4/pull/418
+
+> Please bring this up on the proj4 list, as I am happy to approve all
+> changesets that do not disrupt the tests -- for both good and bad ;)
+
+I'm looking into it.  I'll have an answer later tonight.  Three to four
+hours.  Preliminary conclusion is that I had no idea what I was thinking
+when I wrote that code, and the code after the return is the right code,
+but maybe there's a bug or something that I missed.  My tests don't
+exercise that code path.
+
+--
+nw
+
+
+
+--
+--
+http://schwehr.org
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org<mailto:Proj at lists.maptools.org>
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161020/6faa9560/attachment.html>
+
+From kreve at sdfe.dk  Thu Oct 20 02:29:57 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 20 Oct 2016 09:29:57 +0000
+Subject: [Proj] Github issue clean up
+Message-ID: <2E885BB293AF0448A0181138489E9A0E7A85649F@S000014.PROD.SITAD.DK>
+
+All,
+
+The last few days I have been going through all the reported issues on github [0]. That includes tickets from the old trac site that has been migrated to github. I wanted to close all tickets that are no longer valid. I ended up closing around 30 tickets that were either fixed, not applicable any more or if it seemed like no one cared about the issue. Along the way I have taken care of some of the more simple issues, mostly known bugs with a patch attached to the ticket.
+
+Please have a look at the list of recently closed issues [1] and see if I inadvertently have closed an issue you still care about. That is very likely, especially for the old trac tickets. Let me know if that is the case and I will reopen the issue!
+
+I would also like to ask you to go have a look at the list of known bugs [2] and see if you can help resolve some of the problems. Either by bringing more knowledge to the table or, even better, with a pull request that fixes the problem.
+
+Thanks,
+Kristian
+
+[0] https://github.com/OSGeo/proj.4/issues
+[1] https://github.com/OSGeo/proj.4/issues?q=is%3Aissue+is%3Aclosed+sort%3Aupdated-desc
+[2] https://github.com/OSGeo/proj.4/issues?q=is%3Aissue+sort%3Aupdated-desc+is%3Aopen+label%3Abug
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161020/9b7880fa/attachment.html>
+
+From knudsen.thomas at gmail.com  Fri Oct 21 05:55:28 2016
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Fri, 21 Oct 2016 14:55:28 +0200
+Subject: [Proj] Transformation pipelines - your opinion?
+In-Reply-To: <1476348085425-5290527.post@n6.nabble.com>
+References: <CAH0YoENp1A9QQL-ytbieWSbN5MTieqmaQ4P1ka4how=EghmbFA@mail.gmail.com>
+	<AB629BD0-74DD-446A-918F-853E42606946@hobu.co>
+	<1476348085425-5290527.post@n6.nabble.com>
+Message-ID: <CAH0YoEMG1icKR3ft8xeBGjH_YyHNTcNeVHBau+G9H=JamLkmAA@mail.gmail.com>
+
+Nicolas, I understand, and respect, your opinion, but i disagree for a
+number of reasons. Let me start with the simplest, and the one I think will
+probably also be the most convincing counterargument for your major concern
+(“...people who are only interrested in cartographic transformation
+functions of proj4 will have to pay for something they don't want...”):
+
+If you take an architectural look at the proj.4 library, it consists of
+(currently) 146 different projections, each adding in the range of 2-10
+kilobytes to the library footprint.
+
+The pipeline functionality is typical in that respect: it is organized as a
+(small) number of additional projections (yes really: the pipeline driver
+itself is, architectually speaking, just another projection). And, as you
+can see in the (edited) compilation result below, the current weight of the
+pipeline package is only approximately twice the weight of the probably
+most used projection (the Engsager extended transverse mercator, etmerc):
+
+$ gcc -I. -W -Wall -Wextra -pedantic -O2 -c PJ_pipeline.c PJ_horner.c
+PJ_cart.c PJ_helmert.c proj_etmerc.c
+$ dir *.o
+
+ 2.655 horner.o
+ 3.576 PJ_cart.o
+ 6.465 PJ_helmert.o
+ 8.382 PJ_pipeline.o
+10.733 proj_etmerc.o
+
+Let us assume that the final pipeline functionality may end up weighing 3
+times that, it is still only 6 times the weight of etmerc, and all in all
+less than 10% of the total weight of the library on my test platform (gcc
+under Windows 7).
+
+For these, say, 60 kB, you buy an infrastructure for implementing a large
+number of transformations through use of external parameter files, rather
+than by letting them add to the direct weight of the library, by
+implementing them as hard coded projections.
+
+My colleague Kristian Evers and I are in the process of adding proj.4
+support for a number of Danish, Faroese and Greenlandic systems, each of
+which (due to a very large number of parameters) will weigh a substantial
+fraction of 60 kB if not implemented using pipelines and external parameter
+files.
+
+Hence, I believe that even if you have no use for the pipeline
+functionality, it will cost you only a modest amount of additional weight -
+much less weight than the addition of, say, 10 extra hard coded projections
+
+Now, add to this, that the conceptual simplicity of a projection library in
+comparison to the complexity of a full geodetic framework, really is an
+illusion: While in theory projections are simple (in the sense
+“mathematically well defined”) transformations from angular to linear
+coordinates, in reality they are not at all simple, if you want them to
+relate to any kind of real world.
+
+Evidently, if you only need to relate a latitude/longitude pair in a given
+horizontal datum, to a set of projected coordinates in the same horizontal
+datum, a projection library is all you need.
+
+But that is very seldom the case, as also indicated by the fact that
+NAD27-to-NAD83 transformation was part of the proj bundle right from the
+start, and the fact that sponsors during the years have found value in
+sponsoring Frank Warmerdam’s work on implementing first horizontal datum
+shifts, later on also vertical.
+
+The latter also hints at the fact that today, the vast majority of
+coordinate-capture is done by GPS/GNSS, and hence natively 3D, although not
+necessarily referred to a system that makes much sense, except for low
+accuracy work.
+
+To preserve the high geometrical accuracy from the global system, when
+transforming to a regional reference system (e.g. ETRS89) and vertical
+datum (e.g. NAP/EVRS), you need access to more fundamental geodetic
+functionality (although not much more than already included in the pipeline
+package), before you can finally transform your latitude, longitude, and
+elevation data into traditional map coordinates, using the projection
+functionality already existing in proj.4.
+
+When moving away from the stable parts of tectonic plates, you also need
+support for intra plate deformation models. This is the case for large
+parts of Scandinavia, which are heavily influenced by post-glacial uplift.
+Using the pipeline metaphor, this can be expressed in fairly simple terms,
+making it accessible to end users through direct support from their domain
+specific software, using proj.4 for georeferencing.
+
+>From airborne LiDAR mapping, we have learned the lesson, that provision of
+high accuracy geodata results in unexpected and innovative uses, leading to
+request for even higher accuracy. In other words: accuracy is addictive.
+And without proper geodetic handling of transformations, you will never
+consistently approach an accuracy much better than metre level (consistent
+with the difference between global and plate fixed coordinates).
+
+Geodetic transformations are typically not algorithmically complex,
+compared to what is already included in proj.4 - we just need a platform
+for handling the metadata and stringing together elementary
+transformations. As already hinted at above, the overall weight of the
+functionality will be only a fraction of the existing library.
+
+Form the geodetic side, I see proj.4 with the pipeline extension as the
+only viable road to a successful dissemination of the functionality
+required. And from the proj.4 side, I see extended geodetic functionality
+as the only viable road for continued relevance in an increasingly
+always-connected 3D society.
+
+/Thomas
+
+2016-10-13 10:41 GMT+02:00 NDavid <ericnico.david at gmail.com>:
+
+> Sorry for the (very) late reply,
+>
+> I've read the discussion about this pipelines feature at github and your
+> proj4 page and
+> I've definitely see such coordinate transformation pipeline as very useful.
+> BUT I'm more incline to keep only cartographic projection inside proj4 and
+> to implement
+> pipeline and other coordinate transformation outside proj4 in another
+> library/librairies.
+> And perhaps with a more C++ style than ANSI C.
+>
+> Some potential coordinate transform that, I think, could fit into a
+> pipeline
+> are
+> - cartographic projection (of course)
+> - datum conversion with planar gridshift or use of geoid.
+> - unit transform
+> - cartesian <-> polar <-> cylindric coordinate
+> - temporal transform (gps time to utc time ? )
+> - trajectory georeferencing (for point cloud, mobile mapping camera)
+> - conversion between sensor coordinate system and platform/IMU
+> - ..
+> Some of this coordinate transformation need additional data (trajectory
+> files, grid files,
+> datum/ellispoid dictionnary) and if implement inside proj4 that could lead
+> to insert
+> into proj4 some dependencies or making it a bigger library.
+> And so people who are only interrested in cartographic transformation
+> functions of
+> proj4 will have to pay for something they don't want.
+> I know that pj_transform/cs2cs/pj_apply_gridshift are not only about
+> cartographic
+> projection but also about datum transform. I understand to keep such
+> function
+> inside proj4 for historical and compatibility reasons but I don't think
+> this
+> is
+> their "right" place.
+>
+>  just my 2 cents about this pipeline proposal.
+> Nicolas
+>
+>
+>
+> --
+> View this message in context: http://osgeo-org.1560.x6.
+> nabble.com/Transformation-pipelines-your-opinion-tp5269960p5290527.html
+> Sent from the PROJ.4 mailing list archive at Nabble.com.
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161021/ff5fbae8/attachment.html>
+
+From support at mnspoint.com  Sun Oct 23 23:50:40 2016
+From: support at mnspoint.com (support at mnspoint.com)
+Date: Mon, 24 Oct 2016 09:50:40 +0300
+Subject: [Proj] Transformation pipelines - your opinion?
+In-Reply-To: <CAH0YoEMG1icKR3ft8xeBGjH_YyHNTcNeVHBau+G9H=JamLkmAA@mail.gmail.com>
+References: <CAH0YoENp1A9QQL-ytbieWSbN5MTieqmaQ4P1ka4how=EghmbFA@mail.gmail.com>
+	<AB629BD0-74DD-446A-918F-853E42606946@hobu.co>
+	<1476348085425-5290527.post@n6.nabble.com>
+	<CAH0YoEMG1icKR3ft8xeBGjH_YyHNTcNeVHBau+G9H=JamLkmAA@mail.gmail.com>
+Message-ID: <7a8fc6faeb735a8c14ab42d9ea614eb7@mnspoint.com>
+
+Hello, 
+
+I 100 % agree with Nicolas to keep all parts that are not required to be
+inside Proj.4 outside it. Later it is much easier to read and handle
+such parts as required. You should just add a layer above Proj4 which
+could be used if your code required and omitted if more simple
+functionality is only required. As Nicolas wrote: 
+
+"BUT I'm more incline to keep only cartographic projection inside proj4
+and to implement pipeline and other coordinate transformation outside
+proj4 in another library/librairies." 
+
+The same separate library idea should be ok with the syntax scanner idea
+for Proj.4 which is not yet implemented since it does not require to be
+inside Proj.4 at all. Since syntax scanning for errors is totally an
+independent step.. and can as well be omitted if not required. 
+
+You can also do what ever you wish if you rename you end product
+something else than Proj.4 .. to keep it consistent (compare "libproj"
+for an example of such projects). 
+
+Regards: Janne. 
+
+-------------------------------------------- 
+
+Thomas Knudsen kirjoitti 2016-10-21 15:55:
+
+> Nicolas, I understand, and respect, your opinion, but i disagree for a number of reasons. Let me start with the simplest, and the one I think will probably also be the most convincing counterargument for your major concern ("...people who are only interrested in cartographic transformation functions of proj4 will have to pay for something they don't want..."): 
+> 
+> If you take an architectural look at the proj.4 library, it consists of (currently) 146 different projections, each adding in the range of 2-10 kilobytes to the library footprint. 
+> 
+> The pipeline functionality is typical in that respect: it is organized as a (small) number of additional projections (yes really: the pipeline driver itself is, architectually speaking, just another projection). And, as you can see in the (edited) compilation result below, the current weight of the pipeline package is only approximately twice the weight of the probably most used projection (the Engsager extended transverse mercator, etmerc): 
+> 
+> $ gcc -I. -W -Wall -Wextra -pedantic -O2 -c PJ_pipeline.c PJ_horner.c PJ_cart.c PJ_helmert.c proj_etmerc.c 
+> $ dir *.o 
+> 
+> 2.655 horner.o 
+> 3.576 PJ_cart.o 
+> 6.465 PJ_helmert.o 
+> 8.382 PJ_pipeline.o 
+> 10.733 proj_etmerc.o 
+> 
+> Let us assume that the final pipeline functionality may end up weighing 3 times that, it is still only 6 times the weight of etmerc, and all in all less than 10% of the total weight of the library on my test platform (gcc under Windows 7). 
+> 
+> For these, say, 60 kB, you buy an infrastructure for implementing a large number of transformations through use of external parameter files, rather than by letting them add to the direct weight of the library, by implementing them as hard coded projections. 
+> 
+> My colleague Kristian Evers and I are in the process of adding proj.4 support for a number of Danish, Faroese and Greenlandic systems, each of which (due to a very large number of parameters) will weigh a substantial fraction of 60 kB if not implemented using pipelines and external parameter files. 
+> 
+> Hence, I believe that even if you have no use for the pipeline functionality, it will cost you only a modest amount of additional weight - much less weight than the addition of, say, 10 extra hard coded projections 
+> 
+> Now, add to this, that the conceptual simplicity of a projection library in comparison to the complexity of a full geodetic framework, really is an illusion: While in theory projections are simple (in the sense "mathematically well defined") transformations from angular to linear coordinates, in reality they are not at all simple, if you want them to relate to any kind of real world. 
+> 
+> Evidently, if you only need to relate a latitude/longitude pair in a given horizontal datum, to a set of projected coordinates in the same horizontal datum, a projection library is all you need. 
+> 
+> But that is very seldom the case, as also indicated by the fact that NAD27-to-NAD83 transformation was part of the proj bundle right from the start, and the fact that sponsors during the years have found value in sponsoring Frank Warmerdam's work on implementing first horizontal datum shifts, later on also vertical. 
+> 
+> The latter also hints at the fact that today, the vast majority of coordinate-capture is done by GPS/GNSS, and hence natively 3D, although not necessarily referred to a system that makes much sense, except for low accuracy work. 
+> 
+> To preserve the high geometrical accuracy from the global system, when transforming to a regional reference system (e.g. ETRS89) and vertical datum (e.g. NAP/EVRS), you need access to more fundamental geodetic functionality (although not much more than already included in the pipeline package), before you can finally transform your latitude, longitude, and elevation data into traditional map coordinates, using the projection functionality already existing in proj.4. 
+> 
+> When moving away from the stable parts of tectonic plates, you also need support for intra plate deformation models. This is the case for large parts of Scandinavia, which are heavily influenced by post-glacial uplift. Using the pipeline metaphor, this can be expressed in fairly simple terms, making it accessible to end users through direct support from their domain specific software, using proj.4 for georeferencing. 
+> 
+> From airborne LiDAR mapping, we have learned the lesson, that provision of high accuracy geodata results in unexpected and innovative uses, leading to request for even higher accuracy. In other words: accuracy is addictive. And without proper geodetic handling of transformations, you will never consistently approach an accuracy much better than metre level (consistent with the difference between global and plate fixed coordinates). 
+> 
+> Geodetic transformations are typically not algorithmically complex, compared to what is already included in proj.4 - we just need a platform for handling the metadata and stringing together elementary transformations. As already hinted at above, the overall weight of the functionality will be only a fraction of the existing library. 
+> 
+> Form the geodetic side, I see proj.4 with the pipeline extension as the only viable road to a successful dissemination of the functionality required. And from the proj.4 side, I see extended geodetic functionality as the only viable road for continued relevance in an increasingly always-connected 3D society. 
+> 
+> /Thomas 
+> 
+> 2016-10-13 10:41 GMT+02:00 NDavid <ericnico.david at gmail.com>:
+> 
+>> Sorry for the (very) late reply,
+>> 
+>> I've read the discussion about this pipelines feature at github and your
+>> proj4 page and
+>> I've definitely see such coordinate transformation pipeline as very useful.
+>> BUT I'm more incline to keep only cartographic projection inside proj4 and
+>> to implement
+>> pipeline and other coordinate transformation outside proj4 in another
+>> library/librairies.
+>> And perhaps with a more C++ style than ANSI C.
+>> 
+>> Some potential coordinate transform that, I think, could fit into a pipeline
+>> are
+>> - cartographic projection (of course)
+>> - datum conversion with planar gridshift or use of geoid.
+>> - unit transform
+>> - cartesian <-> polar <-> cylindric coordinate
+>> - temporal transform (gps time to utc time ? )
+>> - trajectory georeferencing (for point cloud, mobile mapping camera)
+>> - conversion between sensor coordinate system and platform/IMU
+>> - ..
+>> Some of this coordinate transformation need additional data (trajectory
+>> files, grid files,
+>> datum/ellispoid dictionnary) and if implement inside proj4 that could lead
+>> to insert
+>> into proj4 some dependencies or making it a bigger library.
+>> And so people who are only interrested in cartographic transformation
+>> functions of
+>> proj4 will have to pay for something they don't want.
+>> I know that pj_transform/cs2cs/pj_apply_gridshift are not only about
+>> cartographic
+>> projection but also about datum transform. I understand to keep such
+>> function
+>> inside proj4 for historical and compatibility reasons but I don't think this
+>> is
+>> their "right" place.
+>> 
+>> just my 2 cents about this pipeline proposal.
+>> Nicolas
+>> 
+>> --
+>> View this message in context: http://osgeo-org.1560.x6.nabble.com/Transformation-pipelines-your-opinion-tp5269960p5290527.html [1]
+>> Sent from the PROJ.4 mailing list archive at Nabble.com.
+>> 
+>> _______________________________________________
+>> Proj mailing list
+>> Proj at lists.maptools.org
+>> http://lists.maptools.org/mailman/listinfo/proj [2]
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+ 
+
+Links:
+------
+[1]
+http://osgeo-org.1560.x6.nabble.com/Transformation-pipelines-your-opinion-tp5269960p5290527.html
+[2] http://lists.maptools.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161024/1e680511/attachment.html>
+
+From knudsen.thomas at gmail.com  Mon Oct 24 00:51:46 2016
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Mon, 24 Oct 2016 09:51:46 +0200
+Subject: [Proj] Transformation pipelines - your opinion?
+In-Reply-To: <7a8fc6faeb735a8c14ab42d9ea614eb7@mnspoint.com>
+References: <CAH0YoENp1A9QQL-ytbieWSbN5MTieqmaQ4P1ka4how=EghmbFA@mail.gmail.com>
+	<AB629BD0-74DD-446A-918F-853E42606946@hobu.co>
+	<1476348085425-5290527.post@n6.nabble.com>
+	<CAH0YoEMG1icKR3ft8xeBGjH_YyHNTcNeVHBau+G9H=JamLkmAA@mail.gmail.com>
+	<7a8fc6faeb735a8c14ab42d9ea614eb7@mnspoint.com>
+Message-ID: <CAH0YoEMGWRfJBLJg10d5dR-fA-CA2n0amiCJZyhm_kxekptixg@mail.gmail.com>
+
+Janne,
+
+I have already elaborated on the illusory nature of the perception of
+projections as "clean, beautiful mathematical entities" as opposed to the
+"ugly geodetic real world references".
+
+As already mentioned, proj's history indicates that without geodesy, a
+projection library is built on a solid foundation of thin air: While
+mathematically beautiful, without a geodetic foundation, projected
+coordinates will never refer to a real world.
+
+The abstraction of a coordinate without an explicit system is leaky - the
+Earth being dynamic, there is no "perfect, eternally stable" backdrop that
+can be used as pivot gateway between all other systems.
+
+Reference frames are real things in the real world, with all the
+imperfections of reality. Mathematical coordinate systems are abstract
+things in an abstract world, that do not suffer from these imperfections.
+Unfortunately, however, they do not in any way relate to the world we're
+living in.
+
+A large amount of geodetic functionality already exists in proj, and has
+since its inception. It could, however, probably have been implemented in a
+more straightforward way if native 3D support had been part of proj at an
+earlier point in time.
+
+That being said, I invite you to reread my former input, and my pull
+requests: What I am currently adding to proj.4 is a minor tool kit of
+building blocks for implementing a large family of transformations using
+mostly external parameter files, rather than adding them directly to the
+library code.
+
+I think this is exactly what you're advocating, if I interpret correctly
+your vague ranting about not having anything in the library that does not
+need to be there. Please note, however, that "need" is a highly subjective
+term - your needs are apparently different than mine.
+
+But in general, the world and its needs evolve, and so does proj. If you do
+not like the direction proj evolves, the source code is open, you're free
+to adapt it in almost any way you find necessary to suit your needs.
+
+/Thomas
+
+
+
+
+
+
+2016-10-24 8:50 GMT+02:00 <support at mnspoint.com>:
+
+> Hello,
+>
+> I 100 % agree with Nicolas to keep all parts that are not required to be
+> inside Proj.4 outside it. Later it is much easier to read and handle such
+> parts as required. You should just add a layer above Proj4 which could be
+> used if your code required and omitted if more simple functionality is only
+> required. As Nicolas wrote:
+>
+> "BUT I'm more incline to keep only cartographic projection inside proj4
+> and to implement pipeline and other coordinate transformation outside proj4
+> in another library/librairies."
+>
+> The same separate library idea should be ok with the syntax scanner idea
+> for Proj.4 which is not yet implemented since it does not require to be
+> inside Proj.4 at all. Since syntax scanning for errors is totally an
+> independent step.. and can as well be omitted if not required.
+>
+> You can also do what ever you wish if you rename you end product something
+> else than Proj.4 .. to keep it consistent (compare "libproj" for an example
+> of such projects).
+>
+> Regards: Janne.
+>
+> --------------------------------------------
+>
+> Thomas Knudsen kirjoitti 2016-10-21 15:55:
+>
+> Nicolas, I understand, and respect, your opinion, but i disagree for a
+> number of reasons. Let me start with the simplest, and the one I think will
+> probably also be the most convincing counterargument for your major concern
+> ("...people who are only interrested in cartographic transformation
+> functions of proj4 will have to pay for something they don't want..."):
+>
+> If you take an architectural look at the proj.4 library, it consists of
+> (currently) 146 different projections, each adding in the range of 2-10
+> kilobytes to the library footprint.
+>
+> The pipeline functionality is typical in that respect: it is organized as
+> a (small) number of additional projections (yes really: the pipeline driver
+> itself is, architectually speaking, just another projection). And, as you
+> can see in the (edited) compilation result below, the current weight of the
+> pipeline package is only approximately twice the weight of the probably
+> most used projection (the Engsager extended transverse mercator, etmerc):
+>
+> $ gcc -I. -W -Wall -Wextra -pedantic -O2 -c PJ_pipeline.c PJ_horner.c
+> PJ_cart.c PJ_helmert.c proj_etmerc.c
+> $ dir *.o
+>
+>  2.655 horner.o
+>  3.576 PJ_cart.o
+>  6.465 PJ_helmert.o
+>  8.382 PJ_pipeline.o
+> 10.733 proj_etmerc.o
+>
+> Let us assume that the final pipeline functionality may end up weighing 3
+> times that, it is still only 6 times the weight of etmerc, and all in all
+> less than 10% of the total weight of the library on my test platform (gcc
+> under Windows 7).
+>
+> For these, say, 60 kB, you buy an infrastructure for implementing a large
+> number of transformations through use of external parameter files, rather
+> than by letting them add to the direct weight of the library, by
+> implementing them as hard coded projections.
+>
+> My colleague Kristian Evers and I are in the process of adding proj.4
+> support for a number of Danish, Faroese and Greenlandic systems, each of
+> which (due to a very large number of parameters) will weigh a substantial
+> fraction of 60 kB if not implemented using pipelines and external parameter
+> files.
+>
+> Hence, I believe that even if you have no use for the pipeline
+> functionality, it will cost you only a modest amount of additional weight -
+> much less weight than the addition of, say, 10 extra hard coded projections
+>
+> Now, add to this, that the conceptual simplicity of a projection library
+> in comparison to the complexity of a full geodetic framework, really is an
+> illusion: While in theory projections are simple (in the sense
+> "mathematically well defined") transformations from angular to linear
+> coordinates, in reality they are not at all simple, if you want them to
+> relate to any kind of real world.
+>
+> Evidently, if you only need to relate a latitude/longitude pair in a given
+> horizontal datum, to a set of projected coordinates in the same horizontal
+> datum, a projection library is all you need.
+>
+> But that is very seldom the case, as also indicated by the fact that
+> NAD27-to-NAD83 transformation was part of the proj bundle right from the
+> start, and the fact that sponsors during the years have found value in
+> sponsoring Frank Warmerdam's work on implementing first horizontal datum
+> shifts, later on also vertical.
+>
+> The latter also hints at the fact that today, the vast majority of
+> coordinate-capture is done by GPS/GNSS, and hence natively 3D, although not
+> necessarily referred to a system that makes much sense, except for low
+> accuracy work.
+>
+> To preserve the high geometrical accuracy from the global system, when
+> transforming to a regional reference system (e.g. ETRS89) and vertical
+> datum (e.g. NAP/EVRS), you need access to more fundamental geodetic
+> functionality (although not much more than already included in the pipeline
+> package), before you can finally transform your latitude, longitude, and
+> elevation data into traditional map coordinates, using the projection
+> functionality already existing in proj.4.
+>
+> When moving away from the stable parts of tectonic plates, you also need
+> support for intra plate deformation models. This is the case for large
+> parts of Scandinavia, which are heavily influenced by post-glacial uplift.
+> Using the pipeline metaphor, this can be expressed in fairly simple terms,
+> making it accessible to end users through direct support from their domain
+> specific software, using proj.4 for georeferencing.
+>
+> From airborne LiDAR mapping, we have learned the lesson, that provision of
+> high accuracy geodata results in unexpected and innovative uses, leading to
+> request for even higher accuracy. In other words: accuracy is addictive.
+> And without proper geodetic handling of transformations, you will never
+> consistently approach an accuracy much better than metre level (consistent
+> with the difference between global and plate fixed coordinates).
+>
+> Geodetic transformations are typically not algorithmically complex,
+> compared to what is already included in proj.4 - we just need a platform
+> for handling the metadata and stringing together elementary
+> transformations. As already hinted at above, the overall weight of the
+> functionality will be only a fraction of the existing library.
+>
+> Form the geodetic side, I see proj.4 with the pipeline extension as the
+> only viable road to a successful dissemination of the functionality
+> required. And from the proj.4 side, I see extended geodetic functionality
+> as the only viable road for continued relevance in an increasingly
+> always-connected 3D society.
+>
+> /Thomas
+>
+> 2016-10-13 10:41 GMT+02:00 NDavid <ericnico.david at gmail.com>:
+>
+>> Sorry for the (very) late reply,
+>>
+>> I've read the discussion about this pipelines feature at github and your
+>> proj4 page and
+>> I've definitely see such coordinate transformation pipeline as very
+>> useful.
+>> BUT I'm more incline to keep only cartographic projection inside proj4 and
+>> to implement
+>> pipeline and other coordinate transformation outside proj4 in another
+>> library/librairies.
+>> And perhaps with a more C++ style than ANSI C.
+>>
+>> Some potential coordinate transform that, I think, could fit into a
+>> pipeline
+>> are
+>> - cartographic projection (of course)
+>> - datum conversion with planar gridshift or use of geoid.
+>> - unit transform
+>> - cartesian <-> polar <-> cylindric coordinate
+>> - temporal transform (gps time to utc time ? )
+>> - trajectory georeferencing (for point cloud, mobile mapping camera)
+>> - conversion between sensor coordinate system and platform/IMU
+>> - ..
+>> Some of this coordinate transformation need additional data (trajectory
+>> files, grid files,
+>> datum/ellispoid dictionnary) and if implement inside proj4 that could lead
+>> to insert
+>> into proj4 some dependencies or making it a bigger library.
+>> And so people who are only interrested in cartographic transformation
+>> functions of
+>> proj4 will have to pay for something they don't want.
+>> I know that pj_transform/cs2cs/pj_apply_gridshift are not only about
+>> cartographic
+>> projection but also about datum transform. I understand to keep such
+>> function
+>> inside proj4 for historical and compatibility reasons but I don't think
+>> this
+>> is
+>> their "right" place.
+>>
+>>  just my 2 cents about this pipeline proposal.
+>> Nicolas
+>>
+>>
+>>
+>> --
+>> View this message in context: http://osgeo-org.1560.x6.nabbl
+>> e.com/Transformation-pipelines-your-opinion-tp5269960p5290527.html
+>> Sent from the PROJ.4 mailing list archive at Nabble.com.
+>> _______________________________________________
+>> Proj mailing list
+>> Proj at lists.maptools.org
+>> http://lists.maptools.org/mailman/listinfo/proj
+>>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161024/2f56f6bb/attachment.html>
+
+From even.rouault at spatialys.com  Mon Oct 24 01:30:37 2016
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 24 Oct 2016 10:30:37 +0200
+Subject: [Proj] Transformation pipelines - your opinion?
+In-Reply-To: <CAH0YoEMG1icKR3ft8xeBGjH_YyHNTcNeVHBau+G9H=JamLkmAA@mail.gmail.com>
+References: <CAH0YoENp1A9QQL-ytbieWSbN5MTieqmaQ4P1ka4how=EghmbFA@mail.gmail.com>
+	<1476348085425-5290527.post@n6.nabble.com>
+	<CAH0YoEMG1icKR3ft8xeBGjH_YyHNTcNeVHBau+G9H=JamLkmAA@mail.gmail.com>
+Message-ID: <201610241030.37457.even.rouault@spatialys.com>
+
+Hi,
+
+I can understand Nicolas' point about making proj do one thing well as being 
+in the line of the Unix philosophy. But I think some other things must be 
+considered.
+Libraries with too small scope have a less chance of attracting a sufficiently 
+big and healthy development community, making them a more risky choice for 
+adoption. A new library also implies more packaging effort, infrastructure 
+needs, etc.
+Proj.4 is definitely one of the place that has the most momentum to address geo 
+related transform. As Thomas pointed out, cartographic projections are only a 
+part of the overall problem.
+Regarding the size of the library, proj is really small w.r.t today's 
+standards. The Linux libc is 1.8 MB large whereas proj fits in 340 KB... It's 
+far from being cluttered.
+
+Even
+
+
+> Nicolas, I understand, and respect, your opinion, but i disagree for a
+> number of reasons. Let me start with the simplest, and the one I think will
+> probably also be the most convincing counterargument for your major concern
+> (“...people who are only interrested in cartographic transformation
+> functions of proj4 will have to pay for something they don't want...”):
+> 
+> If you take an architectural look at the proj.4 library, it consists of
+> (currently) 146 different projections, each adding in the range of 2-10
+> kilobytes to the library footprint.
+> 
+> The pipeline functionality is typical in that respect: it is organized as a
+> (small) number of additional projections (yes really: the pipeline driver
+> itself is, architectually speaking, just another projection). And, as you
+> can see in the (edited) compilation result below, the current weight of the
+> pipeline package is only approximately twice the weight of the probably
+> most used projection (the Engsager extended transverse mercator, etmerc):
+> 
+> $ gcc -I. -W -Wall -Wextra -pedantic -O2 -c PJ_pipeline.c PJ_horner.c
+> PJ_cart.c PJ_helmert.c proj_etmerc.c
+> $ dir *.o
+> 
+>  2.655 horner.o
+>  3.576 PJ_cart.o
+>  6.465 PJ_helmert.o
+>  8.382 PJ_pipeline.o
+> 10.733 proj_etmerc.o
+> 
+> Let us assume that the final pipeline functionality may end up weighing 3
+> times that, it is still only 6 times the weight of etmerc, and all in all
+> less than 10% of the total weight of the library on my test platform (gcc
+> under Windows 7).
+> 
+> For these, say, 60 kB, you buy an infrastructure for implementing a large
+> number of transformations through use of external parameter files, rather
+> than by letting them add to the direct weight of the library, by
+> implementing them as hard coded projections.
+> 
+> My colleague Kristian Evers and I are in the process of adding proj.4
+> support for a number of Danish, Faroese and Greenlandic systems, each of
+> which (due to a very large number of parameters) will weigh a substantial
+> fraction of 60 kB if not implemented using pipelines and external parameter
+> files.
+> 
+> Hence, I believe that even if you have no use for the pipeline
+> functionality, it will cost you only a modest amount of additional weight -
+> much less weight than the addition of, say, 10 extra hard coded projections
+> 
+> Now, add to this, that the conceptual simplicity of a projection library in
+> comparison to the complexity of a full geodetic framework, really is an
+> illusion: While in theory projections are simple (in the sense
+> “mathematically well defined”) transformations from angular to linear
+> coordinates, in reality they are not at all simple, if you want them to
+> relate to any kind of real world.
+> 
+> Evidently, if you only need to relate a latitude/longitude pair in a given
+> horizontal datum, to a set of projected coordinates in the same horizontal
+> datum, a projection library is all you need.
+> 
+> But that is very seldom the case, as also indicated by the fact that
+> NAD27-to-NAD83 transformation was part of the proj bundle right from the
+> start, and the fact that sponsors during the years have found value in
+> sponsoring Frank Warmerdam’s work on implementing first horizontal datum
+> shifts, later on also vertical.
+> 
+> The latter also hints at the fact that today, the vast majority of
+> coordinate-capture is done by GPS/GNSS, and hence natively 3D, although not
+> necessarily referred to a system that makes much sense, except for low
+> accuracy work.
+> 
+> To preserve the high geometrical accuracy from the global system, when
+> transforming to a regional reference system (e.g. ETRS89) and vertical
+> datum (e.g. NAP/EVRS), you need access to more fundamental geodetic
+> functionality (although not much more than already included in the pipeline
+> package), before you can finally transform your latitude, longitude, and
+> elevation data into traditional map coordinates, using the projection
+> functionality already existing in proj.4.
+> 
+> When moving away from the stable parts of tectonic plates, you also need
+> support for intra plate deformation models. This is the case for large
+> parts of Scandinavia, which are heavily influenced by post-glacial uplift.
+> Using the pipeline metaphor, this can be expressed in fairly simple terms,
+> making it accessible to end users through direct support from their domain
+> specific software, using proj.4 for georeferencing.
+> 
+> From airborne LiDAR mapping, we have learned the lesson, that provision of
+> high accuracy geodata results in unexpected and innovative uses, leading to
+> request for even higher accuracy. In other words: accuracy is addictive.
+> And without proper geodetic handling of transformations, you will never
+> consistently approach an accuracy much better than metre level (consistent
+> with the difference between global and plate fixed coordinates).
+> 
+> Geodetic transformations are typically not algorithmically complex,
+> compared to what is already included in proj.4 - we just need a platform
+> for handling the metadata and stringing together elementary
+> transformations. As already hinted at above, the overall weight of the
+> functionality will be only a fraction of the existing library.
+> 
+> Form the geodetic side, I see proj.4 with the pipeline extension as the
+> only viable road to a successful dissemination of the functionality
+> required. And from the proj.4 side, I see extended geodetic functionality
+> as the only viable road for continued relevance in an increasingly
+> always-connected 3D society.
+> 
+> /Thomas
+> 
+> 2016-10-13 10:41 GMT+02:00 NDavid <ericnico.david at gmail.com>:
+> > Sorry for the (very) late reply,
+> > 
+> > I've read the discussion about this pipelines feature at github and your
+> > proj4 page and
+> > I've definitely see such coordinate transformation pipeline as very
+> > useful. BUT I'm more incline to keep only cartographic projection inside
+> > proj4 and to implement
+> > pipeline and other coordinate transformation outside proj4 in another
+> > library/librairies.
+> > And perhaps with a more C++ style than ANSI C.
+> > 
+> > Some potential coordinate transform that, I think, could fit into a
+> > pipeline
+> > are
+> > - cartographic projection (of course)
+> > - datum conversion with planar gridshift or use of geoid.
+> > - unit transform
+> > - cartesian <-> polar <-> cylindric coordinate
+> > - temporal transform (gps time to utc time ? )
+> > - trajectory georeferencing (for point cloud, mobile mapping camera)
+> > - conversion between sensor coordinate system and platform/IMU
+> > - ..
+> > Some of this coordinate transformation need additional data (trajectory
+> > files, grid files,
+> > datum/ellispoid dictionnary) and if implement inside proj4 that could
+> > lead to insert
+> > into proj4 some dependencies or making it a bigger library.
+> > And so people who are only interrested in cartographic transformation
+> > functions of
+> > proj4 will have to pay for something they don't want.
+> > I know that pj_transform/cs2cs/pj_apply_gridshift are not only about
+> > cartographic
+> > projection but also about datum transform. I understand to keep such
+> > function
+> > inside proj4 for historical and compatibility reasons but I don't think
+> > this
+> > is
+> > their "right" place.
+> > 
+> >  just my 2 cents about this pipeline proposal.
+> > 
+> > Nicolas
+> > 
+> > 
+> > 
+> > --
+> > View this message in context: http://osgeo-org.1560.x6.
+> > nabble.com/Transformation-pipelines-your-opinion-tp5269960p5290527.html
+> > Sent from the PROJ.4 mailing list archive at Nabble.com.
+> > _______________________________________________
+> > Proj mailing list
+> > Proj at lists.maptools.org
+> > http://lists.maptools.org/mailman/listinfo/proj
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From sebastic at xs4all.nl  Sat Oct 29 07:10:21 2016
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Sat, 29 Oct 2016 16:10:21 +0200
+Subject: [Proj] proj-datumgrid git repository
+Message-ID: <955ed5ab-b11e-a45d-e70a-6208e1309336@xs4all.nl>
+
+To help create proj-datumgrid distributions (tarballs & zip files) I've
+imported the releases since 1.0 into a git repository and added a simple
+CMake build system to create the tarballs & zip files from the source
+directory.
+
+ http://git.linuxminded.nl/?p=OSGeo/proj-datumgrid
+
+The .lla files were no longer included in 1.6RC1 so I've added the ones
+from 1.5 to the lla/ directory. The directory was included in the zip
+file but did not contain anything.
+
+nad2bin -f ctable2 ... is used to convert the .lla files as part of the
+cmake invocation, and a dist target is added to call the package_source
+target for convenience.
+
+Unfortunately the resulting grid shift files are not identical to the
+ones included in proj-datumgrid-1.6. I haven't been able to figure out
+what causes that difference, the .lla sources may have changed for 1.6
+or it may just be some system dependent metadata (timestamp?), or
+something else entirely. I need to investigate this more thoroughly.
+
+I would like for the proj-datumgrid project to collect the various
+freely redistributable national grid shift files to have these available
+out-of-the-box when installing PROJ.4. The biggest hurdle currently is
+the tendency to prevent modification of the correction values making the
+grids non-free and not suitable for inclusion in Free Software projects.
+
+Does this proj-datumgrid repository look like a viable option to help
+maintain the proj-datumgrid releases in the future? If so, I can mirror
+it on GitHub where it can be taken over by OSGeo organization.
+
+The work on this repository was triggered by the earlier discussion on
+this list about the promotion of proj-datumgrid-1.6.RC1, see:
+
+ http://lists.maptools.org/pipermail/proj/2016-August/007459.html
+
+Kind Regards,
+
+Bas
+
+-- 
+ GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+
+
+From sebastic at xs4all.nl  Sat Oct 29 08:31:01 2016
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Sat, 29 Oct 2016 17:31:01 +0200
+Subject: [Proj] proj-datumgrid git repository
+In-Reply-To: <955ed5ab-b11e-a45d-e70a-6208e1309336@xs4all.nl>
+References: <955ed5ab-b11e-a45d-e70a-6208e1309336@xs4all.nl>
+Message-ID: <f0504fba-6156-7e8e-ea62-958fc1b9be24@xs4all.nl>
+
+On 10/29/2016 04:10 PM, Sebastiaan Couwenberg wrote:
+> Unfortunately the resulting grid shift files are not identical to the
+> ones included in proj-datumgrid-1.6. I haven't been able to figure out
+> what causes that difference, the .lla sources may have changed for 1.6
+> or it may just be some system dependent metadata (timestamp?), or
+> something else entirely. I need to investigate this more thoroughly.
+
+The reason for the non-identical grid shift files is that the nad2bin
+output was not reproducible prior to PROJ.4 4.9.3, see:
+
+ https://github.com/OSGeo/proj.4/pull/381
+
+The ID is now zero padded instead of containing random data, and the ID
+field is the only difference between the grid shift files in
+proj-datumgrids-1.6 and those created from the .lla files included in
+1.5 and earlier. See for example the diff for the hexdumps of the null
+datum grid.
+
+Kind Regards,
+
+Bas
+
+-- 
+ GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: null-datumgrid.diff
+Type: text/x-diff
+Size: 1135 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20161029/4cee2235/attachment.diff>
+

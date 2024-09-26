@@ -1,0 +1,843 @@
+From j1 at jimenezshaw.com  Tue Jul  4 00:00:02 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 4 Jul 2023 09:00:02 +0200
+Subject: [PROJ] Axis order
+Message-ID: <CADRrdKvrns+3k7KJ0B+ZHmDNj1g8RFMzuSvCQX2bFA9MCTsXdg@mail.gmail.com>
+
+Hi
+
+In FOSS4G I was talking with somebody about axis order mess.
+Well, I have done an SQL query on proj.db to count how many systems are
+using which convention. This is the counting for the projected_crs table:
+
+auth_nameaxis_ordercounted
+EPSG Easting - Northing 3983
+EPSG Northing - Easting 1537
+EPSG Westing - Southing 28
+EPSG Northing - Westing 17
+EPSG Southing - Westing 9
+EPSG Westing - Northing 2
+ESRI Easting - Northing 2048
+ESRI
+174
+IAU_2015 Easting - Northing 1853
+IAU_2015 Westing - Northing 221
+IGNF Easting - Northing 258
+IGNF Northing - Easting 2
+
+This is the query (that may be improved)
+
+SELECT P.auth_name, A.axis_order , count(*) AS counted
+
+FROM
+projected_crs P
+
+LEFT OUTER JOIN
+(
+SELECT A1.coordinate_system_auth_name, A1.coordinate_system_code, (A1.name
+|| ' - ' || A2.name) AS axis_order
+FROM axis A1
+INNER JOIN axis A2
+ON A1.coordinate_system_auth_name = A2.coordinate_system_auth_name
+AND A1.coordinate_system_code = A2.coordinate_system_code
+AND A1.coordinate_system_order = 1
+AND A2.coordinate_system_order = 2
+) A
+
+ON A.coordinate_system_auth_name = P.coordinate_system_auth_name AND
+P.coordinate_system_code = A.coordinate_system_code
+GROUP by A.axis_order, P.auth_name
+ORDER by P.auth_name, counted DESC
+
+Enjoy!
+
+PS. There are some polar systems that have name as Easting-Northing, but
+the direction is north-north or south-south. That difference is not
+displayed here.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230704/90a31aa3/attachment.htm>
+
+From martin.desruisseaux at geomatys.com  Tue Jul  4 00:08:02 2023
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Tue, 4 Jul 2023 09:08:02 +0200
+Subject: [PROJ] Axis order
+In-Reply-To: <CADRrdKvrns+3k7KJ0B+ZHmDNj1g8RFMzuSvCQX2bFA9MCTsXdg@mail.gmail.com>
+References: <CADRrdKvrns+3k7KJ0B+ZHmDNj1g8RFMzuSvCQX2bFA9MCTsXdg@mail.gmail.com>
+Message-ID: <7a62247b-3e66-7d2c-476d-a08dcf2f7a55@geomatys.com>
+
+Hello
+
+Le 04/07/2023 ? 09:00, Javier Jimenez Shaw a ?crit?:
+
+> In FOSS4G I was talking with somebody about axis order mess.
+> Well, I have done an SQL query on proj.db to count how many systems 
+> are using which convention. This is the counting for the projected_crs 
+> table:
+
+Axis order is not the only thing. There is also different axis units 
+(e.g. grads).
+
+I see axis order and units as a kind of localization. In the same way 
+that there is different conventions about date order ("year/month/day", 
+"day/month/year", "month/day/year", etc.), different countries also use 
+different axis orders and units. The EPSG database tries to reflect the 
+practice of the country defining the CRS. So EPSG is not only a registry 
+of projection parameters, but also (to some extent) of local conventions.
+
+ ??? Martin
+
+
+
+From rohith at dreamtns.in  Thu Jul 13 22:45:22 2023
+From: rohith at dreamtns.in (Rohith Narayandas)
+Date: Fri, 14 Jul 2023 05:45:22 +0000
+Subject: [PROJ] How to project a point from from one ellipsoid to other
+ ellipsoid using proj library
+Message-ID: <BM1PR01MB4788526D81991C9EE416374BC534A@BM1PR01MB4788.INDPRD01.PROD.OUTLOOK.COM>
+
+Dear Proj Team,
+I hope this email finds you well. I am writing to seek guidance on how to project a point from one ellipsoid to another ellipsoid using the Proj library.
+I have been working on a geospatial project that requires converting coordinates between different ellipsoids. After some research, I discovered that the Proj library is a widely used and powerful tool for geospatial data transformations. However, I am currently facing some challenges in understanding and implementing the ellipsoid projection functionality.
+I would greatly appreciate it if you could provide me with some guidance on how to accomplish this task using the Proj library. Specifically, I would like to know:
+
+  1.  I want to project a 3d point which is in wgs84 to an airy ellipsoid.
+I did as shown below. But I am getting incorrect values and height of the point is also not changing.
+
+PJ *Src = proj_create(C, "+proj=geocent  +datum=WGS84 +type=crs");
+PJ *Targ_Coor = proj_create(C, "+proj=geocent +ellps=airy +type=crs");
+auto P2G = proj_create_crs_to_crs_from_pj(C, Src, Targ_Coor, NULL, NULL);
+       if (!P2G)
+             return result;
+
+c_out_glob = proj_trans(P2G, PJ_FWD, c_in);
+
+
+  1.  Are there any specific parameters or options that I need to consider while performing the projection from 3d to 2d? In the below code, I am performing projection of a point from wgs84 to oblique merctor. But still I am getting incorrect values.
+
+PJ *Src = proj_create(C, "+proj=geocent  +datum=WGS84 +type=crs");
+       if (Src == NULL)
+             return result;
+
+       PJ *Targ = proj_create(C, "+proj=omerc +lat_0=4 +lonc =115 +k_0=1 +x_0=2000000 +y_0=5000000 +lat_ts=0 +h_0=0 +alpha=53.31581 +gamma=53.130102  +lat_ts=0 +units=m +ellps=WGS84 +type=crs");
+
+       if (Targ == NULL)
+             return result;
+
+       auto G2P = proj_create_crs_to_crs_from_pj(C, Src, Targ, NULL, NULL);
+       if (!G2P)
+       {
+             fprintf(stderr, "failed \n");
+             return result;
+       }
+
+       PJ *norm = proj_normalize_for_visualization(C, G2P);
+       if (0 == norm) {
+             fprintf(stderr, "Failed to normalize transformation object.\n");
+             return 1;
+       }
+
+       proj_destroy(G2P);
+       G2P = norm;
+
+c_out = proj_trans(G2P, PJ_FWD, c_in);
+Any code examples, documentation references, or step-by-step instructions you could provide would be immensely helpful in guiding me through this process. I am eager to learn and explore the capabilities of the Proj library, and any assistance you can offer would be invaluable.
+Thank you very much for your time and support. I look forward to hearing from you soon.
+
+Best Regards,
+Rohith Narayandas
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230714/93b32907/attachment.htm>
+
+From jidanni at jidanni.org  Sun Jul 16 02:30:23 2023
+From: jidanni at jidanni.org (Dan Jacobson)
+Date: Sun, 16 Jul 2023 04:30:23 -0500
+Subject: [PROJ] PROJ should have a "community forum" too
+Message-ID: <87sf9omceo.8.fsf@jidanni.org>
+
+Maybe like https://forum.generic-mapping-tools.org/
+PROJ should have a "community forum" too.
+(Not run by me, though.)
+
+From j1 at jimenezshaw.com  Mon Jul 17 15:52:40 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 18 Jul 2023 00:52:40 +0200
+Subject: [PROJ] Area of usage (short) name
+Message-ID: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+
+Hi
+
+I have realized that extents have a name and a description. For instance
+NAVD88 has a short name "North America - Mexico and USA - onshore" and a
+long description:
+"Mexico - onshore. United States (USA) - CONUS and Alaska - onshore -
+Alabama; Alaska; Arizona; Arkansas; California; Colorado; Connecticut;
+Delaware; Florida; Georgia; Idaho; Illinois; Indiana; Iowa; Kansas;
+Kentucky; Louisiana; Maine; Maryland; Massachusetts; Michigan; Minnesota;
+Mississippi; Missouri; Montana; Nebraska; Nevada; New Hampshire; New
+Jersey; New Mexico; New York; North Carolina; North Dakota; Ohio; Oklahoma;
+Oregon; Pennsylvania; Rhode Island; South Carolina; South Dakota;
+Tennessee; Texas; Utah; Vermont; Virginia; Washington; West Virginia;
+Wisconsin; Wyoming."
+
+https://epsg.org/crs_5703/NAVD88-height.html
+
+In PROJ I can find only the description in
+"osgeo::proj::metadata::Extent::description" or in
+"osgeo::proj::io::AuthorityFactory::CRSInfo::areaName" (yes, this is the
+description, not the name)
+
+Is there a way to get the (short) name?
+
+Thanks.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230718/97b55eaf/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul 18 15:02:55 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 19 Jul 2023 00:02:55 +0200
+Subject: [PROJ] Area of usage (short) name
+In-Reply-To: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+References: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+Message-ID: <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+
+Javier,
+
+digging a bit, there's a bit of back & forth history involved.
+
+Originally, PROJ returned the short name as the extent description . But 
+then 
+https://github.com/OSGeo/PROJ/commit/3ed9a613d8da9874f45d2a069686f1fa38c72ad9 
+came: "Database: use extended description for extent/area of use, as 
+done by epsg.org WKT export"
+
+EPSG apparently changed again their mind later since I see now that in 
+their WKT output there's no longer any USAGE[] node.
+
+So basically the object model of osgeo::proj::metadata::Extent should 
+likely be extended with a shortName() getter (the corresponding GeoAPI 
+class that serves as the inspiration, 
+http://www.geoapi.org/3.0/javadoc/org.opengis.geoapi/org/opengis/metadata/extent/Extent.html, 
+has a single getDescription()), a C binding to get it (likely 
+proj_get_area_of_use_ex2()), and 
+AuthorityFactory::Private::createPropertiesSearchUsages() be modified to 
+populate it.
+
+Even
+
+Le 18/07/2023 ? 00:52, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> I have realized that extents have a name and a description. For 
+> instance NAVD88 has a short name "North America - Mexico and USA - 
+> onshore" and a long description:
+> "Mexico - onshore. United States (USA) - CONUS and Alaska - onshore - 
+> Alabama; Alaska; Arizona; Arkansas; California; Colorado; Connecticut; 
+> Delaware; Florida; Georgia; Idaho; Illinois; Indiana; Iowa; Kansas; 
+> Kentucky; Louisiana; Maine; Maryland; Massachusetts; Michigan; 
+> Minnesota; Mississippi; Missouri; Montana; Nebraska; Nevada; New 
+> Hampshire; New Jersey; New Mexico; New York; North Carolina; North 
+> Dakota; Ohio; Oklahoma; Oregon; Pennsylvania; Rhode Island; South 
+> Carolina; South Dakota; Tennessee; Texas; Utah; Vermont; Virginia; 
+> Washington; West Virginia; Wisconsin; Wyoming."
+>
+> https://epsg.org/crs_5703/NAVD88-height.html
+>
+> In PROJ I can find only the description in 
+> "osgeo::proj::metadata::Extent::description" or in 
+> "osgeo::proj::io::AuthorityFactory::CRSInfo::areaName" (yes, this is 
+> the description, not the name)
+>
+> Is there a way to get the (short) name?
+>
+> Thanks.
+>
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230719/6f9760d5/attachment.htm>
+
+From j1 at jimenezshaw.com  Fri Jul 21 05:58:05 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 21 Jul 2023 14:58:05 +0200
+Subject: [PROJ] CRS aliases
+Message-ID: <CADRrdKtF4fF+k61SUpkmjg_cVR=RWt_OpN4y9F7VxJn1ap=ihA@mail.gmail.com>
+
+Hi
+
+After the last EPSG update, I noticed that Korea renamed their vertical and
+geographic CRSs. They keep the old ones as aliases.
+(BTW, anybody from Korea here? It would be nice if they make their geoid
+model file public [KNGeoid18]. They have the transformation method in EPSG!)
+
+To list all the CRS names I am using  "getCRSInfoList". Great method.
+In some cases I would like to include also all the aliases (more than 10000
+for projected crs). So you can still find the CRS with the name you used
+all your live. (I'm sure many people do not know that their authority
+renamed a CRS).
+
+However I am not able to get them. The method "IdentifiedObject::aliases()"
+for a CRS is returning an empty vector, and the method
+"DatabaseContext::getAliases(...)" has a "PROJ_INTERNAL" flag that makes it
+unlinkable.
+
+Am I doing something wrong with "IdentifiedObject::aliases()"? Is there any
+other way to do it?
+
+Thanks.
+Javier.
+
+PS: EPSG:32766, projected, has an alias
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230721/0e630026/attachment.htm>
+
+From even.rouault at spatialys.com  Fri Jul 21 06:34:36 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 21 Jul 2023 15:34:36 +0200
+Subject: [PROJ] CRS aliases
+In-Reply-To: <CADRrdKtF4fF+k61SUpkmjg_cVR=RWt_OpN4y9F7VxJn1ap=ihA@mail.gmail.com>
+References: <CADRrdKtF4fF+k61SUpkmjg_cVR=RWt_OpN4y9F7VxJn1ap=ihA@mail.gmail.com>
+Message-ID: <1abcdf82-6906-9111-ad16-0efb32071573@spatialys.com>
+
+
+>
+> To list all the CRS names I am using? "getCRSInfoList". Great method.
+> In some cases I would like to include also all the aliases (more than 
+> 10000 for projected crs). So you can still find the CRS with the name 
+> you used all your live. (I'm sure many people do not know that their 
+> authority renamed a CRS).
+>
+> However I am not able to get them. The method 
+> "IdentifiedObject::aliases()" for a CRS is returning an empty vector, 
+> and the method "DatabaseContext::getAliases(...)" has a 
+> "PROJ_INTERNAL" flag that makes it unlinkable.
+>
+> Am I doing something wrong with "IdentifiedObject::aliases()"? Is 
+> there any other way to do it?
+
+If I remember well, this part of the API was something I coded early in 
+the PROJ 6 work, taking inspiration (and strugling to understand) from 
+GeoAPI classes. Various classes GenericName, LocalName, NameFactory etc 
+to deal with basically a string. So the API is there, there's minimum 
+testing for it in test/unit/test_common.cpp, but it hasn't been really 
+used for useful stuff.
+
+DatabaseContext::getAliases() is used internally in situations where 
+identification from the main name fails.
+
+I guess the AuthorityFactory::createXXXX() methods, and more likely the 
+AuthorityFactory::Private::createPropertiesSearchUsage() low level 
+method they all use, could be used to query the database and set the 
+aliases through the ALIAS_KEY property name during construction. There 
+will obviously be some overhead. No idea if it will be significant or not.
+
+An alternative would be to have a C function relying on 
+DatabaseContext::getAliases() (or perhaps a helper method at the 
+IdentifiedObject level) to load the aliases on demand and return them
+
+Even
+
+
+>
+> Thanks.
+> Javier.
+>
+> PS: EPSG:32766, projected, has an alias
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230721/fe428a7f/attachment.htm>
+
+From martin.desruisseaux at geomatys.com  Fri Jul 21 07:29:59 2023
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Fri, 21 Jul 2023 16:29:59 +0200
+Subject: [PROJ] CRS aliases
+In-Reply-To: <1abcdf82-6906-9111-ad16-0efb32071573@spatialys.com>
+References: <CADRrdKtF4fF+k61SUpkmjg_cVR=RWt_OpN4y9F7VxJn1ap=ihA@mail.gmail.com>
+ <1abcdf82-6906-9111-ad16-0efb32071573@spatialys.com>
+Message-ID: <5155e89f-140f-3fa0-d231-bb8e8194721e@geomatys.com>
+
+Hello
+
+Le 21/07/2023 ? 15:34, Even Rouault a ?crit?:
+
+> If I remember well, this part of the API was something I coded early 
+> in the PROJ 6 work, taking inspiration (and strugling to understand) 
+> from GeoAPI classes. Various classes GenericName, LocalName, 
+> NameFactory etc to deal with basically a string. So the API is there, 
+> there's minimum testing for it in test/unit/test_common.cpp, but it 
+> hasn't been really used for useful stuff.
+
+The complexity come from the fact that aliases are defined in ISO 19111 
+as instances of GenericName, which is a class defined a bit succinctly 
+in ISO 19103. The main idea is that they are like file paths. For 
+example using ":" as a separator, a generic name could be 
+"IOGP:EPSG:SomeAlias", meaning that "SomeAlias" is a name defined in the 
+"EPSG" scope, which is itself defined in the "IOGP" scope. This is only 
+an example, actually I found few examples of scoped names (including in 
+EPSG database), so it is difficult to said what the established practice 
+is. Added to the fact that ISO 19103 makes a distinction between "scope" 
+and "namespace" but I found few guidance about what the distinction 
+should be, it makes GenericName a bit open to interpretation.
+
+If desired, PROJ could use LocalName (a specialization of GenericName 
+containing only the "SomeAlias" tip of above example) and forget the 
+other classes for now. If PROJ is willing to do a little bit more 
+advanced implementation, they could declare "EPSG" (or other relevant 
+authority) as the scope of that LocalName.
+
+Note: above discussion should not be confused with URN in OGC name 
+space, for example "urn:ogc:def:crs:EPSG::4326". Despite their 
+similarity, they are different objects in ISO models: GenericName for 
+the former, versus Identifier for the latter.
+
+ ??? Martin
+
+
+
+From martin.desruisseaux at geomatys.com  Fri Jul 21 08:46:18 2023
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Fri, 21 Jul 2023 17:46:18 +0200
+Subject: [PROJ] Area of usage (short) name
+In-Reply-To: <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+References: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+ <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+Message-ID: <a97de482-e229-f3d1-e7f0-17add3720645@geomatys.com>
+
+Le 19/07/2023 ? 00:02, Even Rouault a ?crit?:
+> So basically the object model of osgeo::proj::metadata::Extent should 
+> likely be extended with a shortName() getter (the corresponding GeoAPI 
+> class that serves as the inspiration, 
+> http://www.geoapi.org/3.0/javadoc/org.opengis.geoapi/org/opengis/metadata/extent/Extent.html, 
+> has a single getDescription()), a C binding to get it (likely 
+> proj_get_area_of_use_ex2()), and 
+> AuthorityFactory::Private::createPropertiesSearchUsages() be modified 
+> to populate it.
+
+Alternatively if the short area name can be seen as an identifier, then 
+in ISO 19115 model it can be a GeographicDescription. That description 
+can then be included among the values returned by 
+Extent.getGeographicElements().
+
+Note: EPSG defines domain of validity not only by bounding boxes or by 
+names, but also by polygons stored as Shapefile. The latter could be 
+returned by BoundingPolygon in ISO 19115 model. Said otherwise, 
+Extent.getGeographicElements() allows to specify an area of validity in 
+different ways:
+
+  * By identifier
+  * By bounding box
+  * By bounding polygon
+
+Those 3 ways can be made available together.
+
+ ??? Martin
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230721/f4baa86b/attachment.htm>
+
+From even.rouault at spatialys.com  Fri Jul 21 09:48:51 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 21 Jul 2023 18:48:51 +0200
+Subject: [PROJ] Area of usage (short) name
+In-Reply-To: <a97de482-e229-f3d1-e7f0-17add3720645@geomatys.com>
+References: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+ <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+ <a97de482-e229-f3d1-e7f0-17add3720645@geomatys.com>
+Message-ID: <5714f664-ae2d-357d-3245-f3377b2b11b5@spatialys.com>
+
+I don't think EPSG extent short names qualify as identifiers. They might 
+be altered between EPSG releases. Only their EPSG code is a true (ie 
+unmutable) identifier.
+
+Le 21/07/2023 ? 17:46, Martin Desruisseaux a ?crit?:
+> Le 19/07/2023 ? 00:02, Even Rouault a ?crit?:
+>> So basically the object model of osgeo::proj::metadata::Extent should 
+>> likely be extended with a shortName() getter (the corresponding 
+>> GeoAPI class that serves as the inspiration, 
+>> http://www.geoapi.org/3.0/javadoc/org.opengis.geoapi/org/opengis/metadata/extent/Extent.html, 
+>> has a single getDescription()), a C binding to get it (likely 
+>> proj_get_area_of_use_ex2()), and 
+>> AuthorityFactory::Private::createPropertiesSearchUsages() be modified 
+>> to populate it.
+>
+> Alternatively if the short area name can be seen as an identifier, 
+> then in ISO 19115 model it can be a GeographicDescription. That 
+> description can then be included among the values returned by 
+> Extent.getGeographicElements().
+>
+> Note: EPSG defines domain of validity not only by bounding boxes or by 
+> names, but also by polygons stored as Shapefile. The latter could be 
+> returned by BoundingPolygon in ISO 19115 model. Said otherwise, 
+> Extent.getGeographicElements() allows to specify an area of validity 
+> in different ways:
+>
+>   * By identifier
+>   * By bounding box
+>   * By bounding polygon
+>
+> Those 3 ways can be made available together.
+>
+> ??? Martin
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230721/e077c882/attachment-0001.htm>
+
+From martin.desruisseaux at geomatys.com  Sat Jul 22 01:35:52 2023
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Sat, 22 Jul 2023 10:35:52 +0200
+Subject: [PROJ] Area of usage (short) name
+In-Reply-To: <5714f664-ae2d-357d-3245-f3377b2b11b5@spatialys.com>
+References: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+ <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+ <a97de482-e229-f3d1-e7f0-17add3720645@geomatys.com>
+ <5714f664-ae2d-357d-3245-f3377b2b11b5@spatialys.com>
+Message-ID: <58d2a63f-b6f6-d9c7-6021-7071fed73ef0@geomatys.com>
+
+Le 21/07/2023 ? 18:48, Even Rouault a ?crit?:
+>
+> I don't think EPSG extent short names qualify as identifiers. They 
+> might be altered between EPSG releases. Only their EPSG code is a true 
+> (ie unmutable) identifier.
+>
+True, but this is true for CRS name as well, and nevertheless ISO 19111 
+defines the type of those names as MD_Identifier. I agree that this is a 
+bit surprising. A possible rational is that MD_Identifier contains a 
+`version` attribute. so while the identifier code alone is ambiguous and 
+unstable, the (code, version) or (namespace, code, version) tuples are 
+more stable.
+
+ ??? Martin
+
+
+
+From j1 at jimenezshaw.com  Sat Jul 22 07:20:50 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sat, 22 Jul 2023 16:20:50 +0200
+Subject: [PROJ] Area of usage (short) name
+In-Reply-To: <58d2a63f-b6f6-d9c7-6021-7071fed73ef0@geomatys.com>
+References: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+ <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+ <a97de482-e229-f3d1-e7f0-17add3720645@geomatys.com>
+ <5714f664-ae2d-357d-3245-f3377b2b11b5@spatialys.com>
+ <58d2a63f-b6f6-d9c7-6021-7071fed73ef0@geomatys.com>
+Message-ID: <CADRrdKtGDJ26LLbznM4MH_8EL=uOiozd6YqpGaJHXvOsSU4OTg@mail.gmail.com>
+
+My use case is (I want to think) simpler.
+
+Search for "incheon height" in epsg.org:
+https://epsg.org/search/by-name?sessionkey=syx74l2mwn&searchedTerms=incheon+height
+You can see "KVD1964 height", that was called before (just a few days ago)
+"Incheon height" (now under Naming System "EPSG alias").
+If PROJ is my access to EPSG db, I would like to be able to perform that
+search somehow. I do not mind if I have to iterate (once) the whole
+catalogue to create a map.
+
+Javier
+
+On Sat, 22 Jul 2023, 10:35 Martin Desruisseaux, <
+martin.desruisseaux at geomatys.com> wrote:
+
+> Le 21/07/2023 ? 18:48, Even Rouault a ?crit :
+> >
+> > I don't think EPSG extent short names qualify as identifiers. They
+> > might be altered between EPSG releases. Only their EPSG code is a true
+> > (ie unmutable) identifier.
+> >
+> True, but this is true for CRS name as well, and nevertheless ISO 19111
+> defines the type of those names as MD_Identifier. I agree that this is a
+> bit surprising. A possible rational is that MD_Identifier contains a
+> `version` attribute. so while the identifier code alone is ambiguous and
+> unstable, the (code, version) or (namespace, code, version) tuples are
+> more stable.
+>
+>      Martin
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230722/558e2b71/attachment.htm>
+
+From j1 at jimenezshaw.com  Sun Jul 23 08:31:15 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sun, 23 Jul 2023 17:31:15 +0200
+Subject: [PROJ] Area of usage (short) name
+In-Reply-To: <CADRrdKtGDJ26LLbznM4MH_8EL=uOiozd6YqpGaJHXvOsSU4OTg@mail.gmail.com>
+References: <CADRrdKso9VSsbQnatLTp6HR0RjZD-KZYj3zR8fE2mXgvn06R8g@mail.gmail.com>
+ <c1ca57f9-e688-0952-e411-e874ad3068a3@spatialys.com>
+ <a97de482-e229-f3d1-e7f0-17add3720645@geomatys.com>
+ <5714f664-ae2d-357d-3245-f3377b2b11b5@spatialys.com>
+ <58d2a63f-b6f6-d9c7-6021-7071fed73ef0@geomatys.com>
+ <CADRrdKtGDJ26LLbznM4MH_8EL=uOiozd6YqpGaJHXvOsSU4OTg@mail.gmail.com>
+Message-ID: <CADRrdKsQ2uz=RUt5ZCOx5sezo90RazfS7+bvJyDwe4fEFU07KQ@mail.gmail.com>
+
+Ups, I realized that I answered to the wrong email. Sorry
+My email about "Incheon height" should be the answer to "CRS aliases"
+thread. Unfortunate copy and paste on the wrong place.
+
+On Sat, 22 Jul 2023 at 16:20, Javier Jimenez Shaw <j1 at jimenezshaw.com>
+wrote:
+
+> My use case is (I want to think) simpler.
+>
+> Search for "incheon height" in epsg.org:
+> https://epsg.org/search/by-name?sessionkey=syx74l2mwn&searchedTerms=incheon+height
+> You can see "KVD1964 height", that was called before (just a few days ago)
+> "Incheon height" (now under Naming System "EPSG alias").
+> If PROJ is my access to EPSG db, I would like to be able to perform that
+> search somehow. I do not mind if I have to iterate (once) the whole
+> catalogue to create a map.
+>
+> Javier
+>
+> On Sat, 22 Jul 2023, 10:35 Martin Desruisseaux, <
+> martin.desruisseaux at geomatys.com> wrote:
+>
+>> Le 21/07/2023 ? 18:48, Even Rouault a ?crit :
+>> >
+>> > I don't think EPSG extent short names qualify as identifiers. They
+>> > might be altered between EPSG releases. Only their EPSG code is a true
+>> > (ie unmutable) identifier.
+>> >
+>> True, but this is true for CRS name as well, and nevertheless ISO 19111
+>> defines the type of those names as MD_Identifier. I agree that this is a
+>> bit surprising. A possible rational is that MD_Identifier contains a
+>> `version` attribute. so while the identifier code alone is ambiguous and
+>> unstable, the (code, version) or (namespace, code, version) tuples are
+>> more stable.
+>>
+>>      Martin
+>>
+>>
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230723/14bff63c/attachment.htm>
+
+From dan.crosby at lincolnagritech.co.nz  Tue Jul 25 20:19:27 2023
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Wed, 26 Jul 2023 15:19:27 +1200
+Subject: [PROJ] Fixing Old Code
+Message-ID: <5622bd90-4312-4cb1-b73e-7262acb553f1@lincolnagritech.co.nz>
+
+Hi All,
+ 
+Several years ago I constructed a GIS library for our application out of various bits of libgeotiff, libtiff, libkml and proj.
+(this was still the Proj4 era, I think!)
+ 
+One thing I tried to get working at the time, but never really did, was to read to geo-data from a GeoTIFF and convert
+the coordinates to UTM, such that I could then position the image in a UTM space. This worked fine when it did nothing
+(i.e., when the GeoTIFF was already in UTM) but any other transformation seemed a bit off.
+ 
+At the time this wasn't a big deal, as only a few of our users were making forays into GIS type stuff. Now it is becoming
+more and more common I wondered if there was a quick and easy way to fix my code in the short term - with a view to 
+more rigorous GIS support when I have more time (ultimately it would be nice to transform between any two 'arbitrary' systems)
+ 
+To be honest I haven't looked at this in a long while and feel like I've forgotten a lot of what I must have known then
+in order to get it to the stage it is at currently. Would anyone with more Proj familiarity on the list be willing to glance
+through my GeoTIFF importation code and comment on what I have done incorrectly, if anything? Or even just outline the
+steps I should take to get the correct projection info out of a GeoTIFF and convert it?
+ 
+Thanks,
+ 
+Dan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230726/dd567857/attachment.htm>
+
+From sgellrich at sensys.de  Wed Jul 26 00:34:59 2023
+From: sgellrich at sensys.de (Sebastian Gellrich)
+Date: Wed, 26 Jul 2023 07:34:59 +0000
+Subject: [PROJ] JPEG support for libtiff required?
+Message-ID: <f1f518e886f54ffea85cc3acb794a7e9@sensys.de>
+
+Hello,
+
+I am trying to build PROJ9 for my android application. At the moment it works in a proof of concept with "ENABLE_TIFF=OFF".
+Now I want to build and integrate TIFF support to use PROJ data resource files.
+
+Does PROJ9 need JPEG support in the libtiff library. If not, it will be a bit easier.
+
+Thanks in advance
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230726/bd0a056f/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Jul 26 08:14:46 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 26 Jul 2023 17:14:46 +0200
+Subject: [PROJ] JPEG support for libtiff required?
+In-Reply-To: <f1f518e886f54ffea85cc3acb794a7e9@sensys.de>
+References: <f1f518e886f54ffea85cc3acb794a7e9@sensys.de>
+Message-ID: <ad2f770b-d6b3-46a9-71d1-eb33980d7f82@spatialys.com>
+
+Sebastian,
+
+JPEG compression is definitely not needed, nor appropriate for the kind 
+of TIFF files PROJ handles. The grid files distributed by PROJ use the 
+DEFLATE compression method, which requires libtiff to be built against zlib
+
+Even
+
+Le 26/07/2023 ? 09:34, Sebastian Gellrich a ?crit?:
+>
+> Hello,
+>
+> I am trying to build PROJ9 for my android application. At the moment 
+> it works in a proof of concept with "ENABLE_TIFF=OFF".
+>
+> Now I want to build and integrate TIFF support to use PROJ data 
+> resource files.
+>
+> Does PROJ9 need JPEG support in the libtiff library. If not, it will 
+> be a bit easier.
+>
+> Thanks in advance
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230726/6896c86b/attachment.htm>
+
+From support at mnspoint.com  Sun Jul 30 04:30:24 2023
+From: support at mnspoint.com (support at mnspoint.com)
+Date: Sun, 30 Jul 2023 14:30:24 +0300
+Subject: [PROJ] Fixing Old Code
+In-Reply-To: <5622bd90-4312-4cb1-b73e-7262acb553f1@lincolnagritech.co.nz>
+References: <5622bd90-4312-4cb1-b73e-7262acb553f1@lincolnagritech.co.nz>
+Message-ID: <2b0997541d9b5773134f1e62bbc67468@mnspoint.com>
+
+Hello,
+
+we wrote a working GeoTIFF loader a few years ago using Proj4 library.
+
+The worts problem with GeoTIFF format is that it uses relative links to 
+EPSG or ESRI definitions just with a number!! AND if somebody adds new 
+definitions LATER the original database cannot solve them anymore!! REAL 
+IDIOTS!! They should have ALWAYS included the FULL definition instead of 
+just the "number"!! That way the GeoTIFF format would have worked 
+forever! Now it just works until somebody adds a new entry to the 
+database and some other idiot chooses to reference it in a GeoTIFF file!
+
+But what so ever, you can try to live with this error by always using 
+the latest ESRI/EPSG database with your GeoTIFF loader! (So, your 
+GeoTIFF loader needs an ESRI/EPSG definition database to work.)
+
+Regards: Janne
+
+------------------------------------------
+Dan Crosby kirjoitti 2023-07-26 06:19:
+> 
+> One thing I tried to get working at the time, but never really did,
+> was to read to geo-data from a GeoTIFF and convert
+> 
+> steps I should take to get the correct projection info out of a
+> GeoTIFF and convert it?
+> 
+> Thanks,
+> 
+> Dan
+
+From dan.crosby at lincolnagritech.co.nz  Sun Jul 30 14:10:23 2023
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Mon, 31 Jul 2023 09:10:23 +1200
+Subject: [PROJ] Fixing Old Code
+In-Reply-To: <2b0997541d9b5773134f1e62bbc67468@mnspoint.com>
+References: <5622bd90-4312-4cb1-b73e-7262acb553f1@lincolnagritech.co.nz>
+ <2b0997541d9b5773134f1e62bbc67468@mnspoint.com>
+Message-ID: <3d37a782-69d3-4490-8f91-b0edad548654@lincolnagritech.co.nz>
+
+Hi Janne,
+
+Yes we did have to include all the libgeotiff accompanying CSV files in our distribution to get ours sort-of functional. But using libgeotiff functions like GTIFImageToPCS and GTIFProj4ToLatLong should mean any transformations are as good as they can be. Right?
+
+Dan
+
+-----Original Message-----
+From: support at mnspoint.com <support at mnspoint.com> 
+Sent: Sunday, 30 July 2023 23:30
+To: Dan Crosby <dan.crosby at lincolnagritech.co.nz>
+Cc: proj at lists.osgeo.org
+Subject: Re: [PROJ] Fixing Old Code
+
+Hello,
+
+we wrote a working GeoTIFF loader a few years ago using Proj4 library.
+
+The worts problem with GeoTIFF format is that it uses relative links to EPSG or ESRI definitions just with a number!! AND if somebody adds new definitions LATER the original database cannot solve them anymore!! REAL IDIOTS!! They should have ALWAYS included the FULL definition instead of just the "number"!! That way the GeoTIFF format would have worked forever! Now it just works until somebody adds a new entry to the database and some other idiot chooses to reference it in a GeoTIFF file!
+
+But what so ever, you can try to live with this error by always using the latest ESRI/EPSG database with your GeoTIFF loader! (So, your GeoTIFF loader needs an ESRI/EPSG definition database to work.)
+
+Regards: Janne
+
+------------------------------------------
+Dan Crosby kirjoitti 2023-07-26 06:19:
+> 
+> One thing I tried to get working at the time, but never really did, 
+> was to read to geo-data from a GeoTIFF and convert
+> 
+> steps I should take to get the correct projection info out of a 
+> GeoTIFF and convert it?
+> 
+> Thanks,
+> 
+> Dan
+
+

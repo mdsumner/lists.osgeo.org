@@ -1,0 +1,559 @@
+From geos-trac at osgeo.org  Tue Mar 13 13:56:17 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 13 Mar 2018 20:56:17 -0000
+Subject: [geos-devel] [GEOS] #572: Contains issue for complex
+ LineStrings [JTS fails too]
+In-Reply-To: <045.fc82acdace0639d7b6097c86f1a9f515@osgeo.org>
+References: <045.fc82acdace0639d7b6097c86f1a9f515@osgeo.org>
+Message-ID: <060.48024949530a9b6c695784b4a8db5c53@osgeo.org>
+
+#572: Contains issue for complex LineStrings [JTS fails too]
+------------------------+---------------------------
+ Reporter:  Mike Toews  |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.8.0
+Component:  Default     |     Version:  3.3.4
+ Severity:  Unassigned  |  Resolution:
+ Keywords:  jtsfail     |
+------------------------+---------------------------
+
+Comment (by mdavis):
+
+ See also https://github.com/locationtech/jts/issues/270.
+
+ This branch may have a fix:  https://github.com/locationtech/jts/tree/bug-
+ test-intersects
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/572#comment:6>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Mar 15 14:52:13 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 15 Mar 2018 21:52:13 -0000
+Subject: [geos-devel] [GEOS] #862: WKBReader::readHEX: Incorrect use of
+ char_traits<char>::eof()
+Message-ID: <045.291c0177af89ea4287acea9704c11421@osgeo.org>
+
+#862: WKBReader::readHEX: Incorrect use of char_traits<char>::eof()
+------------------------+--------------------------
+ Reporter:  goatbar     |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.6.3
+Component:  Default     |    Version:  3.6.2
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ char_traits<char>::eof() returns an int.  It doesn't always work to
+ compare to a char.
+
+ I was seeing invalid 255s thrown.
+
+ My sample fix...  I add localized vars, added consts, and factored out the
+ switch statement so it's only in there 1 time.
+
+
+ {{{#!patch
+ --- a/geos/src/io/WKBReader.cpp 2018-02-28 11:14:06.000000000 -0800
+ +++ b/geos/src/io/WKBReader.cpp 2018-03-15 14:48:55.000000000 -0700
+ @@ -74,6 +74,56 @@
+         return os;
+  }
+
+ +namespace {
+ +
+ +unsigned char HexToUChar(int val)
+ +{
+ +       switch ( val )
+ +       {
+ +               case '0' :
+ +                       return 0;
+ +               case '1' :
+ +                       return 1;
+ +               case '2' :
+ +                       return 2;
+ +               case '3' :
+ +                       return 3;
+ +               case '4' :
+ +                       return 4;
+ +               case '5' :
+ +                       return 5;
+ +               case '6' :
+ +                       return 6;
+ +               case '7' :
+ +                       return 7;
+ +               case '8' :
+ +                       return 8;
+ +               case '9' :
+ +                       return 9;
+ +               case 'A' :
+ +               case 'a' :
+ +                       return 10;
+ +               case 'B' :
+ +               case 'b' :
+ +                       return 11;
+ +               case 'C' :
+ +               case 'c' :
+ +                       return 12;
+ +               case 'D' :
+ +               case 'd' :
+ +                       return 13;
+ +               case 'E' :
+ +               case 'e' :
+ +                       return 14;
+ +               case 'F' :
+ +               case 'f' :
+ +                       return 15;
+ +               default:
+ +                       throw ParseException("Invalid HEX char");
+ +       }
+ +}
+ +
+ +}  // namespace
+
+  Geometry *
+  WKBReader::readHEX(istream &is)
+ @@ -81,137 +131,24 @@
+         // setup input/output stream
+         stringstream os(ios_base::binary|ios_base::in|ios_base::out);
+
+ -       unsigned char result_high, result_low, value;
+ -       char high, low;
+ -
+ -       while( (high = static_cast<char>(is.get())) !=
+ char_traits<char>::eof() )
+ +       while( true )
+         {
+ -               // geth the low part of the byte
+ -               low = static_cast<char>(is.get());
+ -               if ( low == char_traits<char>::eof() )
+ -                 throw ParseException("Premature end of HEX string");
+ -
+ -               switch (high)
+ -               {
+ -                       case '0' :
+ -                               result_high = 0;
+ -                               break;
+ -                       case '1' :
+ -                               result_high = 1;
+ -                               break;
+ -                       case '2' :
+ -                               result_high = 2;
+ -                               break;
+ -                       case '3' :
+ -                               result_high = 3;
+ -                               break;
+ -                       case '4' :
+ -                               result_high = 4;
+ -                               break;
+ -                       case '5' :
+ -                               result_high = 5;
+ -                               break;
+ -                       case '6' :
+ -                               result_high = 6;
+ -                               break;
+ -                       case '7' :
+ -                               result_high = 7;
+ -                               break;
+ -                       case '8' :
+ -                               result_high = 8;
+ -                               break;
+ -                       case '9' :
+ -                               result_high = 9;
+ -                               break;
+ -                       case 'A' :
+ -            case 'a' :
+ -                               result_high = 10;
+ -                               break;
+ -                       case 'B' :
+ -            case 'b' :
+ -                               result_high = 11;
+ -                               break;
+ -                       case 'C' :
+ -                       case 'c' :
+ -                               result_high = 12;
+ -                               break;
+ -                       case 'D' :
+ -                       case 'd' :
+ -                               result_high = 13;
+ -                               break;
+ -                       case 'E' :
+ -                       case 'e' :
+ -                               result_high = 14;
+ -                               break;
+ -                       case 'F' :
+ -                       case 'f' :
+ -                               result_high = 15;
+ -                               break;
+ -                       default:
+ -                               throw  ParseException("Invalid HEX char");
+ -               }
+ -
+ -               switch (low)
+ -               {
+ -                       case '0' :
+ -                               result_low = 0;
+ -                               break;
+ -                       case '1' :
+ -                               result_low = 1;
+ -                               break;
+ -                       case '2' :
+ -                               result_low = 2;
+ -                               break;
+ -                       case '3' :
+ -                               result_low = 3;
+ -                               break;
+ -                       case '4' :
+ -                               result_low = 4;
+ -                               break;
+ -                       case '5' :
+ -                               result_low = 5;
+ -                               break;
+ -                       case '6' :
+ -                               result_low = 6;
+ -                               break;
+ -                       case '7' :
+ -                               result_low = 7;
+ -                               break;
+ -                       case '8' :
+ -                               result_low = 8;
+ -                               break;
+ -                       case '9' :
+ -                               result_low = 9;
+ -                               break;
+ -                       case 'A' :
+ -            case 'a' :
+ -                               result_low = 10;
+ -                               break;
+ -                       case 'B' :
+ -            case 'b' :
+ -                               result_low = 11;
+ -                               break;
+ -                       case 'C' :
+ -                       case 'c' :
+ -                               result_low = 12;
+ -                               break;
+ -                       case 'D' :
+ -                       case 'd' :
+ -                               result_low = 13;
+ -                               break;
+ -                       case 'E' :
+ -                       case 'e' :
+ -                               result_low = 14;
+ -                               break;
+ -                       case 'F' :
+ -                       case 'f' :
+ -                               result_low = 15;
+ -                               break;
+ -                       default:
+ -                               throw  ParseException("Invalid HEX char");
+ -               }
+ +               const int input_high = is.get();
+ +               if (input_high == char_traits<char>::eof())
+ +                       break;
+ +
+ +               const int input_low = is.get();
+ +               if (input_low == char_traits<char>::eof())
+ +                       throw ParseException("Premature end of HEX
+ string");
+ +
+ +               const char high = static_cast<char>(input_high);
+ +               const char low = static_cast<char>(input_low);
+ +
+ +               const unsigned char result_high = HexToUChar(high);
+ +               const unsigned char result_low = HexToUChar(low);
+
+ -               value = static_cast<char>((result_high<<4) + result_low);
+ +               const unsigned char value =
+ +                       static_cast<char>((result_high<<4) + result_low);
+
+  #if DEBUG_HEX_READER
+         cout<<"HEX "<<high<<low<<" -> DEC "<<(int)value<<endl;
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/862>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Fri Mar 16 07:34:40 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 16 Mar 2018 14:34:40 -0000
+Subject: [geos-devel] [GEOS] #863: DEBUG_BYTEORDER_VALUES=1 does not build
+Message-ID: <045.b356ae97a881b99eaccc1327be8fb842@osgeo.org>
+
+#863: DEBUG_BYTEORDER_VALUES=1 does not build
+-----------------------+--------------------------
+ Reporter:  goatbar    |      Owner:  geos-devel@…
+     Type:  defect     |     Status:  new
+ Priority:  minor      |  Milestone:  3.6.3
+Component:  Default    |    Version:  3.6.2
+ Severity:  Annoyance  |   Keywords:  debugging
+-----------------------+--------------------------
+ Missing includes and missing std::
+
+ Also, most other switches are `#ifdef` rather than `#if`, so maybe that
+ should change too.
+
+ {{{#!patch
+ --- a/src/io/ByteOrderValues.cpp        2017-10-20 17:04:17.000000000
+ -0700
+ +++ b/src/io/ByteOrderValues.cpp        2018-03-15 22:25:50.000000000
+ -0700
+ @@ -23,6 +23,11 @@
+  #include <cstring>
+  #include <cassert>
+
+ +#if DEBUG_BYTEORDER_VALUES
+ +#include <ios>
+ +#include <iostream>
+ +#endif
+ +
+  namespace geos {
+  namespace io { // geos.io
+
+ @@ -143,12 +148,12 @@
+         int64 longValue;
+      std::memcpy(&longValue, &doubleValue, sizeof(double));
+  #if DEBUG_BYTEORDER_VALUES
+ -       cout<<"ByteOrderValues::putDouble("<<doubleValue<<
+ +       std::cout<<"ByteOrderValues::putDouble("<<doubleValue<<
+                 ", order:"<<byteOrder
+ -               <<") = "<<hex;
+ +               <<") = "<<std::hex;
+         for (int i=0; i<8; i++)
+ -               cout<<"["<<(int)buf[i]<<"]";
+ -       cout<<dec<<endl;
+ +               std::cout<<"["<<(int)buf[i]<<"]";
+ +       std::cout<<std::dec<<std::endl;
+  #endif
+         putLong(longValue, buf, byteOrder);
+  }
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/863>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Fri Mar 16 14:47:25 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 16 Mar 2018 21:47:25 -0000
+Subject: [geos-devel] [GEOS] #863: DEBUG_BYTEORDER_VALUES=1 does not
+	build
+In-Reply-To: <045.b356ae97a881b99eaccc1327be8fb842@osgeo.org>
+References: <045.b356ae97a881b99eaccc1327be8fb842@osgeo.org>
+Message-ID: <060.1651ea7d96b40828b8eca327d0f22ac1@osgeo.org>
+
+#863: DEBUG_BYTEORDER_VALUES=1 does not build
+-----------------------+---------------------------
+ Reporter:  goatbar    |       Owner:  geos-devel@…
+     Type:  defect     |      Status:  new
+ Priority:  minor      |   Milestone:  3.6.3
+Component:  Default    |     Version:  3.6.2
+ Severity:  Annoyance  |  Resolution:
+ Keywords:  debugging  |
+-----------------------+---------------------------
+
+Comment (by goatbar):
+
+ I think there is still more that can be done to improve the eof checks,
+ but here is what I ended up with after code review.  I'll try to get the
+ tests I've been working on out in the autotest2 tree in the next few days.
+ I have more work to do for coverage.
+
+ {{{#!c++
+ namespace {
+
+ unsigned char ASCIIHexToUChar(char val)
+ {
+         switch ( val )
+         {
+                 case '0' :
+                         return 0;
+                 case '1' :
+                         return 1;
+                 case '2' :
+                         return 2;
+                 case '3' :
+                         return 3;
+                 case '4' :
+                         return 4;
+                 case '5' :
+                         return 5;
+                 case '6' :
+                         return 6;
+                 case '7' :
+                         return 7;
+                 case '8' :
+                         return 8;
+                 case '9' :
+                         return 9;
+                 case 'A' :
+                 case 'a' :
+                         return 10;
+                 case 'B' :
+                 case 'b' :
+                         return 11;
+                 case 'C' :
+                 case 'c' :
+                         return 12;
+                 case 'D' :
+                 case 'd' :
+                         return 13;
+                 case 'E' :
+                 case 'e' :
+                         return 14;
+                 case 'F' :
+                 case 'f' :
+                         return 15;
+                 default:
+                         throw ParseException("Invalid HEX char");
+         }
+ }
+
+ }  // namespace
+
+ // Must be an even number of characters in the istream.
+ // Throws a ParseException if there are an odd number of characters.
+ Geometry *
+ WKBReader::readHEX(istream &is)
+ {
+         // setup input/output stream
+         stringstream os(ios_base::binary|ios_base::in|ios_base::out);
+
+         while( true )
+         {
+                 const int input_high = is.get();
+                 if (input_high == char_traits<char>::eof())
+                         break;
+
+                 const int input_low = is.get();
+                 if (input_low == char_traits<char>::eof())
+                         throw ParseException("Premature end of HEX
+ string");
+
+                 const char high = static_cast<char>(input_high);
+                 const char low = static_cast<char>(input_low);
+
+                 const unsigned char result_high = ASCIIHexToUChar(high);
+                 const unsigned char result_low = ASCIIHexToUChar(low);
+
+                 const unsigned char value =
+                         static_cast<char>((result_high<<4) + result_low);
+
+ #if DEBUG_HEX_READER
+         cout<<"HEX "<<high<<low<<" -> DEC "<<(int)value<<endl;
+ #endif
+                 // write the value to the output stream
+                 os << value;
+         }
+
+         // now call read to convert the geometry
+         return this->read(os);
+ }
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/863#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Mon Mar 19 10:56:19 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 19 Mar 2018 17:56:19 -0000
+Subject: [geos-devel] [GEOS] #860: Prefer empty to size of zero
+In-Reply-To: <045.6fa25a248e0bd47052567127a6be9539@osgeo.org>
+References: <045.6fa25a248e0bd47052567127a6be9539@osgeo.org>
+Message-ID: <060.ad04bca44016850a0729ff1680ee76b5@osgeo.org>
+
+#860: Prefer empty to size of zero
+------------------------+---------------------------
+ Reporter:  goatbar     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.6.3
+Component:  Default     |     Version:  3.6.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by goatbar):
+
+ And there are some easy to find instances of the same thing:
+
+ {{{
+ find . -name \*.cpp | xargs egrep '[.]size()' | egrep '== *0|0 *=='
+ ./geomgraph/EdgeEndStar.cpp:    if (edgeMap.size()==0) return nullCoord;
+ ./geomgraph/EdgeEndStar.cpp:    if (edgeMap.size()==0) return true;
+ ./operation/buffer/SubgraphDepthLocater.cpp:    if
+ (stabbedSegments.size()==0) return 0;
+ ./operation/overlay/LineBuilder.cpp:    if ( v3d.size() == 0 )
+ ./linearref/ExtractLineByLocation.cpp:  if (newCoordinateArray.size() ==
+ 0)
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/860#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From schwehr at gmail.com  Mon Mar 19 10:58:32 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Mon, 19 Mar 2018 10:58:32 -0700
+Subject: [geos-devel] Request for review of bugs
+Message-ID: <CACmBxyuR88aFZwbDb9+=KkTftWh0OpqQwOTw0KGr6VAtik=2QA@mail.gmail.com>
+
+Hi all,
+
+Can someone please review these bugs that have possible patches?  I'm happy
+to try to improve the patches if they need work.
+
+https://trac.osgeo.org/geos/ticket/862 WKBReader::readHEX: Incorrect use of
+char_traits<char>::eof()
+https://trac.osgeo.org/geos/ticket/863 DEBUG_BYTEORDER_VALUES=1 does not
+build
+https://trac.osgeo.org/geos/ticket/860 Prefer empty to size of zero
+
+And if anyone has thoughts on what this bug is, I would very much
+appreciate it.
+
+https://trac.osgeo.org/geos/ticket/858 MemorySanitizer:
+use-of-uninitialized-value in SimpleMCSweepLineIntersector
+
+Thanks!
+-kurt
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180319/b3b8d215/attachment.html>
+
+From geos-trac at osgeo.org  Fri Mar 30 12:10:26 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 30 Mar 2018 19:10:26 -0000
+Subject: [geos-devel] [GEOS] #864: GEOSNode throws std::exception in PostGIS
+Message-ID: <044.f01871304c869cb58efc5bfdb0454f56@osgeo.org>
+
+#864: GEOSNode throws std::exception in PostGIS
+------------------------+--------------------------
+ Reporter:  komzpa      |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.6.3
+Component:  Default     |    Version:  3.6.2
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ {{{
+
+ [local] gis at gis=# select
+ ST_Node(ST_GeomFromWKB('\001\002\000\000\000\011\000\000\000b\020X9
+ }\366 at 7\211A\340\235I\034A\316\326t18}\366@\306g\347\323\230I\034Ay\351&18}\366@\331\316\367\323\230I\034A\372~j\274\370}\366@\315\314\314LpI\034A\343\245\233\304R}\366 at R\270\036\005?I\034A\315\314\314\314Z~\366@\343\245\233\304\007I\034A\004V\016-\242}\366@\252\361\322M\323H\034A\351&1\010\306{\366 at H\341z\0247I\034Ab\020X9
+ }\366 at 7\211A\340\235I\034A'));
+ ERROR:  XX000: GEOSNode: std::exception
+ LOCATION:  pg_error, lwgeom_pg.c:128
+ Time: 1,215 ms
+
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/864>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+

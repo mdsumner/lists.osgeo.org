@@ -1,0 +1,2416 @@
+From kilian.demeulemeester at yellowscan-lidar.com  Wed Dec  1 00:48:22 2021
+From: kilian.demeulemeester at yellowscan-lidar.com (Kilian Demeulemeester)
+Date: Wed, 1 Dec 2021 09:48:22 +0100
+Subject: [PROJ] Is proj line associate to EPSG:31467 behaving properly?
+Message-ID: <24b38190-8a50-2d82-609b-4c98207ca39d@yellowscan-lidar.com>
+
+Hi!
+
+Our client is willing to generate his data in EPSG:31467 but he wants to 
+translate +40cm on the y axis.
+
+So I figured out that I would use the corresponding PROJ.4 "|+proj=tmerc 
++lat_0=0 +lon_0=9 +k=1 +x_0=3500000 +y_0=0 +ellps=bessel +units=m 
++no_defs +type=crs" |code and modify the y_0=0 with a y_0=0.4
+
+1. Data are originally expressed in EPSG:4326
+
+2. Using the EPSG code: via proj API, I transform the data via 
+proj_create_crs_to_crs(..., "EPSG:4326", "EPSG:31497")
+
+3. Now, if I replace the "EPSG:31467" with "|+proj=tmerc +lat_0=0 
++lon_0=9 +k=1 +x_0=3500000 +y_0=0 +ellps=bessel +units=m +no_defs 
++type=crs", (the corresponding proj line), the data are z-offsetted by 
+approx 1000m
+|
+
+|I know that for some CRS, the PROJ.4 is not enough to generate the 
+correct coordinates. Is that the case for this transformation?
+|
+
+|Ultimately, is there a something (+proj=pipeline ?) that I could use 
+that would transform my data from EPSG:4326 to EPSG:31497 with a 
+translation of +40cm on the y axis?|
+
+|Thank you all!|
+
+|Kilian
+|
+
+
+
+
+Kilian Demeulemeester
+Software Project Lead - R&D
+
+[https://yellowscan-lidar.com/]
+
+525 Avenue Saint Sauveur du Pin
+34980 Saint-Cl?ment-De-Rivi?re - France
+Tel: +33 (0)4 11 93 14 06
+yellowscan-lidar.com [https://yellowscan-lidar.com/]
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/abf1632d/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: x-disclaimer-534644925-0.png
+Type: image/png
+Size: 1125 bytes
+Desc: x-disclaimer-534644925-0.png
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/abf1632d/attachment.png>
+
+From knudsen.thomas at gmail.com  Wed Dec  1 03:54:16 2021
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Wed, 1 Dec 2021 12:54:16 +0100
+Subject: [PROJ] Is proj line associate to EPSG:31467 behaving properly?
+In-Reply-To: <24b38190-8a50-2d82-609b-4c98207ca39d@yellowscan-lidar.com>
+References: <24b38190-8a50-2d82-609b-4c98207ca39d@yellowscan-lidar.com>
+Message-ID: <CAH0YoEO2WJ9+3rh8_qwMfU+y+MKxkOC7c7tch-LKhWUxVVJ+ZQ@mail.gmail.com>
+
+EPSG:4326 is geographical coordinates in (some unspecified realization of)
+the World Geodetic System 1984 (WGS84). EPSG:31467 is GK zone 3 coordinates
+on the "Deutsche Hauptdreiecksnetz" (DHDN).
+
+As these are two different systems, you need a datum shift, which you get
+from your proj_create_crs_to_crs call (try "projinfo -s epsg:4326 -t
+epsg:31467" to see what actually goes on behind the scenes).
+
+By swapping your output system to a plain PROJ projection definition, you
+probably bypass the datum shift, and take the EPSG:4326 coordinates, which
+are defined on the GRS80-ellipsoid with a semimajor axis of 6378137 m, and
+drop them directly onto the somewhat smaller Bessel ellipsoid (semimajor
+axis = 6377397.155 m), which makes your GK coordinates nonsensical.
+
+But since both EPSG:4326 and EPSG:31467 are 2D systems, you should probably
+not worry too much about your height coordinate being nonsensical, but
+rather that your coordinates in general are.
+
+The proj_create_crs_to_crs call should give you the right operation. Since
+you apparently use the PROJ APi in your own code, why not simply add the 40
+cm directly to your output coordinates?
+
+But considering the indtermination of EPSG:4326 (multiple realizations
+differing by up to 2 m), it's hard to see the idea of adding 40 cm: Your
+overall accuracy is much worse than that.
+
+Probably, your client knows what they actually mean by EPSG:4326, and you
+will be able to construct a sufficient transformation somehow - but you
+need to be careful and have a good set of control points for checking.
+
+Den ons. 1. dec. 2021 kl. 09.54 skrev Kilian Demeulemeester <
+kilian.demeulemeester at yellowscan-lidar.com>:
+
+> Hi!
+>
+> Our client is willing to generate his data in EPSG:31467 but he wants to
+> translate +40cm on the y axis.
+>
+> So I figured out that I would use the corresponding PROJ.4 "+proj=tmerc
+> +lat_0=0 +lon_0=9 +k=1 +x_0=3500000 +y_0=0 +ellps=bessel +units=m +no_defs
+> +type=crs" code and modify the y_0=0 with a y_0=0.4
+>
+> 1. Data are originally expressed in EPSG:4326
+>
+> 2. Using the EPSG code: via proj API, I transform the data via
+> proj_create_crs_to_crs(..., "EPSG:4326", "EPSG:31497")
+>
+> 3. Now, if I replace the "EPSG:31467" with "+proj=tmerc +lat_0=0 +lon_0=9
+> +k=1 +x_0=3500000 +y_0=0 +ellps=bessel +units=m +no_defs +type=crs", (the
+> corresponding proj line), the data are z-offsetted by approx 1000m
+>
+> I know that for some CRS, the PROJ.4 is not enough to generate the correct
+> coordinates. Is that the case for this transformation?
+>
+> Ultimately, is there a something (+proj=pipeline ?) that I could use that
+> would transform my data from EPSG:4326 to EPSG:31497 with a translation of
+> +40cm on the y axis?
+>
+> Thank you all!
+>
+> Kilian
+>
+>
+> *Kilian Demeulemeester*
+> Software Project Lead - R&D
+>
+> [image: logo_Yellowscan] <https://yellowscan-lidar.com>
+>
+> 525 Avenue Saint Sauveur du Pin
+> 34980 Saint-Cl?ment-De-Rivi?re - France
+> Tel: +33 (0)4 11 93 14 06
+> yellowscan-lidar.com
+>
+> <https://www.yellowscan-lidar.com/events/category/demo-days/?utm_source=email_signature&utm_medium=email&utm_campaign=demodays_banner>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/c9296333/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: x-disclaimer-534644925-0.png
+Type: image/png
+Size: 1125 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/c9296333/attachment.png>
+
+From even.rouault at spatialys.com  Wed Dec  1 05:40:56 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 1 Dec 2021 14:40:56 +0100
+Subject: [PROJ] Altitude question
+In-Reply-To: <CANkOqwMF7-UQHhcaaMDF0f-fEQCJad5EVJDc5B_JzASjQUnvfQ@mail.gmail.com>
+References: <CANkOqwMF7-UQHhcaaMDF0f-fEQCJad5EVJDc5B_JzASjQUnvfQ@mail.gmail.com>
+Message-ID: <5141bee2-5d0e-5be2-cae9-8d5b23d9f452@spatialys.com>
+
+
+Le 01/12/2021 ? 08:59, Roger Oberholtzer a ?crit?:
+> How does one determine the expected type of altitude (geoid or
+> ellipsoid) that a transformation expects? For example EPSG:5845
+> (Sweref99 + RH2000).
+A compound CRS such as the above one will necesarily have the vertical 
+axis as a orthometric height (geoid). Never an ellipsoid one
+>
+> If I look at things like https://epsg.io/6499-cs or
+> https://epsg.io/5208 (which are referenced in the RH2000 definition)
+> the definition is not shown correctly in my browser. And I do not get
+> information for them via projinfo. It says the CRS is not found. Which
+> I guess is correct.
+Transformation EPSG:5208 does exist in EPSG
+
+https://epsg.org/transformation_5208/RH2000-height-to-EVRF2007-height-1.html
+
+but it is not available in the PROJ database as the corresponding 
+transformation method doesn't exist as a PROJ operation (could likely be 
+implemented as IOGP publishes the formula, but this remains to do)
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From andrew at avenza.com  Wed Dec  1 12:24:04 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 1 Dec 2021 15:24:04 -0500
+Subject: [PROJ] Pseudo-mercator
+Message-ID: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+
+Hello!
+
+We recently made the jump from GDAL 2.4 to 3.3.0 and while we had some
+major headaches initially, in the end they boiled down to a single
+(unnecessary) function call that resulted in an issue filed against GDAL.
+The fix, by the way, was supplied within three or four hours, which is an
+amazing turnaround time (and greatly appreciated by me)!
+
+Since then, we've released our app (Avenza Maps) and immediately run
+headlong into recurring issues with pseudo-mercator that I'm not sure how
+to solve. In our previous version (using GDAL 2.4 & PROJ 6.1) we had
+various pseudo-mercator maps that worked fine. When we upgrade to our
+version running GDAL 3.3.0 & PROJ 8.1.1, many of these maps find their
+referencing shifted. In one case, it was shifted toward the equator ~26km.
+In another, the referencing is off by ~75km.
+
+The former has 'deprecated' in its name -- though I know that's mostly a
+cosmetic property -- but it made me wonder if there's some issue with these
+deprecated versions of pseudo-mercator. We've seen other issues with these
+'off brand' pseudo-mercator projections as well, but it's not clear if it's
+that they're not as well supported any more or if there's something in
+those WKTs that is problematic.
+
+The latter one seems to be influenced by what appears to be a dropped
+parameter: the WKT specifies a latitude_of_origin but when I asked the
+resultant ORGSpatialReference to read the WKT back to me it's not included.
+If I eliminate that parameter from the WKT in our previous app (using
+2.4/6.1) I get a similar-ish result to the one in the current version
+(using 3.3/8.1.1). That seems like it might be a bug about not considering
+latitude_of_origin for pseudo-mercator when it should, but even if that's
+true, the latitude is off by ~0.15 degrees so there's an additional
+component.
+
+To further confuse matters, we also have other pseudo-mercator maps that
+work as well as before. I'm well versed enough in GIS from years of
+exposure that I feel like I'd be able to spot obvious problems, but I'm not
+seeing anything that jumps out at me. I'm hoping someone on this list has
+experience and knowledge of how PROJ handles pseudo-mercator and can lend
+me some guidance on what to do. I've figuratively got management breathing
+down my neck on this and I'm running out of leads to pursue.
+
+Any help would be greatly appreciated!
+
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/8b35047e/attachment.html>
+
+From even.rouault at spatialys.com  Wed Dec  1 12:34:57 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 1 Dec 2021 21:34:57 +0100
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+Message-ID: <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+
+Andrew,
+
+for anyone to be able to help you, you should provide more reproducible 
+material, and namely the WKT that works and which don't. and possibly 
+GDAL or PROJ command line invokations to reproduce issues
+
+Even
+
+Le 01/12/2021 ? 21:24, Andrew Patterson a ?crit?:
+> Hello!
+>
+> We recently made the jump from GDAL 2.4 to 3.3.0 and while we had some 
+> major headaches initially, in the end they boiled down to a single 
+> (unnecessary) function call that resulted in an issue filed against 
+> GDAL. The fix, by the way, was supplied within three or four hours, 
+> which is an amazing turnaround time (and greatly appreciated by me)!
+>
+> Since then, we've released our app (Avenza Maps) and immediately run 
+> headlong into recurring issues with pseudo-mercator that I'm not sure 
+> how to solve. In our previous version (using GDAL 2.4 & PROJ 6.1) we 
+> had various pseudo-mercator maps that worked fine. When we upgrade to 
+> our version running GDAL 3.3.0 & PROJ 8.1.1, many of these maps find 
+> their referencing shifted. In one case, it was shifted toward the 
+> equator ~26km. In another, the referencing is off by ~75km.
+>
+> The former has 'deprecated' in its name -- though I know that's mostly 
+> a cosmetic property -- but it made me wonder if there's some issue 
+> with these deprecated versions of pseudo-mercator. We've seen?other 
+> issues with these 'off brand' pseudo-mercator projections as well, but 
+> it's not clear if it's that they're not as well supported any more or 
+> if there's something in those WKTs that is problematic.
+>
+> The latter one seems to be influenced by what appears to be a dropped 
+> parameter: the WKT specifies a latitude_of_origin but when I asked the 
+> resultant ORGSpatialReference to read the WKT back to me it's not 
+> included. If I eliminate that parameter from the WKT in our previous 
+> app (using 2.4/6.1) I get a similar-ish result to the one in the 
+> current version (using 3.3/8.1.1). That seems like it might be a bug 
+> about not considering latitude_of_origin for pseudo-mercator when it 
+> should, but even if that's true, the latitude is off by ~0.15 degrees 
+> so there's an additional component.
+>
+> To further confuse matters, we also have other pseudo-mercator maps 
+> that work as well as before. I'm well versed enough in GIS from years 
+> of exposure that I feel like I'd be able to spot obvious problems, but 
+> I'm not seeing anything that?jumps out at me. I'm hoping someone on 
+> this list has experience and knowledge of how PROJ handles 
+> pseudo-mercator and can lend me some guidance on what to do. I've 
+> figuratively got management breathing down my neck on this and I'm 
+> running out of leads to pursue.
+>
+> Any help would be greatly appreciated!
+>
+> ..............................
+> Andrew Patterson
+> Lead Software Architect
+> Avenza Systems Inc.
+>
+> email: andrew at avenza.com <mailto:andrew at avenza.com>
+> phone: 416.487.5116
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/ec564a1e/attachment.html>
+
+From andrew at avenza.com  Wed Dec  1 12:51:34 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 1 Dec 2021 15:51:34 -0500
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+Message-ID: <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+
+Even,
+
+That seems like a logical suggestion!
+
+This is the WKT for the map that's off by ~75km. That 'latitude_of_center'
+seems to be contributing at the very least, but as I said before, there
+appears to be more to it than that because without it there's still a
+~0.18deg latitude shift.
+
+PROJCS["WGS_84_Pseudo_Mercator",GEOGCS["WGS
+84",DATUM["wgs_1984",SPHEROID["WGS
+1984",6378137,298.257223563],TOWGS84[0,0,0,0,0,0,0],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["latitude_of_center",6.64456744726493],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],UNIT["Meter",1,AUTHORITY["EPSG","9001"]]]
+
+This is the WKT for the map that's off by ~26km:
+
+PROJCS["Popular_Visualisation_CRS_Mercator_deprecated",GEOGCS["GCS_Popular
+Visualisation
+CRS",DATUM["D_Popular_Visualisation_Datum",SPHEROID["Popular_Visualisation_Sphere",6378137,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Mercator"],PARAMETER["central_meridian",0],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["standard_parallel_1",0],UNIT["Meter",1]]
+
+Looking at it more closely, I'm not sure it actually is a pseudo-mercator
+map. I think I say 'populator visualisation' and assumed it was. But it
+_is_ off by ~26km after moving from 2.4/6/1 -> 3.3/8.1.1
+
+This is the WKT for a map that saw no change between GDAL/PROJ versions:
+
+PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS
+84",DATUM["WGS_1984",SPHEROID["WGS
+84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc
++a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m
++nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]
+
+I should be able to dig up more -- I'm told we have a rather huge host of
+files like that first WKT that are affected.
+
+On Wed, Dec 1, 2021 at 3:35 PM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Andrew,
+>
+> for anyone to be able to help you, you should provide more reproducible
+> material, and namely the WKT that works and which don't. and possibly GDAL
+> or PROJ command line invokations to reproduce issues
+>
+> Even
+> Le 01/12/2021 ? 21:24, Andrew Patterson a ?crit :
+>
+> Hello!
+>
+> We recently made the jump from GDAL 2.4 to 3.3.0 and while we had some
+> major headaches initially, in the end they boiled down to a single
+> (unnecessary) function call that resulted in an issue filed against GDAL.
+> The fix, by the way, was supplied within three or four hours, which is an
+> amazing turnaround time (and greatly appreciated by me)!
+>
+> Since then, we've released our app (Avenza Maps) and immediately run
+> headlong into recurring issues with pseudo-mercator that I'm not sure how
+> to solve. In our previous version (using GDAL 2.4 & PROJ 6.1) we had
+> various pseudo-mercator maps that worked fine. When we upgrade to our
+> version running GDAL 3.3.0 & PROJ 8.1.1, many of these maps find their
+> referencing shifted. In one case, it was shifted toward the equator ~26km.
+> In another, the referencing is off by ~75km.
+>
+> The former has 'deprecated' in its name -- though I know that's mostly a
+> cosmetic property -- but it made me wonder if there's some issue with these
+> deprecated versions of pseudo-mercator. We've seen other issues with these
+> 'off brand' pseudo-mercator projections as well, but it's not clear if it's
+> that they're not as well supported any more or if there's something in
+> those WKTs that is problematic.
+>
+> The latter one seems to be influenced by what appears to be a dropped
+> parameter: the WKT specifies a latitude_of_origin but when I asked the
+> resultant ORGSpatialReference to read the WKT back to me it's not included.
+> If I eliminate that parameter from the WKT in our previous app (using
+> 2.4/6.1) I get a similar-ish result to the one in the current version
+> (using 3.3/8.1.1). That seems like it might be a bug about not considering
+> latitude_of_origin for pseudo-mercator when it should, but even if that's
+> true, the latitude is off by ~0.15 degrees so there's an additional
+> component.
+>
+> To further confuse matters, we also have other pseudo-mercator maps that
+> work as well as before. I'm well versed enough in GIS from years of
+> exposure that I feel like I'd be able to spot obvious problems, but I'm not
+> seeing anything that jumps out at me. I'm hoping someone on this list has
+> experience and knowledge of how PROJ handles pseudo-mercator and can lend
+> me some guidance on what to do. I've figuratively got management breathing
+> down my neck on this and I'm running out of leads to pursue.
+>
+> Any help would be greatly appreciated!
+>
+> ..............................
+> Andrew Patterson
+> Lead Software Architect
+> Avenza Systems Inc.
+>
+> email: andrew at avenza.com
+> phone: 416.487.5116
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+
+
+-- 
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/4e0a7196/attachment-0001.html>
+
+From even.rouault at spatialys.com  Wed Dec  1 13:15:03 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 1 Dec 2021 22:15:03 +0100
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+ <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+Message-ID: <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+
+Andrew,
+
+Le 01/12/2021 ? 21:51, Andrew Patterson a ?crit?:
+> Even,
+>
+> That seems like a logical suggestion!
+>
+> This is the WKT for the map that's off by ~75km. That 
+> 'latitude_of_center' seems to be contributing at the very least, but 
+> as I said before, there appears to be more to it than that because 
+> without it there's still a ~0.18deg latitude shift.
+>
+> PROJCS["WGS_84_Pseudo_Mercator",GEOGCS["WGS 
+> 84",DATUM["wgs_1984",SPHEROID["WGS 
+> 1984",6378137,298.257223563],TOWGS84[0,0,0,0,0,0,0],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["latitude_of_center",6.64456744726493],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],UNIT["Meter",1,AUTHORITY["EPSG","9001"]]]
+>
+That one is a very odd beast. The 
+PARAMETER["latitude_of_center",6.64456744726493] is completely 
+inconsistant with the name "WGS_84_Pseudo_Mercator". I see GDAL 2.4 
+honoured this latitude of center, as gdalsrsinfo on it returns 
++proj=merc +lon_0=0 +lat_ts=6.64456744726493 +x_0=0 +y_0=0 +ellps=WGS84 
++towgs84=0,0,0,0,0,0,0 +units=m +no_defs.??? Newer PROJ versions have a 
+heustistics that only look at the name WGS_84_Pseudo_Mercator and ignore 
+the projection parameters to decide to use the official EPSG:3857 "WGS 
+84 / Pseudo-Mercator" definition. One could argue it is a bug to ignore 
+the latitude_of_center parameter, but this definition is very confusing 
+to start with. It is hard to know what the intention of the user was: 
+use official EPSG:3857 "WGS 84 / Pseudo-Mercator", or use a modified 
+version of it...
+
+> This is the WKT for the map that's off by ~26km:
+>
+> PROJCS["Popular_Visualisation_CRS_Mercator_deprecated",GEOGCS["GCS_Popular 
+> Visualisation 
+> CRS",DATUM["D_Popular_Visualisation_Datum",SPHEROID["Popular_Visualisation_Sphere",6378137,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Mercator"],PARAMETER["central_meridian",0],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["standard_parallel_1",0],UNIT["Meter",1]]
+>
+> Looking at it more closely, I'm not sure it actually?is a 
+> pseudo-mercator? map. I think I say 'populator visualisation' and 
+> assumed?it was. But it _is_ off by ~26km after moving from 2.4/6/1 -> 
+> 3.3/8.1.1
+
+As far as I can see, GDAL 2.4 can't transform that to a PROJ.4 string at 
+all (it doesn't understand the "Mercator" projection), so I'm not sure 
+why you get a result at all with it. With recent PROJ,
+
+$ projinfo 
+'PROJCS["Popular_Visualisation_CRS_Mercator_deprecated",GEOGCS["GCS_Popular 
+Visualisation 
+CRS",DATUM["D_Popular_Visualisation_Datum",SPHEROID["Popular_Visualisation_Sphere",6378137,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Mercator"],PARAMETER["central_meridian",0],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["standard_parallel_1",0],UNIT["Meter",1]]'
+
+returns
+
+PROJ.4 string:
++proj=merc +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +R=6378137 +units=m +no_defs 
++type=crs
+
+WKT2:2019 string:
+PROJCRS["Popular_Visualisation_CRS_Mercator_deprecated",
+ ??? BASEGEOGCRS["GCS_Popular Visualisation CRS",
+ ??????? DATUM["Popular Visualisation Datum",
+ ??????????? ELLIPSOID["Popular_Visualisation_Sphere",6378137,0,
+ ??????????????? LENGTHUNIT["metre",1]],
+ ??????????? ID["EPSG",6055]],
+ ??????? PRIMEM["Greenwich",0,
+ ??????????? ANGLEUNIT["Degree",0.0174532925199433]]],
+ ??? CONVERSION["unnamed",
+ ??????? METHOD["Mercator (variant B)",
+ ??????????? ID["EPSG",9805]],
+ ??????? PARAMETER["Latitude of 1st standard parallel",0,
+ ??????????? ANGLEUNIT["Degree",0.0174532925199433],
+ ??????????? ID["EPSG",8823]],
+ ??????? PARAMETER["Longitude of natural origin",0,
+ ??????????? ANGLEUNIT["Degree",0.0174532925199433],
+ ??????????? ID["EPSG",8802]],
+ ??????? PARAMETER["False easting",0,
+ ??????????? LENGTHUNIT["metre",1],
+ ??????????? ID["EPSG",8806]],
+ ??????? PARAMETER["False northing",0,
+ ??????????? LENGTHUNIT["metre",1],
+ ??????????? ID["EPSG",8807]]],
+ ??? CS[Cartesian,2],
+ ??????? AXIS["(E)",east,
+ ??????????? ORDER[1],
+ ??????????? LENGTHUNIT["metre",1,
+ ??????????????? ID["EPSG",9001]]],
+ ??????? AXIS["(N)",north,
+ ??????????? ORDER[2],
+ ??????????? LENGTHUNIT["metre",1,
+ ??????????????? ID["EPSG",9001]]]]
+
+Which is a reasonable enough interpretation of this WKT. It could have 
+potentially been better recognized as the deprecated EPSG:3785 (which 
+PROJ then interprets as EPSG;3857), but there's no heuristics for that 
+particular formulation, so it is recognized as classic Mercator on a 
+sphere.? In practice, it should give identical results to official 
+EPSG:3857 "WGS 84 / Pseudo-Mercator", except when a datum transformation 
+is involved. So if you transform between WGS 84 and this, you should get 
+correct results. But results off by 26 km are beyond an ignored datum 
+shift (differences should be off by a few hundred of meters max), so I'm 
+not sure why you observe this.
+
+>
+> This is the WKT for a map that saw no change between GDAL/PROJ versions:
+>
+> PROJCS["WGS 84 / Pseudo-Mercator",GEOGCS["WGS 
+> 84",DATUM["WGS_1984",SPHEROID["WGS 
+> 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AUTHORITY["EPSG","4326"]],PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]],AXIS["Easting",EAST],AXIS["Northing",NORTH],EXTENSION["PROJ4","+proj=merc 
+> +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m 
+> +nadgrids=@null +wktext +no_defs"],AUTHORITY["EPSG","3857"]]
+
+Yes that one is the canonical WKT1:GDAL formulation
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From andrew at avenza.com  Wed Dec  1 13:57:13 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 1 Dec 2021 16:57:13 -0500
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+ <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+ <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+Message-ID: <CAC8biO3VBb-+TgAVmh=6_o9tb4aHzF=1SmUBshLftLacY2uXnA@mail.gmail.com>
+
+Even,
+
+
+> That one is a very odd beast. The
+> PARAMETER["latitude_of_center",6.64456744726493] is completely
+> inconsistant with the name "WGS_84_Pseudo_Mercator". I see GDAL 2.4
+> honoured this latitude of center, as gdalsrsinfo on it returns
+> +proj=merc +lon_0=0 +lat_ts=6.64456744726493 +x_0=0 +y_0=0 +ellps=WGS84
+> +towgs84=0,0,0,0,0,0,0 +units=m +no_defs.    Newer PROJ versions have a
+> heustistics that only look at the name WGS_84_Pseudo_Mercator and ignore
+> the projection parameters to decide to use the official EPSG:3857 "WGS
+> 84 / Pseudo-Mercator" definition. One could argue it is a bug to ignore
+> the latitude_of_center parameter, but this definition is very confusing
+> to start with. It is hard to know what the intention of the user was:
+> use official EPSG:3857 "WGS 84 / Pseudo-Mercator", or use a modified
+> version of it...
+>
+
+I should say up front that I have nothing invested in any of these
+personally -- if they're wrong, that's an answer I can at least relay back.
+It'll be ugly in some cases because we'll have umpteen hundred maps using a
+questionable WKT that has to be remedied somehow, but at least I can say
+there's no code solution at my end.
+
+That said, to play devil's advocate, what would the right way to specify a
+customized pseudo-mercator look like? It sounds like you're saying that the
+PROJCS name is the problem? I tried changing the name to 'Unknown' and it
+had no effect, so either you're talking about a PROJ version later than
+8.1.1 or I'm misunderstanding what you mean.
+
+Of the two cases, this is the one that I feel like there should be a way to
+make it work properly. The next map is sounding more & more like a lousy
+map to start with. This one is weird, but it should be feasible (if
+strange) to tweak a pseudo-mercator like this, shouldn't it?
+
+
+> As far as I can see, GDAL 2.4 can't transform that to a PROJ.4 string at
+> all (it doesn't understand the "Mercator" projection), so I'm not sure
+> why you get a result at all with it. With recent PROJ,
+>
+> $ projinfo
+> 'PROJCS["Popular_Visualisation_CRS_Mercator_deprecated",GEOGCS["GCS_Popular
+>
+> Visualisation
+>
+> CRS",DATUM["D_Popular_Visualisation_Datum",SPHEROID["Popular_Visualisation_Sphere",6378137,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Mercator"],PARAMETER["central_meridian",0],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["standard_parallel_1",0],UNIT["Meter",1]]'
+>
+> returns
+>
+> PROJ.4 string:
+> +proj=merc +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +R=6378137 +units=m +no_defs
+> +type=crs
+>
+> WKT2:2019 string:
+> PROJCRS["Popular_Visualisation_CRS_Mercator_deprecated",
+>      BASEGEOGCRS["GCS_Popular Visualisation CRS",
+>          DATUM["Popular Visualisation Datum",
+>              ELLIPSOID["Popular_Visualisation_Sphere",6378137,0,
+>                  LENGTHUNIT["metre",1]],
+>              ID["EPSG",6055]],
+>          PRIMEM["Greenwich",0,
+>              ANGLEUNIT["Degree",0.0174532925199433]]],
+>      CONVERSION["unnamed",
+>          METHOD["Mercator (variant B)",
+>              ID["EPSG",9805]],
+>          PARAMETER["Latitude of 1st standard parallel",0,
+>              ANGLEUNIT["Degree",0.0174532925199433],
+>              ID["EPSG",8823]],
+>          PARAMETER["Longitude of natural origin",0,
+>              ANGLEUNIT["Degree",0.0174532925199433],
+>              ID["EPSG",8802]],
+>          PARAMETER["False easting",0,
+>              LENGTHUNIT["metre",1],
+>              ID["EPSG",8806]],
+>          PARAMETER["False northing",0,
+>              LENGTHUNIT["metre",1],
+>              ID["EPSG",8807]]],
+>      CS[Cartesian,2],
+>          AXIS["(E)",east,
+>              ORDER[1],
+>              LENGTHUNIT["metre",1,
+>                  ID["EPSG",9001]]],
+>          AXIS["(N)",north,
+>              ORDER[2],
+>              LENGTHUNIT["metre",1,
+>                  ID["EPSG",9001]]]]
+>
+> Which is a reasonable enough interpretation of this WKT. It could have
+> potentially been better recognized as the deprecated EPSG:3785 (which
+> PROJ then interprets as EPSG;3857), but there's no heuristics for that
+> particular formulation, so it is recognized as classic Mercator on a
+> sphere.  In practice, it should give identical results to official
+> EPSG:3857 "WGS 84 / Pseudo-Mercator", except when a datum transformation
+> is involved. So if you transform between WGS 84 and this, you should get
+> correct results. But results off by 26 km are beyond an ignored datum
+> shift (differences should be off by a few hundred of meters max), so I'm
+> not sure why you observe this.
+>
+
+That actually explains something one of our QA told me. He said there was
+an unnamed conversion in there but I wasn't seeing -- I guess he was using
+WKT2! Our QA was already converging on the consensus that this particular
+map was just bad, so it sounds like your reckoning backs that up. The
+strangest part is that it worked in PROJ 6.1 (though I'm told by a
+colleague that we were running it in legacy mode, so perhaps it was more
+akin to PROJ 4.x).
+
+
+> Yes that one is the canonical WKT1:GDAL formulation
+>
+
+I asked our QA to go through the working maps and so far they've all had
+the AUTHORITY["EPSG","3857"] tag. I suspect all of the workings are just
+plain-jane vanilla pseudo-mercator. The problem ones all seem to be ones
+that wander off the beaten path. The unfortunate thing is that it seems to
+be somewhat common in our map store.
+
+I appreciate the attention. The bottom line here seems to be that there was
+some latitude (no pun intended) for these questionable versions of
+pseudo-mercator that is gone in later versions of PROJ. Ultimately better
+for everyone, but we'll have to figure out how to deal with those
+problematic maps.
+
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/e8b1c395/attachment.html>
+
+From even.rouault at spatialys.com  Wed Dec  1 14:15:32 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 1 Dec 2021 23:15:32 +0100
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <CAC8biO3VBb-+TgAVmh=6_o9tb4aHzF=1SmUBshLftLacY2uXnA@mail.gmail.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+ <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+ <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+ <CAC8biO3VBb-+TgAVmh=6_o9tb4aHzF=1SmUBshLftLacY2uXnA@mail.gmail.com>
+Message-ID: <2343f4f4-2720-e216-4189-696131410617@spatialys.com>
+
+
+Le 01/12/2021 ? 22:57, Andrew Patterson a ?crit?:
+> Even,
+>
+>     That one is a very odd beast. The
+>     PARAMETER["latitude_of_center",6.64456744726493] is completely
+>     inconsistant with the name "WGS_84_Pseudo_Mercator". I see GDAL 2.4
+>     honoured this latitude of center, as gdalsrsinfo on it returns
+>     +proj=merc +lon_0=0 +lat_ts=6.64456744726493 +x_0=0 +y_0=0
+>     +ellps=WGS84
+>     +towgs84=0,0,0,0,0,0,0 +units=m +no_defs.??? Newer PROJ versions
+>     have a
+>     heustistics that only look at the name WGS_84_Pseudo_Mercator and
+>     ignore
+>     the projection parameters to decide to use the official EPSG:3857
+>     "WGS
+>     84 / Pseudo-Mercator" definition. One could argue it is a bug to
+>     ignore
+>     the latitude_of_center parameter, but this definition is very
+>     confusing
+>     to start with. It is hard to know what the intention of the user was:
+>     use official EPSG:3857 "WGS 84 / Pseudo-Mercator", or use a modified
+>     version of it...
+>
+>
+> I should say up front that I have nothing invested in any of these 
+> personally -- if they're wrong, that's an answer I can at least relay 
+> back. It'll be ugly in some cases because we'll have umpteen hundred 
+> maps using a questionable WKT that has to be remedied somehow, but at 
+> least I can say there's no code solution at my end.
+>
+> That said, to play devil's advocate, what would the right way to 
+> specify a customized pseudo-mercator look like? It sounds like you're 
+> saying that the PROJCS name is the problem? I tried changing the name 
+> to 'Unknown' and it had no effect, so either you're talking about a 
+> PROJ version later than 8.1.1 or I'm misunderstanding what you mean.
+
+Actually, I missed that latitude_of_center in PROJ >= 6 is completely 
+ignored with Mercator_1SP. With Mercator_1SP, the parameter that matters 
+is the scale_factor. With Mercator_2SP, the one that matters is 
+standard_parallel_1.? So it looks GDAL 2.4 interpreted somehow this 
+latitude_of_center as the +lat_ts parameter, but I'd say this was an 
+accident. This WKT is definitely weird.
+
+
+>
+> Of the two cases, this is the one that I feel like there should be a 
+> way to make it work properly. The next map is sounding more & more 
+> like a lousy map to start with. This one is weird, but it should be 
+> feasible (if strange) to tweak a pseudo-mercator like this, shouldn't it?
+>
+>     As far as I can see, GDAL 2.4 can't transform that to a PROJ.4
+>     string at
+>     all (it doesn't understand the "Mercator" projection), so I'm not
+>     sure
+>     why you get a result at all with it. With recent PROJ,
+>
+>     $ projinfo
+>     'PROJCS["Popular_Visualisation_CRS_Mercator_deprecated",GEOGCS["GCS_Popular
+>
+>     Visualisation
+>     CRS",DATUM["D_Popular_Visualisation_Datum",SPHEROID["Popular_Visualisation_Sphere",6378137,0]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Mercator"],PARAMETER["central_meridian",0],PARAMETER["false_easting",0],PARAMETER["false_northing",0],PARAMETER["standard_parallel_1",0],UNIT["Meter",1]]'
+>
+>     returns
+>
+>     PROJ.4 string:
+>     +proj=merc +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +R=6378137 +units=m
+>     +no_defs
+>     +type=crs
+>
+>     WKT2:2019 string:
+>     PROJCRS["Popular_Visualisation_CRS_Mercator_deprecated",
+>     ???? BASEGEOGCRS["GCS_Popular Visualisation CRS",
+>     ???????? DATUM["Popular Visualisation Datum",
+>     ELLIPSOID["Popular_Visualisation_Sphere",6378137,0,
+>     ???????????????? LENGTHUNIT["metre",1]],
+>     ???????????? ID["EPSG",6055]],
+>     ???????? PRIMEM["Greenwich",0,
+>     ???????????? ANGLEUNIT["Degree",0.0174532925199433]]],
+>     ???? CONVERSION["unnamed",
+>     ???????? METHOD["Mercator (variant B)",
+>     ???????????? ID["EPSG",9805]],
+>     ???????? PARAMETER["Latitude of 1st standard parallel",0,
+>     ???????????? ANGLEUNIT["Degree",0.0174532925199433],
+>     ???????????? ID["EPSG",8823]],
+>     ???????? PARAMETER["Longitude of natural origin",0,
+>     ???????????? ANGLEUNIT["Degree",0.0174532925199433],
+>     ???????????? ID["EPSG",8802]],
+>     ???????? PARAMETER["False easting",0,
+>     ???????????? LENGTHUNIT["metre",1],
+>     ???????????? ID["EPSG",8806]],
+>     ???????? PARAMETER["False northing",0,
+>     ???????????? LENGTHUNIT["metre",1],
+>     ???????????? ID["EPSG",8807]]],
+>     ???? CS[Cartesian,2],
+>     ???????? AXIS["(E)",east,
+>     ???????????? ORDER[1],
+>     ???????????? LENGTHUNIT["metre",1,
+>     ???????????????? ID["EPSG",9001]]],
+>     ???????? AXIS["(N)",north,
+>     ???????????? ORDER[2],
+>     ???????????? LENGTHUNIT["metre",1,
+>     ???????????????? ID["EPSG",9001]]]]
+>
+>     Which is a reasonable enough interpretation of this WKT. It could
+>     have
+>     potentially been better recognized as the deprecated EPSG:3785 (which
+>     PROJ then interprets as EPSG;3857), but there's no heuristics for
+>     that
+>     particular formulation, so it is recognized as classic Mercator on a
+>     sphere.? In practice, it should give identical results to official
+>     EPSG:3857 "WGS 84 / Pseudo-Mercator", except when a datum
+>     transformation
+>     is involved. So if you transform between WGS 84 and this, you
+>     should get
+>     correct results. But results off by 26 km are beyond an ignored datum
+>     shift (differences should be off by a few hundred of meters max),
+>     so I'm
+>     not sure why you observe this.
+>
+>
+> That actually explains something one of our QA told me. He said there 
+> was an unnamed conversion in there but I wasn't seeing -- I guess he 
+> was using WKT2!
+
+The name of the CONVERSION when exporting as WKT2 is only informational. 
+It has no computational consequence. When importing a WKT1 string, PROJ 
+will use "unnamed" as the CONVERSION name as the information isn't present.
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/c3acc29c/attachment-0001.html>
+
+From andrew at avenza.com  Wed Dec  1 14:54:09 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 1 Dec 2021 17:54:09 -0500
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <2343f4f4-2720-e216-4189-696131410617@spatialys.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+ <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+ <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+ <CAC8biO3VBb-+TgAVmh=6_o9tb4aHzF=1SmUBshLftLacY2uXnA@mail.gmail.com>
+ <2343f4f4-2720-e216-4189-696131410617@spatialys.com>
+Message-ID: <CAC8biO1_e0DUW8wZyC3Bhmu__DB7uWR-vxVs5AjfOswR2_KO3w@mail.gmail.com>
+
+Even,
+
+>  PROJ >= 6 is completely ignored with Mercator_1SP. With Mercator_1SP, the
+> parameter that matters is the scale_factor. With Mercator_2SP, the one that
+> matters is standard_parallel_1.  So it looks GDAL 2.4 interpreted somehow
+> this latitude_of_center as the +lat_ts parameter, but I'd say this was an
+> accident. This WKT is definitely weird.
+>
+ So this was extremely helpful. Just for laughs, I altered the WKT on that
+map from Mercator_1SP -> Mercator_2SP and changed 'latitude_of_center' to
+'standard_parallel_1' and now it works exactly as in the old GDAL & PROJ. I
+take from this that there must have been some logic somewhere in the old
+versions that saw 'Mercator_1SP' and 'latitude_of_center' and said "Ok, you
+_clearly_ meant Mercator_2SP and 'standard_parallel_1', let me fix that for
+you." If so, that suggests this must be somewhat common in existing maps. I
+think one of my colleagues said we have something on the order of 5,000+
+maps affected by this, but they're all from a Japanese vendor, so maybe
+it's more common in certain parts of the world than others?
+
+Either way, I can add this logic/hack to our app; if I see that combination
+of parameters, I'll correct the WKT. For now, that will salvage the bulk of
+the problematic maps, but we'll have to chase down the vendor to get them
+to stop using that weird WKT.
+
+Thank you very much!
+
+> The name of the CONVERSION when exporting as WKT2 is only informational.
+> It has no computational consequence. When importing a WKT1 string, PROJ
+> will use "unnamed" as the CONVERSION name as the information isn't present.
+>
+Ah, OK. I'll pass that along to my colleague. He was perplexed by the
+presence of the conversion. He's a GIS professional and could not figure
+out what it was. This answer will probably ease his mind :)
+
+Thanks again!
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/f9a820ce/attachment.html>
+
+From martin.desruisseaux at geomatys.com  Wed Dec  1 15:15:20 2021
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Thu, 2 Dec 2021 00:15:20 +0100
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <CAC8biO1_e0DUW8wZyC3Bhmu__DB7uWR-vxVs5AjfOswR2_KO3w@mail.gmail.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+ <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+ <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+ <CAC8biO3VBb-+TgAVmh=6_o9tb4aHzF=1SmUBshLftLacY2uXnA@mail.gmail.com>
+ <2343f4f4-2720-e216-4189-696131410617@spatialys.com>
+ <CAC8biO1_e0DUW8wZyC3Bhmu__DB7uWR-vxVs5AjfOswR2_KO3w@mail.gmail.com>
+Message-ID: <8c3549b1-1ae7-74d0-6c4b-133a60278511@geomatys.com>
+
+Hello
+
+Le 01/12/2021 ? 23:54, Andrew Patterson a ?crit?:
+
+> (?snip?) I altered the WKT on that map from Mercator_1SP -> 
+> Mercator_2SP and changed 'latitude_of_center' to 'standard_parallel_1' 
+> and now it works exactly as in the old GDAL & PROJ.
+>
+Note: in EPSG database version 7.6 and later:
+
+  * "Mercator (1SP)" has been renamed "Mercator (variant A)"
+  * "Mercator (2SP)" has been renamed "Mercator (variant B)"
+  * There is also a "Mercator (variant C)"
+
+Maybe the renaming was done for making room for variant C, I don't know. 
+As Even said:
+
+  * Variant A has a "Scale factor at natural origin" parameter.
+  * Variant B has a "Latitude of 1st standard parallel" parameter.
+  * Variant C has a "Latitude of false origin" parameter in addition of
+    standard parallel.
+
+The "latitude of center" parameter name in the old WKT may be confusing. 
+While variant B seems to work, having "center" in the parameter name 
+gives the impression that the projection could be variant C. The 
+"Latitude/longitude of false origin" of "Mercator (variant C)" define 
+the location where projected coordinates are (0,0), which may look like 
+a projection center (by contrast, "Latitude of 1st standard parallel" 
+does not have this effect).
+
+ ??? Martin
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211202/8b9bb45d/attachment.html>
+
+From andrew at avenza.com  Wed Dec  1 16:03:00 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 1 Dec 2021 19:03:00 -0500
+Subject: [PROJ] Pseudo-mercator
+In-Reply-To: <8c3549b1-1ae7-74d0-6c4b-133a60278511@geomatys.com>
+References: <CAC8biO1o5Pscrnb0BYyP_ix9hezTUvr7q-4dzYrsvqqCaent3g@mail.gmail.com>
+ <3c10eebb-a47c-43fe-345d-aaeccde07f86@spatialys.com>
+ <CAC8biO1OKsPzj8frve20OXb6hdWOM2tbpPu0_9dYsgSzSe8t4w@mail.gmail.com>
+ <885843f1-a81c-5f45-588f-b96907132712@spatialys.com>
+ <CAC8biO3VBb-+TgAVmh=6_o9tb4aHzF=1SmUBshLftLacY2uXnA@mail.gmail.com>
+ <2343f4f4-2720-e216-4189-696131410617@spatialys.com>
+ <CAC8biO1_e0DUW8wZyC3Bhmu__DB7uWR-vxVs5AjfOswR2_KO3w@mail.gmail.com>
+ <8c3549b1-1ae7-74d0-6c4b-133a60278511@geomatys.com>
+Message-ID: <CAC8biO0gObNW84fL3Wfz4k0813idSxygfyAUY4LsLjtVkockgg@mail.gmail.com>
+
+Martin,
+
+> Note: in EPSG database version 7.6 and later:
+>
+>    - "Mercator (1SP)" has been renamed "Mercator (variant A)"
+>    - "Mercator (2SP)" has been renamed "Mercator (variant B)"
+>    - There is also a "Mercator (variant C)"
+>
+> Maybe the renaming was done for making room for variant C, I don't know.
+> As Even said:
+>
+>    - Variant A has a "Scale factor at natural origin" parameter.
+>    - Variant B has a "Latitude of 1st standard parallel" parameter.
+>    - Variant C has a "Latitude of false origin" parameter in addition of
+>    standard parallel.
+>
+> The "latitude of center" parameter name in the old WKT may be confusing.
+> While variant B seems to work, having "center" in the parameter name gives
+> the impression that the projection could be variant C. The
+> "Latitude/longitude of false origin" of "Mercator (variant C)" define the
+> location where projected coordinates are (0,0), which may look like a
+> projection center (by contrast, "Latitude of 1st standard parallel" does
+> not have this effect).
+>
+That's actually really interesting -- thanks for the additional
+information! I'll keep an eye out for those variants.
+
+I also 'misspoke' when I said 'latitude_of_center' -- I believe it's
+actually 'latitude_of_origin'. I can see that 'latitude_of_center' is in
+the original WKT but I have no idea why. I went back to the original WKT
+and it has 'latitude_of_origin'. I know I didn't alter the WKTs, so I'm
+very confused about where the 'center' came from. I'm not sure if that
+matters or not to your suggestion that this might be variant C or not
+though.
+
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211201/6557287f/attachment.html>
+
+From solstice.dhiver at gmail.com  Thu Dec  2 06:05:35 2021
+From: solstice.dhiver at gmail.com (solsTiCe d'Hiver)
+Date: Thu, 2 Dec 2021 15:05:35 +0100
+Subject: [PROJ] terracotta core dump with proj-data from ubuntugis
+Message-ID: <CAE4vF2dOhYOe_KmyV=GOLMXjwk0mhiUFv2izWPozvhEb178nvg@mail.gmail.com>
+
+hi.
+I have an issue when running terracotta with the proj package from
+ubuntuGIS ppa.
+This porj-data 7.2.1 on ubuntu 20.04 with a custom compiled by myself
+python 3.9.5
+
+I have detailed the issue there
+https://github.com/DHI-GRAS/terracotta/issues/239
+
+Here is a copy:
+
+Hello,
+I don't know where to report this and I don't know either what is causing
+this.
+
+On ubuntu 20.04, with the ppa from terracotta core dump with proj-data from
+ubuntugis. I have emailed the admin team of the repo. This is a copy.
+
+I am trying to install terracotta (https://github.com/DHI-GRAS/terracotta/)
+in a python virtualenv and this leads to error and core dump when proj-data
+from ubuntuGIS repo is installed.
+
+What I am doing is:
+
+$ python3.9 -m venv tc4m
+$ cd tc4m
+$ source bin/activate
+$ pip install terracotta
+$ pip install Cython
+$ pip install crick
+
+$ terracotta
+Usage: terracotta [OPTIONS] COMMAND [ARGS]...
+
+  The command line interface for the Terracotta tile server.
+
+  All flags must be passed before specifying a subcommand.
+
+  Example:
+
+      $ terracotta -c config.toml connect localhost:5000
+
+Options:
+  -c, --config TOML-FILE          Update global settings from this TOML file.
+  --loglevel [debug|info|warning|error|critical]
+                                  Set level for log messages
+  --version                       Show the version and exit.
+  --help                          Show this message and exit.
+
+Commands:
+  connect           Connect to a running Terracotta instance and interactively
+                    explore data in it.
+
+  ingest            Ingest a collection of raster files into a SQLite
+                    database.
+
+  optimize-rasters  Optimize a collection of raster files for use with
+                    Terracotta.
+
+  serve             Serve rasters through a local Flask development server.
+free(): invalid pointer
+Aborted (core dumped)
+
+$ strace terracotta
+[...]
+fstat(4, {st_mode=S_IFREG|0664, st_size=1356, ...}) = 0
+ioctl(4, TCGETS, 0x7fff96895090)        = -1 ENOTTY (Inappropriate
+ioctl for device)
+lseek(4, 0, SEEK_CUR)                   = 0
+lseek(4, 0, SEEK_CUR)                   = 0
+fstat(4, {st_mode=S_IFREG|0664, st_size=1356, ...}) = 0
+read(4, "a\r\r\n\0\0\0\0T\254\250a\255\4\0\0\343\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"...,
+1357) = 1356
+read(4, "", 1)                          = 0
+close(4)                                = 0
+ioctl(1, TCGETS, 0x7fff96896280)        = -1 ENOTTY (Inappropriate
+ioctl for device)
+write(1, "Usage: terracotta [OPTIONS] COMM"..., 971) = 971
+rt_sigaction(SIGINT, {sa_handler=SIG_DFL, sa_mask=[],
+sa_flags=SA_RESTORER, sa_restorer=0x7f2914b3d3c0},
+{sa_handler=0x55adcaa9b2f2, sa_mask=[], sa_flags=SA_RESTORER,
+sa_restorer=0x7f2914b3d3c0}, 8) = 0
+stat("/usr/share/proj/proj.db", {st_mode=S_IFREG|0644,
+st_size=8925184, ...}) = 0
+fstat(3, {st_mode=S_IFREG|0644, st_size=8925184, ...}) = 0
+stat("/usr/share/proj/proj.db", {st_mode=S_IFREG|0644,
+st_size=8925184, ...}) = 0
+close(3)                                = 0
+writev(2, [{iov_base="free(): invalid pointer", iov_len=23},
+{iov_base="\n", iov_len=1}], 2free(): invalid pointer
+) = 24
+mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1,
+0) = 0x7f2914b82000
+rt_sigprocmask(SIG_UNBLOCK, [ABRT], NULL, 8) = 0
+rt_sigprocmask(SIG_BLOCK, ~[RTMIN RT_1], [], 8) = 0
+getpid()                                = 49281
+gettid()                                = 49281
+tgkill(49281, 49281, SIGABRT)           = 0
+rt_sigprocmask(SIG_SETMASK, [], NULL, 8) = 0
+--- SIGABRT {si_signo=SIGABRT, si_code=SI_TKILL, si_pid=49281, si_uid=1001} ---
+
++++ killed by SIGABRT (core dumped) +++
+
+I am writing this here because it seems to come from proj.db ???
+There is no problem with proj-data-6.3.1 with proj.db from 2020
+
+and this leads to more problem afterwards when trying to run terracotta
+optimize-rasters
+
+$ terracotta optimize-rasters ../NaturalnessBZHv1.tif -o optimized/
+proj_create_from_database: SQLite error on SELECT name,
+coordinate_system_auth_name, coordinate_system_code,
+geodetic_crs_auth_name, geodetic_crs_code, conversion_auth_name,
+conversion_code, area_of_use_auth_name, area_of_use_code,
+text_definition, deprecated FROM projected_crs WHERE auth_name = ? AND
+code = ?: no such column: area_of_use_auth_name
+Optimizing 1 file on 1 process
+NaturalnessBZHv1.tif ... (1/1)
+proj_create_from_database: SQLite error on SELECT name,
+coordinate_system_auth_name, coordinate_system_code,
+geodetic_crs_auth_name, geodetic_crs_code, conversion_auth_name,
+conversion_code, area_of_use_auth_name, area_of_use_code,
+text_definition, deprecated FROM projected_crs WHERE auth_name = ? AND
+code = ?: no such column: area_of_use_auth_name
+free(): invalid pointer
+Aborted (core dumped)
+
+Any idea/help on how to fix this ?
+
+I have no problem on archlinux, with proj 8.0.0 and python 3.9.9
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211202/ff6bc13e/attachment-0001.html>
+
+From even.rouault at spatialys.com  Thu Dec  2 06:21:20 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 2 Dec 2021 15:21:20 +0100
+Subject: [PROJ] terracotta core dump with proj-data from ubuntugis
+In-Reply-To: <CAE4vF2dOhYOe_KmyV=GOLMXjwk0mhiUFv2izWPozvhEb178nvg@mail.gmail.com>
+References: <CAE4vF2dOhYOe_KmyV=GOLMXjwk0mhiUFv2izWPozvhEb178nvg@mail.gmail.com>
+Message-ID: <eab785b2-ab3c-845a-20fd-aea047bb70ea@spatialys.com>
+
+
+> |$ terracotta optimize-rasters ../NaturalnessBZHv1.tif -o optimized/ 
+> proj_create_from_database: SQLite error on SELECT name, 
+> coordinate_system_auth_name, coordinate_system_code, 
+> geodetic_crs_auth_name, geodetic_crs_code, conversion_auth_name, 
+> conversion_code, area_of_use_auth_name, area_of_use_code, 
+> text_definition, deprecated FROM projected_crs WHERE auth_name = ? AND 
+> code = ?: no such column: area_of_use_auth_name|
+|This error suggests that the PROJ library that is running finds the 
+proj.db database of another version. So you have likely a mix of 2 PROJ 
+versions. I see that 
+https://github.com/DHI-GRAS/terracotta/blob/main/environment.yml depends 
+on rasterio, and if you use a binary wheel it will ship with a PROJ binary,|
+> |Optimizing 1 file on 1 process NaturalnessBZHv1.tif ... (1/1) 
+> proj_create_from_database: SQLite error on SELECT name, 
+> coordinate_system_auth_name, coordinate_system_code, 
+> geodetic_crs_auth_name, geodetic_crs_code, conversion_auth_name, 
+> conversion_code, area_of_use_auth_name, area_of_use_code, 
+> text_definition, deprecated FROM projected_crs WHERE auth_name = ? AND 
+> code = ?: no such column: area_of_use_auth_name free(): invalid 
+> pointer Aborted (core dumped) |
+>
+> Any idea/help on how to fix this ?
+>
+> I have no problem on archlinux, with proj 8.0.0 and python 3.9.9
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211202/5f41e643/attachment.html>
+
+From j1 at jimenezshaw.com  Fri Dec  3 07:00:35 2021
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 3 Dec 2021 16:00:35 +0100
+Subject: [PROJ] CRS explorer
+In-Reply-To: <CAH0YoEP=3XS0knnaJtuGiG1PkDG0iO5wXAqseFJAHFVVs2BTWQ@mail.gmail.com>
+References: <CADRrdKsOchzH6sJLBvCq+ThbpMEB4LiT_ekp6_VsiP8cpMnbcQ@mail.gmail.com>
+ <CAH0YoEP=3XS0knnaJtuGiG1PkDG0iO5wXAqseFJAHFVVs2BTWQ@mail.gmail.com>
+Message-ID: <CADRrdKufSe-aq39ViHu8Q1ZKyii0umacBQx9caWFuL9BgRP_5A@mail.gmail.com>
+
+Hi all
+
+Sorry for the late update to PROJ 8.2.0. I have been implementing it with
+GitHub Actions. But now it is available.
+https://jjimenezshaw.github.io/crs-explorer/
+Some features were added, like filtering by name, column ordering, better
+performance...
+
+I was thinking on adding links to static pages with the WKT1 of each CRS.
+Do you think it is useful?
+
+Cheers,
+Javier
+
+PS: I found some new astronomical CRSs (IAU_2015) that are type "other" in
+proj.db. What is that?
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Thu, 14 Oct 2021 at 12:57, Thomas Knudsen <knudsen.thomas at gmail.com>
+wrote:
+
+> Javier,
+>
+> Thanks for developing this - it seems to be extremely useful!
+>
+> /Thomas
+>
+> Den tor. 14. okt. 2021 kl. 12.03 skrev Javier Jimenez Shaw <
+> j1 at jimenezshaw.com>:
+>
+>> Hi
+>>
+>> I have developed a simple webpage to search coordinate reference systems
+>> based on PROJ data. It includes a map where you can click a location,
+>> filtering the systems that has this location in their area of use.
+>>
+>> https://jjimenezshaw.github.io/crs-explorer/
+>>
+>> There are a couple of ideas to add in the backlog. But I hope it is
+>> already useful.
+>>
+>> Cheers,
+>> Javier.
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211203/f3d4eb79/attachment.html>
+
+From Jochem.Lesparre at kadaster.nl  Sat Dec  4 04:54:28 2021
+From: Jochem.Lesparre at kadaster.nl (Lesparre, Jochem)
+Date: Sat, 4 Dec 2021 12:54:28 +0000
+Subject: [PROJ] CRS explorer
+In-Reply-To: <CADRrdKufSe-aq39ViHu8Q1ZKyii0umacBQx9caWFuL9BgRP_5A@mail.gmail.com>
+References: <CADRrdKsOchzH6sJLBvCq+ThbpMEB4LiT_ekp6_VsiP8cpMnbcQ@mail.gmail.com>
+ <CAH0YoEP=3XS0knnaJtuGiG1PkDG0iO5wXAqseFJAHFVVs2BTWQ@mail.gmail.com>
+ <CADRrdKufSe-aq39ViHu8Q1ZKyii0umacBQx9caWFuL9BgRP_5A@mail.gmail.com>
+Message-ID: <AM0P192MB04827B7BE0E14E36DA0144A8EF6B9@AM0P192MB0482.EURP192.PROD.OUTLOOK.COM>
+
+Hi Javier,
+
+Thanks for the nice improvements. I like the name filtering! It could be useful to be able to use this for other columns too, like the area of use and code.
+
+I was wondering: Since you give the option to sort on a column, why do you present the CRS types (Projected, Geographic, Geocentric etc.) in separate tables? If you add a column for the CRS type in the table, then you could present everything in a single table and an user can still sort on CRS type if needed. The advantage would be that the user can also sort on other columns for all CRS types at once.
+
+What does the option Sticky map do?
+What function does the checkbox in the column Area of use have?
+
+Regards, Jochem
+
+
+
+________________________________
+From: PROJ <proj-bounces at lists.osgeo.org> on behalf of Javier Jimenez Shaw <j1 at jimenezshaw.com>
+Sent: Friday, 3 December 2021, 16:01
+To: proj
+Subject: Re: [PROJ] CRS explorer
+
+Hi all
+
+Sorry for the late update to PROJ 8.2.0. I have been implementing it with GitHub Actions. But now it is available.
+https://jjimenezshaw.github.io/crs-explorer/
+Some features were added, like filtering by name, column ordering, better performance...
+
+I was thinking on adding links to static pages with the WKT1 of each CRS. Do you think it is useful?
+
+Cheers,
+Javier
+
+PS: I found some new astronomical CRSs (IAU_2015) that are type "other" in proj.db. What is that?
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+On Thu, 14 Oct 2021 at 12:57, Thomas Knudsen <knudsen.thomas at gmail.com<mailto:knudsen.thomas at gmail.com>> wrote:
+Javier,
+
+Thanks for developing this - it seems to be extremely useful!
+
+/Thomas
+
+Den tor. 14. okt. 2021 kl. 12.03 skrev Javier Jimenez Shaw <j1 at jimenezshaw.com<mailto:j1 at jimenezshaw.com>>:
+Hi
+
+I have developed a simple webpage to search coordinate reference systems based on PROJ data. It includes a map where you can click a location, filtering the systems that has this location in their area of use.
+
+https://jjimenezshaw.github.io/crs-explorer/
+
+There are a couple of ideas to add in the backlog. But I hope it is already useful.
+
+Cheers,
+Javier.
+_______________________________________________
+PROJ mailing list
+PROJ at lists.osgeo.org<mailto:PROJ at lists.osgeo.org>
+https://lists.osgeo.org/mailman/listinfo/proj
+
+
+
+Disclaimer:
+De inhoud van deze e-mail is vertrouwelijk en uitsluitend bestemd voor de geadresseerde(n).
+Gebruik, openbaarmaking, vermenigvuldiging, verspreiding en/of verstrekking van deze informatie aan derden is niet toegestaan.
+Op al onze producten en diensten zijn onze algemene leveringsvoorwaarden van toepassing
+[https://www.kadaster.nl/algemene-leveringsvoorwaarden].
+
+Disclaimer:
+This email and any files transmitted with it are confidential and intended solely for the use of the individual or entity to whom they are addressed.
+If you are not the intended recipient, you are notified that disclosing, copying, distributing or taking any action in reliance on the contents of this information is strictly prohibited.
+Our general terms and conditions of delivery apply to all our products and services
+[https://www.kadaster.com/general-terms-and-conditions].
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211204/98b1bdaf/attachment.html>
+
+From j1 at jimenezshaw.com  Sun Dec  5 02:18:53 2021
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sun, 5 Dec 2021 11:18:53 +0100
+Subject: [PROJ] CRS explorer
+In-Reply-To: <AM0P192MB04827B7BE0E14E36DA0144A8EF6B9@AM0P192MB0482.EURP192.PROD.OUTLOOK.COM>
+References: <CADRrdKsOchzH6sJLBvCq+ThbpMEB4LiT_ekp6_VsiP8cpMnbcQ@mail.gmail.com>
+ <CAH0YoEP=3XS0knnaJtuGiG1PkDG0iO5wXAqseFJAHFVVs2BTWQ@mail.gmail.com>
+ <CADRrdKufSe-aq39ViHu8Q1ZKyii0umacBQx9caWFuL9BgRP_5A@mail.gmail.com>
+ <AM0P192MB04827B7BE0E14E36DA0144A8EF6B9@AM0P192MB0482.EURP192.PROD.OUTLOOK.COM>
+Message-ID: <CADRrdKvX0Vt3rVEGC1BqTbrqwN06eP7McK57vbUKyUE_d1ybqA@mail.gmail.com>
+
+On Sat, 4 Dec 2021 at 13:54, Lesparre, Jochem <Jochem.Lesparre at kadaster.nl>
+wrote:
+
+> Hi Javier,
+>
+>
+>
+Jochem, Thanks for you answer and suggestions.
+
+Thanks for the nice improvements. I like the name filtering! It could be
+> useful to be able to use this for other columns too, like the area of use
+> and code.
+>
+I thought about that, but finally decided not doing it. When you search for
+the code, you want a single result (you don't want to "filter"): Ctrl+F
+does that much better ;) About the area of use, their names are really
+confusing sometimes. And it may collide with the CRS name. Picking a point
+in the map would be better IMO.
+BTW, the filter field tries to work like many search engines: use
+double-quotes (") for searches with spaces, and a dash (-) to implement a
+"not" filter... and combine as many as you want. It is explained in the
+info (i) link.
+
+>
+>
+> I was wondering: Since you give the option to sort on a column, why do you
+> present the CRS types (Projected, Geographic, Geocentric etc.) in separate
+> tables? If you add a column for the CRS type in the table, then you could
+> present everything in a single table and an user can still sort on CRS type
+> if needed. The advantage would be that the user can also sort on other
+> columns for all CRS types at once.
+>
+Yes, it was also in the backlog of ideas. I would give the option to
+display one way or the other, but may take some time to implement (yes, I
+like giving options to the user... and later they ask what does it do ;).
+
+>
+>
+> What does the option Sticky map do?
+>
+"Sticks" the map to the top of the viewport when you scroll down due to a
+large table. See next answer.
+
+What function does the checkbox in the column Area of use have?
+>
+Displays a green rectangle in the map with the area(s) of use selected.
+Just hovering with the mouse shows an orange rectangle. Now you understand
+why you need the sticky map option.
+
+
+>
+> Regards, Jochem
+>
+>
+>
+>
+>
+Cheers,
+Javier.
+
+>
+> ------------------------------
+>
+> *From:* PROJ <proj-bounces at lists.osgeo.org> on behalf of Javier Jimenez
+> Shaw <j1 at jimenezshaw.com>
+> *Sent:* Friday, 3 December 2021, 16:01
+> *To:* proj
+> *Subject:* Re: [PROJ] CRS explorer
+>
+>
+>
+> Hi all
+>
+>
+>
+> Sorry for the late update to PROJ 8.2.0. I have been implementing it with
+> GitHub Actions. But now it is available.
+>
+> https://jjimenezshaw.github.io/crs-explorer/
+>
+> Some features were added, like filtering by name, column ordering, better
+> performance...
+>
+>
+>
+> I was thinking on adding links to static pages with the WKT1 of each CRS.
+> Do you think it is useful?
+>
+>
+>
+> Cheers,
+>
+> Javier
+>
+>
+>
+> PS: I found some new astronomical CRSs (IAU_2015) that are type "other" in
+> proj.db. What is that?
+>
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+>
+>
+>
+> On Thu, 14 Oct 2021 at 12:57, Thomas Knudsen <knudsen.thomas at gmail.com>
+> wrote:
+>
+> Javier,
+>
+>
+>
+> Thanks for developing this - it seems to be extremely useful!
+>
+>
+>
+> /Thomas
+>
+>
+>
+> Den tor. 14. okt. 2021 kl. 12.03 skrev Javier Jimenez Shaw <
+> j1 at jimenezshaw.com>:
+>
+> Hi
+>
+>
+>
+> I have developed a simple webpage to search coordinate reference systems
+> based on PROJ data. It includes a map where you can click a location,
+> filtering the systems that has this location in their area of use.
+>
+>
+>
+> https://jjimenezshaw.github.io/crs-explorer/
+>
+>
+>
+> There are a couple of ideas to add in the backlog. But I hope it is
+> already useful.
+>
+>
+>
+> Cheers,
+>
+> Javier.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+>
+>
+>
+> Disclaimer:
+> De inhoud van deze e-mail is vertrouwelijk en uitsluitend bestemd voor de
+> geadresseerde(n).
+> Gebruik, openbaarmaking, vermenigvuldiging, verspreiding en/of
+> verstrekking van deze informatie aan derden is niet toegestaan.
+> Op al onze producten en diensten zijn onze algemene leveringsvoorwaarden
+> van toepassing
+> [https://www.kadaster.nl/algemene-leveringsvoorwaarden].
+>
+> Disclaimer:
+> This email and any files transmitted with it are confidential and intended
+> solely for the use of the individual or entity to whom they are addressed.
+> If you are not the intended recipient, you are notified that disclosing,
+> copying, distributing or taking any action in reliance on the contents of
+> this information is strictly prohibited.
+> Our general terms and conditions of delivery apply to all our products and
+> services
+> [https://www.kadaster.com/general-terms-and-conditions].
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211205/fb14bd66/attachment.html>
+
+From andrew at avenza.com  Thu Dec 16 11:01:31 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Thu, 16 Dec 2021 14:01:31 -0500
+Subject: [PROJ] Hodine Oblique Mercator
+Message-ID: <CAC8biO31m+Spe5KZrVJNWf-xG8YDiSg0-3rXZkhiEK_BiE=qkA@mail.gmail.com>
+
+Hello again!
+
+I'm afraid I'm back with another GDAL 2.x -> GDAL 3.x mystery. I've
+unraveled some of it, but I'm hoping someone can illuminate the rest and
+maybe even suggest a course of action.
+
+We have existing maps in our map store that are using the
+Hotine_Oblique_Mercator projection. They worked fine in GDAL 2.2 (PROJ 6.1)
+but are not working correctly in GDAL 3.3 (PROJ 8.1). They load and
+transform, but whereas the map is of Michigan, with the WKT below it thinks
+the map is in New Mexico. The WKT in question is:
+
+PROJCS["NAD_1983_Michigan_GeoRef_Meters",GEOGCS["GCS_NAD83(1986)",DATUM["North_American_Datum_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Hotine_Oblique_Mercator"],PARAMETER["false_easting",2546731.496],PARAMETER["false_northing",-4354009.816],PARAMETER["latitude_of_center",45.30916666666666],PARAMETER["longitude_of_center",-86],PARAMETER["azimuth",-22.74444],PARAMETER["rectified_grid_angle",-22.74444],PARAMETER["scale_factor",0.9996],UNIT["Meter",1]]
+
+Having learned something from the last time this list assisted me, I
+checked the proj4 string in 2.4 vs 3.3 and it revealed a difference:
+
+GDAL 2.4/ PROJ 6.1:
++proj=omerc +no_uoff +lat_0=45.30916666666666 +lonc=-86 +alpha=-22.74444
++k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 +datum=NAD83 +units=m +no_defs
+
+GDAL 3.3/PROJ 8.1:
++proj=omerc +no_uoff +lat_0=45.3091666666667 +lonc=-86 +alpha=-22.74444
++k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 +datum=NAD83 +units=m +no_defs
++gamma=0
+
+The difference is, clearly, the "+gamma=0". If I remove that and import the
+string, instead of the above WKT, it works. If I then export it to WKT, it
+adds a parameter:
+
+PARAMETER["rectified_grid_angle",-22.74444]
+
+This appears to be set to the same value as the "azimuth" parameter. So
+currently I have a hack where if I see a "Hotine_Oblique_Mercator"
+projection that has an "azimuth" parameter but no "rectified_grid_angle", I
+add "rectified_grid_angle" and set its value to the same as the "azimuth"
+parameter. This feels a bit sketchy, but maybe that is the best solution.
+
+So I guess what I'm asking is: IS that the best solution? What changed from
+PROJ 6.1 to PROJ 8.1 that caused this? I need to support these older maps
+somehow, so I'd love some guidance as to what a 'safe' hack is if possible.
+
+Any help would be greatly appreciated!
+
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211216/557390cf/attachment.html>
+
+From even.rouault at spatialys.com  Thu Dec 16 13:56:48 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 16 Dec 2021 22:56:48 +0100
+Subject: [PROJ] Hodine Oblique Mercator
+In-Reply-To: <CAC8biO31m+Spe5KZrVJNWf-xG8YDiSg0-3rXZkhiEK_BiE=qkA@mail.gmail.com>
+References: <CAC8biO31m+Spe5KZrVJNWf-xG8YDiSg0-3rXZkhiEK_BiE=qkA@mail.gmail.com>
+Message-ID: <a705b3f7-be9b-eb5c-7b2f-cd449e129e09@spatialys.com>
+
+Andrew,
+
+I don't reproduce the issue with proj 8.0, 8.1.1 or latest master with 
+the WKT you mention (that has a rectified_grid_angle parameter).
+
+$ projinfo 
+'PROJCS["NAD_1983_Michigan_GeoRef_Meters",GEOGCS["GCS_NAD83(1986)",DATUM["North_American_Datum_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Hotine_Oblique_Mercator"],PARAMETER["false_easting",2546731.496],PARAMETER["false_northing",-4354009.816],PARAMETER["latitude_of_center",45.30916666666666],PARAMETER["longitude_of_center",-86],PARAMETER["azimuth",-22.74444],PARAMETER["rectified_grid_angle",-22.74444],PARAMETER["scale_factor",0.9996],UNIT["Meter",1]]'
+PROJ.4 string:
++proj=omerc +no_uoff +lat_0=45.3091666666667 +lonc=-86 +alpha=-22.74444 
++gamma=-22.74444 +k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 
++datum=NAD83 +units=m +no_defs +type=crs
+
+I assume your real original WKT lacks rectified_grid_angle, in which 
+case I do reproduce the gamma = 0.
+
+The WKT importer of PROJ (used by GDAL 3) has logic in 
+https://github.com/OSGeo/PROJ/blob/master/src/iso19111/io.cpp#L3578 to 
+use the azimuth values as the angle to skew grid (+gamma) when it is 
+missing, which is the case in ESRI WKT. But your above WKT, which looks 
+strongly like ESRI WKT, uses "Hotine_Oblique_Mercator" which isn't a 
+ESRI projection name (they use different variants), so it takes a 
+different road which doesn't do the same handling of missing 
+rectified_grid_angle. But it should. I've just fixed this per 
+https://github.com/OSGeo/PROJ/pull/2985
+
+ > What changed from PROJ 6.1 to PROJ 8.1 that caused this?
+
+This isn't necessarily the good way to formulate the question. PROJ 8 is 
+in the direct continuity of PROJ 6, with many bugfixes and enhancements. 
+For your use case, what matters more is the GDAL version. In GDAL 2.x, 
+GDAL had its own logic to parse WKT and transform it to PROJ.4 string, 
+even if used with PROJ 6 (by the way GDAL 2.x with PROJ 6 isn't 
+necessarily a "vetted" conf. I'd say people should stick at PROJ 5.2 if 
+they used GDAL 2.x). GDAL 3 requires PROJ >= 6, which has a WKT import 
+logic completely re-written from scratch, , and that GDAL uses (GDAL 3 
+no longer has a built-in WKT parser), so no wonder that there might he 
+differences of behavior compared to GDAL 2, although all the effort and 
+testing we put in trying to minimize the gaps. You seem to have a good 
+dataset to shake the implementation :-)
+
+Even
+
+Le 16/12/2021 ? 20:01, Andrew Patterson a ?crit?:
+> Hello again!
+>
+> I'm afraid I'm back with another GDAL 2.x -> GDAL 3.x mystery. I've 
+> unraveled some of it, but I'm hoping someone can illuminate the rest 
+> and maybe even suggest a course of action.
+>
+> We have existing maps in our map store that are using the 
+> Hotine_Oblique_Mercator projection. They worked fine in GDAL 2.2 (PROJ 
+> 6.1) but are not working correctly in GDAL 3.3 (PROJ 8.1). They load 
+> and transform, but whereas the map is of Michigan, with the WKT below 
+> it thinks the map is in New Mexico. The WKT in question is:
+>
+> PROJCS["NAD_1983_Michigan_GeoRef_Meters",GEOGCS["GCS_NAD83(1986)",DATUM["North_American_Datum_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Hotine_Oblique_Mercator"],PARAMETER["false_easting",2546731.496],PARAMETER["false_northing",-4354009.816],PARAMETER["latitude_of_center",45.30916666666666],PARAMETER["longitude_of_center",-86],PARAMETER["azimuth",-22.74444],PARAMETER["rectified_grid_angle",-22.74444],PARAMETER["scale_factor",0.9996],UNIT["Meter",1]]
+>
+> Having learned?something from the last time this list assisted me, I 
+> checked the proj4 string in 2.4 vs 3.3 and it revealed a difference:
+>
+> GDAL 2.4/ PROJ 6.1:
+> +proj=omerc +no_uoff +lat_0=45.30916666666666 +lonc=-86 
+> +alpha=-22.74444 +k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 
+> +datum=NAD83 +units=m +no_defs
+>
+> GDAL 3.3/PROJ 8.1:
+> +proj=omerc +no_uoff +lat_0=45.3091666666667 +lonc=-86 
+> +alpha=-22.74444 +k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 
+> +datum=NAD83 +units=m +no_defs +gamma=0
+>
+> The difference is, clearly, the "+gamma=0". If I remove that and 
+> import the string, instead of the above WKT, it works. If I then 
+> export it to WKT, it adds a parameter:
+>
+> PARAMETER["rectified_grid_angle",-22.74444]
+>
+> This appears to be set to the same value as the "azimuth" parameter. 
+> So currently I have a hack where if I see a "Hotine_Oblique_Mercator" 
+> projection that has an "azimuth" parameter but no 
+> "rectified_grid_angle", I add "rectified_grid_angle" and set its value 
+> to the same as the "azimuth" parameter. This feels a bit sketchy, but 
+> maybe that is the best solution.
+>
+> So I guess what I'm asking is: IS that the best solution? What changed 
+> from PROJ 6.1 to PROJ 8.1 that caused this? I need to support these 
+> older maps somehow, so I'd love some guidance as to what a 'safe' hack 
+> is if possible.
+>
+> Any help would be greatly appreciated!
+>
+> ..............................
+> Andrew Patterson
+> Lead Software Architect
+> Avenza Systems Inc.
+>
+> email: andrew at avenza.com <mailto:andrew at avenza.com>
+> phone: 416.487.5116
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211216/d55dd03d/attachment.html>
+
+From andrew at avenza.com  Thu Dec 16 15:14:46 2021
+From: andrew at avenza.com (Andrew Patterson)
+Date: Thu, 16 Dec 2021 18:14:46 -0500
+Subject: [PROJ] Hodine Oblique Mercator
+In-Reply-To: <a705b3f7-be9b-eb5c-7b2f-cd449e129e09@spatialys.com>
+References: <CAC8biO31m+Spe5KZrVJNWf-xG8YDiSg0-3rXZkhiEK_BiE=qkA@mail.gmail.com>
+ <a705b3f7-be9b-eb5c-7b2f-cd449e129e09@spatialys.com>
+Message-ID: <CAC8biO0V3mqd4pM2Mze61AsLHVBpW7WfKKVEoScX8AZrrTqHLQ@mail.gmail.com>
+
+Even,
+
+
+> I assume your real original WKT lacks rectified_grid_angle, in which case
+> I do reproduce the gamma = 0.
+>
+Yes. I'm not sure what it is about posting to this list that makes me
+incapable of copy & pasting the right thing, but yes, you're 100% right.
+
+This was the WKT I meant to post, not that it matters now
+
+PROJCS["NAD_1983_Michigan_GeoRef_Meters",GEOGCS["GCS_NAD83(1986)",DATUM["North_American_Datum_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Hotine_Oblique_Mercator"],PARAMETER["false_easting",2546731.496],PARAMETER["false_northing",-4354009.816],PARAMETER["latitude_of_center",45.30916666666666],PARAMETER["longitude_of_center",-86],PARAMETER["azimuth",-22.74444],PARAMETER["scale_factor",0.9996],UNIT["Meter",1]]
+
+
+> The WKT importer of PROJ (used by GDAL 3) has logic in
+> https://github.com/OSGeo/PROJ/blob/master/src/iso19111/io.cpp#L3578 to
+> use the azimuth values as the angle to skew grid (+gamma) when it is
+> missing, which is the case in ESRI WKT. But your above WKT, which looks
+> strongly like ESRI WKT, uses "Hotine_Oblique_Mercator" which isn't a ESRI
+> projection name (they use different variants), so it takes a different road
+> which doesn't do the same handling of missing rectified_grid_angle. But it
+> should. I've just fixed this per https://github.com/OSGeo/PROJ/pull/2985
+>
+I appreciate that! I'll cherry pick that into our local PROJ rather than
+use my hacky approach. Thanks so very much!
+
+
+> This isn't necessarily the good way to formulate the question. PROJ 8 is
+> in the direct continuity of PROJ 6, with many bugfixes and enhancements.
+> For your use case, what matters more is the GDAL version. In GDAL 2.x, GDAL
+> had its own logic to parse WKT and transform it to PROJ.4 string, even if
+> used with PROJ 6 (by the way GDAL 2.x with PROJ 6 isn't necessarily a
+> "vetted" conf. I'd say people should stick at PROJ 5.2 if they used GDAL
+> 2.x). GDAL 3 requires PROJ >= 6, which has a WKT import logic completely
+> re-written from scratch, , and that GDAL uses (GDAL 3 no longer has a
+> built-in WKT parser), so no wonder that there might he differences of
+> behavior compared to GDAL 2, although all the effort and testing we put in
+> trying to minimize the gaps. You seem to have a good dataset to shake the
+> implementation :-)
+>
+Sorry, I know that PROJ has undergone a fairly big refactor, I wasn't
+trying to sound like I was complaining! I've spent enough time in the code
+now to grasp the ideas behind it (i.e. pipelines) and I see the power &
+flexibility of the approach. The subject matter it's dealing with is a
+ridiculously complex one, so I have nothing but sympathy for having things
+like this come up. I appreciate you taking the time to look at it.
+
+And yes, we have a fairly good dataset -- the Avenza Maps map store has
+some ludicrous number of maps, and since people have been pouring maps into
+it for five or six years, generated with a variety of applications, we've
+seen a lot of issues in this move of ours. Our problem is that given the
+enormous field of maps, the people finding these problems tend to be
+customers or vendors, rather than our QA: we've spent a fair bit of time
+responding to problems. I suspect this won't be the last time, but as I
+said in my first email, I've learned enough from these interactions here to
+more quickly drill down to the problem and -- mostly -- eliminate GDAL or
+PROJ as the culprit. The handful that slip through will show as emails from
+me here like this :)
+
+Thanks again!
+
+
+> Even
+> Le 16/12/2021 ? 20:01, Andrew Patterson a ?crit :
+>
+> Hello again!
+>
+> I'm afraid I'm back with another GDAL 2.x -> GDAL 3.x mystery. I've
+> unraveled some of it, but I'm hoping someone can illuminate the rest and
+> maybe even suggest a course of action.
+>
+> We have existing maps in our map store that are using the
+> Hotine_Oblique_Mercator projection. They worked fine in GDAL 2.2 (PROJ 6.1)
+> but are not working correctly in GDAL 3.3 (PROJ 8.1). They load and
+> transform, but whereas the map is of Michigan, with the WKT below it thinks
+> the map is in New Mexico. The WKT in question is:
+>
+>
+> PROJCS["NAD_1983_Michigan_GeoRef_Meters",GEOGCS["GCS_NAD83(1986)",DATUM["North_American_Datum_1983",SPHEROID["GRS_1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Hotine_Oblique_Mercator"],PARAMETER["false_easting",2546731.496],PARAMETER["false_northing",-4354009.816],PARAMETER["latitude_of_center",45.30916666666666],PARAMETER["longitude_of_center",-86],PARAMETER["azimuth",-22.74444],PARAMETER["rectified_grid_angle",-22.74444],PARAMETER["scale_factor",0.9996],UNIT["Meter",1]]
+>
+> Having learned something from the last time this list assisted me, I
+> checked the proj4 string in 2.4 vs 3.3 and it revealed a difference:
+>
+> GDAL 2.4/ PROJ 6.1:
+> +proj=omerc +no_uoff +lat_0=45.30916666666666 +lonc=-86 +alpha=-22.74444
+> +k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 +datum=NAD83 +units=m +no_defs
+>
+> GDAL 3.3/PROJ 8.1:
+> +proj=omerc +no_uoff +lat_0=45.3091666666667 +lonc=-86 +alpha=-22.74444
+> +k=0.9996 +x_0=2546731.496 +y_0=-4354009.816 +datum=NAD83 +units=m +no_defs
+> +gamma=0
+>
+> The difference is, clearly, the "+gamma=0". If I remove that and import
+> the string, instead of the above WKT, it works. If I then export it to WKT,
+> it adds a parameter:
+>
+> PARAMETER["rectified_grid_angle",-22.74444]
+>
+> This appears to be set to the same value as the "azimuth" parameter. So
+> currently I have a hack where if I see a "Hotine_Oblique_Mercator"
+> projection that has an "azimuth" parameter but no "rectified_grid_angle", I
+> add "rectified_grid_angle" and set its value to the same as the "azimuth"
+> parameter. This feels a bit sketchy, but maybe that is the best solution.
+>
+> So I guess what I'm asking is: IS that the best solution? What changed
+> from PROJ 6.1 to PROJ 8.1 that caused this? I need to support these older
+> maps somehow, so I'd love some guidance as to what a 'safe' hack is if
+> possible.
+>
+> Any help would be greatly appreciated!
+>
+> ..............................
+> Andrew Patterson
+> Lead Software Architect
+> Avenza Systems Inc.
+>
+> email: andrew at avenza.com
+> phone: 416.487.5116
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211216/7d6a840b/attachment-0001.html>
+
+From dave at stellacore.com  Fri Dec 17 09:08:07 2021
+From: dave at stellacore.com (Dave Knopp)
+Date: Fri, 17 Dec 2021 10:08:07 -0700
+Subject: [PROJ] Consistency of Proj and Esri transformations
+Message-ID: <5c258985-7b6c-045a-044a-7e66d4a1806a@stellacore.com>
+
+
+Hey All,
+
+Does anyone have pointers to systematic comparisons, evaluations, or any
+consistency efforts re: numeric consistency between Proj transformation
+results and those produced via Esri projection engine?
+
+A second question: in the case of differences, any thoughts which should
+be adopted as a practical reference?
+
+Dave
+
+From martin.desruisseaux at geomatys.com  Fri Dec 17 11:12:32 2021
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Fri, 17 Dec 2021 20:12:32 +0100
+Subject: [PROJ] Consistency of Proj and Esri transformations
+In-Reply-To: <5c258985-7b6c-045a-044a-7e66d4a1806a@stellacore.com>
+References: <5c258985-7b6c-045a-044a-7e66d4a1806a@stellacore.com>
+Message-ID: <446abd8e-0c4d-66b6-545b-3c9778c9c158@geomatys.com>
+
+Hello
+
+I think that in case of difference, neither PROJ or ESRI should be 
+adopted as practical reference. The cause of the difference needs to be 
+analyzed in order to see if there is a bug, which may happen sometime in 
+a software and sometime in another.
+
+Many CRS are defined by national map agencies (USGS in USA I think, IGN 
+in France, etc.). Those agencies sometime publish example of points 
+transformed from an old CRS defined by the agency to a newer CRS. The 
+example points published by those agencies are the closest match to an 
+"official" reference I can think to. But we have to search for examples 
+provided by the agency of each country instead of having a central place 
+providing examples for many CRS.
+
+Alternatively, for the convenience of a single source of points that can 
+be used as practical references for many CRS, the most trustable source 
+I'm aware of is https://gigs.iogp.org/.
+
+ ??? Martin
+
+Le 17/12/2021 ? 18:08, Dave Knopp a ?crit?:
+
+> Does anyone have pointers to systematic comparisons, evaluations, or any
+> consistency efforts re: numeric consistency between Proj transformation
+> results and those produced via Esri projection engine?
+>
+> A second question: in the case of differences, any thoughts which should
+> be adopted as a practical reference?
+
+
+From martin.desruisseaux at geomatys.com  Fri Dec 17 14:13:55 2021
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Fri, 17 Dec 2021 23:13:55 +0100
+Subject: [PROJ] Consistency of Proj and Esri transformations
+In-Reply-To: <446abd8e-0c4d-66b6-545b-3c9778c9c158@geomatys.com>
+References: <5c258985-7b6c-045a-044a-7e66d4a1806a@stellacore.com>
+ <446abd8e-0c4d-66b6-545b-3c9778c9c158@geomatys.com>
+Message-ID: <0f20c03b-adf8-47ed-01c2-ed00a3e8cff6@geomatys.com>
+
+A correction to my previous email. Thanks to Clifford for pointing my 
+mistake!
+
+> Actually in the U.S. it is the National Geodetic Survey (NGS) and not 
+> the Geological Survey (USGS) that defines the coordinate 
+> transformations for the country.
+
+ ??? Martin
+
+
+
+From brian.shaw at noaa.gov  Fri Dec 17 14:33:19 2021
+From: brian.shaw at noaa.gov (Brian Shaw)
+Date: Fri, 17 Dec 2021 15:33:19 -0700
+Subject: [PROJ] Consistency of Proj and Esri transformations
+In-Reply-To: <5c258985-7b6c-045a-044a-7e66d4a1806a@stellacore.com>
+References: <5c258985-7b6c-045a-044a-7e66d4a1806a@stellacore.com>
+Message-ID: <ee907851-68df-8b3a-c58e-593de817566d@noaa.gov>
+
+Hi Dave
+
+At this time NGS does not have a specific set of test parameters for 
+datum transformations inside the US but that is something we are working 
+on developing when the National Spatial Reference System is modernized 
+in the near future.
+
+You do not specifically mention US coordinates and transformations but 
+if you are referring to transformations in the US there are occasionally 
+issues with transformations not being up to date but you can compare 
+results from Esri and PROJ with the NGS Coordinate Conversion and 
+Transformation Tool (NCAT) to get an idea of any differences.
+
+NGS recently updated the official transformations for the US with grids 
+in NADCON 5 and VERTCON 3 that are both implemented in NCAT and changed 
+a number of things that would impact other transformation software.? To 
+have access to these transformations in Esri you have to download a 
+special Coordinate System Data (CSD) package and install it for ArcGIS 
+Desktop or ArcGIS Pro (two different packages depending on the 
+software).? I do not believe the PROJ has implemented these 
+transformations since NGS has not gotten them all registered with EPSG 
+since it was a significant change from previous versions.? We are hoping 
+to get this done sometime soon and I believe they have been updated in 
+the ISO Geodetic Registry.
+
+Here are links to a couple publications that may be of interest.
+
+NADCON 5.0
+https://geodesy.noaa.gov/library/pdfs/NOAA_TM_NOS_NGS_0081.pdf
+
+VERTCON 3.0
+https://geodesy.noaa.gov/library/pdfs/NOAA_TR_NOS_NGS_0068.pdf
+
+If you are not referring to transformations in the US then please 
+disregard all of the above.
+
+Cheers
+Brian
+
+On 12/17/2021 10:08 AM, Dave Knopp wrote:
+> Hey All,
+>
+> Does anyone have pointers to systematic comparisons, evaluations, or any
+> consistency efforts re: numeric consistency between Proj transformation
+> results and those produced via Esri projection engine?
+>
+> A second question: in the case of differences, any thoughts which should
+> be adopted as a practical reference?
+>
+> Dave
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+*************************************
+Brian Shaw
+Rocky Mountain Regional Advisor (CO, MT, WY)
+NOAA's National Geodetic Survey (NGS)
+Cell Phone # 240-988-6363
+
+
+From kristianevers at gmail.com  Sun Dec 26 07:32:21 2021
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Sun, 26 Dec 2021 16:32:21 +0100
+Subject: [PROJ] PROJ 8.2.1RC1
+Message-ID: <DE201988-ADF7-4BBE-9646-F149CA52C99A@gmail.com>
+
+All,
+
+I have prepared a release candidate for PROJ 8.2.1. Links below. 
+
+The PROJ release candidate includes a few updates to the database
+contents as well as a bunch of bug fixes. See the release notes 
+below.
+
+Download the release candidate here: 
+
+https://download.osgeo.org/proj/proj-8.2.1RC1.tar.gz
+https://download.osgeo.org/proj/proj-8.2.1RC1.zip 
+
+As usual everyone who uses PROJ is encouraged to try out the release
+candidates and report back their experiences either here on the mailing
+list or in the issue tracker on GitHub.
+
+
+/Kristian
+
+
+
+8.2.1 Release Notes
+-------------------
+
+ Updates
+ -------
+
+ o Database updated with EPSG v. 10.041 (#2974)
+
+ Bug fixes
+ ---------
+
+ o BoundCRS WKT import: fix setting of name (#2917)
+
+ o PROJStringFormatter::toString(): avoid invalid iterator increment (#2932)
+
+ o Ensure CApi test are cross-platform (#2934)
+
+ o createOperations(): do not stop at the first operation in the PROJ namespace
+   for vertical transformations (#2937)
+
+ o createOperationsCompoundToCompound(): fix null pointer dereference when
+   connection to proj.db doesn't exist. (#2938)
+
+ o Fix windows.h conflict with Criterion::STRICT (#2950)
+
+ o Cache result of proj_get_type() to help for performance of
+   proj_factors() (#2967)
+
+ o createOperations(): improvement for "NAD83(CSRS) + CGVD28 height" to
+   "NAD83(CSRS) + CGVD2013(CGG2013) height" (#2977)
+
+ o WKT1 import: correctly deal with missing rectified_grid_angle
+   parameter (#2986)
+
+ o Fix and additional options for Peirce Quincuncial projections (#2978)
+
+ o Fix build with Intel C++ compiler (#2995)
+
+
+From kristianevers at gmail.com  Thu Dec 30 01:30:22 2021
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Thu, 30 Dec 2021 10:30:22 +0100
+Subject: [PROJ] PROJ 8.2.1RC1
+In-Reply-To: <DE201988-ADF7-4BBE-9646-F149CA52C99A@gmail.com>
+References: <DE201988-ADF7-4BBE-9646-F149CA52C99A@gmail.com>
+Message-ID: <77A4DB27-522A-4020-BE7E-F4213637F059@gmail.com>
+
+I haven?t received any complaints about the release candidate so I hereby
+motion that it be promoted to the final release. I?ll start with my +1.
+
+/Kristian
+
+> On 26 Dec 2021, at 16:32, Kristian Evers <kristianevers at gmail.com> wrote:
+> 
+> All,
+> 
+> I have prepared a release candidate for PROJ 8.2.1. Links below. 
+> 
+> The PROJ release candidate includes a few updates to the database
+> contents as well as a bunch of bug fixes. See the release notes 
+> below.
+> 
+> Download the release candidate here: 
+> 
+> https://download.osgeo.org/proj/proj-8.2.1RC1.tar.gz
+> https://download.osgeo.org/proj/proj-8.2.1RC1.zip 
+> 
+> As usual everyone who uses PROJ is encouraged to try out the release
+> candidates and report back their experiences either here on the mailing
+> list or in the issue tracker on GitHub.
+> 
+> 
+> /Kristian
+> 
+> 
+> 
+> 8.2.1 Release Notes
+> -------------------
+> 
+> Updates
+> -------
+> 
+> o Database updated with EPSG v. 10.041 (#2974)
+> 
+> Bug fixes
+> ---------
+> 
+> o BoundCRS WKT import: fix setting of name (#2917)
+> 
+> o PROJStringFormatter::toString(): avoid invalid iterator increment (#2932)
+> 
+> o Ensure CApi test are cross-platform (#2934)
+> 
+> o createOperations(): do not stop at the first operation in the PROJ namespace
+>   for vertical transformations (#2937)
+> 
+> o createOperationsCompoundToCompound(): fix null pointer dereference when
+>   connection to proj.db doesn't exist. (#2938)
+> 
+> o Fix windows.h conflict with Criterion::STRICT (#2950)
+> 
+> o Cache result of proj_get_type() to help for performance of
+>   proj_factors() (#2967)
+> 
+> o createOperations(): improvement for "NAD83(CSRS) + CGVD28 height" to
+>   "NAD83(CSRS) + CGVD2013(CGG2013) height" (#2977)
+> 
+> o WKT1 import: correctly deal with missing rectified_grid_angle
+>   parameter (#2986)
+> 
+> o Fix and additional options for Peirce Quincuncial projections (#2978)
+> 
+> o Fix build with Intel C++ compiler (#2995)
+> 
+
+
+From even.rouault at spatialys.com  Thu Dec 30 01:44:14 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 30 Dec 2021 10:44:14 +0100
+Subject: [PROJ] PROJ 8.2.1RC1
+In-Reply-To: <77A4DB27-522A-4020-BE7E-F4213637F059@gmail.com>
+References: <DE201988-ADF7-4BBE-9646-F149CA52C99A@gmail.com>
+ <77A4DB27-522A-4020-BE7E-F4213637F059@gmail.com>
+Message-ID: <62dde42a-acbf-0963-4e37-2eab8ba8ac7c@spatialys.com>
+
++1 Even
+
+Le 30/12/2021 ? 10:30, Kristian Evers a ?crit?:
+> I haven?t received any complaints about the release candidate so I hereby
+> motion that it be promoted to the final release. I?ll start with my +1.
+>
+> /Kristian
+>
+>> On 26 Dec 2021, at 16:32, Kristian Evers <kristianevers at gmail.com> wrote:
+>>
+>> All,
+>>
+>> I have prepared a release candidate for PROJ 8.2.1. Links below.
+>>
+>> The PROJ release candidate includes a few updates to the database
+>> contents as well as a bunch of bug fixes. See the release notes
+>> below.
+>>
+>> Download the release candidate here:
+>>
+>> https://download.osgeo.org/proj/proj-8.2.1RC1.tar.gz
+>> https://download.osgeo.org/proj/proj-8.2.1RC1.zip
+>>
+>> As usual everyone who uses PROJ is encouraged to try out the release
+>> candidates and report back their experiences either here on the mailing
+>> list or in the issue tracker on GitHub.
+>>
+>>
+>> /Kristian
+>>
+>>
+>>
+>> 8.2.1 Release Notes
+>> -------------------
+>>
+>> Updates
+>> -------
+>>
+>> o Database updated with EPSG v. 10.041 (#2974)
+>>
+>> Bug fixes
+>> ---------
+>>
+>> o BoundCRS WKT import: fix setting of name (#2917)
+>>
+>> o PROJStringFormatter::toString(): avoid invalid iterator increment (#2932)
+>>
+>> o Ensure CApi test are cross-platform (#2934)
+>>
+>> o createOperations(): do not stop at the first operation in the PROJ namespace
+>>    for vertical transformations (#2937)
+>>
+>> o createOperationsCompoundToCompound(): fix null pointer dereference when
+>>    connection to proj.db doesn't exist. (#2938)
+>>
+>> o Fix windows.h conflict with Criterion::STRICT (#2950)
+>>
+>> o Cache result of proj_get_type() to help for performance of
+>>    proj_factors() (#2967)
+>>
+>> o createOperations(): improvement for "NAD83(CSRS) + CGVD28 height" to
+>>    "NAD83(CSRS) + CGVD2013(CGG2013) height" (#2977)
+>>
+>> o WKT1 import: correctly deal with missing rectified_grid_angle
+>>    parameter (#2986)
+>>
+>> o Fix and additional options for Peirce Quincuncial projections (#2978)
+>>
+>> o Fix build with Intel C++ compiler (#2995)
+>>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From Roger.Bivand at nhh.no  Thu Dec 30 04:18:39 2021
+From: Roger.Bivand at nhh.no (Roger Bivand)
+Date: Thu, 30 Dec 2021 13:18:39 +0100 (CET)
+Subject: [PROJ] PROJ 8.2.1RC1
+Message-ID: <36f8d592-94e8-26ec-1b3d-f99a549f7a89@reclus2.nhh.no>
+
+No issues/problems for 1000+ R packages in reverse dependency checks.
+
+Roger
+
+-- 
+Roger Bivand
+Emeritus Professor
+Department of Economics, Norwegian School of Economics,
+Postboks 3490 Ytre Sandviken, 5045 Bergen, Norway.
+e-mail: Roger.Bivand at nhh.no
+https://orcid.org/0000-0003-2392-6140
+https://scholar.google.no/citations?user=AWeghB0AAAAJ&hl=en
+
+From knudsen.thomas at gmail.com  Fri Dec 31 03:18:04 2021
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Fri, 31 Dec 2021 12:18:04 +0100
+Subject: [PROJ] PROJ 8.2.1RC1
+In-Reply-To: <77A4DB27-522A-4020-BE7E-F4213637F059@gmail.com>
+References: <DE201988-ADF7-4BBE-9646-F149CA52C99A@gmail.com>
+ <77A4DB27-522A-4020-BE7E-F4213637F059@gmail.com>
+Message-ID: <CAH0YoENoxHhr5e56_Jb=xXT3cZDg=8FCLyXA-uuWQ=g2k4nAVg@mail.gmail.com>
+
++1
+
+Den tor. 30. dec. 2021 kl. 10.30 skrev Kristian Evers <
+kristianevers at gmail.com>:
+
+> I haven?t received any complaints about the release candidate so I hereby
+> motion that it be promoted to the final release. I?ll start with my +1.
+>
+> /Kristian
+>
+> > On 26 Dec 2021, at 16:32, Kristian Evers <kristianevers at gmail.com>
+> wrote:
+> >
+> > All,
+> >
+> > I have prepared a release candidate for PROJ 8.2.1. Links below.
+> >
+> > The PROJ release candidate includes a few updates to the database
+> > contents as well as a bunch of bug fixes. See the release notes
+> > below.
+> >
+> > Download the release candidate here:
+> >
+> > https://download.osgeo.org/proj/proj-8.2.1RC1.tar.gz
+> > https://download.osgeo.org/proj/proj-8.2.1RC1.zip
+> >
+> > As usual everyone who uses PROJ is encouraged to try out the release
+> > candidates and report back their experiences either here on the mailing
+> > list or in the issue tracker on GitHub.
+> >
+> >
+> > /Kristian
+> >
+> >
+> >
+> > 8.2.1 Release Notes
+> > -------------------
+> >
+> > Updates
+> > -------
+> >
+> > o Database updated with EPSG v. 10.041 (#2974)
+> >
+> > Bug fixes
+> > ---------
+> >
+> > o BoundCRS WKT import: fix setting of name (#2917)
+> >
+> > o PROJStringFormatter::toString(): avoid invalid iterator increment
+> (#2932)
+> >
+> > o Ensure CApi test are cross-platform (#2934)
+> >
+> > o createOperations(): do not stop at the first operation in the PROJ
+> namespace
+> >   for vertical transformations (#2937)
+> >
+> > o createOperationsCompoundToCompound(): fix null pointer dereference when
+> >   connection to proj.db doesn't exist. (#2938)
+> >
+> > o Fix windows.h conflict with Criterion::STRICT (#2950)
+> >
+> > o Cache result of proj_get_type() to help for performance of
+> >   proj_factors() (#2967)
+> >
+> > o createOperations(): improvement for "NAD83(CSRS) + CGVD28 height" to
+> >   "NAD83(CSRS) + CGVD2013(CGG2013) height" (#2977)
+> >
+> > o WKT1 import: correctly deal with missing rectified_grid_angle
+> >   parameter (#2986)
+> >
+> > o Fix and additional options for Peirce Quincuncial projections (#2978)
+> >
+> > o Fix build with Intel C++ compiler (#2995)
+> >
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20211231/f81ce8d4/attachment.html>
+

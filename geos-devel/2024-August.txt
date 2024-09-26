@@ -1,0 +1,1066 @@
+From mtnclimb at gmail.com  Tue Aug  6 10:27:38 2024
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 6 Aug 2024 10:27:38 -0700
+Subject: Seeking feedback on RelateNG semantics for zero-length lines
+Message-ID: <CAK2ens0o1aSZesoecMzvt8i18N0_j9EWN-19xk7U=rN1SPTVpw@mail.gmail.com>
+
+We're in the process of porting RelateNG [1] to GEOS [2].  It offers
+benefits of performance, robustness, and increased functionality (e.g.
+handling GeometryCollections).
+
+RelateNG does have one slight change in semantics.  It treats a Zero-Length
+Line to be topologically equal to a Point:
+
+equalsTopo( LINESTRING(1 1, 1 1),  POINT(1 1) ) = TRUE
+
+(the XML test for this is here:
+https://github.com/libgeos/geos/blob/main/tests/xmltester/tests/validate/TestRelatePL.xml#L43
+)
+
+Note that RelateNG does fix some other issues with Zero-Length Lines, as
+discussed in these issues:
+https://github.com/locationtech/jts/issues/345
+https://github.com/locationtech/jts/issues/1050
+
+So the question is:  does anyone see any problems with allowing Zero-Length
+Lines to test as equal to Points?
+
+(Note: my opinion is that this is a beneficial change).
+
+[1]
+https://lin-ear-th-inking.blogspot.com/2024/05/jts-topological-relationships-next.html
+[2] https://github.com/libgeos/geos/tree/main-relate-ng
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240806/b5494c86/attachment.htm>
+
+From strk at kbt.io  Wed Aug  7 00:05:36 2024
+From: strk at kbt.io (Sandro Santilli)
+Date: Wed, 7 Aug 2024 09:05:36 +0200
+Subject: Seeking feedback on RelateNG semantics for zero-length lines
+In-Reply-To: <CAK2ens0o1aSZesoecMzvt8i18N0_j9EWN-19xk7U=rN1SPTVpw@mail.gmail.com>
+References: <CAK2ens0o1aSZesoecMzvt8i18N0_j9EWN-19xk7U=rN1SPTVpw@mail.gmail.com>
+Message-ID: <ZrMcwPOH7BiyItD7@oli>
+
+On Tue, Aug 06, 2024 at 10:27:38AM -0700, Martin Davis wrote:
+
+> equalsTopo( LINESTRING(1 1, 1 1),  POINT(1 1) ) = TRUE
+
+This is a welcome change here.
+
+--strk;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 659 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240807/7234d25e/attachment.sig>
+
+From lr at pcorp.us  Wed Aug  7 08:23:26 2024
+From: lr at pcorp.us (Regina Obe)
+Date: Wed, 7 Aug 2024 11:23:26 -0400
+Subject: Seeking feedback on RelateNG semantics for zero-length lines
+In-Reply-To: <ZrMcwPOH7BiyItD7@oli>
+References: <CAK2ens0o1aSZesoecMzvt8i18N0_j9EWN-19xk7U=rN1SPTVpw@mail.gmail.com>
+ <ZrMcwPOH7BiyItD7@oli>
+Message-ID: <000b01dae8dd$c09d9460$41d8bd20$@pcorp.us>
+
+> On Tue, Aug 06, 2024 at 10:27:38AM -0700, Martin Davis wrote:
+> 
+> > equalsTopo( LINESTRING(1 1, 1 1),  POINT(1 1) ) = TRUE
+> 
+> This is a welcome change here.
+> 
+> --strk;
+Looks good to me too.
+
+
+From pramsey at cleverelephant.ca  Thu Aug  8 15:25:33 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 8 Aug 2024 15:25:33 -0700
+Subject: PreparedGeometry and const
+Message-ID: <2542EA8D-D651-498F-893E-47EF2F4F572B@cleverelephant.ca>
+
+Have a gander at the PreparedGeometry.h file.
+It asserts that all the prepared predicates are const.
+Have a gander at the implementation of, say, PreparedPolygon::intersects()
+It naturally also declares itself to be const, but it calls the ?static? function PreparedPolygonIntersects::intersects(this, g):
+Which in turn instantiates a PreparedPolygonIntersects object, and then calls back to prepPoly->getIntersectionFinder(), which lazily creates a FastSegmentSetIntersectionFinder on the PreparedPolygon? which makes the whole thing not actually const, the state of the system is changing.
+I assume this is managed by the strange two-step of the const function calling the static function that in turn reaches back and mutates its caller. 
+
+I wouldn?t care except I?d like to add a RelateNG implementation for some of the currently unsupported predicates and I would like to not have to do so with all this ?pretend const? infrastructure.
+
+Does anyone know why all these pretty clearly non-const methods are declared const? Anyone have objections to removing the const keyword for these things? I have no idea how deep into the codebase such a removal would reach, but I?m guessing ?not far?, the only folks who might be affected are C++ API users who have direct use of PreparedGeometry.
+
+Thoughts?
+
+P
+
+From strk at kbt.io  Fri Aug  9 02:36:23 2024
+From: strk at kbt.io (Sandro Santilli)
+Date: Fri, 9 Aug 2024 11:36:23 +0200
+Subject: PreparedGeometry and const
+In-Reply-To: <2542EA8D-D651-498F-893E-47EF2F4F572B@cleverelephant.ca>
+References: <2542EA8D-D651-498F-893E-47EF2F4F572B@cleverelephant.ca>
+Message-ID: <ZrXjF8pmwRFLRlEq@oli>
+
+On Thu, Aug 08, 2024 at 03:25:33PM -0700, Paul Ramsey wrote:
+> Have a gander at the PreparedGeometry.h file.
+> It asserts that all the prepared predicates are const.
+> Have a gander at the implementation of, say, PreparedPolygon::intersects()
+> It naturally also declares itself to be const, but it calls the ?static? function PreparedPolygonIntersects::intersects(this, g):
+> Which in turn instantiates a PreparedPolygonIntersects object, and then calls back to prepPoly->getIntersectionFinder(), which lazily creates a FastSegmentSetIntersectionFinder on the PreparedPolygon? which makes the whole thing not actually const, the state of the system is changing.
+> I assume this is managed by the strange two-step of the const function calling the static function that in turn reaches back and mutates its caller. 
+> 
+> I wouldn?t care except I?d like to add a RelateNG implementation for some of the currently unsupported predicates and I would like to not have to do so with all this ?pretend const? infrastructure.
+> 
+> Does anyone know why all these pretty clearly non-const methods are declared const? Anyone have objections to removing the const keyword for these things? I have no idea how deep into the codebase such a removal would reach, but I?m guessing ?not far?, the only folks who might be affected are C++ API users who have direct use of PreparedGeometry.
+> 
+> Thoughts?
+
+I think "const" is referring to the geometry itself, which isn't changing.
+Lazily creating caches may be considered an exception to be marked
+with "mutable" for the cache object.
+
+Compare with Geometry::intersects() which lazily computes the bounding box.
+
+--strk;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 659 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240809/b6932437/attachment.sig>
+
+From pramsey at cleverelephant.ca  Mon Aug 12 16:48:14 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Mon, 12 Aug 2024 16:48:14 -0700
+Subject: MSVC linking error
+Message-ID: <58BE569A-9741-4991-901C-3AEDAA3B80CF@cleverelephant.ca>
+
+Any MSVC gurus seen this one before? Have debugging pointers?
+
+https://github.com/libgeos/geos/actions/runs/10360845422/job/28680481014
+
+P
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240812/fe34aafc/attachment.htm>
+
+From pramsey at cleverelephant.ca  Mon Aug 12 18:22:00 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Mon, 12 Aug 2024 18:22:00 -0700
+Subject: MSVC linking error
+In-Reply-To: <58BE569A-9741-4991-901C-3AEDAA3B80CF@cleverelephant.ca>
+References: <58BE569A-9741-4991-901C-3AEDAA3B80CF@cleverelephant.ca>
+Message-ID: <16AB49EB-A608-4E90-8E5C-626B87B87DE4@cleverelephant.ca>
+
+Found and fixed, https://github.com/libgeos/geos/actions/runs/10361870961/job/28682924887
+
+For those wondering about the future of our industry, yes, I got a useful suggestion from an LLM and solved it in 5 minutes.
+
+P.
+
+> On Aug 12, 2024, at 4:48?PM, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+> 
+> Any MSVC gurus seen this one before? Have debugging pointers?
+> 
+> https://github.com/libgeos/geos/actions/runs/10360845422/job/28680481014
+> 
+> P
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240812/51449afe/attachment.htm>
+
+From pramsey at cleverelephant.ca  Tue Aug 13 09:55:55 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 13 Aug 2024 09:55:55 -0700
+Subject: RelateNG Ported
+Message-ID: <C9A7E621-A140-4B44-88D6-CCC334F7CA8D@cleverelephant.ca>
+
+FYI, I just posted this as a new item in libgeos.org <http://libgeos.org/>
+
+> 
+> The upcoming 3.13 release of GEOS includes a complete re-write of the "boolean predicates", called "RelateNG". The boolean predicates are pairwise tests for geometries that return true/false answers.  "Intersects", "Contains", "Touches" are all examples of boolean predicates.
+> 
+> The old implementation in JTS and GEOS operated by building a complete topological relationship graph between the two inputs, then reading the result off the graph. However, computing the whole graph every time is computationally expensive, and the results of many predicates can be determined without a full graph -- the first time you hit an edge intersection, you know that geometries intersect, and you do not need to do any more calculations.
+> 
+> The new implementation, [RelateNG](https://lin-ear-th-inking.blogspot.com/2024/05/jts-topological-relationships-next.html), has a number of advantages:
+> 
+> * Efficient short-circuited evaluation of topological predicates (including matching custom DE-9IM matrix patterns)
+> * Optimized repeated evaluation of predicates against a single geometry via * cached spatial indexes (AKA "prepared mode")
+> * Robust computation (only point-local geometry topology is computed, so invalid topology does not cause failures)
+> * GeometryCollection inputs containing mixed types and overlapping polygons are supported, using union semantics.
+> * Zero-length LineStrings are treated as being topologically identical to Points.
+> * Support for BoundaryNodeRules.
+> 
+> The port to GEOS blends the new functionality with the existing implementation of `PreparedGeometry` and the C-API.
+> 
+> * All one-shot predicates are now handled by RelateNG, and should in general be faster. These are called in `Geometry.cpp`.
+> * The default implementation in of prepared geometry, `BasicPreparedGeometry.cpp` now uses the RelateNG implementations. The existing implementations in `PreparedPolygon.cpp`, etc, still over-ride the defaults, because they are currently slightly faster. If/when the RelateNG implementations are optimized, they can be replaced.
+> * The C-API already had functions for things like `GEOSPreparedTouches()` even though the "touches" predicate had no prepared implementation, and was just calling the non-optimized predicate. These functions now end up using the RelateNG prepared implementation, so they should automatically be much faster.
+> * The C-API has been expanded with two new functions, `GEOSPreparedRelate()` and `GEOSPreparedRelatePattern()`, exposing a new feature of RelateNG, the ability to do accelerated relate matrix calculations.
+> 
+> The RelateNG work has been run against the entire regression suite and returns exactly the same answers over all our collected 20 years of tests.
+> 
+> * The only exception is the handling of a zero-length LineString, which is now treated as logically equivalent to a point.
+> 
+> The RelateNG code is new and there are no doubt lots of places in the implementation that can still be tightened up. The existing pair-wise predicates can be considered deprecated, as the new [implementation is faster](https://lin-ear-th-inking.blogspot.com/2024/05/relateng-performance.html) and just as correct. The existing prepared geometry implementation is still faster, for the cases it supports, but for all the unsupported cases RelateNG now provides faster default implentations.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240813/4ab659e4/attachment.htm>
+
+From pramsey at cleverelephant.ca  Tue Aug 13 17:29:29 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Tue, 13 Aug 2024 17:29:29 -0700
+Subject: 3.13.0beta1 ?
+Message-ID: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+
+Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+
+P
+
+From lr at pcorp.us  Tue Aug 13 17:39:25 2024
+From: lr at pcorp.us (Regina Obe)
+Date: Tue, 13 Aug 2024 20:39:25 -0400
+Subject: 3.13.0beta1 ?
+In-Reply-To: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+Message-ID: <000901daede2$6a3968b0$3eac3a10$@pcorp.us>
+
+> From: Paul Ramsey <pramsey at cleverelephant.ca>
+> Sent: Tuesday, August 13, 2024 8:29 PM
+> To: GEOS Development List <geos-devel at lists.osgeo.org>
+> Subject: 3.13.0beta1 ?
+> 
+> Any objections to the first beta package? Give packagers a chance to see
+if the
+> new code builds, etc?
+> 
+> P=
+No objections.
+
++1
+
+
+From dbaston at gmail.com  Thu Aug 15 06:54:34 2024
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 15 Aug 2024 09:54:34 -0400
+Subject: 3.13.0beta1 ?
+In-Reply-To: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+Message-ID: <CA+K_q_oEn9=5a+e1zR0e5nFwn0ecAHtinnNSDoiuCie7QrwLeA@mail.gmail.com>
+
+Sounds good to me.
+
+I'd like to include https://github.com/libgeos/geos/pull/1111 in 3.13;
+hopefully it can be merged soon.
+
+Dan
+
+On Thu, Aug 15, 2024 at 1:49?AM Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>
+> Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+>
+> P
+
+From jmckenna at gatewaygeomatics.com  Thu Aug 15 07:07:50 2024
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Thu, 15 Aug 2024 11:07:50 -0300
+Subject: 3.13.0beta1 ?
+In-Reply-To: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+Message-ID: <fb4ef61d-9606-4bfb-a619-f0c89c91e500@gatewaygeomatics.com>
+
++1
+
+(will test on Windows/MSVC)
+
+-jeff
+
+
+
+On 2024-08-13 9:29 p.m., Paul Ramsey wrote:
+> Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+> 
+> P
+'
+-- 
+Jeff McKenna
+GatewayGeo: Developers of MS4W, & offering MapServer Consulting/Dev
+co-founder of FOSS4G
+http://gatewaygeo.com/
+
+
+From mwtoews at gmail.com  Thu Aug 15 14:21:29 2024
+From: mwtoews at gmail.com (Mike Taves)
+Date: Fri, 16 Aug 2024 09:21:29 +1200
+Subject: 3.13.0beta1 ?
+In-Reply-To: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+Message-ID: <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+
+I'd like to bump the minimum CMake version to 3.16 for the GEOS 3.13
+series. Now is the right time to do this. I don't have a PR ready, but
+I can later today.
+
+FWIW, CMake 3.16 is the minimum version for PROJ and GEOS.
+
+See also https://github.com/libgeos/geos/pull/936
+
+On Thu, 15 Aug 2024 at 17:49, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>
+> Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+>
+> P
+
+From pramsey at cleverelephant.ca  Thu Aug 15 14:23:08 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 15 Aug 2024 14:23:08 -0700
+Subject: 3.13.0beta1 ?
+In-Reply-To: <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+Message-ID: <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+
+OK with me
+
+> On Aug 15, 2024, at 2:21?PM, Mike Taves <mwtoews at gmail.com> wrote:
+> 
+> I'd like to bump the minimum CMake version to 3.16 for the GEOS 3.13
+> series. Now is the right time to do this. I don't have a PR ready, but
+> I can later today.
+> 
+> FWIW, CMake 3.16 is the minimum version for PROJ and GEOS.
+> 
+> See also https://github.com/libgeos/geos/pull/936
+> 
+> On Thu, 15 Aug 2024 at 17:49, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>> 
+>> Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+>> 
+>> P
+
+
+From pramsey at cleverelephant.ca  Thu Aug 15 18:16:39 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 15 Aug 2024 18:16:39 -0700
+Subject: 3.13.0beta1 ?
+In-Reply-To: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+Message-ID: <4081E4AB-4CDE-4B6D-B92C-D228A15BEDF6@cleverelephant.ca>
+
+Dan, you?ve got the largest piece of work in-flight still, what?s your thought?
+P
+
+> On Aug 13, 2024, at 5:29?PM, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+> 
+> Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+> 
+> P
+
+
+From lr at pcorp.us  Thu Aug 15 19:30:38 2024
+From: lr at pcorp.us (Regina Obe)
+Date: Thu, 15 Aug 2024 22:30:38 -0400
+Subject: 3.13.0beta1 ?
+In-Reply-To: <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+ <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+Message-ID: <005701daef84$485a9b30$d90fd190$@pcorp.us>
+
+I assume that GEOS there is meant to be GDAL?
+What does upgrading CMake buy us.
+
+That ticket you reference was fixed a different way.
+
+I'm still hesitant to up the CMake version just for the sake of upping the CMake version especially so late in the cycle of GEOS 3.13 development.
+If we had done this early own, I would not have an issue.
+
+a) GEOS has no dependencies, so is something people can easily compile themselves unless we go around upping version requirements on them
+b) GEOS is a much simpler project than GDAL and PROJ so has fewer needs
+c) Granted I am less concerned about Ubuntu 20.04  and Debian 10  now that Ubuntu 22.04, 24.04, Debian 11 and Debian 12 are out.
+
+But I want to know what goodies we are going to get out of upgrading CMake.
+
+
+> -----Original Message-----
+> From: Paul Ramsey <pramsey at cleverelephant.ca>
+> Sent: Thursday, August 15, 2024 5:23 PM
+> To: Mike Taves <mwtoews at gmail.com>
+> Cc: GEOS Development List <geos-devel at lists.osgeo.org>
+> Subject: Re: 3.13.0beta1 ?
+> 
+> OK with me
+> 
+> > On Aug 15, 2024, at 2:21?PM, Mike Taves <mwtoews at gmail.com> wrote:
+> >
+> > I'd like to bump the minimum CMake version to 3.16 for the GEOS 3.13
+> > series. Now is the right time to do this. I don't have a PR ready, but
+> > I can later today.
+> >
+> > FWIW, CMake 3.16 is the minimum version for PROJ and GEOS.
+> >
+> > See also https://github.com/libgeos/geos/pull/936
+> >
+> > On Thu, 15 Aug 2024 at 17:49, Paul Ramsey <pramsey at cleverelephant.ca>
+> wrote:
+> >>
+> >> Any objections to the first beta package? Give packagers a chance to see if
+> the new code builds, etc?
+> >>
+> >> P
+
+
+From dbaston at gmail.com  Thu Aug 15 19:34:02 2024
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 15 Aug 2024 22:34:02 -0400
+Subject: 3.13.0beta1 ?
+In-Reply-To: <4081E4AB-4CDE-4B6D-B92C-D228A15BEDF6@cleverelephant.ca>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <4081E4AB-4CDE-4B6D-B92C-D228A15BEDF6@cleverelephant.ca>
+Message-ID: <CA+K_q_qfxFOf1+eBboy-b_MM0cnWwfxtNGpq0R7GTXNPdJerjA@mail.gmail.com>
+
+Went ahead and merged it.
+
+Dan
+
+On Thu, Aug 15, 2024 at 10:29?PM Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>
+> Dan, you?ve got the largest piece of work in-flight still, what?s your thought?
+> P
+>
+> > On Aug 13, 2024, at 5:29?PM, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+> >
+> > Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+> >
+> > P
+>
+
+From mwtoews at gmail.com  Fri Aug 16 04:15:15 2024
+From: mwtoews at gmail.com (Mike Taves)
+Date: Fri, 16 Aug 2024 23:15:15 +1200
+Subject: 3.13.0beta1 ?
+In-Reply-To: <005701daef84$485a9b30$d90fd190$@pcorp.us>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+ <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+ <005701daef84$485a9b30$d90fd190$@pcorp.us>
+Message-ID: <CAM2FmMpHMGhWa6rEeV2mBiwKfDB=5h5ARPifybdeq0DoEKvkvQ@mail.gmail.com>
+
+On Fri, 16 Aug 2024 at 14:30, Regina Obe <lr at pcorp.us> wrote:
+>
+> I assume that GEOS there is meant to be GDAL?
+> What does upgrading CMake buy us.
+
+Oh right, yes GDAL. It mostly buys a fix for MSVC Ninja build
+messages, which wasn't fixed to my knowledge.
+
+> I'm still hesitant to up the CMake version just for the sake of upping the CMake version especially so late in the cycle of GEOS 3.13 development.
+> If we had done this early own, I would not have an issue.
+
+Understandable, as it is the 11th hour. I have a PR to consider for
+GEOS 3.13, otherwise it can wait to be merged for the next dev phase:
+https://github.com/libgeos/geos/pull/1143
+
+From jmckenna at gatewaygeomatics.com  Fri Aug 16 06:36:21 2024
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Fri, 16 Aug 2024 10:36:21 -0300
+Subject: 3.13.0beta1 ?
+In-Reply-To: <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+Message-ID: <b0164063-b3a5-48c9-a49d-3726d9f6914f@gatewaygeomatics.com>
+
+Thanks Mike, unfortunately I tried this earlier, unsuccessfully, through 
+that pull request that you mentioned (even though it would help 
+packagers).  I am not surprised that it came up again.
+
+Thanks for bringing this up again.
+
+
+-jeff
+
+
+
+On 2024-08-15 6:21 p.m., Mike Taves wrote:
+> I'd like to bump the minimum CMake version to 3.16 for the GEOS 3.13
+> series. Now is the right time to do this. I don't have a PR ready, but
+> I can later today.
+> 
+> FWIW, CMake 3.16 is the minimum version for PROJ and GEOS.
+> 
+> See also https://github.com/libgeos/geos/pull/936
+> 
+> On Thu, 15 Aug 2024 at 17:49, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>>
+>> Any objections to the first beta package? Give packagers a chance to see if the new code builds, etc?
+>>
+>> P
+
+
+-- 
+Jeff McKenna
+GatewayGeo: Developers of MS4W, & offering MapServer Consulting/Dev
+co-founder of FOSS4G
+http://gatewaygeo.com/
+
+From jmckenna at gatewaygeomatics.com  Fri Aug 16 06:39:51 2024
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Fri, 16 Aug 2024 10:39:51 -0300
+Subject: 3.13.0beta1 ?
+In-Reply-To: <CAM2FmMpHMGhWa6rEeV2mBiwKfDB=5h5ARPifybdeq0DoEKvkvQ@mail.gmail.com>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+ <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+ <005701daef84$485a9b30$d90fd190$@pcorp.us>
+ <CAM2FmMpHMGhWa6rEeV2mBiwKfDB=5h5ARPifybdeq0DoEKvkvQ@mail.gmail.com>
+Message-ID: <b2701bc0-a372-4dfc-8a34-09b4df052d7f@gatewaygeomatics.com>
+
+On 2024-08-16 8:15 a.m., Mike Taves wrote:
+> On Fri, 16 Aug 2024 at 14:30, Regina Obe <lr at pcorp.us> wrote:
+>>
+>> I assume that GEOS there is meant to be GDAL?
+>> What does upgrading CMake buy us.
+> 
+> Oh right, yes GDAL. It mostly buys a fix for MSVC Ninja build
+> messages, which wasn't fixed to my knowledge.
+> 
+>> I'm still hesitant to up the CMake version just for the sake of upping the CMake version especially so late in the cycle of GEOS 3.13 development.
+>> If we had done this early own, I would not have an issue.
+> 
+> Understandable, as it is the 11th hour. I have a PR to consider for
+> GEOS 3.13, otherwise it can wait to be merged for the next dev phase:
+> https://github.com/libgeos/geos/pull/1143
+
+Thanks Mike.
+
+Regarding trying to get changes made for packagers, as you saw my same 
+change rejected here in the previous pull request, I just instead have 
+been making that change locally - it avoids the questioning, and helps 
+the users downstream, without the firestorm. :)
+
+Enjoy your weekend,
+
+-jeff
+
+
+
+From howard at hobu.co  Fri Aug 16 07:45:28 2024
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 16 Aug 2024 09:45:28 -0500
+Subject: 3.13.0beta1 ?
+In-Reply-To: <005701daef84$485a9b30$d90fd190$@pcorp.us>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+ <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+ <005701daef84$485a9b30$d90fd190$@pcorp.us>
+Message-ID: <9A577B54-1C55-486A-8D2B-875B6EF9ED8B@hobu.co>
+
+
+
+> On Aug 15, 2024, at 9:30?PM, Regina Obe <lr at pcorp.us> wrote:
+> 
+> I assume that GEOS there is meant to be GDAL?
+> What does upgrading CMake buy us.
+> 
+> That ticket you reference was fixed a different way.
+> 
+> I'm still hesitant to up the CMake version just for the sake of upping the CMake version especially so late in the cycle of GEOS 3.13 development.
+> If we had done this early own, I would not have an issue.
+
+Waiting for another major release means waiting another year to bump this CMake version dependency floor which is already five years old. The practical impact of such a change is quite minor as every significant packaging system and version that's expecting to use GEOS 3.13 has long since moved on. 
+
+> a) GEOS has no dependencies, so is something people can easily compile themselves unless we go around upping version requirements on them
+> b) GEOS is a much simpler project than GDAL and PROJ so has fewer needs
+> c) Granted I am less concerned about Ubuntu 20.04  and Debian 10  now that Ubuntu 22.04, 24.04, Debian 11 and Debian 12 are out.
+
+IMO our C++ standard floor matters a lot more on the topic of people easily compiling themselves on older platforms than the CMake version floor. It was Ubuntu 18.04 and Debian 10 that still had CMake 3.13. 
+
+> But I want to know what goodies we are going to get out of upgrading CMake.
+
+The opportunity to go back and throw out CMake configuration that branches based on really old version stuff like https://github.com/libgeos/geos/blob/main/CMakeLists.txt#L59 This means less junk that can rot. 
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20240816/a2abbca3/attachment.htm>
+
+From gdt at lexort.com  Fri Aug 16 07:57:17 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 16 Aug 2024 10:57:17 -0400
+Subject: 3.13.0beta1 ?
+In-Reply-To: <005701daef84$485a9b30$d90fd190$@pcorp.us> (Regina Obe's message
+ of "Thu, 15 Aug 2024 22:30:38 -0400")
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+ <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+ <005701daef84$485a9b30$d90fd190$@pcorp.us>
+Message-ID: <rmi1q2owm5u.fsf@s1.lexort.com>
+
+>> On Aug 15, 2024, at 2:21?PM, Mike Taves <mwtoews at gmail.com> wrote:
+>> 
+>> I'd like to bump the minimum CMake version to 3.16 for the GEOS 3.13
+>> series. Now is the right time to do this. I don't have a PR ready, but
+>> I can later today.
+>> 
+>> FWIW, CMake 3.16 is the minimum version for PROJ and GEOS.
+>> 
+>> See also https://github.com/libgeos/geos/pull/936
+
+"Regina Obe" <lr at pcorp.us> writes:
+
+> I assume that GEOS there is meant to be GDAL?
+> What does upgrading CMake buy us.
+>
+> That ticket you reference was fixed a different way.
+>
+> I'm still hesitant to up the CMake version just for the sake of upping the CMake version especially so late in the cycle of GEOS 3.13 development.
+> If we had done this early own, I would not have an issue.
+>
+> a) GEOS has no dependencies, so is something people can easily compile themselves unless we go around upping version requirements on them
+> b) GEOS is a much simpler project than GDAL and PROJ so has fewer needs
+> c) Granted I am less concerned about Ubuntu 20.04  and Debian 10  now that Ubuntu 22.04, 24.04, Debian 11 and Debian 12 are out.
+>
+> But I want to know what goodies we are going to get out of upgrading CMake.
+
+I am a usual objector to increasing requirements quickly; I typically
+want any version of anything that was current in the last 2 years to be
+ok. (As in, if X was the recommended version on August 16, 2022, even if
+it was released in late 2021, then X should be ok.)
+
+on pkgsrc:
+
+  $ cmake --version
+  cmake version 3.30.2
+
+I don't think this is "upgrading cmake".  It's "requiring people that
+build geos to have a non-ancient cmake".
+
+Looking up cmake 3.16, it was released on November 26, 2019.  So we're
+really close to 5 years.
+
+My usual LTS rant: if someone wants to run software from 2019 for that
+long-term stability goodness, they can use old geos too.
+
+And to the other comment: C++ requirements are a much bigger deal.  At
+this point it's ok, just barely, to demand C++17.  C++11 has been ok for
+a few years.  Requiring anything newer than C++17 is unreasonable.
+
+So while I don't get to vote, I think "cmake >= 3.16.0" is a non-event
+and just fine (given that we already have cmake instead of autoconf :-).
+
+
+From lr at pcorp.us  Fri Aug 16 08:30:13 2024
+From: lr at pcorp.us (Regina Obe)
+Date: Fri, 16 Aug 2024 11:30:13 -0400
+Subject: 3.13.0beta1 ?
+In-Reply-To: <rmi1q2owm5u.fsf@s1.lexort.com>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>	<CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>	<1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>	<005701daef84$485a9b30$d90fd190$@pcorp.us>
+ <rmi1q2owm5u.fsf@s1.lexort.com>
+Message-ID: <000501daeff1$30a27180$91e75480$@pcorp.us>
+
+> So while I don't get to vote, I think "cmake >= 3.16.0" is a non-event and just
+> fine (given that we already have cmake instead of autoconf :-).
+
+Greg,
+
+Thanks for the feedback.  At this point I'm a -0 at this after having many people whining about how
+I'm overreacting over nothing.
+
+My main issue was not that we should care about people running cmake < 3.16
+But that we shouldn't be making these kind of changes in the 11th hour before beta release.
+
+It just sets a bad feel in my stomach is all for anyone who is impacted (which may be none), who have been following the progress of GEOS 3.13 and suddenly they can't compile beta.
+And GEOS has a very short cycle from beta to release. So we are talking about less than a month.
+
+I also look at what we gain, yah we get to remove a bunch of croft, so what, lets just remove more croft that's about it.
+
+I'm more fine with Howard's recent proposal to up C++ for GEOS 3.14  https://github.com/libgeos/geos/pull/1144 , because he's doing that very early in cycle.
+A whole years time for people who are impacted to decide how this affects their plans.
+
+Thanks,
+Regina
+
+
+
+
+
+From pramsey at cleverelephant.ca  Fri Aug 16 08:39:38 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 16 Aug 2024 08:39:38 -0700
+Subject: 3.13.0beta1 ?
+In-Reply-To: <000501daeff1$30a27180$91e75480$@pcorp.us>
+References: <2F0DA776-838A-49DB-8582-C4690AB1C8CC@cleverelephant.ca>
+ <CAM2FmMqAnqzRV-k8e8bLvGakuJSkWJc--Ju8tdRzH+QWNPueOA@mail.gmail.com>
+ <1B4D8435-DDE1-40BB-9EBA-AB27287F2095@cleverelephant.ca>
+ <005701daef84$485a9b30$d90fd190$@pcorp.us> <rmi1q2owm5u.fsf@s1.lexort.com>
+ <000501daeff1$30a27180$91e75480$@pcorp.us>
+Message-ID: <43BCD442-EF4A-4A3D-8B17-C665F18BA395@cleverelephant.ca>
+
+Mergemergmerg.
+
+> On Aug 16, 2024, at 8:30?AM, Regina Obe <lr at pcorp.us> wrote:
+> 
+>> So while I don't get to vote, I think "cmake >= 3.16.0" is a non-event and just
+>> fine (given that we already have cmake instead of autoconf :-).
+> 
+> Greg,
+> 
+> Thanks for the feedback.  At this point I'm a -0 at this after having many people whining about how
+> I'm overreacting over nothing.
+> 
+> My main issue was not that we should care about people running cmake < 3.16
+> But that we shouldn't be making these kind of changes in the 11th hour before beta release.
+> 
+> It just sets a bad feel in my stomach is all for anyone who is impacted (which may be none), who have been following the progress of GEOS 3.13 and suddenly they can't compile beta.
+> And GEOS has a very short cycle from beta to release. So we are talking about less than a month.
+> 
+> I also look at what we gain, yah we get to remove a bunch of croft, so what, lets just remove more croft that's about it.
+> 
+> I'm more fine with Howard's recent proposal to up C++ for GEOS 3.14  https://github.com/libgeos/geos/pull/1144 , because he's doing that very early in cycle.
+> A whole years time for people who are impacted to decide how this affects their plans.
+> 
+> Thanks,
+> Regina
+> 
+> 
+> 
+> 
+
+
+From pramsey at cleverelephant.ca  Fri Aug 16 12:02:01 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 16 Aug 2024 12:02:01 -0700
+Subject: GEOS 3.13.0beta1 Available
+Message-ID: <6C95F195-F2A4-43BA-9547-FD8E7D60BDC2@cleverelephant.ca>
+
+Package for download:
+
+- https://download.osgeo.org/geos/geos-3.13.0beta1.tar.bz2
+
+News for this development cycle:
+
+- https://github.com/libgeos/geos/blob/3.13.0beta1/NEWS.md 
+
+Test your builds and packages please.
+
+P.
+
+From gdt at lexort.com  Fri Aug 16 16:57:51 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 16 Aug 2024 19:57:51 -0400
+Subject: GEOS 3.13.0beta1 Available
+In-Reply-To: <6C95F195-F2A4-43BA-9547-FD8E7D60BDC2@cleverelephant.ca> (Paul
+ Ramsey's message of "Fri, 16 Aug 2024 12:02:01 -0700")
+References: <6C95F195-F2A4-43BA-9547-FD8E7D60BDC2@cleverelephant.ca>
+Message-ID: <rmio75st400.fsf@s1.lexort.com>
+
+Builds on NetBSD 10 amd64, and with it installed, passes self tests.
+
+I believe tests failing before installation is a longstanding issue, and
+I believe you might think it's a pkgsrc environment issue.   So If you
+think that you can have 3.12.2 or whatever installed, and build and test
+3.13.0 pre-installation, that's fine.  If that doesn't work, then I
+think it's a bug.
+
+I rebuilt librttopo, libspatialite, gdal-lib, postgis (itself at
+3.5.0alpha2 on my system, but at 3.4.2 in pkgsrc), and then qgis
+(3.34.9).  I started qgis and it seemed ok displayingusing layers from
+gpkg and postgis.  Not claiming this is the right test, but I needed to
+rebuild anyway.
+
+
+Here is an annotated list of the changes in installed files.  There are
+some things not explained in NEWS.   I don't mean to be super pedantic
+about NEWS; it's just that without a NEWS clue I can't sort out "this
+should have been listed in NEWS" vs "this shouldn't have been installed".
+
+
+  Index: PLIST
+  ===================================================================
+  diff -u -p -U 1 -r1.27 PLIST
+  --- PLIST	5 Jun 2024 22:33:56 -0000	1.27
+  +++ PLIST	16 Aug 2024 23:15:42 -0000
+  @@ -10,2 +10,3 @@ include/geos/algorithm/CentralEndpointIn
+   include/geos/algorithm/Centroid.h
+  +include/geos/algorithm/CircularArcs.h
+   include/geos/algorithm/ConvexHull.h
+
+Seems part of "curved geometry types", but not listed.
+
+  @@ -33,2 +34,4 @@ include/geos/algorithm/RobustDeterminant
+   include/geos/algorithm/SimplePointInRing.h
+  +include/geos/algorithm/construct/IndexedDistanceToPoint.h
+  +include/geos/algorithm/construct/IndexedPointInPolygonsLocator.h
+   include/geos/algorithm/construct/LargestEmptyCircle.h
+
+Can't find this in the "new" section of NEWS.
+
+  @@ -67,2 +70,5 @@ include/geos/export.h
+   include/geos/geom.h
+  +include/geos/geom/CircularArc.h
+  +include/geos/geom/CircularString.h
+  +include/geos/geom/CompoundCurve.h
+   include/geos/geom/Coordinate.h
+  @@ -74,2 +80,4 @@ include/geos/geom/CoordinateSequenceIter
+   include/geos/geom/CoordinateSequences.h
+  +include/geos/geom/Curve.h
+  +include/geos/geom/CurvePolygon.h
+   include/geos/geom/Dimension.h
+
+curved geomery types
+
+  @@ -81,2 +89,3 @@ include/geos/geom/GeometryFactory.h
+   include/geos/geom/GeometryFilter.h
+  +include/geos/geom/GeometryTypeName.h
+   include/geos/geom/HeuristicOverlay.h
+
+Can't find this in the "new" section of NEWS.
+
+  @@ -87,2 +96,3 @@ include/geos/geom/LinearRing.h
+   include/geos/geom/Location.h
+  +include/geos/geom/MultiCurve.h
+   include/geos/geom/MultiLineString.h
+  @@ -90,2 +100,3 @@ include/geos/geom/MultiPoint.h
+   include/geos/geom/MultiPolygon.h
+  +include/geos/geom/MultiSurface.h
+   include/geos/geom/Point.h
+  @@ -95,2 +106,5 @@ include/geos/geom/PrecisionModel.h
+   include/geos/geom/Quadrant.h
+  +include/geos/geom/SimpleCurve.h
+  +include/geos/geom/Surface.h
+  +include/geos/geom/SurfaceImpl.h
+   include/geos/geom/Triangle.h
+
+curved geometry types
+
+
+  @@ -120,2 +134,3 @@ include/geos/geom/util/GeometryExtracter
+   include/geos/geom/util/GeometryFixer.h
+  +include/geos/geom/util/GeometryLister.h
+   include/geos/geom/util/GeometryMapper.h
+
+Can't find this in the "new" section of NEWS.
+
+  @@ -126,2 +141,3 @@ include/geos/geom/util/PointExtracter.h
+   include/geos/geom/util/PolygonExtracter.h
+  +include/geos/geom/util/PolygonalExtracter.h
+   include/geos/geom/util/ShortCircuitedGeometryVisitor.h
+
+Can't find this in the "new" section of NEWS.
+
+  @@ -375,2 +391,26 @@ include/geos/operation/relate/RelateNode
+   include/geos/operation/relate/RelateOp.h
+  +include/geos/operation/relateng/AdjacentEdgeLocator.h
+  +include/geos/operation/relateng/BasicPredicate.h
+  +include/geos/operation/relateng/DimensionLocation.h
+  +include/geos/operation/relateng/EdgeSegmentIntersector.h
+  +include/geos/operation/relateng/EdgeSegmentOverlapAction.h
+  +include/geos/operation/relateng/EdgeSetIntersector.h
+  +include/geos/operation/relateng/IMPatternMatcher.h
+  +include/geos/operation/relateng/IMPredicate.h
+  +include/geos/operation/relateng/IntersectionMatrixPattern.h
+  +include/geos/operation/relateng/LineStringExtracter.h
+  +include/geos/operation/relateng/LinearBoundary.h
+  +include/geos/operation/relateng/NodeSection.h
+  +include/geos/operation/relateng/NodeSections.h
+  +include/geos/operation/relateng/PolygonNodeConverter.h
+  +include/geos/operation/relateng/RelateEdge.h
+  +include/geos/operation/relateng/RelateGeometry.h
+  +include/geos/operation/relateng/RelateMatrixPredicate.h
+  +include/geos/operation/relateng/RelateNG.h
+  +include/geos/operation/relateng/RelateNode.h
+  +include/geos/operation/relateng/RelatePointLocator.h
+  +include/geos/operation/relateng/RelatePredicate.h
+  +include/geos/operation/relateng/RelateSegmentString.h
+  +include/geos/operation/relateng/TopologyComputer.h
+  +include/geos/operation/relateng/TopologyPredicate.h
+   include/geos/operation/sharedpaths/SharedPathsOp.h
+
+covered by "relateng" NEWS item
+
+  @@ -481,6 +521,6 @@ lib/cmake/GEOS/geos-targets.cmake
+   lib/libgeos.so
+  -lib/libgeos.so.3.12.2
+  +lib/libgeos.so.3.13.0
+   lib/libgeos_c.so
+   lib/libgeos_c.so.1
+  -lib/libgeos_c.so.1.18.2
+  +lib/libgeos_c.so.1.19.0
+   lib/pkgconfig/geos.pc
+
+expected
+
+From pramsey at cleverelephant.ca  Fri Aug 23 12:49:21 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 23 Aug 2024 12:49:21 -0700
+Subject: GEOS 3.13.0beta1 Available
+In-Reply-To: <rmio75st400.fsf@s1.lexort.com>
+References: <6C95F195-F2A4-43BA-9547-FD8E7D60BDC2@cleverelephant.ca>
+ <rmio75st400.fsf@s1.lexort.com>
+Message-ID: <CACowWR3sZwWvrQu+Y9X+4=sU-AfvSeewCeiuiU6BjsPiPc+4vg@mail.gmail.com>
+
+On Fri, Aug 16, 2024 at 4:57?PM Greg Troxel <gdt at lexort.com> wrote:
+>
+> Builds on NetBSD 10 amd64, and with it installed, passes self tests.
+>
+> I believe tests failing before installation is a longstanding issue, and
+> I believe you might think it's a pkgsrc environment issue.   So If you
+> think that you can have 3.12.2 or whatever installed, and build and test
+> 3.13.0 pre-installation, that's fine.  If that doesn't work, then I
+> think it's a bug.
+>
+> I rebuilt librttopo, libspatialite, gdal-lib, postgis (itself at
+> 3.5.0alpha2 on my system, but at 3.4.2 in pkgsrc), and then qgis
+> (3.34.9).  I started qgis and it seemed ok displayingusing layers from
+> gpkg and postgis.  Not claiming this is the right test, but I needed to
+> rebuild anyway.
+>
+>
+> Here is an annotated list of the changes in installed files.  There are
+> some things not explained in NEWS.   I don't mean to be super pedantic
+> about NEWS; it's just that without a NEWS clue I can't sort out "this
+> should have been listed in NEWS" vs "this shouldn't have been installed".
+>
+>
+>   Index: PLIST
+>   ===================================================================
+>   diff -u -p -U 1 -r1.27 PLIST
+>   --- PLIST     5 Jun 2024 22:33:56 -0000       1.27
+>   +++ PLIST     16 Aug 2024 23:15:42 -0000
+>   @@ -10,2 +10,3 @@ include/geos/algorithm/CentralEndpointIn
+>    include/geos/algorithm/Centroid.h
+>   +include/geos/algorithm/CircularArcs.h
+>    include/geos/algorithm/ConvexHull.h
+>
+> Seems part of "curved geometry types", but not listed.
+
+I mean, it's part of curve support, and that's in News, where are you
+thinking it could be listed?
+
+>   @@ -33,2 +34,4 @@ include/geos/algorithm/RobustDeterminant
+>    include/geos/algorithm/SimplePointInRing.h
+>   +include/geos/algorithm/construct/IndexedDistanceToPoint.h
+>   +include/geos/algorithm/construct/IndexedPointInPolygonsLocator.h
+>    include/geos/algorithm/construct/LargestEmptyCircle.h
+>
+> Can't find this in the "new" section of NEWS.
+
+Comes from:
+Add LargestEmptyCircle handling of polygon obstacles (#939)
+
+
+>   @@ -81,2 +89,3 @@ include/geos/geom/GeometryFactory.h
+>    include/geos/geom/GeometryFilter.h
+>   +include/geos/geom/GeometryTypeName.h
+>    include/geos/geom/HeuristicOverlay.h
+>
+> Can't find this in the "new" section of NEWS.
+
+From
+WKBReader: Support curved geometry types (#1106)
+
+>   @@ -120,2 +134,3 @@ include/geos/geom/util/GeometryExtracter
+>    include/geos/geom/util/GeometryFixer.h
+>   +include/geos/geom/util/GeometryLister.h
+>    include/geos/geom/util/GeometryMapper.h
+>
+> Can't find this in the "new" section of NEWS.
+
+>From RelateNG
+
+>   @@ -126,2 +141,3 @@ include/geos/geom/util/PointExtracter.h
+>    include/geos/geom/util/PolygonExtracter.h
+>   +include/geos/geom/util/PolygonalExtracter.h
+>    include/geos/geom/util/ShortCircuitedGeometryVisitor.h
+
+From
+Add LargestEmptyCircle handling of polygon obstacles (#939)
+
+From gdt at lexort.com  Fri Aug 23 16:53:47 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 23 Aug 2024 19:53:47 -0400
+Subject: GEOS 3.13.0beta1 Available
+In-Reply-To: <CACowWR3sZwWvrQu+Y9X+4=sU-AfvSeewCeiuiU6BjsPiPc+4vg@mail.gmail.com>
+ (Paul Ramsey's message of "Fri, 23 Aug 2024 12:49:21 -0700")
+References: <6C95F195-F2A4-43BA-9547-FD8E7D60BDC2@cleverelephant.ca>
+ <rmio75st400.fsf@s1.lexort.com>
+ <CACowWR3sZwWvrQu+Y9X+4=sU-AfvSeewCeiuiU6BjsPiPc+4vg@mail.gmail.com>
+Message-ID: <rmibk1iaj90.fsf@s1.lexort.com>
+
+Paul Ramsey <pramsey at cleverelephant.ca> writes:
+
+>>   Index: PLIST
+>>   ===================================================================
+>>   diff -u -p -U 1 -r1.27 PLIST
+>>   --- PLIST     5 Jun 2024 22:33:56 -0000       1.27
+>>   +++ PLIST     16 Aug 2024 23:15:42 -0000
+>>   @@ -10,2 +10,3 @@ include/geos/algorithm/CentralEndpointIn
+>>    include/geos/algorithm/Centroid.h
+>>   +include/geos/algorithm/CircularArcs.h
+>>    include/geos/algorithm/ConvexHull.h
+>>
+>> Seems part of "curved geometry types", but not listed.
+>
+> I mean, it's part of curve support, and that's in News, where are you
+> thinking it could be listed?
+
+Maybe I should just don't worry be happy about changes in installed
+files.
+
+Thanks for the rest - I didn't mean to demand a linkage so much as post
+it in case any of the people really working on this said "huh, didn't
+expect that".  Maybe that's so unlikely these queries aren't worthwhile and I
+should stop, and only comment on withdrawals I don't understand.
+
+
+From pramsey at cleverelephant.ca  Fri Aug 23 17:16:50 2024
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 23 Aug 2024 17:16:50 -0700
+Subject: GEOS 3.13.0beta1 Available
+In-Reply-To: <rmibk1iaj90.fsf@s1.lexort.com>
+References: <6C95F195-F2A4-43BA-9547-FD8E7D60BDC2@cleverelephant.ca>
+ <rmio75st400.fsf@s1.lexort.com>
+ <CACowWR3sZwWvrQu+Y9X+4=sU-AfvSeewCeiuiU6BjsPiPc+4vg@mail.gmail.com>
+ <rmibk1iaj90.fsf@s1.lexort.com>
+Message-ID: <CCA1C450-C7B5-4F5A-94AE-8E9629536FEC@cleverelephant.ca>
+
+
+
+> On Aug 23, 2024, at 4:53?PM, Greg Troxel <gdt at lexort.com> wrote:
+> 
+> Paul Ramsey <pramsey at cleverelephant.ca> writes:
+> 
+>>>  Index: PLIST
+>>>  ===================================================================
+>>>  diff -u -p -U 1 -r1.27 PLIST
+>>>  --- PLIST     5 Jun 2024 22:33:56 -0000       1.27
+>>>  +++ PLIST     16 Aug 2024 23:15:42 -0000
+>>>  @@ -10,2 +10,3 @@ include/geos/algorithm/CentralEndpointIn
+>>>   include/geos/algorithm/Centroid.h
+>>>  +include/geos/algorithm/CircularArcs.h
+>>>   include/geos/algorithm/ConvexHull.h
+>>> 
+>>> Seems part of "curved geometry types", but not listed.
+>> 
+>> I mean, it's part of curve support, and that's in News, where are you
+>> thinking it could be listed?
+> 
+> Maybe I should just don't worry be happy about changes in installed
+> files.
+> 
+> Thanks for the rest - I didn't mean to demand a linkage so much as post
+> it in case any of the people really working on this said "huh, didn't
+> expect that".  Maybe that's so unlikely these queries aren't worthwhile and I
+> should stop, and only comment on withdrawals I don't understand.
+
+Not this time, but I?m pretty sure one of these listings of yours did show up a packaging error, so don?t? stop on my account. :) 
+
+P
+
+

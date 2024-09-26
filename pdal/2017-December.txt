@@ -1,0 +1,1353 @@
+From pidgeon13 at googlemail.com  Mon Dec  4 06:00:01 2017
+From: pidgeon13 at googlemail.com (pidgeon13 at googlemail.com)
+Date: Mon, 4 Dec 2017 14:00:01 +0000
+Subject: [pdal] Accessing point data directly
+Message-ID: <5a2554e1.b198df0a.958c3.b6a3@mx.google.com>
+
+Hi all,
+
+I am writing a C++ program that makes use of PDAL. I would like to be able to read in a file (for example a .las file) and then access the data for the points directly. For example I’d like to know the X, Y, and Z values for the first point. How would be the best way of doing this? I’ve been looking through the API but I’m not entirely sure what I’m looking for. I’ve managed to use the readers, writers, and filters, but I’m struggling to work out how to access the data. If someone could give me a point in the right direction that would be great!
+
+Thanks,
+Stephen
+
+Sent from Mail for Windows 10
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171204/f4f44d7e/attachment.html>
+
+From andrew.bell.ia at gmail.com  Mon Dec  4 06:26:00 2017
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 4 Dec 2017 09:26:00 -0500
+Subject: [pdal] Accessing point data directly
+In-Reply-To: <5a2554e1.b198df0a.958c3.b6a3@mx.google.com>
+References: <5a2554e1.b198df0a.958c3.b6a3@mx.google.com>
+Message-ID: <CACJ51z1DUXeZs+S+MKny5T=uwdKjJvCeVk54fRxAOyLJfCm_EQ@mail.gmail.com>
+
+1) If you're doing processing as in a PDAL pipeline, you can just write a
+stage that does the processing you wish.  Take a look at:
+
+https://www.pdal.io/development/writing-filter.html
+
+If all you want to do is read the data, you can just implement run() or
+filter().
+
+
+2) If you want to read all the points into memory and then access the data
+you can do something like:
+
+main()
+{
+  PointTable t;
+
+  LasReader r;
+  Options o;
+  o.add("filename", "somefile.las");
+  r.setOptions(o);
+
+  r.prepare(t);
+  PointViewSet s = r.execute(t);
+  PointViewPtr v = *s.begin();  // Assumes one PointView
+
+  for (PointId id = 0; i < v.size(); ++i)
+  {
+    double x = v->getFieldAs<double>(Dimension::Id::X, i);
+    double y = v->getFieldAs<double>(Dimension::Id::Y, i);
+    double z = v->getFieldAs<double>(Dimension::Id::Z, i);
+}
+
+If you have the source or are looking at it on Github, there are lots of
+examples of how you might access data in the test/unit directory.
+
+Hope that helps,
+
+
+On Mon, Dec 4, 2017 at 9:00 AM, <pidgeon13 at googlemail.com> wrote:
+
+> Hi all,
+>
+>
+>
+> I am writing a C++ program that makes use of PDAL. I would like to be able
+> to read in a file (for example a .las file) and then access the data for
+> the points directly. For example I’d like to know the X, Y, and Z values
+> for the first point. How would be the best way of doing this? I’ve been
+> looking through the API but I’m not entirely sure what I’m looking for.
+> I’ve managed to use the readers, writers, and filters, but I’m struggling
+> to work out how to access the data. If someone could give me a point in the
+> right direction that would be great!
+>
+>
+>
+> Thanks,
+>
+> Stephen
+>
+>
+>
+> Sent from Mail <https://go.microsoft.com/fwlink/?LinkId=550986> for
+> Windows 10
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171204/847e3766/attachment.html>
+
+From pidgeon13 at googlemail.com  Fri Dec 15 01:44:03 2017
+From: pidgeon13 at googlemail.com (pidgeon13 at googlemail.com)
+Date: Fri, 15 Dec 2017 09:44:03 +0000
+Subject: [pdal] Linking with PCL
+Message-ID: <5a339963.82a4500a.41feb.3f91@mx.google.com>
+
+Hi,
+
+I am trying to use the voxelgrid filter in some c++ code I am writing (and would also like to be able to read and write .pcd files). I believe I have linked in PCL correctly, and my solution builds the plugin .dll files. However, although there is plenty of information on the PDAL website about using PCL in pipelines, I have not managed to find anything to help me use the API. I currently have a function I am playing around with to try and get the filter to work:
+
+bool ReadFilterWrite(const std::string& inputfilename, const std::string& readerdriver, const std::string& outputfilename)
+{
+  	bool bFilterWorks=false;
+ 	pdal::StageFactory factory;
+  	pdal::PointTable table;
+  	pdal::Stage *pReader = factory.createStage(readerdriver);
+  	pdal::Options readerOptions;
+  	readerOptions.add("filename", inputfilename);
+  	if (pReader)
+  	{
+  		pReader->setOptions(readerOptions);
+  	}
+  	else
+  	{
+    		return false;
+  	}
+  	pdal::Options writerOptions;
+  	writerOptions.add("filename", outputfilename);
+  	pdal::Stage *pWriter = factory.createStage("writers.text");
+  	if (pWriter)
+  	{
+  		pdal::Stage *pFilter = factory.createStage("filters.voxelgrid");
+    		if (pFilter)
+    		{
+    			bFilterWorks = true;
+  			pFilter->setInput(*pReader);
+    			pWriter->setInput(*pFilter);
+    		}
+    		else
+    		{
+     			//Currently commented out so that files are only written if the filter works.
+    			//pWriter->setInput(*pReader);
+    			return false; //Temporary, currently where the function exits.
+    		}
+   		pWriter->setOptions(writerOptions);
+    		pWriter->prepare(table);
+    		pWriter->execute(table);
+  	}
+  	return bFilterWorks;
+}
+
+The function reads the data in from a .las file (for example) fine, but then doesn’t create the filter stage. Am I going about this in the right way?
+
+Best regards,
+
+Stephen
+
+Sent from Mail for Windows 10
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171215/92c2b712/attachment.html>
+
+From andrew.bell.ia at gmail.com  Fri Dec 15 04:57:14 2017
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Fri, 15 Dec 2017 07:57:14 -0500
+Subject: [pdal] Linking with PCL
+In-Reply-To: <5a339963.82a4500a.41feb.3f91@mx.google.com>
+References: <5a339963.82a4500a.41feb.3f91@mx.google.com>
+Message-ID: <CACJ51z1SUejXEpV0QW-CHOhy=kS_ydztPwuH3LGymOcpbn-K9A@mail.gmail.com>
+
+The StageFactory must be able to locate the plugin.  See the second
+question in the FAQ: https://www.pdal.io/faq.html
+
+On Fri, Dec 15, 2017 at 4:44 AM, <pidgeon13 at googlemail.com> wrote:
+
+> Hi,
+>
+>
+>
+> I am trying to use the voxelgrid filter in some c++ code I am writing (and
+> would also like to be able to read and write .pcd files). I believe I have
+> linked in PCL correctly, and my solution builds the plugin .dll files.
+> However, although there is plenty of information on the PDAL website about
+> using PCL in pipelines, I have not managed to find anything to help me use
+> the API. I currently have a function I am playing around with to try and
+> get the filter to work:
+>
+>
+>
+> bool ReadFilterWrite(const std::string& inputfilename, const std::string&
+> readerdriver, const std::string& outputfilename)
+>
+> {
+>
+>                 bool bFilterWorks=false;
+>
+>                pdal::StageFactory factory;
+>
+>                 pdal::PointTable table;
+>
+>                 pdal::Stage *pReader = factory.createStage(readerdriver);
+>
+>                 pdal::Options readerOptions;
+>
+>                 readerOptions.add("filename", inputfilename);
+>
+>                 if (pReader)
+>
+>                 {
+>
+>                                 pReader->setOptions(readerOptions);
+>
+>                 }
+>
+>                 else
+>
+>                 {
+>
+>                                 return false;
+>
+>                 }
+>
+>                 pdal::Options writerOptions;
+>
+>                 writerOptions.add("filename", outputfilename);
+>
+>                 pdal::Stage *pWriter = factory.createStage("writers.
+> text");
+>
+>                 if (pWriter)
+>
+>                 {
+>
+>                                 pdal::Stage *pFilter =
+> factory.createStage("filters.voxelgrid");
+>
+>                                 if (pFilter)
+>
+>                                 {
+>
+>                                                 bFilterWorks = true;
+>
+>
+> pFilter->setInput(*pReader);
+>
+>
+> pWriter->setInput(*pFilter);
+>
+>                                 }
+>
+>                                 else
+>
+>                                 {
+>
+>                                                //Currently commented out
+> so that files are only written if the filter works.
+>
+>
+> //pWriter->setInput(*pReader);
+>
+>                                                 return false; //Temporary,
+> currently where the function exits.
+>
+>                                 }
+>
+>                                 pWriter->setOptions(writerOptions);
+>
+>                                 pWriter->prepare(table);
+>
+>                                 pWriter->execute(table);
+>
+>                 }
+>
+>                 return bFilterWorks;
+>
+> }
+>
+>
+>
+> The function reads the data in from a .las file (for example) fine, but
+> then doesn’t create the filter stage. Am I going about this in the right
+> way?
+>
+>
+>
+> Best regards,
+>
+>
+>
+> Stephen
+>
+>
+>
+> Sent from Mail <https://go.microsoft.com/fwlink/?LinkId=550986> for
+> Windows 10
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171215/87d61a40/attachment.html>
+
+From pidgeon13 at googlemail.com  Mon Dec 18 02:17:01 2017
+From: pidgeon13 at googlemail.com (pidgeon13 at googlemail.com)
+Date: Mon, 18 Dec 2017 10:17:01 +0000
+Subject: [pdal] Linking with PCL
+In-Reply-To: <CACJ51z1SUejXEpV0QW-CHOhy=kS_ydztPwuH3LGymOcpbn-K9A@mail.gmail.com>
+References: <5a339963.82a4500a.41feb.3f91@mx.google.com>
+ <CACJ51z1SUejXEpV0QW-CHOhy=kS_ydztPwuH3LGymOcpbn-K9A@mail.gmail.com>
+Message-ID: <5a37959d.b197500a.93134.5085@mx.google.com>
+
+When I run pdal –drivers in the command prompt it does list the filter as being found. My configuration script sets PCL to build and libpdal_plugin_filter_voxelgrid.dll has been created in the bin folder.
+
+Sent from Mail for Windows 10
+
+From: Andrew Bell
+Sent: 15 December 2017 12:57
+To: Stephen Pidgeon
+Cc: pdal at lists.osgeo.org
+Subject: Re: [pdal] Linking with PCL
+
+The StageFactory must be able to locate the plugin.  See the second question in the FAQ: https://www.pdal.io/faq.html
+
+On Fri, Dec 15, 2017 at 4:44 AM, <pidgeon13 at googlemail.com> wrote:
+Hi,
+ 
+I am trying to use the voxelgrid filter in some c++ code I am writing (and would also like to be able to read and write .pcd files). I believe I have linked in PCL correctly, and my solution builds the plugin .dll files. However, although there is plenty of information on the PDAL website about using PCL in pipelines, I have not managed to find anything to help me use the API. I currently have a function I am playing around with to try and get the filter to work:
+ 
+bool ReadFilterWrite(const std::string& inputfilename, const std::string& readerdriver, const std::string& outputfilename)
+{
+                bool bFilterWorks=false;
+               pdal::StageFactory factory;
+                pdal::PointTable table;
+                pdal::Stage *pReader = factory.createStage(readerdriver);
+                pdal::Options readerOptions;
+                readerOptions.add("filename", inputfilename);
+                if (pReader)
+                {
+                                pReader->setOptions(readerOptions);
+                }
+                else
+                {
+                                return false;
+                }
+                pdal::Options writerOptions;
+                writerOptions.add("filename", outputfilename);
+                pdal::Stage *pWriter = factory.createStage("writers.text");
+                if (pWriter)
+                {
+                                pdal::Stage *pFilter = factory.createStage("filters.voxelgrid");
+                                if (pFilter)
+                                {
+                                                bFilterWorks = true;
+                                                pFilter->setInput(*pReader);
+                                                pWriter->setInput(*pFilter);
+                                }
+                                else
+                                {
+                                               //Currently commented out so that files are only written if the filter works.
+                                                //pWriter->setInput(*pReader);
+                                                return false; //Temporary, currently where the function exits.
+                                }
+                                pWriter->setOptions(writerOptions);
+                                pWriter->prepare(table);
+                                pWriter->execute(table);
+                }
+                return bFilterWorks;
+}
+ 
+The function reads the data in from a .las file (for example) fine, but then doesn’t create the filter stage. Am I going about this in the right way?
+ 
+Best regards,
+ 
+Stephen
+ 
+Sent from Mail for Windows 10
+ 
+
+_______________________________________________
+pdal mailing list
+pdal at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171218/f1a456a4/attachment.html>
+
+From andrew.bell.ia at gmail.com  Mon Dec 18 04:37:54 2017
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 18 Dec 2017 07:37:54 -0500
+Subject: [pdal] Linking with PCL
+In-Reply-To: <5a37959d.b197500a.93134.5085@mx.google.com>
+References: <5a339963.82a4500a.41feb.3f91@mx.google.com>
+ <CACJ51z1SUejXEpV0QW-CHOhy=kS_ydztPwuH3LGymOcpbn-K9A@mail.gmail.com>
+ <5a37959d.b197500a.93134.5085@mx.google.com>
+Message-ID: <CACJ51z2fcFHfunsWBvXT=MTK6u38gjNuYv-NqMn-ARkvZqyGkQ@mail.gmail.com>
+
+Stephen,
+
+If I understand, you're building your own executable using the code that
+you referenced.  The executable you created must be able to find the PCL
+plugin in one of these directories: “.”, “./lib”, “../lib”, “./bin”,
+“../bin” relative to your executable path.  You can also explicitly set
+PDAL_DRIVER_PATH to the location of the driver.
+
+On Mon, Dec 18, 2017 at 5:17 AM, <pidgeon13 at googlemail.com> wrote:
+
+> When I run pdal –drivers in the command prompt it does list the filter as
+> being found. My configuration script sets PCL to build and
+> libpdal_plugin_filter_voxelgrid.dll has been created in the bin folder.
+>
+>
+>
+> Sent from Mail <https://go.microsoft.com/fwlink/?LinkId=550986> for
+> Windows 10
+>
+>
+>
+> *From: *Andrew Bell <andrew.bell.ia at gmail.com>
+> *Sent: *15 December 2017 12:57
+> *To: *Stephen Pidgeon <pidgeon13 at googlemail.com>
+> *Cc: *pdal at lists.osgeo.org
+> *Subject: *Re: [pdal] Linking with PCL
+>
+>
+>
+> The StageFactory must be able to locate the plugin.  See the second
+> question in the FAQ: https://www.pdal.io/faq.html
+>
+>
+>
+> On Fri, Dec 15, 2017 at 4:44 AM, <pidgeon13 at googlemail.com> wrote:
+>
+> Hi,
+>
+>
+>
+> I am trying to use the voxelgrid filter in some c++ code I am writing (and
+> would also like to be able to read and write .pcd files). I believe I have
+> linked in PCL correctly, and my solution builds the plugin .dll files.
+> However, although there is plenty of information on the PDAL website about
+> using PCL in pipelines, I have not managed to find anything to help me use
+> the API. I currently have a function I am playing around with to try and
+> get the filter to work:
+>
+>
+>
+> bool ReadFilterWrite(const std::string& inputfilename, const std::string&
+> readerdriver, const std::string& outputfilename)
+>
+> {
+>
+>                 bool bFilterWorks=false;
+>
+>                pdal::StageFactory factory;
+>
+>                 pdal::PointTable table;
+>
+>                 pdal::Stage *pReader = factory.createStage(readerdriver);
+>
+>                 pdal::Options readerOptions;
+>
+>                 readerOptions.add("filename", inputfilename);
+>
+>                 if (pReader)
+>
+>                 {
+>
+>                                 pReader->setOptions(readerOptions);
+>
+>                 }
+>
+>                 else
+>
+>                 {
+>
+>                                 return false;
+>
+>                 }
+>
+>                 pdal::Options writerOptions;
+>
+>                 writerOptions.add("filename", outputfilename);
+>
+>                 pdal::Stage *pWriter = factory.createStage("writers.
+> text");
+>
+>                 if (pWriter)
+>
+>                 {
+>
+>                                 pdal::Stage *pFilter =
+> factory.createStage("filters.voxelgrid");
+>
+>                                 if (pFilter)
+>
+>                                 {
+>
+>                                                 bFilterWorks = true;
+>
+>
+> pFilter->setInput(*pReader);
+>
+>
+> pWriter->setInput(*pFilter);
+>
+>                                 }
+>
+>                                 else
+>
+>                                 {
+>
+>                                                //Currently commented out
+> so that files are only written if the filter works.
+>
+>
+> //pWriter->setInput(*pReader);
+>
+>                                                 return false; //Temporary,
+> currently where the function exits.
+>
+>                                 }
+>
+>                                 pWriter->setOptions(writerOptions);
+>
+>                                 pWriter->prepare(table);
+>
+>                                 pWriter->execute(table);
+>
+>                 }
+>
+>                 return bFilterWorks;
+>
+> }
+>
+>
+>
+> The function reads the data in from a .las file (for example) fine, but
+> then doesn’t create the filter stage. Am I going about this in the right
+> way?
+>
+>
+>
+> Best regards,
+>
+>
+>
+> Stephen
+>
+>
+>
+> Sent from Mail <https://go.microsoft.com/fwlink/?LinkId=550986> for
+> Windows 10
+>
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+>
+>
+> --
+>
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+>
+>
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171218/7f838ce0/attachment-0001.html>
+
+From pidgeon13 at googlemail.com  Mon Dec 18 04:50:01 2017
+From: pidgeon13 at googlemail.com (pidgeon13 at googlemail.com)
+Date: Mon, 18 Dec 2017 12:50:01 +0000
+Subject: [pdal] Linking with PCL
+In-Reply-To: <CACJ51z2fcFHfunsWBvXT=MTK6u38gjNuYv-NqMn-ARkvZqyGkQ@mail.gmail.com>
+References: <5a339963.82a4500a.41feb.3f91@mx.google.com>
+ <CACJ51z1SUejXEpV0QW-CHOhy=kS_ydztPwuH3LGymOcpbn-K9A@mail.gmail.com>
+ <5a37959d.b197500a.93134.5085@mx.google.com>
+ <CACJ51z2fcFHfunsWBvXT=MTK6u38gjNuYv-NqMn-ARkvZqyGkQ@mail.gmail.com>
+Message-ID: <5a37b979.c9061c0a.2b1dd.f50a@mx.google.com>
+
+Hi Andrew,
+
+You’re totally right, I had put the .dll in the same folder as the executable rather than in one of the specified locations.
+
+Many thanks for your help,
+Stephen
+
+Sent from Mail for Windows 10
+
+From: Andrew Bell
+Sent: 18 December 2017 12:37
+To: Stephen Pidgeon
+Cc: pdal at lists.osgeo.org
+Subject: Re: [pdal] Linking with PCL
+
+Stephen,
+
+If I understand, you're building your own executable using the code that you referenced.  The executable you created must be able to find the PCL plugin in one of these directories: “.”, “./lib”, “../lib”, “./bin”, “../bin” relative to your executable path.  You can also explicitly set PDAL_DRIVER_PATH to the location of the driver.
+
+On Mon, Dec 18, 2017 at 5:17 AM, <pidgeon13 at googlemail.com> wrote:
+When I run pdal –drivers in the command prompt it does list the filter as being found. My configuration script sets PCL to build and libpdal_plugin_filter_voxelgrid.dll has been created in the bin folder.
+ 
+Sent from Mail for Windows 10
+ 
+From: Andrew Bell
+Sent: 15 December 2017 12:57
+To: Stephen Pidgeon
+Cc: pdal at lists.osgeo.org
+Subject: Re: [pdal] Linking with PCL
+ 
+The StageFactory must be able to locate the plugin.  See the second question in the FAQ: https://www.pdal.io/faq.html
+ 
+On Fri, Dec 15, 2017 at 4:44 AM, <pidgeon13 at googlemail.com> wrote:
+Hi,
+ 
+I am trying to use the voxelgrid filter in some c++ code I am writing (and would also like to be able to read and write .pcd files). I believe I have linked in PCL correctly, and my solution builds the plugin .dll files. However, although there is plenty of information on the PDAL website about using PCL in pipelines, I have not managed to find anything to help me use the API. I currently have a function I am playing around with to try and get the filter to work:
+ 
+bool ReadFilterWrite(const std::string& inputfilename, const std::string& readerdriver, const std::string& outputfilename)
+{
+                bool bFilterWorks=false;
+               pdal::StageFactory factory;
+                pdal::PointTable table;
+                pdal::Stage *pReader = factory.createStage(readerdriver);
+                pdal::Options readerOptions;
+                readerOptions.add("filename", inputfilename);
+                if (pReader)
+                {
+                                pReader->setOptions(readerOptions);
+                }
+                else
+                {
+                                return false;
+                }
+                pdal::Options writerOptions;
+                writerOptions.add("filename", outputfilename);
+                pdal::Stage *pWriter = factory.createStage("writers.text");
+                if (pWriter)
+                {
+                                pdal::Stage *pFilter = factory.createStage("filters.voxelgrid");
+                                if (pFilter)
+                                {
+                                                bFilterWorks = true;
+                                                pFilter->setInput(*pReader);
+                                                pWriter->setInput(*pFilter);
+                                }
+                                else
+                                {
+                                               //Currently commented out so that files are only written if the filter works.
+                                                //pWriter->setInput(*pReader);
+                                                return false; //Temporary, currently where the function exits.
+                                }
+                                pWriter->setOptions(writerOptions);
+                                pWriter->prepare(table);
+                                pWriter->execute(table);
+                }
+                return bFilterWorks;
+}
+ 
+The function reads the data in from a .las file (for example) fine, but then doesn’t create the filter stage. Am I going about this in the right way?
+ 
+Best regards,
+ 
+Stephen
+ 
+Sent from Mail for Windows 10
+ 
+
+_______________________________________________
+pdal mailing list
+pdal at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+ 
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+ 
+
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171218/07afe731/attachment.html>
+
+From daniel at georepublic.de  Tue Dec 19 17:14:03 2017
+From: daniel at georepublic.de (Daniel Kastl)
+Date: Wed, 20 Dec 2017 10:14:03 +0900
+Subject: [pdal] Potree writer/reader
+Message-ID: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+
+Hi list,
+
+Before starting to add a Potree writer/reader I wanted to ask, if someone
+has already worked on this. I looked around but couldn't find anything.
+
+Best regards,
+Daniel
+
+
+
+-- 
+Georepublic UG & Georepublic Japan
+eMail: daniel.kastl at georepublic.de
+Web: https://georepublic.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171220/92f5ae7c/attachment.html>
+
+From connor at hobu.co  Tue Dec 19 19:57:56 2017
+From: connor at hobu.co (Connor Manning)
+Date: Tue, 19 Dec 2017 21:57:56 -0600
+Subject: [pdal] Potree writer/reader
+In-Reply-To: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+References: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+Message-ID: <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+
+As far as I know, this has not previously been worked on.
+
+- Connor
+
+On Tue, Dec 19, 2017 at 7:14 PM, Daniel Kastl <daniel at georepublic.de> wrote:
+
+> Hi list,
+>
+> Before starting to add a Potree writer/reader I wanted to ask, if someone
+> has already worked on this. I looked around but couldn't find anything.
+>
+> Best regards,
+> Daniel
+>
+>
+>
+> --
+> Georepublic UG & Georepublic Japan
+> eMail: daniel.kastl at georepublic.de
+> Web: https://georepublic.info
+>
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171219/78056c14/attachment.html>
+
+From howard at hobu.co  Tue Dec 19 19:59:16 2017
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 19 Dec 2017 21:59:16 -0600
+Subject: [pdal] Potree writer/reader
+In-Reply-To: <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+References: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+ <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+Message-ID: <525a36bb-6998-45c4-eefd-85e2ca20714e@hobu.co>
+
+Is there a compelling reason to not use the Greyhound + Entwine combination?
+
+
+On 12/19/17 9:57 PM, Connor Manning wrote:
+> As far as I know, this has not previously been worked on.
+>
+> - Connor
+>
+> On Tue, Dec 19, 2017 at 7:14 PM, Daniel Kastl <daniel at georepublic.de> wrote:
+>
+>> Hi list,
+>>
+>> Before starting to add a Potree writer/reader I wanted to ask, if someone
+>> has already worked on this. I looked around but couldn't find anything.
+>>
+>> Best regards,
+>> Daniel
+>>
+>>
+>>
+>> --
+>> Georepublic UG & Georepublic Japan
+>> eMail: daniel.kastl at georepublic.de
+>> Web: https://georepublic.info
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 548 bytes
+Desc: OpenPGP digital signature
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171219/ecd6e924/attachment.sig>
+
+From daniel at georepublic.de  Tue Dec 19 20:01:43 2017
+From: daniel at georepublic.de (Daniel Kastl)
+Date: Wed, 20 Dec 2017 13:01:43 +0900
+Subject: [pdal] Potree writer/reader
+In-Reply-To: <525a36bb-6998-45c4-eefd-85e2ca20714e@hobu.co>
+References: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+ <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+ <525a36bb-6998-45c4-eefd-85e2ca20714e@hobu.co>
+Message-ID: <CABXBSH8d+ec=_=KP866fOsHHwafsQp32PNb0HGhRPbU5R7hBJg@mail.gmail.com>
+
+Yes. Less software to install is the main reason.
+
+
+On Wed, Dec 20, 2017 at 12:59 PM, Howard Butler <howard at hobu.co> wrote:
+
+> Is there a compelling reason to not use the Greyhound + Entwine
+> combination?
+>
+>
+> On 12/19/17 9:57 PM, Connor Manning wrote:
+> > As far as I know, this has not previously been worked on.
+> >
+> > - Connor
+> >
+> > On Tue, Dec 19, 2017 at 7:14 PM, Daniel Kastl <daniel at georepublic.de>
+> wrote:
+> >
+> >> Hi list,
+> >>
+> >> Before starting to add a Potree writer/reader I wanted to ask, if
+> someone
+> >> has already worked on this. I looked around but couldn't find anything.
+> >>
+> >> Best regards,
+> >> Daniel
+> >>
+> >>
+> >>
+> >> --
+> >> Georepublic UG & Georepublic Japan
+> >> eMail: daniel.kastl at georepublic.de
+> >> Web: https://georepublic.info
+> >>
+> >>
+> >>
+> >>
+> >> _______________________________________________
+> >> pdal mailing list
+> >> pdal at lists.osgeo.org
+> >> https://lists.osgeo.org/mailman/listinfo/pdal
+> >>
+> >
+> >
+> > _______________________________________________
+> > pdal mailing list
+> > pdal at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+
+-- 
+Georepublic UG & Georepublic Japan
+eMail: daniel.kastl at georepublic.de
+Web: https://georepublic.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171220/76093f04/attachment.html>
+
+From adam.d.steer at gmail.com  Tue Dec 19 21:41:00 2017
+From: adam.d.steer at gmail.com (adam steer)
+Date: Wed, 20 Dec 2017 16:41:00 +1100
+Subject: [pdal] Potree writer/reader
+In-Reply-To: <CABXBSH8d+ec=_=KP866fOsHHwafsQp32PNb0HGhRPbU5R7hBJg@mail.gmail.com>
+References: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+ <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+ <525a36bb-6998-45c4-eefd-85e2ca20714e@hobu.co>
+ <CABXBSH8d+ec=_=KP866fOsHHwafsQp32PNb0HGhRPbU5R7hBJg@mail.gmail.com>
+Message-ID: <CAFORoyjMxbnrskwm3Xz5OBVV_y-9WPTg-nP5QULfxJrAvgCUHw@mail.gmail.com>
+
+Hi Daniel, all
+
+PotreeConverter exists - and is dockerised - and while not super stable it
+does the job :)
+
+I had an off-list discussion with Connor a while ago about reading entwine
+directly using the potree viewer - without greyhound, purely for removing
+one extra http interface when looking at points; and using the greyhound
+API when we want to do stuff with points.
+
+However, looking more deeply, it might just be a matter of figuring out how
+to configure my entwine build to write smaller chunks, ie topping out at  a
+few thousand or few hundred thousand points (happy to take assistance, I
+was just minutes from posting an issue on entwine and/or e-mailing ) - at
+the expense of more files… which is a neat segue to...
+
+Potreeconverter writes out very many more, much smaller files than entwine;
+and writing out potrees is really bloaty - a 240ish GB entwine dataset
+turned out to be 700+GB of potree (as LASzip)!!! So this was smaller than
+the original LAS data by a few hundred GB, bout astoundingly larger than
+the LAZ’ed data and its entwine writeout.
+
+No religious opinion about whether writers.potree should exist or not, but
+thought I’d share some notes
+
+Cheers, hope that helps!
+
+Adam
+
+On 20 December 2017 at 15:01, Daniel Kastl <daniel at georepublic.de> wrote:
+
+> Yes. Less software to install is the main reason.
+>
+>
+> On Wed, Dec 20, 2017 at 12:59 PM, Howard Butler <howard at hobu.co> wrote:
+>
+>> Is there a compelling reason to not use the Greyhound + Entwine
+>> combination?
+>>
+>>
+>> On 12/19/17 9:57 PM, Connor Manning wrote:
+>> > As far as I know, this has not previously been worked on.
+>> >
+>> > - Connor
+>> >
+>> > On Tue, Dec 19, 2017 at 7:14 PM, Daniel Kastl <daniel at georepublic.de>
+>> wrote:
+>> >
+>> >> Hi list,
+>> >>
+>> >> Before starting to add a Potree writer/reader I wanted to ask, if
+>> someone
+>> >> has already worked on this. I looked around but couldn't find anything.
+>> >>
+>> >> Best regards,
+>> >> Daniel
+>> >>
+>> >>
+>> >>
+>> >> --
+>> >> Georepublic UG & Georepublic Japan
+>> >> eMail: daniel.kastl at georepublic.de
+>> >> Web: https://georepublic.info
+>> >>
+>> >>
+>> >>
+>> >>
+>> >> _______________________________________________
+>> >> pdal mailing list
+>> >> pdal at lists.osgeo.org
+>> >> https://lists.osgeo.org/mailman/listinfo/pdal
+>> >>
+>> >
+>> >
+>> > _______________________________________________
+>> > pdal mailing list
+>> > pdal at lists.osgeo.org
+>> > https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+>
+>
+> --
+> Georepublic UG & Georepublic Japan
+> eMail: daniel.kastl at georepublic.de
+> Web: https://georepublic.info
+>
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+
+-- 
+Adam Steer
+https://www.researchgate.net/profile/Adam_Steer
+http://au.linkedin.com/in/adamsteer
+http://orcid.org/0000-0003-0046-7236
++61 427 091 712
+skype: adam.d.steer
+tweet: @adamdsteer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171220/8a20219e/attachment-0001.html>
+
+From connor at hobu.co  Tue Dec 19 21:43:02 2017
+From: connor at hobu.co (Connor Manning)
+Date: Tue, 19 Dec 2017 23:43:02 -0600
+Subject: [pdal] Potree writer/reader
+In-Reply-To: <CAFORoyjMxbnrskwm3Xz5OBVV_y-9WPTg-nP5QULfxJrAvgCUHw@mail.gmail.com>
+References: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+ <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+ <525a36bb-6998-45c4-eefd-85e2ca20714e@hobu.co>
+ <CABXBSH8d+ec=_=KP866fOsHHwafsQp32PNb0HGhRPbU5R7hBJg@mail.gmail.com>
+ <CAFORoyjMxbnrskwm3Xz5OBVV_y-9WPTg-nP5QULfxJrAvgCUHw@mail.gmail.com>
+Message-ID: <CAO=FyjJ2JqmFe1jrZgkSy-wu_hWokue-Gu1n4k18885WQ8FERA@mail.gmail.com>
+
+There is a pointsPerChunk option for entwine:
+https://entwine.io/configuration.html#points-per-chunk
+
+On Tue, Dec 19, 2017 at 11:41 PM, adam steer <adam.d.steer at gmail.com> wrote:
+
+> Hi Daniel, all
+>
+> PotreeConverter exists - and is dockerised - and while not super stable it
+> does the job :)
+>
+> I had an off-list discussion with Connor a while ago about reading entwine
+> directly using the potree viewer - without greyhound, purely for removing
+> one extra http interface when looking at points; and using the greyhound
+> API when we want to do stuff with points.
+>
+> However, looking more deeply, it might just be a matter of figuring out
+> how to configure my entwine build to write smaller chunks, ie topping out
+> at  a few thousand or few hundred thousand points (happy to take
+> assistance, I was just minutes from posting an issue on entwine and/or
+> e-mailing ) - at the expense of more files… which is a neat segue to...
+>
+> Potreeconverter writes out very many more, much smaller files than
+> entwine; and writing out potrees is really bloaty - a 240ish GB entwine
+> dataset turned out to be 700+GB of potree (as LASzip)!!! So this was
+> smaller than the original LAS data by a few hundred GB, bout astoundingly
+> larger than the LAZ’ed data and its entwine writeout.
+>
+> No religious opinion about whether writers.potree should exist or not, but
+> thought I’d share some notes
+>
+> Cheers, hope that helps!
+>
+> Adam
+>
+> On 20 December 2017 at 15:01, Daniel Kastl <daniel at georepublic.de> wrote:
+>
+>> Yes. Less software to install is the main reason.
+>>
+>>
+>> On Wed, Dec 20, 2017 at 12:59 PM, Howard Butler <howard at hobu.co> wrote:
+>>
+>>> Is there a compelling reason to not use the Greyhound + Entwine
+>>> combination?
+>>>
+>>>
+>>> On 12/19/17 9:57 PM, Connor Manning wrote:
+>>> > As far as I know, this has not previously been worked on.
+>>> >
+>>> > - Connor
+>>> >
+>>> > On Tue, Dec 19, 2017 at 7:14 PM, Daniel Kastl <daniel at georepublic.de>
+>>> wrote:
+>>> >
+>>> >> Hi list,
+>>> >>
+>>> >> Before starting to add a Potree writer/reader I wanted to ask, if
+>>> someone
+>>> >> has already worked on this. I looked around but couldn't find
+>>> anything.
+>>> >>
+>>> >> Best regards,
+>>> >> Daniel
+>>> >>
+>>> >>
+>>> >>
+>>> >> --
+>>> >> Georepublic UG & Georepublic Japan
+>>> >> eMail: daniel.kastl at georepublic.de
+>>> >> Web: https://georepublic.info
+>>> >>
+>>> >>
+>>> >>
+>>> >>
+>>> >> _______________________________________________
+>>> >> pdal mailing list
+>>> >> pdal at lists.osgeo.org
+>>> >> https://lists.osgeo.org/mailman/listinfo/pdal
+>>> >>
+>>> >
+>>> >
+>>> > _______________________________________________
+>>> > pdal mailing list
+>>> > pdal at lists.osgeo.org
+>>> > https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>>
+>>>
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>
+>>
+>>
+>> --
+>> Georepublic UG & Georepublic Japan
+>> eMail: daniel.kastl at georepublic.de
+>> Web: https://georepublic.info
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+>
+>
+> --
+> Adam Steer
+> https://www.researchgate.net/profile/Adam_Steer
+> http://au.linkedin.com/in/adamsteer
+> http://orcid.org/0000-0003-0046-7236
+> +61 427 091 712 <+61%20427%20091%20712>
+> skype: adam.d.steer
+> tweet: @adamdsteer
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171219/99b8aee6/attachment.html>
+
+From daniel at georepublic.de  Tue Dec 19 22:05:42 2017
+From: daniel at georepublic.de (Daniel Kastl)
+Date: Wed, 20 Dec 2017 15:05:42 +0900
+Subject: [pdal] Potree writer/reader
+In-Reply-To: <CAFORoyjMxbnrskwm3Xz5OBVV_y-9WPTg-nP5QULfxJrAvgCUHw@mail.gmail.com>
+References: <CABXBSH-1x06tjmrwnZVjrfWcWP8ma+CN+sWBrRjSL_aoFMzh4Q@mail.gmail.com>
+ <CAO=FyjLFvKuN4ppWnA135hyNnW1RTc_w8v1pNjhrrbvSBxCvPg@mail.gmail.com>
+ <525a36bb-6998-45c4-eefd-85e2ca20714e@hobu.co>
+ <CABXBSH8d+ec=_=KP866fOsHHwafsQp32PNb0HGhRPbU5R7hBJg@mail.gmail.com>
+ <CAFORoyjMxbnrskwm3Xz5OBVV_y-9WPTg-nP5QULfxJrAvgCUHw@mail.gmail.com>
+Message-ID: <CABXBSH8Ptc5PKXunh388kO7rDq6Ezpkq68m84+2rTGsFa2HKGw@mail.gmail.com>
+
+Thank you, Adam, for sharing this information!
+
+My use case is not so much about handling very large point cloud datasets.
+And it's not supposed to run on a server, so as less dependencies as
+possible is preferred.
+The Potree format, that PotreeConverter creates, does very well the job it
+should do. And it is very simple to serve.
+
+I want to have an alternative for the PotreeConverter, and I think it won't
+be useless to have an additional writer/reader for PDAL.
+I know, that there are some efforts in reducing the number of files, that
+PotreeConverter creates. So hopefully this disadvantage will go away.
+
+Cheers,
+Daniel
+
+
+
+On Wed, Dec 20, 2017 at 2:41 PM, adam steer <adam.d.steer at gmail.com> wrote:
+
+> Hi Daniel, all
+>
+> PotreeConverter exists - and is dockerised - and while not super stable it
+> does the job :)
+>
+> I had an off-list discussion with Connor a while ago about reading entwine
+> directly using the potree viewer - without greyhound, purely for removing
+> one extra http interface when looking at points; and using the greyhound
+> API when we want to do stuff with points.
+>
+> However, looking more deeply, it might just be a matter of figuring out
+> how to configure my entwine build to write smaller chunks, ie topping out
+> at  a few thousand or few hundred thousand points (happy to take
+> assistance, I was just minutes from posting an issue on entwine and/or
+> e-mailing ) - at the expense of more files… which is a neat segue to...
+>
+> Potreeconverter writes out very many more, much smaller files than
+> entwine; and writing out potrees is really bloaty - a 240ish GB entwine
+> dataset turned out to be 700+GB of potree (as LASzip)!!! So this was
+> smaller than the original LAS data by a few hundred GB, bout astoundingly
+> larger than the LAZ’ed data and its entwine writeout.
+>
+> No religious opinion about whether writers.potree should exist or not, but
+> thought I’d share some notes
+>
+> Cheers, hope that helps!
+>
+> Adam
+>
+> On 20 December 2017 at 15:01, Daniel Kastl <daniel at georepublic.de> wrote:
+>
+>> Yes. Less software to install is the main reason.
+>>
+>>
+>> On Wed, Dec 20, 2017 at 12:59 PM, Howard Butler <howard at hobu.co> wrote:
+>>
+>>> Is there a compelling reason to not use the Greyhound + Entwine
+>>> combination?
+>>>
+>>>
+>>> On 12/19/17 9:57 PM, Connor Manning wrote:
+>>> > As far as I know, this has not previously been worked on.
+>>> >
+>>> > - Connor
+>>> >
+>>> > On Tue, Dec 19, 2017 at 7:14 PM, Daniel Kastl <daniel at georepublic.de>
+>>> wrote:
+>>> >
+>>> >> Hi list,
+>>> >>
+>>> >> Before starting to add a Potree writer/reader I wanted to ask, if
+>>> someone
+>>> >> has already worked on this. I looked around but couldn't find
+>>> anything.
+>>> >>
+>>> >> Best regards,
+>>> >> Daniel
+>>> >>
+>>> >>
+>>> >>
+>>> >> --
+>>> >> Georepublic UG & Georepublic Japan
+>>> >> eMail: daniel.kastl at georepublic.de
+>>> >> Web: https://georepublic.info
+>>> >>
+>>> >>
+>>> >>
+>>> >>
+>>> >> _______________________________________________
+>>> >> pdal mailing list
+>>> >> pdal at lists.osgeo.org
+>>> >> https://lists.osgeo.org/mailman/listinfo/pdal
+>>> >>
+>>> >
+>>> >
+>>> > _______________________________________________
+>>> > pdal mailing list
+>>> > pdal at lists.osgeo.org
+>>> > https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>>
+>>>
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>
+>>
+>>
+>> --
+>> Georepublic UG & Georepublic Japan
+>> eMail: daniel.kastl at georepublic.de
+>> Web: https://georepublic.info
+>>
+>>
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+>
+>
+> --
+> Adam Steer
+> https://www.researchgate.net/profile/Adam_Steer
+> http://au.linkedin.com/in/adamsteer
+> http://orcid.org/0000-0003-0046-7236
+> +61 427 091 712 <+61%20427%20091%20712>
+> skype: adam.d.steer
+> tweet: @adamdsteer
+>
+
+
+
+-- 
+Georepublic UG & Georepublic Japan
+eMail: daniel.kastl at georepublic.de
+Web: https://georepublic.info
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20171220/1b1a069f/attachment.html>
+

@@ -1,0 +1,252 @@
+From drescampbell at googlemail.com  Thu May  2 11:37:35 2013
+From: drescampbell at googlemail.com (Ed Campbell)
+Date: Thu, 2 May 2013 19:37:35 +0100
+Subject: [Proj] Robinson projection coefficients
+Message-ID: <CAEiHszXbXdkHaahLk1KavbdoLvRt3TWw+AiFv3Ow+8B=4XGXrw@mail.gmail.com>
+
+A trac ticket on the Robinson projection has recently been reopened
+(http://trac.osgeo.org/proj/ticket/113). The issue is that an applied
+correction to the constants that define the Robinson projection was
+only a partial fix. The higher-order interpolation coefficients also
+needed to be updated. Below is a short python script that I have
+written to determine the coefficients:
+
+#!/usr/bin/env python2.7
+"""
+Short script to calculate the interpolation coefficients
+used by proj.4 Robinson projection.
+
+.. note::
+
+    The scipy interpolate method is not a natural cubic
+    spline (curvature zero at the endpoints).
+
+"""
+import sys
+
+import numpy
+import scipy.interpolate
+
+
+def spline_coeffs(x, y):
+    """
+    Calculates the 5 deg interpolation coefficients based on
+    input arrays x and y where y = f(x).
+
+    """
+    s = scipy.interpolate.InterpolatedUnivariateSpline(x, y)
+    coeffs = []
+    for t in  numpy.linspace(0.0, 90.0, 19):
+        c0 = s(t)
+        c1 = s(t, 1)
+        c2 = s(t, 2) / 2.0
+        c3 = s(t, 3) / 6.0
+        coeffs.append([numpy.float64(c) for c in (c0, c1, c2, c3)])
+    return coeffs
+
+
+def print_coeffs(coeffs, var_name, file_out=None):
+    """Output the coefficients formatted as a C code."""
+    if file_out is None:
+       file_out = sys.stdout
+    file_out.write('{}[] = {{\n'.format(var_name))
+    for i, c in enumerate(coeffs):
+        if i != 0:
+            file_out.write(',\n')
+        file_out.write('    {{{:.6g}, {:.6g}, {:.6g}, {:.6g}}}'.format(*c))
+    file_out.write(' };\n')
+
+
+def main():
+    # 0 to 90 deg values
+    x = numpy.array([1.0, 0.9986, 0.9954, 0.99, 0.9822, 0.973, 0.96,
+         0.9427, 0.9216, 0.8962, 0.8679, 0.835, 0.7986,
+         0.7597, 0.7186, 0.6732, 0.6213, 0.5722, 0.5322])
+
+    y = numpy.array([0.0, 0.062, 0.124, 0.186, 0.248, 0.31, 0.372,
+         0.434, 0.4958, 0.5571,0.6176, 0.6769, 0.7346,
+         0.7903, 0.8435, 0.8936, 0.9394, 0.9761, 1.0])
+
+    # Produce -90 to  90 arrays
+    phi = numpy.linspace(-90.0, 90.0, 37)
+    x = numpy.append(x[::-1], x[1:])
+    y = numpy.append(-y[::-1], y[1:])
+
+    # Input values
+    print('Input values:')
+    print('phi = {}'.format(phi))
+    print('x = {}'.format(x))
+    print('y = {}'.format(y))
+
+    print('=====================================')
+    xcoeffs = spline_coeffs(phi, x)
+    print_coeffs(xcoeffs, 'X')
+
+    ycoeffs = spline_coeffs(phi, y)
+    print_coeffs(ycoeffs, 'Y')
+    print('=====================================')
+
+    return xcoeffs, ycoeffs
+
+if __name__ == '__main__':
+    main()
+
+This code produces the following:
+
+X[] = {
+    {1, 2.2199e-17, -7.15515e-05, 3.1103e-06},
+    {0.9986, -0.000482243, -2.4897e-05, -1.3309e-06},
+    {0.9954, -0.00083103, -4.48605e-05, -9.86701e-07},
+    {0.99, -0.00135364, -5.9661e-05, 3.6777e-06},
+    {0.9822, -0.00167442, -4.49547e-06, -5.72411e-06},
+    {0.973, -0.00214868, -9.03571e-05, 1.8736e-08},
+    {0.96, -0.00305085, -9.00761e-05, 1.64917e-06},
+    {0.9427, -0.00382792, -6.53386e-05, -2.6154e-06},
+    {0.9216, -0.00467746, -0.00010457, 4.81243e-06},
+    {0.8962, -0.00536223, -3.23831e-05, -5.43432e-06},
+    {0.8679, -0.00609363, -0.000113898, 3.32484e-06},
+    {0.835, -0.00698325, -6.40253e-05, 9.34959e-07},
+    {0.7986, -0.00755338, -5.00009e-05, 9.35324e-07},
+    {0.7597, -0.00798324, -3.5971e-05, -2.27626e-06},
+    {0.7186, -0.00851367, -7.01149e-05, -8.6303e-06},
+    {0.6732, -0.00986209, -0.000199569, 1.91974e-05},
+    {0.6213, -0.010418, 8.83923e-05, 6.24051e-06},
+    {0.5722, -0.00906601, 0.000182, 6.24051e-06},
+    {0.5322, -0.00677797, 0.000275608, 6.24051e-06} };
+Y[] = {
+    {-5.20417e-18, 0.0124, 1.21431e-18, -8.45284e-11},
+    {0.062, 0.0124, -1.26793e-09, 4.22642e-10},
+    {0.124, 0.0124, 5.07171e-09, -1.60604e-09},
+    {0.186, 0.0123999, -1.90189e-08, 6.00152e-09},
+    {0.248, 0.0124002, 7.10039e-08, -2.24e-08},
+    {0.31, 0.0123992, -2.64997e-07, 8.35986e-08},
+    {0.372, 0.0124029, 9.88983e-07, -3.11994e-07},
+    {0.434, 0.0123893, -3.69093e-06, -4.35621e-07},
+    {0.4958, 0.0123198, -1.02252e-05, -3.45523e-07},
+    {0.5571, 0.0121916, -1.54081e-05, -5.82288e-07},
+    {0.6176, 0.0119938, -2.41424e-05, -5.25327e-07},
+    {0.6769, 0.011713, -3.20223e-05, -5.16405e-07},
+    {0.7346, 0.0113541, -3.97684e-05, -6.09052e-07},
+    {0.7903, 0.0109107, -4.89042e-05, -1.04739e-06},
+    {0.8435, 0.0103431, -6.4615e-05, -1.40374e-09},
+    {0.8936, 0.00969686, -6.4636e-05, -8.547e-06},
+    {0.9394, 0.00840947, -0.000192841, -4.2106e-06},
+    {0.9761, 0.00616527, -0.000256, -4.2106e-06},
+    {1, 0.00328947, -0.000319159, -4.2106e-06} };
+
+These can be compared directly with the arrays in PJ_robin.c. Note
+that the values at the extremes differ slightly, possibly because of a
+difference in the interpolation algorithm and/or the boundary
+conditions. I'd appreciate it if someone could post details on the
+exact method used to calculate the coefficients in the proj.4 source
+code.
+
+
+Ed Campbell PhD
+UK Met Office
+Iris & Cartopy - http://scitools.org.uk/
+
+
+From charles.karney at sri.com  Wed May 15 14:08:44 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Wed, 15 May 2013 17:08:44 -0400
+Subject: [Proj] Improvements to geod and invgeod
+Message-ID: <5193F95C.30900@sri.com>
+
+geod and invgeod, programs for performing geodesic calculations, have
+been part of proj.4 since at least 1995.  There are several problems
+with them:
+
+* the overall accuracy is limited;
+
+* the results of inverse calculations are sometimes wildly wrong;
+
+* there's no documented API for the geodesic capabilities;
+
+* there's no provision from computing various quantities associated with
+   geodesics (in particular the area of a geodesic polygon).
+
+These problems will be addressed in the next release of proj.4 with the
+inclusion of the algorithms for geodesics from GeographicLib.  These are
+documented in
+
+   C. F. F. Karney,
+   Algorithms for geodesics,
+   J. Geodesy 87(1), 43-55 (Jan. 2013)
+   http://dx.doi.org/10.1007/s00190-012-0578-z
+   Addenda: http://geographiclib.sf.net/geod-addenda.html
+
+Points to note:
+
+* The changes have been checked into subversion but are not part of a
+   release yet.  To try them out, check out proj.4 from subversion with
+
+     svn checkout http://svn.osgeo.org/metacrs/proj/trunk/proj
+
+   As of revision 2334, the man page geodesic.3 is missing.  In order to
+   have everything build without complaint, create a dummy one with
+   something like
+
+     touch man/man3/geodesic.3
+
+* The interfaces to geod and invgeod are unchanged (and hence there are
+   minimal changes to the man page geod.1).
+
+* geod and invgeod now yield accurate results for all legal inputs
+   provided that |f| < 1/50 where f is the flattening of the ellipsoid.
+
+* An API for geodesic calculations is now included in the proj library.
+   The header file is geodesic.h and the routine names begin with
+   "geod_".  This API is (will be) briefly documented in geodesic.3;
+   however this just directs you to the doxygen-generated documentation
+   at
+
+     http://geographiclib.sf.net/html/C/index.html
+
+* There are a couple of noteworthy differences between the APIs for
+   geod_ and pj_:
+
+   + the ellipsoid is specified by the equatorial radius and flattening
+     (instead of the equatorial radius and eccentricity);
+
+   + latitudes, longitudes, azimuths are specified in degrees instead of
+     radians (this allows an accurate treatment of special angles).
+
+* The geodesic API includes most of the functionality from
+   GeographicLib; this includes:
+
+   + efficient computation of multiple points along a specific geodesic,
+
+   + the computation of the reduced length and geodesic scale,
+
+   + the computation of the area of geodesic polygons.
+
+   Not included is the solution of the geodesics in terms of elliptic
+   integrals (needed for the accurate solution of geodesics when |f| >
+   1/50, e.g., for Jupiter).  (This is provided by the GeodesicExact
+   class in GeographicLib.)
+
+* The solutions of geodesic problems are now sufficiently fast,
+   accurate, and reliable, that it is possible to implement some
+   projections directly in terms of geodesics.  Obvious candidates are
+   the azimuthal equidistant and Cassini-Soldner.  The scales for these
+   projections can be expressed in terms of the reduced length and
+   geodesic scale.
+
+* Several libraries that depend on proj.4, e.g., GRASS, use approximate
+   methods for computing polygonal areas.  They can now use proj.4 to
+   compute areas accurately.
+
+* The geodesic utility in GeographicLib used to be named Geod which
+   caused a conflict with proj.4's geod utility on systems which do not
+   pay attention to the case of file names.  Starting with GeographicLib
+   1.30, I have started to transition the name to GeodSolve.
+
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+
+

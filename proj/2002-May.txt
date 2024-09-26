@@ -1,0 +1,1605 @@
+From warmerdam at pobox.com  Mon May  6 10:05:48 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 06 May 2002 13:05:48 -0400
+Subject: [OSRS-PROJ] Re: PROJ.4 and NAD conversions
+References: <3B57B921.8B260277@pobox.com> <3CD6B892.A9646A5E@refractions.net>
+Message-ID: <3CD6B7EC.8040003@pobox.com>
+
+Dave Blasby wrote:
+> Frank, I've been using PROJ.4 for doing NAD conversions.  I've come
+> across a few problems:
+> 
+> 1. In "pj_datums.c" - I think the line that's currently :
+> 
+> "NAD27",    "nadgrids=conus,ntv1_can.dat",           "clrk66",   
+> "North_American_Datum_1927",
+> 
+> should be:
+> 
+> "NAD27",   
+> "nadgrids=stgeorge,stlrnc,stpaul,conus,alaska,prvi,hawaii,ntv1_can.dat",          
+> "clrk66", 
+>                                 "North_American_Datum_1927",
+> 
+> I'm assuming that the order is important, so I put the most 'precise'
+> first.  All of these configuration (.lla) files are in the standard
+> setup, but arent actually used by PROJ.
+
+Dave,
+
+Have you tried some of the stgeorge, stpaul, alaska, prvi or hawaii
+files?  I haven't and so have hesitated to include them.  Also, currently
+PROJ.4 blows a gasket if it can't find any of the files, and loads them
+all when it first encounters a request for NAD27 regardless of whether
+they are for the area of interest.  That means if we change the definition
+it will increase the memory footprint (potentially substantially?) for
+all users.
+
+> An even better fix would be for the ./configure to change this line
+> automagically.
+ >
+> 2. I've also been doing some conversion of points "in the middle of
+> nowhere".  When PROJ finds a point without a corresponding grid, it
+> throws a -38 (couldn't load grid file) error.  This is a wise thing to
+> do - after all, you cannot actually re-project the point. 
+> Unfortunately, it sucks to suddenly have your projection fail.  
+> Currently, if I get a -38 error, I re-run a slightly modified version of
+> pj_transform() that doesnt do the datum conversion.  Unfortunately, if
+> you dont do the datum conversion (pj_datum_transform) you also dont do
+> the ellipsoid translation.  Is it possible to add another version of
+> pj_transform thats a bit wiser than pj_transform wrt missing grid files? 
+
+I have modified pj_apply_gridshift() to report the problem to stderr (if
+PROJ_DEBUG is defined in the environment) when no grid matches.  What
+do you think the system should do if nothing matches?  Just do the ellipsoid
+shift and quietly proceed?  I don't feel very comfortable with that.
+
+It is a problem that as it stands PROJ.4 has no easy way of doing ellipsoid
+shifts without doing grid shifts.
+
+I am cc:ing this to the PROJ.4 list to see if others have opinions on how
+PROJ.4 should handle some of these situations.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From neteler at itc.it  Mon May 27 07:22:53 2002
+From: neteler at itc.it (Markus Neteler)
+Date: Mon, 27 May 2002 16:22:53 +0200
+Subject: [OSRS-PROJ] Krovak and GIS usage
+Message-ID: <20020527162253.A2697@itc.it>
+
+Dear list,
+
+while adding Krovak Projection to GRASS we came across a
+problem. In general the Krovak projection is defined as
+westing and southing (not easting and northing):
+
+   http://krovak.webpark.cz/index_kartograf.htm
+See figure:
+   http://krovak.webpark.cz/obr/index_1.gif
+
+  y <----+
+         |
+         |
+         |
+         x
+
+The current PJ_krovak.c implementation supports positive coordinate values,
+however, Czech and Slovak governmental data require support for negative
+coordinate values with switched axis (here is the problem).
+
+In an email exchange with Thomas Flemming who implemented  PJ_krovak.c we
+found out that the current implementation in PROJ4 uses positive values:
+
+PJ_krovak.c is implemented as follows (read from bottom):
+
+
+ ^
+ |  user interface:  x=westing y=southing
+ |                   ---------------------
+ |  mid layer:          switch of axes
+ |                   ---------------------
+ |  Inner layer:     y=westing, x=southing
+ +---------------------------------------------
+
+
+Unfortunately westing/northing cannot be implemented at least in GRASS (in
+any GIS?) as north must be up etc. For the GIS data we have, next is needed
+(for GIS maps with negative coordinate values):
+              
+               +y
+               |
+               |
+              2|1
+   -x ---------+------> +x
+              3|4
+        GIS    |
+        maps   |
+               |
+               -y
+
+So the GIS maps are located in the 3rd quadrant.
+
+A solution could be to optionally multiply/divide internally with -1:
+
+cvs diff -u PJ_krovak.c
+Index: PJ_krovak.c
+===================================================================
+RCS file: /cvsroot/osrs/proj/src/PJ_krovak.c,v
+retrieving revision 1.1
+diff -u -r1.1 PJ_krovak.c
+--- PJ_krovak.c 16 Apr 2002 12:16:07 -0000      1.1
++++ PJ_krovak.c 27 May 2002 13:59:53 -0000
+@@ -100,8 +100,9 @@
+        ro = ro0 * pow(tan(s0 / 2. + s45) , n) / pow(tan(s / 2. + s45) , n)
+;  
+    /* x and y are reverted! */
+-       xy.y = ro * cos(eps) / a;
+-       xy.x = ro * sin(eps) / a;
++   /* when P->k0 == -1, then negative coordinates can be used */
++       xy.y = P->k0 * ro * cos(eps) / a;
++       xy.x = P->k0 * ro * sin(eps) / a;
+ 
+ #ifdef DEBUG
+        strcpy(errmess,"a: ");
+@@ -162,9 +163,10 @@
+ 
+ /* Transformation */
+    /* revert y, x*/
++   /* when P->k0 == -1, then negative coordinates can be used */
+        xy0=xy.x;
+-       xy.x=xy.y;
+-       xy.y=xy0;
++       xy.x=xy.y / P->k0;
++       xy.y=xy0  / P->k0;
+ 
+        ro = sqrt(xy.x * xy.x + xy.y * xy.y);
+        eps = atan2(xy.y, xy.x);
+
+For GRASS we have temporarily implemented "Kavork" (read backwards) which
+is Krovak with switched coordinate axes. The new Kavork support negative
+values, eg:
+
+GRASS:~ > g.region -pd
+projection: 99 (Kavork)
+zone:       0
+datum:      hermannskogel
+ellipsoid:  bessel
+north:      -1029600
+south:      -1040900
+west:       -629200
+east:       -618300
+nsres:      10
+ewres:      10
+rows:       1130
+cols:       1090
+
+GRASS:~ > g.region -l
+long: 15.97793 lat: 50.33660 (north/west corner)
+long: 16.13006 lat: 50.34784 (north/east corner)
+long: 16.14807 lat: 50.24690 (south/east corner)
+long: 15.99626 lat: 50.23569 (south/west corner)
+rows:       1130
+cols:       1090
+Center Longitude: 16:03:47.083724E [16.06308]
+Center latitude:  50:17:30.334822N [50.29176]
+
+which are reasonable results (error because of missing datum
+transformation). I also added datum "hermannskogel" to the PROJ4 version
+in GRASS (although GRASS does not yet fully support datum transformations,
+it wants to see the datum entry already).
+ 
+So - what is Krovak? It must be well defined, either from east to west or
+from west to east and exactly in this way it must be defined in PROJ4. We do
+not have a solution now - should we implement two Krovak versions?
+Alternate method might to utilize +k=-1.0 to use above patch. But at time
++k=value must be value positive only.
+
+Looking at other GIS:
+MicroStation:
+ http://selectservices.bentley.com/technotes/faqs/6192.htm#8
+ESRI:
+ http://arconline.esri.com/arconline/documentation/ims_/webhelp31/elements/pcs_list.htm
+
+...they also implement several Krovak variations.
+
+Hoping for a suggestion,
+
+ Markus Neteler
+
+
+-- 
+Markus Neteler
+
+ITC-irst, Istituto per la Ricerca Scientifica e Tecnologica
+     Project on Predictive Models for the Environment    
+Via Sommarive, 18        -      38050 Povo (Trento), Italia
+tel +39 0461 314 -520 (fax -591)          http://mpa.itc.it
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From willem at businessware.cjb.net  Tue May 28 12:25:44 2002
+From: willem at businessware.cjb.net (Willem Fourie (Businessware))
+Date: Tue, 28 May 2002 21:25:44 +0200
+Subject: [OSRS-PROJ] Using PROJ4/LIBGEOTIFF with Lambert Conic Conformal 1SP projections on Algeria map data.
+Message-ID: <002c01c2067d$7a86d2d0$0400a8c0@willem>
+
+Hi list,
+
+I was required to use GeoTIFF 1:500 000 maps of areas in Algeria generated using Descartes/MicroStation, and to project them using PROJ4. The images have the following important GeoTIFF tags:
+
+PCS = 30591 (Voirol Unifie / Nord Algerie)
+Projection = 18021 (Nord Algerie)
+Projection Method: CT_LambertConfConic_1SP
+GCS: 4305/Voirol Unifie
+Datum: 6305/Voirol Unifie 1960
+Ellipsoid: 7012/Clarke 1880 (RGS) (6378249.14,6356514.87)
+Prime Meridian: 8901/Greenwich (0.000000/000 00 00.00E)
+
+Of course, looking through the file 'geotiff_proj4.c', it had to be unsupported.  Undeterred, I implemented the GeoTIFF to PROJ4 conversion as follows, ala Gerald Evenden:
+
+..
+
+else if( psDefn->CTProjection == CT_LambertConfConic_1SP )
+{
+ /* this appears to be an unsupported formulation with PROJ.4 */
+
+ /* to at least some degree this can be treated similarly to
+  * the 2SP case.
+  *
+  * See http://www.mentorsoftwareinc.com/CC/asknorm/ASK0699.HTM#Q2
+  */
+
+ /* Mods according to:
+  * http://www.remotesensing.org/geotiff/proj_list/lambert_conic_conformal_1sp.html
+  */
+ 
+ sprintf( szProjection+strlen(szProjection),
+  "+proj=lcc +lat_0=%.9f +lat_1=%.9f +lon_0=%.9f"
+  " +k_0=%.9f +x_0=%.3f +y_0=%.3f ",
+  psDefn->ProjParm[0],
+  psDefn->ProjParm[0],
+  psDefn->ProjParm[1],
+  psDefn->ProjParm[4],
+  psDefn->ProjParm[5],
+  psDefn->ProjParm[6] );
+
+}
+
+This worked fine, except for what appeared like a scale creep effect when comparing my PROJ4 grid longitudes to those on the underlying map.  Also, for the area I was testing, the PROJ4 latitudes were offset by a good 3 to 3.5 kilometers!
+
+After some investigation it seems as if there is a bug in 'trf_nonpolynomial.c/csv' files. The value for k_0 is given as 0.999625544 for Nord Algerie and 0.999625769 for Sud Algerie.  Other sources suggest these values should be 0.99625544 and 0.99625769, respectively.
+
+I changed the values accordingly in the above files, and hey presto!, the underlying map grids and my PROJ4 generated grids overlapped pretty neatly.
+
+Hope this is of some use to someone out there.
+
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20020528/11b7a2ab/attachment.html>
+
+From neteler at itc.it  Thu May 30 02:59:56 2002
+From: neteler at itc.it (Markus Neteler)
+Date: Thu, 30 May 2002 11:59:56 +0200
+Subject: [OSRS-PROJ] cs2cs question: Gauss-Boaga
+Message-ID: <20020530115956.A30953@itc.it>
+
+Dear list,
+
+sorry for a sort of "newbie" question: Today I tried to
+investigate if cs2cs does datum transformation for
+the Italian Gauss-Boaga system:
+
+[btw: there is no +towgs84 present for the Gauss-Boaga related 
+EPSG code 26591 in nad/epsg, any reason for that?]
+
+I struggled here: While this is doing calculations:
+
+cs2cs -v +proj=latlong +datum=WGS84 +to +init=epsg:26591 +towgs84=-225,-65,9
+# ---- From Coordinate System ----
+#Lat/long (Geodetic)
+#
+# +proj=latlong +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0
+# ---- To Coordinate System ----
+#Transverse Mercator
+#       Cyl, Sph&Ell
+# +init=epsg:26591 +towgs84=-225,-65,9 +proj=tmerc +lat_0=0.000000000
+# +lon_0=9.000000000 +k=0.999600 +x_0=1500000.000 +y_0=0.000 +ellps=intl
+# +units=m +no_defs
+
+the next lines don't: 
+cs2cs -v +proj=latlong +datum=wgs84 +ellps=WGS84 +towgs84=0,0,0 \
+  +to +towgs84=-225,-65,9 +proj=tmerc +lat_0=0.0 \
+  +lon_0=9.0 +k=0.999600 +x_0=1500000.000 +y_0=0.000 +ellps=intl \
+  +units=m +no_defs
+Using from definition: proj=latlong datum=wgs84 ellps=WGS84 towgs84=0,0,0
+Rel. 4.4.5, 9 January 2002
+<cs2cs>:
+projection initialization failure
+cause: unknown elliptical parameter name
+program abnormally terminated
+
+
+...although both should be the same (or not?). Beside that I would like
+to know if I am right in my assumption, that this "cs2cs" with additional
++towgs84 parameter is the way to reproject from lat/long to Gauss-Boaga
+*with* datum transformation from WGS84 to Rome40. Say, at least with
+less error than using the 'proj' command?
+
+Thanks for comment,
+
+ Markus
+
+-- 
+Markus Neteler
+
+ITC-irst, Istituto per la Ricerca Scientifica e Tecnologica
+     Project on Predictive Models for the Environment    
+Via Sommarive, 18        -      38050 Povo (Trento), Italia
+tel +39 0461 314 -520 (fax -591)          http://mpa.itc.it
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 04:16:33 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Thu, 30 May 2002 20:16:33 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it>
+Message-ID: <001501c207cb$77e6b8c0$700201c0@MAPQUEST.local>
+
+Hello All,
+As I have stated earlier, I am working to remove all the macros style codes
+to a more readable version of the projection library.
+
+With the exception of the PROJ_HEAD in the pj_list.h file, I have completed
+the removal from all other files. I am not removing the constants.
+
+I have found two problems and need some help...
+
+1. One file strtod.c is a GPL code. Is the Proj4 therefore not under GPL?
+and other libraries using it?
+
+2. One file biveval.c still contains one pre-ANSI C function.
+
+/* basic bivariate Chebyshev evaluation */
+static double ceval(C, n) struct PW_COEF *C;
+{
+....
+}
+
+what is the right ANSI version of this function. I could not get this right
+(it seems the "n" is an integer!) :(
+
+I will post the final codes for all to evaluate and then start work on
+porting to C++.
+I know many will still prefer this
+
+----------------------------------------------------------------------------
+-----------
+ENTRY0(leac)
+ P->phi2 = pj_param(P->params, "rlat_1").f;
+ P->phi1 = pj_param(P->params, "bsouth").i ? - HALFPI: HALFPI;
+ENDENTRY(setup(P))
+----------------------------------------------------------------------------
+----------
+
+to this:
+
+----------------------------------------------------------------------------
+---------
+const char * const pj_s_leac = des_leac;
+
+PJ *pj_leac(PJ *P)
+{
+ if (!P)
+ {
+  if( (P = pj_malloc(sizeof(PJ))) != ((void *)0))
+  {
+   P->pfree = freeup;
+   P->fwd = 0;
+   P->inv = 0;
+   P->spc = 0;
+   P->descr = des_leac;
+  }
+  return P;
+ }
+ else
+ {
+  P->phi2 = pj_param(P->params, "rlat_1").f;
+  P->phi1 = pj_param(P->params, "bsouth").i ? - HALFPI: HALFPI;
+ }
+ return (setup(P));
+}
+----------------------------------------------------------------------------
+--------
+
+However, the macro-free version will make it earsier to port the library to
+C++/Java/C# etc
+and that is my goal.
+
+Best regards,
+Paul.
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From warmerdam at pobox.com  Thu May 30 06:05:23 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 30 May 2002 09:05:23 -0400
+Subject: [OSRS-PROJ] cs2cs question: Gauss-Boaga
+References: <20020530115956.A30953@itc.it>
+Message-ID: <3CF62393.9080100@pobox.com>
+
+Markus Neteler wrote:
+> Dear list,
+> 
+> sorry for a sort of "newbie" question: Today I tried to
+> investigate if cs2cs does datum transformation for
+> the Italian Gauss-Boaga system:
+> 
+> [btw: there is no +towgs84 present for the Gauss-Boaga related 
+> EPSG code 26591 in nad/epsg, any reason for that?]
+
+Markus,
+
+The code that looks up datums in the EPSG database and tries to derive
+a towgs84 value for them fails if their are no ways to translate the
+datum directly to wgs84 or if there is more than one way.  I have looked
+into the datum in question but I imagine there is more than one transformation
+available (presumably applicable to different areas) so the code has no way to
+know which is most apppropriate.
+
+> I struggled here: While this is doing calculations:
+> 
+> cs2cs -v +proj=latlong +datum=WGS84 +to +init=epsg:26591 +towgs84=-225,-65,9
+> # ---- From Coordinate System ----
+> #Lat/long (Geodetic)
+> #
+> # +proj=latlong +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0
+> # ---- To Coordinate System ----
+> #Transverse Mercator
+> #       Cyl, Sph&Ell
+> # +init=epsg:26591 +towgs84=-225,-65,9 +proj=tmerc +lat_0=0.000000000
+> # +lon_0=9.000000000 +k=0.999600 +x_0=1500000.000 +y_0=0.000 +ellps=intl
+> # +units=m +no_defs
+> 
+> the next lines don't: 
+> cs2cs -v +proj=latlong +datum=wgs84 +ellps=WGS84 +towgs84=0,0,0 \
+>   +to +towgs84=-225,-65,9 +proj=tmerc +lat_0=0.0 \
+>   +lon_0=9.0 +k=0.999600 +x_0=1500000.000 +y_0=0.000 +ellps=intl \
+>   +units=m +no_defs
+> Using from definition: proj=latlong datum=wgs84 ellps=WGS84 towgs84=0,0,0
+> Rel. 4.4.5, 9 January 2002
+> <cs2cs>:
+> projection initialization failure
+> cause: unknown elliptical parameter name
+> program abnormally terminated
+
+It would appear the problem is use of +datum=wgs84 instead of +datum=WGS84.
+To my mind it would be better if all proj comparisons to internal names was
+case insensitive, but this does not appear to be the established practice.
+
+> ...although both should be the same (or not?). Beside that I would like
+> to know if I am right in my assumption, that this "cs2cs" with additional
+> +towgs84 parameter is the way to reproject from lat/long to Gauss-Boaga
+> *with* datum transformation from WGS84 to Rome40. Say, at least with
+> less error than using the 'proj' command?
+
+Your approach seems good, though the transformation will only be accurate
+as the +towgs84 values you gave approximates the datum shift in the area you
+are working.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From warmerdam at pobox.com  Thu May 30 06:26:50 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 30 May 2002 09:26:50 -0400
+Subject: [OSRS-PROJ] Re: [GRASS5] problems with [rsv].proj
+References: <15604.44151.151989.828276@cerise.nosuchdomain.co.uk> <Pine.LNX.4.44.0205291324120.8441-100000@tor.ngb.se> <15604.54929.819884.802798@cerise.nosuchdomain.co.uk> <15605.44318.235304.701448@cerise.nosuchdomain.co.uk> <20020530055537.GA1192@calico.local>
+Message-ID: <3CF6289A.6000905@pobox.com>
+
+Eric G. Miller wrote:
+> On Thu, May 30, 2002 at 05:39:58AM +0100, Glynn Clements wrote:
+> 
+> 
+>>In the longer term, we should re-think the architecture of the PROJ
+>>library. There are many practical applications where it would be
+>>useful to have more information about the overall "nature" of a
+>>projection than just a pair of functions which project individual
+>>points.
+> 
+> 
+> While not supporting all the nifty cartographic projections like proj4,
+> the Geotrans projection routines from NIMA will signal an error if the
+> coordinate is outside the reasonable limits of the projection.  The code
+> for this library is pretty well thought out, but it is limited to about
+> 15 of the most common projections (though that covers most needs) and
+> some things like the projection used in F-16 fighter jets could be done
+> without ;-).  To support grid shift type datum transformations would
+> require hacking into the datum code.  One nice thing, is it includes
+> geoid (EGM96) vertical corrections for wgs84 ellipsoid vs. mean sea
+> level.  Another thing some might find nice is the various projection
+> error values and significant digit rounding it provides (based on some
+> scale factor).
+
+Eric / Glynn,
+
+I would be happy to incorporate some sort of support for error estimation
+support in PROJ.4 if practical.  However, in general returning regions in
+which a projection is valid is very difficult.
+
+I would also note that PROJ.4 *does* contain datum shifting based on grids,
+(like US nadcon grids, and Canadian NTv1 grids) as well as 3 and 7 parameter
+datum shift approximations.  The 3/7 parameter support was derived from
+Geotrans.  Hopefully this can be properly incorporated into GRASS in 5.1. I
+was a bit weirded out that datum shifting was grafted into GRASS late in the
+pre-release countdown sequence.
+
+I would be interested in including some sort of geoid conversion support in
+PROJ.4 but I have very little experience with it, and am I am not clear on
+the need for it.  Hopefully others with the need can help drive such work.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From warmerdam at pobox.com  Thu May 30 06:51:56 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 30 May 2002 09:51:56 -0400
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it> <001501c207cb$77e6b8c0$700201c0@MAPQUEST.local>
+Message-ID: <3CF62E7C.40604@pobox.com>
+
+Paul Selormey wrote:
+> Hello All,
+> As I have stated earlier, I am working to remove all the macros style codes
+> to a more readable version of the projection library.
+> 
+> With the exception of the PROJ_HEAD in the pj_list.h file, I have completed
+> the removal from all other files. I am not removing the constants.
+> 
+> I have found two problems and need some help...
+> 
+> 1. One file strtod.c is a GPL code. Is the Proj4 therefore not under GPL?
+> and other libraries using it?
+
+Paul,
+
+This is a mistake on my part.  I will submit a bug (149) to myself to come up
+with another strod() implementation with appropriate license constraints or
+to rewrite my own version.
+
+Note that the strtod() code is LGPL, but by statically linking it into PROJ.4
+I am effectively placing all of PROJ.4 under LGPL.
+
+> 2. One file biveval.c still contains one pre-ANSI C function.
+> 
+> /* basic bivariate Chebyshev evaluation */
+> static double ceval(C, n) struct PW_COEF *C;
+> {
+> ....
+> }
+> 
+> what is the right ANSI version of this function. I could not get this right
+> (it seems the "n" is an integer!) :(
+
+As far as I know it should be:
+
+static double ceval( struct PW_COEF *C, int n);
+
+Apparently in K&R C untyped arguments were implicitly integers.
+
+> I will post the final codes for all to evaluate and then start work on
+> porting to C++.
+> I know many will still prefer this
+> 
+> ----------------------------------------------------------------------------
+> -----------
+> ENTRY0(leac)
+>  P->phi2 = pj_param(P->params, "rlat_1").f;
+>  P->phi1 = pj_param(P->params, "bsouth").i ? - HALFPI: HALFPI;
+> ENDENTRY(setup(P))
+> ----------------------------------------------------------------------------
+> ----------
+> 
+> to this:
+> 
+> ----------------------------------------------------------------------------
+> ---------
+> const char * const pj_s_leac = des_leac;
+> 
+> PJ *pj_leac(PJ *P)
+> {
+>  if (!P)
+>  {
+>   if( (P = pj_malloc(sizeof(PJ))) != ((void *)0))
+>   {
+>    P->pfree = freeup;
+>    P->fwd = 0;
+>    P->inv = 0;
+>    P->spc = 0;
+>    P->descr = des_leac;
+>   }
+>   return P;
+>  }
+>  else
+>  {
+>   P->phi2 = pj_param(P->params, "rlat_1").f;
+>   P->phi1 = pj_param(P->params, "bsouth").i ? - HALFPI: HALFPI;
+>  }
+>  return (setup(P));
+> }
+> ----------------------------------------------------------------------------
+> --------
+> 
+> However, the macro-free version will make it earsier to port the library to
+> C++/Java/C# etc
+> and that is my goal.
+
+I understand your rationale but I don't think I will incorporate your "expanded
+macros" version into the core, even though I too find the macros sometimes
+obscure what is going on from the casual developer.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 07:28:42 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Thu, 30 May 2002 23:28:42 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it> <001501c207cb$77e6b8c0$700201c0@MAPQUEST.local> <3CF62E7C.40604@pobox.com>
+Message-ID: <000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local>
+
+Hello Frank,
+Thanks for the response.
+
+> This is a mistake on my part.  I will submit a bug (149) to myself to come
+up
+> with another strod() implementation with appropriate license constraints
+or
+> to rewrite my own version.
+
+What is the specification or the true behavior that the VC++ does not
+satisfy?
+This way, I could also try my hand at it since I am working on the codes
+now.
+
+> static double ceval( struct PW_COEF *C, int n);
+>
+> Apparently in K&R C untyped arguments were implicitly integers.
+
+Thanks. In fact, I picked my K&R C in bits and pieces :-) I was not lucky
+enough
+to use it :(
+
+> I understand your rationale but I don't think I will incorporate your
+"expanded
+> macros" version into the core, even though I too find the macros sometimes
+> obscure what is going on from the casual developer.
+
+It is not an expanded macro version, but a replacement. I was hoping it will
+take over
+but it can still run in parellel. It is just a beginning of my work on the
+projection, I hope
+to work further on this even as I study map projections.
+
+Best regards,
+Paul.
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From warmerdam at pobox.com  Thu May 30 07:46:36 2002
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 30 May 2002 10:46:36 -0400
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it> <001501c207cb$77e6b8c0$700201c0@MAPQUEST.local> <3CF62E7C.40604@pobox.com> <000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local>
+Message-ID: <3CF63B4C.1030007@pobox.com>
+
+Paul Selormey wrote:
+> What is the specification or the true behavior that the VC++ does not
+> satisfy?
+> This way, I could also try my hand at it since I am working on the codes
+> now.
+
+Paul,
+
+The problem was that strtod("15d10") on VC++ treated the value as 15 times
+10 to the exponent 10 (scientific notation).  The values like "15d10" are
+common in DMS specific inputs.  The problem with replacing it with my
+own implementation is I don't know how widely the custom strtod() is used,
+and hence how much of the full strtod() functionality needs to be
+replicated.
+
+>>static double ceval( struct PW_COEF *C, int n);
+>>
+>>Apparently in K&R C untyped arguments were implicitly integers.
+> 
+> 
+> Thanks. In fact, I picked my K&R C in bits and pieces :-) I was not lucky
+> enough
+> to use it :(
+
+Lucky. Hmm.
+
+> It is not an expanded macro version, but a replacement. I was hoping it will
+ > take over but it can still run in parellel. It is just a beginning of my work
+ > on the projection, I hope to work further on this even as I study map projections.
+
+Of course you may fork the library, and develop in any direction you want to.
+Making the code more readable, and evolving to a clean C++ implementation has
+some value but two forks splitting the available maintenance efforts and user
+base can have a negative effect on both forks.  Nevertheless you have goals
+you want to pursue, and should your fork satisfy the needs of PROJ.4 users
+better than the existing fork then I will have more time to concentrate on other
+efforts.
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From neteler at itc.it  Thu May 30 09:46:52 2002
+From: neteler at itc.it (Markus Neteler)
+Date: Thu, 30 May 2002 18:46:52 +0200
+Subject: [OSRS-PROJ] cs2cs question: Gauss-Boaga
+In-Reply-To: <3CF62393.9080100@pobox.com>; from warmerdam@pobox.com on Thu, May 30, 2002 at 09:05:23AM -0400
+References: <20020530115956.A30953@itc.it> <3CF62393.9080100@pobox.com>
+Message-ID: <20020530184652.A16918@itc.it>
+
+On Thu, May 30, 2002 at 09:05:23AM -0400, Frank Warmerdam wrote:
+> Markus Neteler wrote:
+> > Dear list,
+> > 
+> > sorry for a sort of "newbie" question: Today I tried to
+> > investigate if cs2cs does datum transformation for
+> > the Italian Gauss-Boaga system:
+> > 
+> > [btw: there is no +towgs84 present for the Gauss-Boaga related 
+> > EPSG code 26591 in nad/epsg, any reason for that?]
+> 
+> Markus,
+> 
+> The code that looks up datums in the EPSG database and tries to derive
+> a towgs84 value for them fails if their are no ways to translate the
+> datum directly to wgs84 or if there is more than one way.  I have looked
+> into the datum in question but I imagine there is more than one transformation
+> available (presumably applicable to different areas) so the code has no way to
+> know which is most apppropriate.
+> 
+> > I struggled here: While this is doing calculations:
+[...]
+> 
+> It would appear the problem is use of +datum=wgs84 instead of +datum=WGS84.
+> To my mind it would be better if all proj comparisons to internal names was
+> case insensitive, but this does not appear to be the established practice.
+
+ah, I see.
+
+> > ...although both should be the same (or not?). Beside that I would like
+> > to know if I am right in my assumption, that this "cs2cs" with additional
+> > +towgs84 parameter is the way to reproject from lat/long to Gauss-Boaga
+> > *with* datum transformation from WGS84 to Rome40. Say, at least with
+> > less error than using the 'proj' command?
+> 
+> Your approach seems good, though the transformation will only be accurate
+> as the +towgs84 values you gave approximates the datum shift in the area you
+> are working.
+
+I started an investigation. So far I have 2m E-W precision and 9m N-S
+precision for known points in our area (Northern Italy). As soon I
+get more points elsewhere in Italy, I'll post a summary. It looks
+promising since the 'proj' is 25m/70m shifted.
+
+More soon,
+
+ Markus
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From karl at kls2.com  Thu May 30 12:22:47 2002
+From: karl at kls2.com (Karl Swartz)
+Date: Thu, 30 May 2002 12:22:47 -0700 (PDT)
+Subject: [OSRS-PROJ] On Proj4...
+In-Reply-To: <3CF63B4C.1030007@pobox.com> from Frank Warmerdam at "May 30, 2002
+ 10:46:36 am"
+Message-ID: <200205301922.MAA53149@ditka.chicago.com>
+
+> The problem was that strtod("15d10") on VC++ treated the value as 15 times
+> 10 to the exponent 10 (scientific notation).  The values like "15d10" are
+> common in DMS specific inputs.  The problem with replacing it with my
+> own implementation is I don't know how widely the custom strtod() is used,
+> and hence how much of the full strtod() functionality needs to be
+> replicated.
+
+If that's the issue, and if callers don't require the const storage
+class on the first argument (which is unlikely to be an issue), why
+not put a wrapper around the library one which just masks that issue?
+I haven't looked at the PROJ.4 code in ages, but something like this
+in a .h file used by everyone
+
+    #define strtod(nptr, endptr) strtod_wrapper((nptr)), ((endptr))
+
+    double
+    strtod_wrapper(/* const */ char *nptr, char **endptr)
+
+and then wherever the current GPV-infested strtod() is located
+
+    #undef strtod(nptr, endptr)
+
+    double
+    strtod_wrapper(/* const */ char *nptr, char **endptr)
+    {
+        char c, *cp = nptr;
+        double result;
+
+        /*
+        /* Scan for characters which cause problems with VC++ strtod()
+        */
+        while ((c = *cp) != '\0') {
+            if (c == 'd' || c == 'D') {
+
+                /*
+                /* Found one, so NUL it out, call strtod(),
+                /* then restore it and return
+                */
+                *cp = '\0';
+                result = strtod(nptr, endptr);
+                *cp = c;
+                return result;
+            }
+            ++cp;
+        }
+
+        /*
+        /* Nothing troublesome found, so just call the library function
+        */
+        return strtod(nptr, endptr);
+    }
+
+--
+Karl Swartz	|Home	karl at kls2.com		http://www.kls2.com/~karl/
+		|Work	karl at quartetns.com	http://www.quartetns.com/
+"The average dog is a nicer person than the average person."
+  - Andrew A. Rooney
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From peterb at homer.com.au  Thu May 30 16:48:31 2002
+From: peterb at homer.com.au (Peter Bayley)
+Date: Fri, 31 May 2002 09:48:31 +1000
+Subject: [OSRS-PROJ] Australia Grid Shift support
+Message-ID: <004001c20834$81e5d540$0200a8c0@homer2>
+
+I understand Proj 4 supports Grid Shift (eg US NADCON shifts) and was
+wonderign if anyone has incorporated the grid shifting parameters necessary
+for shifitng between the GDA66 and GDA84 Australian datums, the latter being
+based on WGS84.  I can access the grid values and would be happy to
+incorporate the functionality if someone could point me in the right
+direction
+
+Regards
+
+Peter Bayley
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 17:41:55 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri, 31 May 2002 09:41:55 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <200205301922.MAA53149@ditka.chicago.com>
+Message-ID: <001501c2083c$2fe286f0$700201c0@MAPQUEST.local>
+
+Hello Karl,
+There could be much to the problem. So, please let us examine
+it more carefully. I will scan for the uses of the custom function in
+the sources and then report on this.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "Karl Swartz" <karl at kls2.com>
+To: <osrs-proj at remotesensing.org>
+Sent: Friday, May 31, 2002 4:22 AM
+Subject: Re: [OSRS-PROJ] On Proj4...
+
+
+> > The problem was that strtod("15d10") on VC++ treated the value as 15
+times
+> > 10 to the exponent 10 (scientific notation).  The values like "15d10"
+are
+> > common in DMS specific inputs.  The problem with replacing it with my
+> > own implementation is I don't know how widely the custom strtod() is
+used,
+> > and hence how much of the full strtod() functionality needs to be
+> > replicated.
+>
+> If that's the issue, and if callers don't require the const storage
+> class on the first argument (which is unlikely to be an issue), why
+> not put a wrapper around the library one which just masks that issue?
+> I haven't looked at the PROJ.4 code in ages, but something like this
+> in a .h file used by everyone
+>
+>     #define strtod(nptr, endptr) strtod_wrapper((nptr)), ((endptr))
+>
+>     double
+>     strtod_wrapper(/* const */ char *nptr, char **endptr)
+>
+> and then wherever the current GPV-infested strtod() is located
+>
+>     #undef strtod(nptr, endptr)
+>
+>     double
+>     strtod_wrapper(/* const */ char *nptr, char **endptr)
+>     {
+>         char c, *cp = nptr;
+>         double result;
+>
+>         /*
+>         /* Scan for characters which cause problems with VC++ strtod()
+>         */
+>         while ((c = *cp) != '\0') {
+>             if (c == 'd' || c == 'D') {
+>
+>                 /*
+>                 /* Found one, so NUL it out, call strtod(),
+>                 /* then restore it and return
+>                 */
+>                 *cp = '\0';
+>                 result = strtod(nptr, endptr);
+>                 *cp = c;
+>                 return result;
+>             }
+>             ++cp;
+>         }
+>
+>         /*
+>         /* Nothing troublesome found, so just call the library function
+>         */
+>         return strtod(nptr, endptr);
+>     }
+>
+> --
+> Karl Swartz |Home karl at kls2.com http://www.kls2.com/~karl/
+> |Work karl at quartetns.com http://www.quartetns.com/
+> "The average dog is a nicer person than the average person."
+>   - Andrew A. Rooney
+> ----------------------------------------
+> PROJ.4 Discussion List
+> See http://www.remotesensing.org/proj for subscription, unsubscription
+> and other information.
+>
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 20:05:35 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri, 31 May 2002 12:05:35 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it> <001501c207cb$77e6b8c0$700201c0@MAPQUEST.local> <3CF62E7C.40604@pobox.com> <000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local> <3CF63B4C.1030007@pobox.com>
+Message-ID: <000b01c20850$0a883620$700201c0@MAPQUEST.local>
+
+Hello Frank,
+
+> The problem was that strtod("15d10") on VC++ treated the value as 15 times
+> 10 to the exponent 10 (scientific notation).  The values like "15d10" are
+> common in DMS specific inputs.  The problem with replacing it with my
+> own implementation is I don't know how widely the custom strtod() is used,
+> and hence how much of the full strtod() functionality needs to be
+> replicated.
+
+Thanks for the information.
+
+> Of course you may fork the library, and develop in any direction you want
+to.
+> Making the code more readable, and evolving to a clean C++ implementation
+has
+> some value but two forks splitting the available maintenance efforts and
+user
+> base can have a negative effect on both forks.  Nevertheless you have
+goals
+> you want to pursue, and should your fork satisfy the needs of PROJ.4 users
+> better than the existing fork then I will have more time to concentrate on
+other
+> efforts.
+
+I really do not wish to see two different implementations of the same
+library, I will
+put in all the necessary efforts to come out with a C++ implementations with
+exported
+C functions (just like the OGR and GDAL libraries) to replace the current.
+Even,
+though I also wish for a C# version, I really need the Java version for a
+project too.
+ProjJ is a similar Java effort, but a base C++ implementation will make it
+easier to
+keep the two sources at the same level of functionality.
+
+I hope many here will give the necessary support, especially in testing.
+
+Best regards,
+Paul.
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From karl at kls2.com  Thu May 30 21:08:39 2002
+From: karl at kls2.com (Karl Swartz)
+Date: Thu, 30 May 2002 21:08:39 -0700 (PDT)
+Subject: [OSRS-PROJ] On Proj4...
+In-Reply-To: <001501c2083c$2fe286f0$700201c0@MAPQUEST.local> from Paul Selormey
+ at "May 31, 2002 09:41:55 am"
+Message-ID: <200205310408.VAA81893@ditka.chicago.com>
+
+> There could be much to the problem. So, please let us examine
+> it more carefully.
+
+I didn't say my suggestion was the right fix for the problem at hand,
+merely a far simpler way of addressing the problem described by Frank
+than trying to rewrite strtod().  Whether Frank's synopsis represents
+a careful and complete examination is another matter.
+
+--
+Karl Swartz	|Home	karl at kls2.com		http://www.kls2.com/~karl/
+"The average dog is a nicer person than the average person."
+  - Andrew A. Rooney
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From glynn.clements at virgin.net  Thu May 30 22:17:54 2002
+From: glynn.clements at virgin.net (Glynn Clements)
+Date: Fri, 31 May 2002 06:17:54 +0100
+Subject: [OSRS-PROJ] Wrapping projections
+Message-ID: <15607.1922.791683.472523@cerise.nosuchdomain.co.uk>
+
+
+[This originally came up on the GRASS5 list, but it probably belongs
+here.]
+
+Should inverse projection functions "wrap", in the sense of being
+periodic? The problem arises primarily when trying to generate global
+raster maps using pseudo-cylindrical projections.
+
+A concrete example:
+
+What I get currently:
+
+	http://freespace.virgin.net/glynn.clements/map1.png
+
+What I want:
+
+	http://freespace.virgin.net/glynn.clements/map2.png
+
+To get the latter, I made the following patch to PROJ:
+
+--- src/libes/proj/PJ_urmfps.c	20 Apr 2002 19:13:44 -0000	1.2
++++ src/libes/proj/PJ_urmfps.c	30 May 2002 04:30:08 -0000
+@@ -17,8 +17,12 @@
+ }
+ INVERSE(s_inverse); /* sphere */
+ 	xy.y /= P->C_y;
++	if (fabs(xy.y) > HALFPI)
++		I_ERROR
+ 	lp.phi = aasin(sin(xy.y) / P->n);
+ 	lp.lam = xy.x / (C_x * cos(xy.y));
++	if (fabs(lp.lam) > PI)
++		I_ERROR
+ 	return (lp);
+ }
+ FREEUP; if (P) pj_dalloc(P); }
+
+This causes the routine to indicate failure for x/y coordinates which
+are outside of the "globe".
+
+Should PROJ be doing this? The problem is, if PROJ doesn't do it, the
+caller can't (in this case the caller could reject longitudes outside
+of [-pi,pi], but it can't handle the latitudinal wrap without knowing
+the details of the projection).
+
+-- 
+Glynn Clements <glynn.clements at virgin.net>
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From glynn.clements at virgin.net  Thu May 30 21:39:59 2002
+From: glynn.clements at virgin.net (Glynn Clements)
+Date: Fri, 31 May 2002 05:39:59 +0100
+Subject: [OSRS-PROJ] On Proj4...
+In-Reply-To: <000b01c20850$0a883620$700201c0@MAPQUEST.local>
+References: <20020530115956.A30953@itc.it>
+	<001501c207cb$77e6b8c0$700201c0@MAPQUEST.local>
+	<3CF62E7C.40604@pobox.com>
+	<000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local>
+	<3CF63B4C.1030007@pobox.com>
+	<000b01c20850$0a883620$700201c0@MAPQUEST.local>
+Message-ID: <15606.65183.950291.704842@cerise.nosuchdomain.co.uk>
+
+
+Paul Selormey wrote:
+
+> > Of course you may fork the library, and develop in any direction you want to.
+> > Making the code more readable, and evolving to a clean C++ implementation has
+> > some value but two forks splitting the available maintenance efforts and user
+> > base can have a negative effect on both forks.  Nevertheless you have goals
+> > you want to pursue, and should your fork satisfy the needs of PROJ.4 users
+> > better than the existing fork then I will have more time to concentrate on other
+> > efforts.
+> 
+> I really do not wish to see two different implementations of the
+> same library, I will put in all the necessary efforts to come out
+> with a C++ implementations with exported C functions (just like the
+> OGR and GDAL libraries) to replace the current. Even, though I also
+> wish for a C# version, I really need the Java version for a project
+> too. ProjJ is a similar Java effort, but a base C++ implementation
+> will make it easier to keep the two sources at the same level of
+> functionality.
+
+To my mind, the "ultimate" solution would be to formulate the
+projection functions as high-level symbolic expressions, to allow:
+
+a) automatic conversion to any programming language, and
+b) higher-order operations, primarily differentiation.
+
+The existing format (i.e. macro-ised C) isn't particularly friendly in
+that regard.
+
+-- 
+Glynn Clements <glynn.clements at virgin.net>
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 22:53:18 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri, 31 May 2002 14:53:18 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <200205310408.VAA81893@ditka.chicago.com>
+Message-ID: <001301c20867$7899e340$700201c0@MAPQUEST.local>
+
+Hello Karl,
+There is nothing to be worried about. We should solve this problem in
+the usual fun way...that is all the open source is about-having fun while
+getting some serious work done.
+
+The good news is that from my grep, it is used only at one place in dmstor.c
+file, even thought it is declared in two header files (including
+projects.h).
+
+......
+
+  if ((tv = proj_strtod(s, &s)) == HUGE_VAL)
+   return tv;
+
+.....
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "Karl Swartz" <karl at kls2.com>
+To: <osrs-proj at remotesensing.org>
+Sent: Friday, May 31, 2002 1:08 PM
+Subject: Re: [OSRS-PROJ] On Proj4...
+
+
+> > There could be much to the problem. So, please let us examine
+> > it more carefully.
+>
+> I didn't say my suggestion was the right fix for the problem at hand,
+> merely a far simpler way of addressing the problem described by Frank
+> than trying to rewrite strtod().  Whether Frank's synopsis represents
+> a careful and complete examination is another matter.
+>
+> --
+> Karl Swartz |Home karl at kls2.com http://www.kls2.com/~karl/
+> "The average dog is a nicer person than the average person."
+>   - Andrew A. Rooney
+> ----------------------------------------
+> PROJ.4 Discussion List
+> See http://www.remotesensing.org/proj for subscription, unsubscription
+> and other information.
+>
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 23:15:04 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri, 31 May 2002 15:15:04 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it><001501c207cb$77e6b8c0$700201c0@MAPQUEST.local><3CF62E7C.40604@pobox.com><000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local><3CF63B4C.1030007@pobox.com><000b01c20850$0a883620$700201c0@MAPQUEST.local> <15606.65183.950291.704842@cerise.nosuchdomain.co.uk>
+Message-ID: <001f01c2086a$826bbe90$700201c0@MAPQUEST.local>
+
+Hello Glynn,
+
+> To my mind, the "ultimate" solution would be to formulate the
+> projection functions as high-level symbolic expressions, to allow:
+> 
+> a) automatic conversion to any programming language, and
+> b) higher-order operations, primarily differentiation.
+
+Any concrete suggestions in this regard? Anything you have in mind will
+help.
+
+Best regards,
+Paul.
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Thu May 30 23:22:56 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri, 31 May 2002 15:22:56 +0900
+Subject: [OSRS-PROJ] Wrapping projections
+References: <15607.1922.791683.472523@cerise.nosuchdomain.co.uk>
+Message-ID: <002701c2086b$9bfd8040$700201c0@MAPQUEST.local>
+
+Hello Glynn,
+
+> A concrete example:
+>
+> What I get currently:
+>
+> http://freespace.virgin.net/glynn.clements/map1.png
+>
+> What I want:
+>
+> http://freespace.virgin.net/glynn.clements/map2.png
+>
+> Should PROJ be doing this? The problem is, if PROJ doesn't do it, the
+> caller can't (in this case the caller could reject longitudes outside
+> of [-pi,pi], but it can't handle the latitudinal wrap without knowing
+> the details of the projection).
+
+>From my observation of projections in other software, it should be the
+second it.
+Unless there is a special use of the first, the patch is highly welcomed. If
+there is
+a need for the second, then there is a need to have an option for the use to
+choose.
+
+BTW, is this the only projection affected?
+
+Best regards,
+Paul.
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From glynn.clements at virgin.net  Fri May 31 00:18:08 2002
+From: glynn.clements at virgin.net (Glynn Clements)
+Date: Fri, 31 May 2002 08:18:08 +0100
+Subject: [OSRS-PROJ] On Proj4...
+In-Reply-To: <001f01c2086a$826bbe90$700201c0@MAPQUEST.local>
+References: <20020530115956.A30953@itc.it>
+	<001501c207cb$77e6b8c0$700201c0@MAPQUEST.local>
+	<3CF62E7C.40604@pobox.com>
+	<000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local>
+	<3CF63B4C.1030007@pobox.com>
+	<000b01c20850$0a883620$700201c0@MAPQUEST.local>
+	<15606.65183.950291.704842@cerise.nosuchdomain.co.uk>
+	<001f01c2086a$826bbe90$700201c0@MAPQUEST.local>
+Message-ID: <15607.9136.3980.327892@cerise.nosuchdomain.co.uk>
+
+
+Paul Selormey wrote:
+
+> > To my mind, the "ultimate" solution would be to formulate the
+> > projection functions as high-level symbolic expressions, to allow:
+> > 
+> > a) automatic conversion to any programming language, and
+> > b) higher-order operations, primarily differentiation.
+> 
+> Any concrete suggestions in this regard? Anything you have in mind will
+> help.
+
+Well, the only real requirements would be that the format should be
+easier to parse than C-with-macros, and devoid of any assumptions of
+language-specific semantics. In particular, it would be nice to avoid
+the use of mutable state, so that functional languages could be
+supported easily.
+
+The bulk of the work would be in analysing all of the PJ_* files to
+determine the necessary feature set.
+
+Off the top of my head, I suppose that you would need mechanims to:
+
+a) declare projection parameters
+b) declare constants
+c) declare temporary variables
+d) define the actual equations
+e) indicate success/failure
+f) supply projection metadata
+
+-- 
+Glynn Clements <glynn.clements at virgin.net>
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From glynn.clements at virgin.net  Fri May 31 00:06:42 2002
+From: glynn.clements at virgin.net (Glynn Clements)
+Date: Fri, 31 May 2002 08:06:42 +0100
+Subject: [OSRS-PROJ] Wrapping projections
+In-Reply-To: <002701c2086b$9bfd8040$700201c0@MAPQUEST.local>
+References: <15607.1922.791683.472523@cerise.nosuchdomain.co.uk>
+	<002701c2086b$9bfd8040$700201c0@MAPQUEST.local>
+Message-ID: <15607.8450.296486.541064@cerise.nosuchdomain.co.uk>
+
+
+Paul Selormey wrote:
+
+> > A concrete example:
+> >
+> > What I get currently:
+> >
+> > http://freespace.virgin.net/glynn.clements/map1.png
+> >
+> > What I want:
+> >
+> > http://freespace.virgin.net/glynn.clements/map2.png
+> >
+> > Should PROJ be doing this? The problem is, if PROJ doesn't do it, the
+> > caller can't (in this case the caller could reject longitudes outside
+> > of [-pi,pi], but it can't handle the latitudinal wrap without knowing
+> > the details of the projection).
+> 
+> From my observation of projections in other software, it should be the
+> second it.
+> Unless there is a special use of the first, the patch is highly welcomed. If
+> there is
+> a need for the second, then there is a need to have an option for the use to
+> choose.
+> 
+> BTW, is this the only projection affected?
+
+I haven't tried all of them; it also occurs with Wagner II, but not
+Wagner III (the caller, GRASS' r.proj, silently wraps longitudes but
+traps latitudes outside of [-pi/2,pi/2]). The determining factor will
+be passing the (scaled) y coordinate to sin/cos without checking the
+range first.
+
+In retrospect, the longitude case should be trapped outside of PROJ
+(so long as PROJ itself isn't wrapping it; i.e. so long as an
+out-of-range x coordinate produces an out-of-range longitude).
+
+-- 
+Glynn Clements <glynn.clements at virgin.net>
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From paul at toolscenter.org  Fri May 31 03:16:24 2002
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri, 31 May 2002 19:16:24 +0900
+Subject: [OSRS-PROJ] On Proj4...
+References: <20020530115956.A30953@itc.it><001501c207cb$77e6b8c0$700201c0@MAPQUEST.local><3CF62E7C.40604@pobox.com><000d01c207e6$4e0fdc50$700201c0@MAPQUEST.local><3CF63B4C.1030007@pobox.com><000b01c20850$0a883620$700201c0@MAPQUEST.local><15606.65183.950291.704842@cerise.nosuchdomain.co.uk><001f01c2086a$826bbe90$700201c0@MAPQUEST.local> <15607.9136.3980.327892@cerise.nosuchdomain.co.uk>
+Message-ID: <000b01c2088c$39692170$700201c0@MAPQUEST.local>
+
+Hello Glynn,
+Thanks for the guide. I will be considering this in my work.
+
+Best regards,
+Paul.
+
+----- Original Message ----- 
+From: "Glynn Clements" <glynn.clements at virgin.net>
+To: <osrs-proj at remotesensing.org>
+Sent: Friday, May 31, 2002 4:18 PM
+Subject: Re: [OSRS-PROJ] On Proj4...
+
+
+> 
+> Paul Selormey wrote:
+> 
+> > > To my mind, the "ultimate" solution would be to formulate the
+> > > projection functions as high-level symbolic expressions, to allow:
+> > > 
+> > > a) automatic conversion to any programming language, and
+> > > b) higher-order operations, primarily differentiation.
+> > 
+> > Any concrete suggestions in this regard? Anything you have in mind will
+> > help.
+> 
+> Well, the only real requirements would be that the format should be
+> easier to parse than C-with-macros, and devoid of any assumptions of
+> language-specific semantics. In particular, it would be nice to avoid
+> the use of mutable state, so that functional languages could be
+> supported easily.
+> 
+> The bulk of the work would be in analysing all of the PJ_* files to
+> determine the necessary feature set.
+> 
+> Off the top of my head, I suppose that you would need mechanims to:
+> 
+> a) declare projection parameters
+> b) declare constants
+> c) declare temporary variables
+> d) define the actual equations
+> e) indicate success/failure
+> f) supply projection metadata
+> 
+> -- 
+> Glynn Clements <glynn.clements at virgin.net>
+> ----------------------------------------
+> PROJ.4 Discussion List
+> See http://www.remotesensing.org/proj for subscription, unsubscription
+> and other information.
+> 
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+
+From j.macgill at geography.leeds.ac.uk  Fri May 31 04:04:14 2002
+From: j.macgill at geography.leeds.ac.uk (James Macgill)
+Date: Fri, 31 May 2002 12:04:14 +0100
+Subject: Fwd: Re: [OSRS-PROJ] On Proj4...
+Message-ID: <5.1.0.14.0.20020531120233.04673300@geog.leeds.ac.uk>
+
+Apologies if this arrives twice, but so far the first send appears to have 
+been eaten somewhere along the line.
+
+
+
+>>To my mind, the "ultimate" solution would be to formulate the
+>>projection functions as high-level symbolic expressions, to allow:
+>>
+>>a) automatic conversion to any programming language, and
+>>b) higher-order operations, primarily differentiation.
+>>
+>>The existing format (i.e. macro-ised C) isn't particularly friendly in
+>>that regard.
+>
+>I agree, that would be ideal.   Is there an XML based equation or 
+>expression language that would be rich
+>enough to capture the equations involved?
+>
+>I've been planning to write a script to convert the de-macro-ised C into 
+>Java for Proj4j.  I've done a few by hand and so far it is generally 
+>little more than search and replace.  That said, GeoTools, the project 
+>which hosts proj4j is in the process of combining with SeaGIS, another 
+>Coordinate Transformation project based around the OpenGIS standards, so 
+>its not clear how much further I will take proj4j.
+>
+>Is anyone on this list actively using the proj4j port?
+>
+>James
+-- 
+James Macgill
+Center for Computational Geography
+Spell Checker (c) Creative Spelling inc (aka my dyslexic brain)
+http://www.geotools.org  the open source java mapping toolkit.
+
+
+
+
+
+
+----------------------------------------
+PROJ.4 Discussion List
+See http://www.remotesensing.org/proj for subscription, unsubscription
+and other information.
+
+

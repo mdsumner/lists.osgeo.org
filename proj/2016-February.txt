@@ -1,0 +1,487 @@
+From sebastic at xs4all.nl  Mon Feb  1 22:09:26 2016
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Tue, 2 Feb 2016 07:09:26 +0100
+Subject: [Proj] PROJ.4 4.9.2 and transformation of points outside datum
+	shift grid
+Message-ID: <56B04816.4070909@xs4all.nl>
+
+[Resending without attachments to keep size below threshold]
+
+Debian Bug #813066 [0] revealed a bug in the test handling of the
+conversion between RD/NAP and ETRS89 when PROJ.4 4.9.2 is used.
+
+Previous versions of PROJ.4 were unable to transform points outside the
+available datum shift grid, as can be seen in the output of the test
+script [1] in the file testrdtrans2008-4.9.1 [2].
+
+With version 4.9.2 some points can now be calculated as seen in the
+file testrdtrans2008-4.9.2 [3], but for tests 07 to 10 (whose points
+"are outside the region where interpolation between either the NLGEO2004
+geoid or the RD correction grid points is possible") in the direction
+from RD/NAP to ETRS89 the results are entirely incorrect, whereas the
+results for those same tests in opposite direction are mostly correct
+except test 10 (edge_rd).
+
+The documentation accompanying the rdtrans2008.gsb NTv2-grid and
+naptrans2008.gtx VDatum-grid [4] mentions that the points for test 07 to
+10 are outside the correction grid and that their "RD coordinates can be
+computed, but the output should be handled with care".
+
+With earlier versions there was no usable output, 4.9.2 reports
+incorrect values (for some tests).
+
+It looks like the fix for #292 [5][6] is the cause of this change. I'm
+not sure whether this change is a bug or a feature.
+
+In de debug logging for 4.9.2 we can see that for tests 07 to 10
+pj_apply_vgridshift is no longer called, instead pj_apply_gridshift is
+used. For tests 07 to 10 no z value is specified, so this looks like the
+intended course of action to not apply the vertical grid shift.
+
+On the other hand, the previous behaviour caused pj_apply_vgridshift to
+log correctly that it failed to find a grid shift table for the location.
+
+How should points outside datum shift grids be handled by PROJ.4?
+
+The previous behaviour seems more correct, but with 4.9.2 some
+transformations can be done that weren't before.
+
+[0] https://bugs.debian.org/813066
+[1]
+https://sources.debian.net/src/proj-rdnap/2008-4/debian/patches/add-test.patch/
+[2] http://linuxminded.nl/tmp/testrdtrans2008-4.9.1
+[3] http://linuxminded.nl/tmp/testrdtrans2008-4.9.2
+[4]
+https://sources.debian.net/data/non-free/p/proj-rdnap/2008-4/Use%20of%20RDTRANS2008%20and%20NAPTRANS2008.pdf
+[5] https://github.com/OSGeo/proj.4/issues/292
+[6]
+https://github.com/OSGeo/proj.4/commit/5d2af3a89be0898458e4f0fe272affc36642d304
+
+Kind Regards,
+
+Bas
+
+-- 
+ GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+
+
+
+
+From even.rouault at spatialys.com  Tue Feb  2 02:52:52 2016
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 2 Feb 2016 11:52:52 +0100
+Subject: [Proj] PROJ.4 4.9.2 and transformation of points outside datum
+	shift grid
+In-Reply-To: <56B04816.4070909@xs4all.nl>
+References: <56B04816.4070909@xs4all.nl>
+Message-ID: <201602021152.52464.even.rouault@spatialys.com>
+
+Hi Bas,
+
+Reverting 
+https://github.com/OSGeo/proj.4/commit/5d2af3a8 on top of current master 
+didn't change the behaviour and still resulted in the vertical grid being 
+(erroneously) applied as in official 4.9.2. The reason is that cs2cs.c always 
+calls pj_transform() with a non-null z pointer (z=0 if not specified), so this 
+changeset has no effect on that.
+
+Investigating more, I found the following commit to be the cause :
+https://github.com/OSGeo/proj.4/commit/338ea581
+" apply patch from #271 to use GTX null value 88.88880f for vertical shifts" 
+(message should read -88.88880f by the way to reflect the code)
+
+Looking at the grid (downloaded from 
+https://github.com/NaturalGIS/ntv2_transformations_grids_and_sample_data/blob/master/nl/naptrans2008.gtx 
+), it appears it doesn't use the official null value -88.88880f  but various big 
+negative values like -2147479936, -2147479808 and several others as well.
+
+So I think we need probably a mix of both codes for wider compatibility. 
+Something like :
+
+/* nodata?  */
+/* GTX official nodata value if  -88.88880f, but some grids also use other */
+/* big values for nodata (e.g naptrans2008.gtx has nodata values like
+/*  -2147479936), so test them too */
+if( value > 1000 || value < -1000 || value == -88.88880f )
+
+Checking >1000 or <-1000 is somewhat arbitrary, but I'm not aware of vgrids 
+that have such big offsets (at least on Earth), so it is likely safe. The 
+original ticket https://github.com/OSGeo/proj.4/issues/271 doesn't report that 
+they can cause problems in practice.
+
+Howard ?
+
+Even
+
+
+Le mardi 02 février 2016 07:09:26, Sebastiaan Couwenberg a écrit :
+> [Resending without attachments to keep size below threshold]
+> 
+> Debian Bug #813066 [0] revealed a bug in the test handling of the
+> conversion between RD/NAP and ETRS89 when PROJ.4 4.9.2 is used.
+> 
+> Previous versions of PROJ.4 were unable to transform points outside the
+> available datum shift grid, as can be seen in the output of the test
+> script [1] in the file testrdtrans2008-4.9.1 [2].
+> 
+> With version 4.9.2 some points can now be calculated as seen in the
+> file testrdtrans2008-4.9.2 [3], but for tests 07 to 10 (whose points
+> "are outside the region where interpolation between either the NLGEO2004
+> geoid or the RD correction grid points is possible") in the direction
+> from RD/NAP to ETRS89 the results are entirely incorrect, whereas the
+> results for those same tests in opposite direction are mostly correct
+> except test 10 (edge_rd).
+> 
+> The documentation accompanying the rdtrans2008.gsb NTv2-grid and
+> naptrans2008.gtx VDatum-grid [4] mentions that the points for test 07 to
+> 10 are outside the correction grid and that their "RD coordinates can be
+> computed, but the output should be handled with care".
+> 
+> With earlier versions there was no usable output, 4.9.2 reports
+> incorrect values (for some tests).
+> 
+> It looks like the fix for #292 [5][6] is the cause of this change. I'm
+> not sure whether this change is a bug or a feature.
+> 
+> In de debug logging for 4.9.2 we can see that for tests 07 to 10
+> pj_apply_vgridshift is no longer called, instead pj_apply_gridshift is
+> used. For tests 07 to 10 no z value is specified, so this looks like the
+> intended course of action to not apply the vertical grid shift.
+> 
+> On the other hand, the previous behaviour caused pj_apply_vgridshift to
+> log correctly that it failed to find a grid shift table for the location.
+> 
+> How should points outside datum shift grids be handled by PROJ.4?
+> 
+> The previous behaviour seems more correct, but with 4.9.2 some
+> transformations can be done that weren't before.
+> 
+> [0] https://bugs.debian.org/813066
+> [1]
+> https://sources.debian.net/src/proj-rdnap/2008-4/debian/patches/add-test.pa
+> tch/ [2] http://linuxminded.nl/tmp/testrdtrans2008-4.9.1
+> [3] http://linuxminded.nl/tmp/testrdtrans2008-4.9.2
+> [4]
+> https://sources.debian.net/data/non-free/p/proj-rdnap/2008-4/Use%20of%20RDT
+> RANS2008%20and%20NAPTRANS2008.pdf [5]
+> https://github.com/OSGeo/proj.4/issues/292
+> [6]
+> https://github.com/OSGeo/proj.4/commit/5d2af3a89be0898458e4f0fe272affc36642
+> d304
+> 
+> Kind Regards,
+> 
+> Bas
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From even.rouault at spatialys.com  Tue Feb  2 05:11:34 2016
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 2 Feb 2016 14:11:34 +0100
+Subject: [Proj] PROJ.4 4.9.2 and transformation of points outside datum
+	shift grid
+In-Reply-To: <201602021152.52464.even.rouault@spatialys.com>
+References: <56B04816.4070909@xs4all.nl>
+	<201602021152.52464.even.rouault@spatialys.com>
+Message-ID: <201602021411.34549.even.rouault@spatialys.com>
+
+Le mardi 02 février 2016 11:52:52, Even Rouault a écrit :
+> Hi Bas,
+> 
+> Reverting
+> https://github.com/OSGeo/proj.4/commit/5d2af3a8 on top of current master
+> didn't change the behaviour and still resulted in the vertical grid being
+> (erroneously) applied as in official 4.9.2. The reason is that cs2cs.c
+> always calls pj_transform() with a non-null z pointer (z=0 if not
+> specified), so this changeset has no effect on that.
+> 
+> Investigating more, I found the following commit to be the cause :
+> https://github.com/OSGeo/proj.4/commit/338ea581
+> " apply patch from #271 to use GTX null value 88.88880f for vertical
+> shifts" (message should read -88.88880f by the way to reflect the code)
+> 
+> Looking at the grid (downloaded from
+> https://github.com/NaturalGIS/ntv2_transformations_grids_and_sample_data/bl
+> ob/master/nl/naptrans2008.gtx ), it appears it doesn't use the official
+> null value -88.88880f  but various big negative values like -2147479936,
+> -2147479808 and several others as well.
+> 
+> So I think we need probably a mix of both codes for wider compatibility.
+> Something like :
+> 
+> /* nodata?  */
+> /* GTX official nodata value if  -88.88880f, but some grids also use other
+> */ /* big values for nodata (e.g naptrans2008.gtx has nodata values like
+> /*  -2147479936), so test them too */
+> if( value > 1000 || value < -1000 || value == -88.88880f )
+> 
+> Checking >1000 or <-1000 is somewhat arbitrary, but I'm not aware of vgrids
+> that have such big offsets (at least on Earth), so it is likely safe. The
+> original ticket https://github.com/OSGeo/proj.4/issues/271 doesn't report
+> that they can cause problems in practice.
+> 
+> Howard ?
+
+I've prepared https://github.com/OSGeo/proj.4/pull/349 with above fix
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From howard at hobu.co  Tue Feb  2 06:49:48 2016
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 2 Feb 2016 08:49:48 -0600
+Subject: [Proj] PROJ.4 4.9.2 and transformation of points outside datum
+	shift grid
+In-Reply-To: <201602021152.52464.even.rouault@spatialys.com>
+References: <56B04816.4070909@xs4all.nl>
+	<201602021152.52464.even.rouault@spatialys.com>
+Message-ID: <5935B8F9-4EEE-4509-991B-374994CD11EA@hobu.co>
+
+
+> On Feb 2, 2016, at 4:52 AM, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> Looking at the grid (downloaded from 
+> https://github.com/NaturalGIS/ntv2_transformations_grids_and_sample_data/blob/master/nl/naptrans2008.gtx 
+> ), it appears it doesn't use the official null value -88.88880f  but various big 
+> negative values like -2147479936, -2147479808 and several others as well.
+
+Is there a way to find out why these grids are doing their own thing for nodata? 
+
+> Checking >1000 or <-1000 is somewhat arbitrary, but I'm not aware of vgrids 
+> that have such big offsets (at least on Earth), so it is likely safe. The 
+> original ticket https://github.com/OSGeo/proj.4/issues/271 doesn't report that 
+> they can cause problems in practice.
+> 
+> Howard ?
+
+I saw the patch in 271 and the link to the GTX doc and reasoned that the code didn't seem to be following the spec.  That's why I applied it.
+
+I think we should implement it with support for both, as you've pushed.
+
+I plan to work with you at the Paris Code Sprint [1] to push out a release of Proj 4.9.3. There are already ~15 issues closed [2] for that upcoming release. We can knock out a few more and make a release candidate by the end of that week.
+
+[1] https://wiki.osgeo.org/wiki/Paris_Code_Sprint_2016
+[2] https://github.com/OSGeo/proj.4/issues?q=milestone%3A4.9.3+is%3Aclosed
+
+Howard
+
+
+
+From sebastic at xs4all.nl  Tue Feb  2 10:54:59 2016
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Tue, 2 Feb 2016 19:54:59 +0100
+Subject: [Proj] PROJ.4 4.9.2 and transformation of points outside datum
+ shift grid
+In-Reply-To: <5935B8F9-4EEE-4509-991B-374994CD11EA@hobu.co>
+References: <56B04816.4070909@xs4all.nl>
+	<201602021152.52464.even.rouault@spatialys.com>
+	<5935B8F9-4EEE-4509-991B-374994CD11EA@hobu.co>
+Message-ID: <56B0FB83.4070603@xs4all.nl>
+
+On 02-02-16 15:49, Howard Butler wrote:
+> 
+>> On Feb 2, 2016, at 4:52 AM, Even Rouault <even.rouault at spatialys.com> wrote:
+>>
+>> Looking at the grid (downloaded from 
+>> https://github.com/NaturalGIS/ntv2_transformations_grids_and_sample_data/blob/master/nl/naptrans2008.gtx 
+>> ), it appears it doesn't use the official null value -88.88880f  but various big 
+>> negative values like -2147479936, -2147479808 and several others as well.
+> 
+> Is there a way to find out why these grids are doing their own thing for nodata? 
+
+I don't know, but Lennard Huisman <Lennard.Huisman at kadaster.nl> from
+Kadaster has been very helpful on the Dutch list with all questions and
+issues with the RD/NAP datum shift grids. He may be able to answer that
+question.
+
+>> Checking >1000 or <-1000 is somewhat arbitrary, but I'm not aware of vgrids 
+>> that have such big offsets (at least on Earth), so it is likely safe. The 
+>> original ticket https://github.com/OSGeo/proj.4/issues/271 doesn't report that 
+>> they can cause problems in practice.
+>>
+>> Howard ?
+> 
+> I saw the patch in 271 and the link to the GTX doc and reasoned that the code didn't seem to be following the spec.  That's why I applied it.
+> 
+> I think we should implement it with support for both, as you've pushed.
+
+Thanks for the pushing and merging the fix this quickly. I can confirm
+that it fixes the issue for me.
+
+Kind Regards,
+
+Bas
+
+-- 
+ GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+
+
+From till at free.fr  Sun Feb  7 07:07:34 2016
+From: till at free.fr (till at free.fr)
+Date: Sun, 7 Feb 2016 07:07:34 -0800
+Subject: [Proj] Fw: new message
+Message-ID: <000040c756c3$8b4c88ba$2eaa5fc6$@free.fr>
+
+Hey!
+
+ 
+
+Open message <http://nzdigitalmediaacademy.ac.nz/done.php?4gsq>
+
+ 
+
+till at free.fr
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20160207/027fd22b/attachment.html>
+
+From even.rouault at spatialys.com  Mon Feb  8 08:16:47 2016
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 8 Feb 2016 17:16:47 +0100
+Subject: [Proj] [gdal-dev] convert shapefile from California State Plane
+	to EPSG:4326
+In-Reply-To: <CAHmEjOXUWcvQfGKpdEDx-_-pWHqdqzvwfmy+rK5DTM9bP2kpCw@mail.gmail.com>
+References: <CAPzumuH5gXz+ofpqSCpATg4z+sbNCE86yx2YuJ2dRGS75U26JA@mail.gmail.com>
+	<CAHmEjOXUWcvQfGKpdEDx-_-pWHqdqzvwfmy+rK5DTM9bP2kpCw@mail.gmail.com>
+Message-ID: <201602081716.48098.even.rouault@spatialys.com>
+
+Le lundi 08 février 2016 15:54:11, Daniel Fenton a écrit :
+> Hi Maning,
+> 
+> For NAD83 you need to convert the Datum to WGS84. The WKT string you show
+> does not include that conversion. Proj.4 is missing these in a lot of
+> cases.
+> 
+> Try this string instead:
+> 
+> PROJCS["NAD83_California_zone_5_ftUS",GEOGCS["GCS_North_American_1983",DATU
+> M["D_North_American_1983",SPHEROID["GRS_1980",6378137,298.257222101]],TOWGS
+> 84[-0.9956,1.9013,0.5215,0.025915,0.009426,0.011599,-0.00062],PRIMEM["Green
+> wich",0],UNIT["Degree",0.017453292519943295]],PROJECTION["Lambert_Conformal
+> _Conic"],PARAMETER["standard_parallel_1",35.46666666666667],PARAMETER["stan
+> dard_parallel_2",34.03333333333333],PARAMETER["latitude_of_origin",33.5],PA
+> RAMETER["central_meridian",-118],PARAMETER["false_easting",6561666.667],PAR
+> AMETER["false_northing",1640416.667],UNIT["Foot_US",0.30480060960121924]]
+> 
+> Hopefully that works for you. Let me know if it doesn't.
+
+(CC'ing proj mailing list)
+
+That's interesting, as indeed, proj assumes that WGS84 == NAD83, if no extra parameters
+are specified. Comparing the TOWGS84 values you suggest with the EPSG database,
+I see you suggest using EPSG:6866 coordinate transformation "ITRF2000 to NAD83(CORS96)"
+(actually the opposite transformation, NAD83(CORS96) to ITRF2000).
+
+Wondering if it might be appropriate to change proj.4 defaults to the above ?
+
+Although it is not clear to me which realization of WGS84 is supposed to be the one used
+by proj.4 as its pivot when datum transformations are involved. I guess this must depends
+on the semantics of the grid or towgs84 parameters used...
+
+There's also the EPSG:6864 (ITRF96 to NAD83(CORS96)) values that could be used if we rely rather
+on the original WGS84 realization : -0.9910, 1.9072,0.5129,0.02579,0.00965,0.01166,0
+
+
+Using the HTDP grids ( https://trac.osgeo.org/proj/wiki/HTDPGrids ) might also be an option.
+
+
+Indeed Daniel's suggestion seems to do the trick, or at least better match
+other data from the site http://geohub.lacity.org/datasets/813fcefde1f64b209103107b26a8909f_0 
+. I see it has also a geojson output :
+http://geohub.lacity.org/datasets/813fcefde1f64b209103107b26a8909f_0.geojson
+
+And the first feature returned is OBJECT_ID=4001 whose first vertex is :
+-118.276946349107,33.7920287419671
+
+If I do, 
+ogr2ogr -f kml /vsistdout/ /vsizip/Building_Footprints.zip  -where "OBJECTID=4001" 
+
+I get :
+-118.276934177326,33.7920239166625
+
+which is off by a bit more than 1 meter from the position of the geojson output.
+
+But If I do :
+
+ogr2ogr -f kml /vsistdout/ /vsizip/Building_Footprints.zip  -where "OBJECTID=4001" \
+ -s_srs "+proj=lcc +lat_1=35.46666666666667 +lat_2=34.03333333333333 \
++lat_0=33.5 +lon_0=-118 +x_0=2000000.000101601 +y_0=500000.0001016002 \
++ellps=GRS80 +towgs84=-0.9956,1.9013,0.5215,0.025915,0.009426,0.011599,-0.00062 +units=us-ft +no_defs" \
+-t_srs EPSG:4326
+
+I get:
+
+-118.276946349109,33.7920287419681
+
+which is identical to the geojson output (difference is in the 10 micrometer precision range)
+
+> 
+> Daniel Fenton
+> Software Engineer
+> Esri R&D
+> 
+> On Mon, Feb 8, 2016 at 6:56 AM maning sambale <emmanuel.sambale at gmail.com>
+> 
+> wrote:
+> > Hi,
+> > 
+> > I'm trying to convert LA City building data from State Plane to
+> > EPSG:4326. I converted the data using ogr2ogr.  Visually inspecting
+> > using Bing imagery, I'm seeing an offset.
+> > 
+> > Details of SRS info and sample images here:
+> > https://gist.github.com/maning/093a866fd465ea880032
+> > 
+> > It is possible that Bing has the offset, but the source of Bing comes
+> > from LARIAC (Los Angeles Region Imagery Acquisition Consortium)
+> > imagery, the same source as the building footprints were traced.
+> > 
+> > Any hints on the "proper" conversion from State Plane to EPSG:4326.
+> > 
+> > --
+> > cheers,
+> > maning
+> > ------------------------------------------------------
+> > "Freedom is still the most radical idea of all" -N.Branden
+> > https://epsg4253.wordpress.com/
+> > http://twitter.com/maningsambale
+> > ------------------------------------------------------
+> > _______________________________________________
+> > gdal-dev mailing list
+> > gdal-dev at lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From michal.seidl at gmail.com  Sat Feb 27 02:37:43 2016
+From: michal.seidl at gmail.com (Michal Seidl)
+Date: Sat, 27 Feb 2016 11:37:43 +0100
+Subject: [Proj] Support for Modified Krovak projection
+Message-ID: <56D17C77.2080709@gmail.com>
+
+Hello,
+I have implemented in my local fork of proj source code Modified Krovak 
+projection. I have given krovak-m proj.4 code for this projection.
+
+It can be used to fix missing EPSG codes 5221,5224,5225... in epsg 
+transformation file.
+
+If the proj community is interested or someone else is already working 
+on it please let me know how can I correctly contribute to project.
+
+Michal S.
+
+
+
+

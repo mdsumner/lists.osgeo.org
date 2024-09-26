@@ -1,0 +1,573 @@
+From even.rouault at spatialys.com  Sun Aug  2 08:14:54 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sun, 02 Aug 2015 17:14:54 +0200
+Subject: [Proj] Fwd: [MetaCRS] Common SQLite-based dictionaries
+Message-ID: <2272638.Wxu2K65OaN@even-n550jk>
+
+Forwarding to a few lists that might be interested in the below proposal as 
+metacrs is perhaps not widely followed. But please keep the discussion to 
+metacrs to avoid cross postings.
+
+----------  Forwarded Message  ----------
+
+Subject: [MetaCRS] Common SQLite-based dictionaries
+Date: Sunday 02 August 2015, 08:15:12
+From: Howard Butler <howard at hobu.co>
+To: metacrs at lists.osgeo.org
+
+All,
+
+libgeotiff and GDAL all use a system of bespoke CSV files for their coordinate 
+system dictionaries. proj.4 uses derived dictionaries made from GDAL's. Each 
+is a slightly different subset and/or mix of the EPSG db along with other 
+catalogs, customizations, and overrides. The situation is messy, fragile, and 
+incomplete, especially for folks like me, who are interested in support of 
+ever more complex systems of horizontal and vertical datums, time epochs 
+associated with them, and direct transformation.
+
+There have been multiple attempts to build a C tribe API that handles the 
+coordinate system description problem, but all have failed for various 
+reasons.The one true library to rule them all is probably a pipe dream, but 
+maybe it is possible to collaborate in a slightly messier way -- at the 
+dictionary level.
+
+One significant technology that was not widely available when GDAL, proj.4, and 
+libgeotiff all originated is SQLite. The idea of a single file, sql'able 
+database is a standard assumption in today's software, especially in things 
+like HTML5 (wars between WebSQL and IndexedDB), just about every significant 
+phone application, and your favorite OGC super format [1]. 
+
+I'd like to propose an attempt to standardize the GDAL, proj.4, and libgeotiff 
+SRS coordinate system handling dictionaries on a SQLite database that starts 
+with EPSG, with each project adding its own auxiliary tables as necessary. I 
+am writing this message to MetaCRS to see if there is support for such an 
+effort, and to determine if there are other related projects who would like to 
+collaborate at this level. 
+
+For the GDAL stack, the benefits of this approach are significant. Multiply-
+defined, potentially conflicting definitions no longer need to be resolved. The 
+dictionaries could release on their own schedule, rather than with each 
+individual project. Powerful new functionality would be much closer to 
+software developers instead of hidden behind a rather opaque and fragile CSV 
+dictionary generating process. Mundane but important details like 
+multithreaded access get handed off to a library and project who do that stuff 
+all the time instead of one-off implementations inside of each individual 
+project. 
+
+Database views/queries could be standardized for common lookups across. 
+Lookups would be faster due to indexed query access. Transformation 
+validation, based on EPSG or other databases, could be provided across all 
+three projects. More complex topics, like those described above, could be 
+developed in a way that have impact across all three projects without tedious 
+implementation. 
+
+Consider this email a mix of 
+
+1) is this a good idea? What other benefits do you see this approach providing?
+2) Does your project want to collaborate on this?
+3) Does this belong in MetaCRS?
+4) What are the pitfalls that make this untenable?
+
+windmill-tilting'ly yours,
+
+Howard
+
+[1] http://www.geopackage.org/
+_______________________________________________
+MetaCRS mailing list
+MetaCRS at lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/metacrs
+
+-----------------------------------------
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From huwejames at gmail.com  Sun Aug  2 09:02:08 2015
+From: huwejames at gmail.com (Huw James)
+Date: Sun, 2 Aug 2015 11:02:08 -0500
+Subject: [Proj] Fwd: [MetaCRS] Common SQLite-based dictionaries
+In-Reply-To: <2272638.Wxu2K65OaN@even-n550jk>
+References: <2272638.Wxu2K65OaN@even-n550jk>
+Message-ID: <CAMMNKS5O4PaZBfQseP+mVmMir6d=XgXvF_mXxNmXQD9GunHZMg@mail.gmail.com>
+
+Dear Even,
+
+people working today with CRS tend to assume that there is one set of
+parameters to perform a particular coordinate conversion.
+
+In the real world we have coordinates that were derived from some Latitude
+& Longitude on some datum that used datum transformations, ellipsoid
+definitions and numerical precision that are far different from those used
+today. The parameters and precision that were used were often the best
+available at the time which often preceded any satellite derive knowledge.
+
+There are many assets around the world whose coordinates and ownership are
+defined by coordinates that would change if current EPSG or other
+"standard" parameters were used. This would include moving valuable assets
+across national and private property boundaries. Disallowing customization
+of datum and projection parameters would cause no end of confusion in the
+real world. By saying that coordinates based on custom parameters for ED50
+& UTM can be supported by defining a new custom datum for UTM and ED50 is
+not useful since the link between ED50 and the new pseudoED50 and the link
+between UTM and the new pseudoUTM are both lost and it is unlikely that
+some destination computer would have definitions or code for these new
+pseudo CRS definitions.
+
+I think it is better to define the customized CRS as ED50 & UTM with its
+non-standard definitions. Systems that do not support historical CRS
+conversions will not be adopted by users that need to deal with existing
+data.
+
+Today's users tend to think that coordinates can be defined to 1 mm
+precision or less. This is a recent capability. When surveying and
+navigation accuracy was at 50 m it seemed foolish to define parameters or
+coordinate conversion software with sub-meter precision.
+
+Huw James
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20150802/a0dd42c8/attachment.html>
+
+From martin.desruisseaux at geomatys.com  Sun Aug  2 13:47:02 2015
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Sun, 2 Aug 2015 22:47:02 +0200
+Subject: [Proj] Fwd: [MetaCRS] Common SQLite-based dictionaries
+In-Reply-To: <2272638.Wxu2K65OaN@even-n550jk>
+References: <2272638.Wxu2K65OaN@even-n550jk>
+Message-ID: <55BE81C6.60008@geomatys.com>
+
+Hello all
+
+Just out of curiosity, if a SQL-like database is used, why defining new
+tables instead than using the EPSG ones directly? (note that EPSG allows
+users to define their own CRS, provided that they use a code outside the
+reserved range).
+
+If peoples still prefer to define their own tables, then I would like to
+make one suggestion:
+
+On Sunday 02 August 2015, Howard Butler wrote:
+> I'd like to propose an attempt to standardize the GDAL, proj.4, and libgeotiff 
+> SRS coordinate system handling dictionaries on a SQLite database that starts 
+> with EPSG
+
+I suggest to choose another name than EPSG, unless the proposed database
+would be made compliant with points 6.v, vi and vii of EPSG Term of Use
+(http://www.epsg.org/TermsOfUse). In my understanding the current CSV
+file goes beyond the permitted modification of data, for example on axis
+order. I realize that this is a controversial topic, and it is all right
+if an other convention is preferred - we are just not supposed to call
+that "EPSG".
+
+    Regards,
+
+        Martin
+
+
+
+From fyw at wwwtools.com  Mon Aug  3 09:47:57 2015
+From: fyw at wwwtools.com (Frank Willett)
+Date: Mon, 03 Aug 2015 10:47:57 -0600
+Subject: [Proj] Fwd: [#KXI-953237]: Barracuda Problem
+In-Reply-To: <nsilp0.hjkbkl@support.webhostingpad.com>
+References: <nsilp0.hjkbkl@support.webhostingpad.com>
+Message-ID: <55BF9B3D.5070902@wwwtools.com>
+
+>From WebHostingPad ... hope this works now!
+
+
+-------- Forwarded Message --------
+Subject: 	[#KXI-953237]: Barracuda Problem
+Date: 	Mon, 03 Aug 2015 11:27:00 -0500
+From: 	WebHostingPad Support <support at webhostingpad.com>
+Reply-To: 	support at webhostingpad.com
+To: 	fyw at wwwtools.com
+
+
+
+Hello Frank,
+
+  Thank you for your patience on this. You should be able to see the login information email with subject "User Quarantine Account Information" in the inbox of email account jorge at wwwtools.com. Please check.
+
+
+Please let us know if there's anything else we can assist you with.
+
+Regards,
+Victor K,
+Senior System Administrator.
+http://webhostingpad.com
+KB: http://webhostingpad.com/knowledgebase
+Video Tutorials: http://www.webhostingpad.com/demos/
+Submit your Feedback at http://webhostingpad.com/feedback
+
+Ticket Details
+===================
+Ticket ID: KXI-953237
+Department: Admin
+Priority: default
+Status: On Hold
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20150803/30b5a3a3/attachment.html>
+
+From fyw at wwwtools.com  Mon Aug  3 11:50:14 2015
+From: fyw at wwwtools.com (Frank Willett)
+Date: Mon, 03 Aug 2015 12:50:14 -0600
+Subject: [Proj] Sorry for the post :-(
+Message-ID: <55BFB7E6.7090807@wwwtools.com>
+
+Sorry for the earlier post. Fat fingers strike again. PBKAC
+
+Frank Willett
+
+
+From charles.karney at sri.com  Thu Aug 13 13:46:03 2015
+From: charles.karney at sri.com (Charles Karney)
+Date: Thu, 13 Aug 2015 16:46:03 -0400
+Subject: [Proj] degree to radian conversions
+Message-ID: <55CD020B.4080308@sri.com>
+
+I just submitted a pull request for proj.4 to correct the values of the
+constants used in degree/radian conversions.  The important change was
+to use
+
+   .0174532925199432958
+
+instead of
+
+   .0174532925199433
+
+as the value of pi/180 used to convert degrees to radians in dmstor.c.
+The new value is substantial closer to the true value...
+
+   cos(90 * .0174532925199432958) =  6.1e-17
+   cos(90 * .0174532925199433)    = -3.8e-16
+
+Needless to say, some of the tests now fail.  Particularly because
+proj.4 used to round 90 deg to an illegal latitude (larger than pi/2).
+
+However the changes for the healpix checks are inexplicably large.
+
+It would be good if someone could figure out why the healpix results
+change so much.
+
+   --Charles
+
+
+From even.rouault at spatialys.com  Thu Aug 13 13:58:36 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 13 Aug 2015 22:58:36 +0200
+Subject: [Proj] degree to radian conversions
+In-Reply-To: <55CD020B.4080308@sri.com>
+References: <55CD020B.4080308@sri.com>
+Message-ID: <201508132258.36499.even.rouault@spatialys.com>
+
+Le jeudi 13 août 2015 22:46:03, Charles Karney a écrit :
+> I just submitted a pull request for proj.4 to correct the values of the
+> constants used in degree/radian conversions.  The important change was
+> to use
+> 
+>    .0174532925199432958
+> 
+> instead of
+> 
+>    .0174532925199433
+> 
+> as the value of pi/180 used to convert degrees to radians in dmstor.c.
+> The new value is substantial closer to the true value...
+> 
+>    cos(90 * .0174532925199432958) =  6.1e-17
+>    cos(90 * .0174532925199433)    = -3.8e-16
+> 
+> Needless to say, some of the tests now fail.  Particularly because
+> proj.4 used to round 90 deg to an illegal latitude (larger than pi/2).
+> 
+> However the changes for the healpix checks are inexplicably large.
+> 
+> It would be good if someone could figure out why the healpix results
+> change so much.
+
+Adding in CC the authors mentionned in PJ_healpix.c, if they're not subscribed 
+to this mailing list, in case they have an idea.
+
+And for everyone, the commit of the pull request : 
+https://github.com/OSGeo/proj.4/commit/794052ed09f5c9e4ee49ece4af7f641098e29eb4
+
+And test failures:
+https://travis-ci.org/OSGeo/proj.4/jobs/75476366
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From even.rouault at spatialys.com  Tue Aug 25 08:46:08 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 25 Aug 2015 17:46:08 +0200
+Subject: [Proj] Confused by git branch management
+Message-ID: <201508251746.08991.even.rouault@spatialys.com>
+
+Hi,
+
+I've just pushed a fix to trunk and branch/4.9, the latest I assumed to be the 
+one that would gave a proj 4.9.2, but when digging more, it appears this 
+branch/4.9 is really outdated (https://github.com/OSGeo/proj.4/commits/4.9).
+It looks like it is basically 4.9.0 plus a couple of fixes I committed 
+afterwards.
+
+I'm wondering if it wouldn't be appropriate to :
+1) kill this branch/4.9
+2) copy tag/4.9.1 as branch/4.9 (or from the master commit that corresponds)
+3) and reapply on top of the relevant commits
+
+I guess this would translate to 
+1) git push origin :4.9
+2) git checkout tag/4.9.1
+    git branch -b 4.9
+    git push origin 4.9
+3) git cherry-pick ...
+
+But my git abilities are limited, so advice would be welcome, in case we agree 
+this is the right strategy.
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From support at mnspoint.com  Wed Aug 26 17:09:34 2015
+From: support at mnspoint.com (support at mnspoint.com)
+Date: Thu, 27 Aug 2015 03:09:34 +0300
+Subject: [Proj] Confused by git branch management
+In-Reply-To: <201508251746.08991.even.rouault@spatialys.com>
+References: <201508251746.08991.even.rouault@spatialys.com>
+Message-ID: <b1d203bd539e087830a227a32db917aa@mnspoint.com>
+
+Hello,
+
+if there is only some very minor work done ... please DO NOT generate 
+new versions since lot of people have to do lot of update work!!
+
+Even I think 4.9 was already out .. so that will go to the next one?!
+
+Thank You!
+
+Janne.
+
+----------------------------------------------------------
+
+
+Even Rouault kirjoitti 25.08.2015 18:46:
+> Hi,
+> 
+> I've just pushed a fix to trunk and branch/4.9, the latest I assumed to 
+> be the
+> one that would gave a proj 4.9.2, but when digging more, it appears 
+> this
+> branch/4.9 is really outdated 
+> (https://github.com/OSGeo/proj.4/commits/4.9).
+> It looks like it is basically 4.9.0 plus a couple of fixes I committed
+> afterwards.
+> 
+> I'm wondering if it wouldn't be appropriate to :
+> 1) kill this branch/4.9
+> 2) copy tag/4.9.1 as branch/4.9 (or from the master commit that 
+> corresponds)
+> 3) and reapply on top of the relevant commits
+> 
+> I guess this would translate to
+> 1) git push origin :4.9
+> 2) git checkout tag/4.9.1
+>     git branch -b 4.9
+>     git push origin 4.9
+> 3) git cherry-pick ...
+> 
+> But my git abilities are limited, so advice would be welcome, in case 
+> we agree
+> this is the right strategy.
+> 
+> Even
+
+
+
+
+From charles.karney at sri.com  Wed Aug 26 17:41:27 2015
+From: charles.karney at sri.com (Charles Karney)
+Date: Wed, 26 Aug 2015 20:41:27 -0400
+Subject: [Proj] Confused by git branch management
+In-Reply-To: <b1d203bd539e087830a227a32db917aa@mnspoint.com>
+References: <201508251746.08991.even.rouault@spatialys.com>
+	<b1d203bd539e087830a227a32db917aa@mnspoint.com>
+Message-ID: <55DE5CB7.60606@sri.com>
+
+One of the reasons that the previous update (4.8.0 to 4.9.1) was so
+difficult was that the time between these releases was so long (about 3
+years).  Coming out with releases every six months or year should not be
+traumatic.  If it is, then there are other problem with the way the
+releases are managed or with how dependent libraries find proj; and we
+should address these.
+
+   --Charles
+
+On 08/26/2015 08:09 PM, support at mnspoint.com wrote:
+> Hello,
+>
+> if there is only some very minor work done ... please DO NOT generate
+> new versions since lot of people have to do lot of update work!!
+>
+> Even I think 4.9 was already out .. so that will go to the next one?!
+>
+> Thank You!
+>
+> Janne.
+>
+> ----------------------------------------------------------
+>
+>
+> Even Rouault kirjoitti 25.08.2015 18:46:
+>> Hi,
+>>
+>> I've just pushed a fix to trunk and branch/4.9, the latest I assumed to
+>> be the
+>> one that would gave a proj 4.9.2, but when digging more, it appears
+>> this
+>> branch/4.9 is really outdated
+>> (https://github.com/OSGeo/proj.4/commits/4.9).
+>> It looks like it is basically 4.9.0 plus a couple of fixes I committed
+>> afterwards.
+>>
+>> I'm wondering if it wouldn't be appropriate to :
+>> 1) kill this branch/4.9
+>> 2) copy tag/4.9.1 as branch/4.9 (or from the master commit that
+>> corresponds)
+>> 3) and reapply on top of the relevant commits
+>>
+>> I guess this would translate to
+>> 1) git push origin :4.9
+>> 2) git checkout tag/4.9.1
+>>      git branch -b 4.9
+>>      git push origin 4.9
+>> 3) git cherry-pick ...
+>>
+>> But my git abilities are limited, so advice would be welcome, in case
+>> we agree
+>> this is the right strategy.
+>>
+>> Even
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+
+From howard at hobu.co  Thu Aug 27 07:05:10 2015
+From: howard at hobu.co (Howard Butler)
+Date: Thu, 27 Aug 2015 09:05:10 -0500
+Subject: [Proj] Confused by git branch management
+In-Reply-To: <201508251746.08991.even.rouault@spatialys.com>
+References: <201508251746.08991.even.rouault@spatialys.com>
+Message-ID: <0CB17341-EFE0-4983-BBC0-036AFB3D2C59@hobu.co>
+
+
+> On Aug 25, 2015, at 10:46 AM, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> I'm wondering if it wouldn't be appropriate to :
+> 1) kill this branch/4.9
+> 2) copy tag/4.9.1 as branch/4.9 (or from the master commit that corresponds)
+> 3) and reapply on top of the relevant commits
+> 
+> I guess this would translate to 
+> 1) git push origin :4.9
+> 2) git checkout tag/4.9.1
+>    git branch -b 4.9
+>    git push origin 4.9
+> 3) git cherry-pick ...
+> 
+> But my git abilities are limited, so advice would be welcome, in case we agree 
+> this is the right strategy.
+
+As are my git skills, but this management approach makes sense. I wasn't quite sure what to do when working on the 4.9.1 release, and there isn't so much project structure to ask for guidance on. master is essentially what will become 4.9.2, and I don't know that proj.4 has ever had stable/develop branching before.
+
+If someone really really needs a pointer to old code, they have lots of ways to get it. I don't think we have to be too concerned with moving things around to make it easier to maintain and develop proj.4.
+
+Howard
+
+
+
+
+
+From even.rouault at spatialys.com  Thu Aug 27 07:21:41 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 27 Aug 2015 16:21:41 +0200
+Subject: [Proj] Confused by git branch management
+In-Reply-To: <0CB17341-EFE0-4983-BBC0-036AFB3D2C59@hobu.co>
+References: <201508251746.08991.even.rouault@spatialys.com>
+	<0CB17341-EFE0-4983-BBC0-036AFB3D2C59@hobu.co>
+Message-ID: <201508271621.41999.even.rouault@spatialys.com>
+
+Le jeudi 27 août 2015 16:05:10, vous avez écrit :
+> > On Aug 25, 2015, at 10:46 AM, Even Rouault <even.rouault at spatialys.com>
+> > wrote:
+> > 
+> > I'm wondering if it wouldn't be appropriate to :
+> > 1) kill this branch/4.9
+> > 2) copy tag/4.9.1 as branch/4.9 (or from the master commit that
+> > corresponds) 3) and reapply on top of the relevant commits
+> > 
+> > I guess this would translate to
+> > 1) git push origin :4.9
+> > 2) git checkout tag/4.9.1
+> > 
+> >    git branch -b 4.9
+> >    git push origin 4.9
+> > 
+> > 3) git cherry-pick ...
+> > 
+> > But my git abilities are limited, so advice would be welcome, in case we
+> > agree this is the right strategy.
+> 
+> As are my git skills, but this management approach makes sense. I wasn't
+> quite sure what to do when working on the 4.9.1 release, and there isn't
+> so much project structure to ask for guidance on. master is essentially
+> what will become 4.9.2, and I don't know that proj.4 has ever had
+> stable/develop branching before.
+
+OK, but I guess that depends on what goes into master. They might be changes 
+that would deserve a 4.10.0.
+
+I personnaly don't really need a bugfix-only release on top of 4.9.1. I was 
+just trying to make it possible to have one.
+
+> 
+> If someone really really needs a pointer to old code, they have lots of
+> ways to get it. I don't think we have to be too concerned with moving
+> things around to make it easier to maintain and develop proj.4.
+> 
+> Howard
+> 
+> 
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+

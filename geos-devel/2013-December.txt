@@ -1,0 +1,807 @@
+From mwtoews at gmail.com  Wed Dec  4 12:33:17 2013
+From: mwtoews at gmail.com (Mike Toews)
+Date: Thu, 5 Dec 2013 09:33:17 +1300
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+Message-ID: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+
+Hi,
+
+It appears that the WKB format used by the WKBReader/Writer is not the
+OGC WKB as documented in the API [1,2], but is the PostGIS' EWKB
+format [3]. This distinction is not mentioned.
+
+>From what I can tell, these two formats are different when used with
+non-2D geometries. For example, take 'POINT Z (1 2 3)'.
+
+SELECT
+  encode(ST_AsBinary(g, 'xdr'), 'hex') as ogc,
+  encode(ST_AsEWKB(g, 'xdr'), 'hex') as ewkb
+FROM (SELECT 'POINT Z (1 2 3)'::geometry AS g) AS f;
+
+-[ RECORD 1 ]----------------------------------------------------
+ogc  | 00000003e93ff000000000000040000000000000004008000000000000
+ewkb | 00800000013ff000000000000040000000000000004008000000000000
+
+The geometry type parts of the hex strings are:
+
+ogc: 0x000003e9 or better known as 1001 in base-10
+ewkb: 0x80000001, from 1 | 0x80000000
+
+Not to mention the differences of M in OGC (parsed, but ignored by
+GEOS), and SRID bit mask in EWKB (supported by GEOS).
+
+The WKBWriter doesn't write OGC WKB, as the documentation appears to
+claim[2], and the WKBReader actually cannot parse the OpenGIS WKB,
+which is also claimed in the documentation [1].
+
+Attempting to read the OGC WKB example throws:
+ParseException: Unknown WKB type 48
+
+-Mike
+
+[1] http://geos.osgeo.org/doxygen/classgeos_1_1io_1_1WKBReader.html
+[2] http://geos.osgeo.org/doxygen/classgeos_1_1io_1_1WKBWriter.html
+[3] http://trac.osgeo.org/postgis/browser/trunk/doc/ZMSgeoms.txt
+
+From mtnclimb at telus.net  Wed Dec  4 20:51:25 2013
+From: mtnclimb at telus.net (Martin Davis)
+Date: Wed, 04 Dec 2013 20:51:25 -0800
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+In-Reply-To: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+References: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+Message-ID: <52A0064D.70600@telus.net>
+
+The JTS doc for the WKBReader says:
+
+"It also partially handles the Extended WKB format used by PostGIS".
+
+My recollection is that at the time JTS was original developed, the OGC 
+SFS spec was at version 1.1 (99-049), and did not specify 3D support for 
+WKB.  PostGIS extended the spec to allow this - but when the OGC got 
+around to specifying it, it did so in a different way. Hence the 
+discrepancy.
+
+
+On 12/4/2013 12:33 PM, Mike Toews wrote:
+> Hi,
+>
+> It appears that the WKB format used by the WKBReader/Writer is not the
+> OGC WKB as documented in the API [1,2], but is the PostGIS' EWKB
+> format [3]. This distinction is not mentioned.
+>
+> >From what I can tell, these two formats are different when used with
+> non-2D geometries. For example, take 'POINT Z (1 2 3)'.
+>
+> SELECT
+>    encode(ST_AsBinary(g, 'xdr'), 'hex') as ogc,
+>    encode(ST_AsEWKB(g, 'xdr'), 'hex') as ewkb
+> FROM (SELECT 'POINT Z (1 2 3)'::geometry AS g) AS f;
+>
+> -[ RECORD 1 ]----------------------------------------------------
+> ogc  | 00000003e93ff000000000000040000000000000004008000000000000
+> ewkb | 00800000013ff000000000000040000000000000004008000000000000
+>
+> The geometry type parts of the hex strings are:
+>
+> ogc: 0x000003e9 or better known as 1001 in base-10
+> ewkb: 0x80000001, from 1 | 0x80000000
+>
+> Not to mention the differences of M in OGC (parsed, but ignored by
+> GEOS), and SRID bit mask in EWKB (supported by GEOS).
+>
+> The WKBWriter doesn't write OGC WKB, as the documentation appears to
+> claim[2], and the WKBReader actually cannot parse the OpenGIS WKB,
+> which is also claimed in the documentation [1].
+>
+> Attempting to read the OGC WKB example throws:
+> ParseException: Unknown WKB type 48
+>
+> -Mike
+>
+> [1] http://geos.osgeo.org/doxygen/classgeos_1_1io_1_1WKBReader.html
+> [2] http://geos.osgeo.org/doxygen/classgeos_1_1io_1_1WKBWriter.html
+> [3] http://trac.osgeo.org/postgis/browser/trunk/doc/ZMSgeoms.txt
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> -----
+> No virus found in this message.
+> Checked by AVG - www.avg.com
+> Version: 2013.0.3426 / Virus Database: 3657/6891 - Release Date: 12/04/13
+>
+>
+
+
+From pramsey at cleverelephant.ca  Wed Dec  4 21:38:58 2013
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 4 Dec 2013 21:38:58 -0800
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+In-Reply-To: <52A0064D.70600@telus.net>
+References: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+	<52A0064D.70600@telus.net>
+Message-ID: <CACowWR2-YxTJD6ojDY_v_CzY_QO1296_rq=G4tqPktV5R=xzSQ@mail.gmail.com>
+
+Right, at the time JTS/GEOS came into being, the only standard WKB was
+2D WKB, so from an interop point of view, it was golden.
+
+It might be time to update the reader to ingest more variants, and the
+writer to emit ISO standard 3D/4D variants. That would imply also
+updating the WKT writer and reader, etc, etc. And how about an M
+coordinate? :)
+
+P.
+
+On Wed, Dec 4, 2013 at 8:51 PM, Martin Davis <mtnclimb at telus.net> wrote:
+> The JTS doc for the WKBReader says:
+>
+> "It also partially handles the Extended WKB format used by PostGIS".
+>
+> My recollection is that at the time JTS was original developed, the OGC SFS
+> spec was at version 1.1 (99-049), and did not specify 3D support for WKB.
+> PostGIS extended the spec to allow this - but when the OGC got around to
+> specifying it, it did so in a different way. Hence the discrepancy.
+>
+>
+>
+> On 12/4/2013 12:33 PM, Mike Toews wrote:
+>>
+>> Hi,
+>>
+>> It appears that the WKB format used by the WKBReader/Writer is not the
+>> OGC WKB as documented in the API [1,2], but is the PostGIS' EWKB
+>> format [3]. This distinction is not mentioned.
+>>
+>> >From what I can tell, these two formats are different when used with
+>> non-2D geometries. For example, take 'POINT Z (1 2 3)'.
+>>
+>> SELECT
+>>    encode(ST_AsBinary(g, 'xdr'), 'hex') as ogc,
+>>    encode(ST_AsEWKB(g, 'xdr'), 'hex') as ewkb
+>> FROM (SELECT 'POINT Z (1 2 3)'::geometry AS g) AS f;
+>>
+>> -[ RECORD 1 ]----------------------------------------------------
+>> ogc  | 00000003e93ff000000000000040000000000000004008000000000000
+>> ewkb | 00800000013ff000000000000040000000000000004008000000000000
+>>
+>> The geometry type parts of the hex strings are:
+>>
+>> ogc: 0x000003e9 or better known as 1001 in base-10
+>> ewkb: 0x80000001, from 1 | 0x80000000
+>>
+>> Not to mention the differences of M in OGC (parsed, but ignored by
+>> GEOS), and SRID bit mask in EWKB (supported by GEOS).
+>>
+>> The WKBWriter doesn't write OGC WKB, as the documentation appears to
+>> claim[2], and the WKBReader actually cannot parse the OpenGIS WKB,
+>> which is also claimed in the documentation [1].
+>>
+>> Attempting to read the OGC WKB example throws:
+>> ParseException: Unknown WKB type 48
+>>
+>> -Mike
+>>
+>> [1] http://geos.osgeo.org/doxygen/classgeos_1_1io_1_1WKBReader.html
+>> [2] http://geos.osgeo.org/doxygen/classgeos_1_1io_1_1WKBWriter.html
+>> [3] http://trac.osgeo.org/postgis/browser/trunk/doc/ZMSgeoms.txt
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>>
+>> -----
+>> No virus found in this message.
+>> Checked by AVG - www.avg.com
+>> Version: 2013.0.3426 / Virus Database: 3657/6891 - Release Date: 12/04/13
+>>
+>>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From aperi2007 at gmail.com  Thu Dec  5 00:37:57 2013
+From: aperi2007 at gmail.com (Andrea Peri)
+Date: Thu, 5 Dec 2013 09:37:57 +0100
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+Message-ID: <CABqTJk_gh032uuHj2QTLbVrUAjmhGOe4OaK7GEOjTGOKkC__rg@mail.gmail.com>
+
+Paul Ramsey wrote:
+
+>Right, at the time JTS/GEOS came into being, the only standard WKB was
+>2D WKB, so from an interop point of view, it was golden.
+>
+>It might be time to update the reader to ingest more variants, and the
+>writer to emit ISO standard 3D/4D variants. That would imply also
+>updating the WKT writer and reader, etc, etc. And how about an M
+>coordinate? :)
+>
+>P.
+
+
+I like to understand why if the OGC was a 2D only specs, when it choose to
+go forward the 3D spec.
+Also it choose to not support an enhanced specs (like postgis) that was
+already available and also was 2D compliant.
+
+I start to guess that perhaps the OGC team is too old age.
+
+-- 
+-----------------
+Andrea Peri
+. . . . . . . . .
+qwerty ?????
+-----------------
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131205/383685f6/attachment.html>
+
+From mwtoews at gmail.com  Thu Dec  5 01:40:04 2013
+From: mwtoews at gmail.com (Mike Toews)
+Date: Thu, 5 Dec 2013 22:40:04 +1300
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+In-Reply-To: <CACowWR2-YxTJD6ojDY_v_CzY_QO1296_rq=G4tqPktV5R=xzSQ@mail.gmail.com>
+References: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+	<52A0064D.70600@telus.net>
+	<CACowWR2-YxTJD6ojDY_v_CzY_QO1296_rq=G4tqPktV5R=xzSQ@mail.gmail.com>
+Message-ID: <CAM2FmMrmECF1d59ZYJ3e3dmmxb-_g2gjdvovNn78gNqWy2Q5aw@mail.gmail.com>
+
+Ok, the WKB Reader/Writer APIs make sense from the perspective of a
+2D-only OGC spec, which is when they were written. I think the GEOS
+documentation just needs to be a bit more clear
+http://trac.osgeo.org/geos/ticket/677
+
+Yeah, it would be wise if WKBReader could parse the OGC WKB too (sort
+of http://trac.osgeo.org/geos/ticket/466), as PostGIS does via
+ST_AsBinary or even ST_AsEWKT with a warning. The WKBWriter could also
+add an option to emit OGC-spec outputs, but that's just getting fancy.
+I'm not aware of anyone actually reading/writing non-2D WKB with GEOS
+that would benefit from this, but you never know.
+
+GEOS correctly parses EWKB 3D-M and 4D-ZM geometries, but completely
+ignores the M value (http://trac.osgeo.org/geos/ticket/460). Note that
+the WKT reader also reads 3D-M geometries, but misinterprets M as Z,
+which is different than the behaviour with WKB, which just makes a 2D
+geometry http://trac.osgeo.org/geos/ticket/676
+
+Great backgrounder from 9 years ago here:
+http://lists.osgeo.org/pipermail/postgis-devel/2004-December/000694.html
+
+-Mike
+
+On 5 December 2013 18:38, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+> Right, at the time JTS/GEOS came into being, the only standard WKB was
+> 2D WKB, so from an interop point of view, it was golden.
+>
+> It might be time to update the reader to ingest more variants, and the
+> writer to emit ISO standard 3D/4D variants. That would imply also
+> updating the WKT writer and reader, etc, etc. And how about an M
+> coordinate? :)
+>
+> P.
+>
+> On Wed, Dec 4, 2013 at 8:51 PM, Martin Davis <mtnclimb at telus.net> wrote:
+>> The JTS doc for the WKBReader says:
+>>
+>> "It also partially handles the Extended WKB format used by PostGIS".
+>>
+>> My recollection is that at the time JTS was original developed, the OGC SFS
+>> spec was at version 1.1 (99-049), and did not specify 3D support for WKB.
+>> PostGIS extended the spec to allow this - but when the OGC got around to
+>> specifying it, it did so in a different way. Hence the discrepancy.
+
+From pramsey at cleverelephant.ca  Thu Dec  5 11:52:39 2013
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 5 Dec 2013 11:52:39 -0800
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+In-Reply-To: <CAM2FmMrmECF1d59ZYJ3e3dmmxb-_g2gjdvovNn78gNqWy2Q5aw@mail.gmail.com>
+References: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+	<52A0064D.70600@telus.net>
+	<CACowWR2-YxTJD6ojDY_v_CzY_QO1296_rq=G4tqPktV5R=xzSQ@mail.gmail.com>
+	<CAM2FmMrmECF1d59ZYJ3e3dmmxb-_g2gjdvovNn78gNqWy2Q5aw@mail.gmail.com>
+Message-ID: <CACowWR3P8c=btnJhRoV1ZudG0oAhVM2RzN4+700ziQsRdwqORQ@mail.gmail.com>
+
+That thread includes a (dead) link to the (approved) OGC change that
+added PostGIS-style 2.5 D handling of WKB
+(http://lists.osgeo.org/pipermail/postgis-devel/2004-December/000695.html)
+
+Unfortunately, that change was promptly thrown down the memory hole,
+and when the time came to go 3d OGC instead adopted the ISO "add a few
+thousand" scheme for 2.5 D WKB types instead of the PostGIS "flip the
+high bit" approach.
+
+P.
+
+On Thu, Dec 5, 2013 at 1:40 AM, Mike Toews <mwtoews at gmail.com> wrote:
+> Ok, the WKB Reader/Writer APIs make sense from the perspective of a
+> 2D-only OGC spec, which is when they were written. I think the GEOS
+> documentation just needs to be a bit more clear
+> http://trac.osgeo.org/geos/ticket/677
+>
+> Yeah, it would be wise if WKBReader could parse the OGC WKB too (sort
+> of http://trac.osgeo.org/geos/ticket/466), as PostGIS does via
+> ST_AsBinary or even ST_AsEWKT with a warning. The WKBWriter could also
+> add an option to emit OGC-spec outputs, but that's just getting fancy.
+> I'm not aware of anyone actually reading/writing non-2D WKB with GEOS
+> that would benefit from this, but you never know.
+>
+> GEOS correctly parses EWKB 3D-M and 4D-ZM geometries, but completely
+> ignores the M value (http://trac.osgeo.org/geos/ticket/460). Note that
+> the WKT reader also reads 3D-M geometries, but misinterprets M as Z,
+> which is different than the behaviour with WKB, which just makes a 2D
+> geometry http://trac.osgeo.org/geos/ticket/676
+>
+> Great backgrounder from 9 years ago here:
+> http://lists.osgeo.org/pipermail/postgis-devel/2004-December/000694.html
+>
+> -Mike
+>
+> On 5 December 2013 18:38, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+>> Right, at the time JTS/GEOS came into being, the only standard WKB was
+>> 2D WKB, so from an interop point of view, it was golden.
+>>
+>> It might be time to update the reader to ingest more variants, and the
+>> writer to emit ISO standard 3D/4D variants. That would imply also
+>> updating the WKT writer and reader, etc, etc. And how about an M
+>> coordinate? :)
+>>
+>> P.
+>>
+>> On Wed, Dec 4, 2013 at 8:51 PM, Martin Davis <mtnclimb at telus.net> wrote:
+>>> The JTS doc for the WKBReader says:
+>>>
+>>> "It also partially handles the Extended WKB format used by PostGIS".
+>>>
+>>> My recollection is that at the time JTS was original developed, the OGC SFS
+>>> spec was at version 1.1 (99-049), and did not specify 3D support for WKB.
+>>> PostGIS extended the spec to allow this - but when the OGC got around to
+>>> specifying it, it did so in a different way. Hence the discrepancy.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From mateusz at loskot.net  Thu Dec  5 14:36:25 2013
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 5 Dec 2013 22:36:25 +0000
+Subject: [geos-devel] WKB representation is EWKB, not OGC
+In-Reply-To: <CACowWR3P8c=btnJhRoV1ZudG0oAhVM2RzN4+700ziQsRdwqORQ@mail.gmail.com>
+References: <CAM2FmMp9SO+71Nd_x7x0pz_ctcd3UfqXwSBZRkiHgSgP1VEANg@mail.gmail.com>
+	<52A0064D.70600@telus.net>
+	<CACowWR2-YxTJD6ojDY_v_CzY_QO1296_rq=G4tqPktV5R=xzSQ@mail.gmail.com>
+	<CAM2FmMrmECF1d59ZYJ3e3dmmxb-_g2gjdvovNn78gNqWy2Q5aw@mail.gmail.com>
+	<CACowWR3P8c=btnJhRoV1ZudG0oAhVM2RzN4+700ziQsRdwqORQ@mail.gmail.com>
+Message-ID: <CABUeae9Ot03VjT541V7dMSyEx+4m3940VTKWSEPeJXROeWSv6Q@mail.gmail.com>
+
+On 5 December 2013 19:52, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+> That thread includes a (dead) link to the (approved) OGC change that
+> added PostGIS-style 2.5 D handling of WKB
+> (http://lists.osgeo.org/pipermail/postgis-devel/2004-December/000695.html)
+
+Here is another one with the original Adam Gawne-Cain's 99-402r2.pdf attached
+
+http://lists.osgeo.org/pipermail/postgis-devel/2004-December/000695.html
+
+
+Best regards,
+-- 
+Mateusz  ?oskot, http://mateusz.loskot.net
+
+From oss at jryanearl.us  Fri Dec  6 08:52:16 2013
+From: oss at jryanearl.us (J. Ryan Earl)
+Date: Fri, 6 Dec 2013 10:52:16 -0600
+Subject: [geos-devel] Fix for Ruby support in 3.4.2/trunk
+Message-ID: <CAC=xA+UhCZGAOu+dTYgBvMu5CYmJDgmqBmYg+kF0zwP5Qxg9AQ@mail.gmail.com>
+
+Hi,
+
+While creating a RPM for geos-3.4.2 I noticed that builds with Ruby support
+were broken due to an error in swig/ruby/Makefile.am  I couldn't find any
+contribution guidelines for the project, but I've created a pull request
+here:
+
+https://github.com/libgeos/libgeos/pull/32/files
+
+I agree to LGPL, or any other licensing terms, for inclusion/use of this
+code.
+
+Best,
+-JR
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131206/c8b036fb/attachment.html>
+
+From bontepaarden at gmail.com  Mon Dec 16 01:54:47 2013
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Mon, 16 Dec 2013 10:54:47 +0100
+Subject: [geos-devel] Clipping geometries
+Message-ID: <CAHNf2YSg=OiD9TF=y6YzsR2RqG_yT=Jrg7kO-QYmK+1hfhBLKg@mail.gmail.com>
+
+Hi List,
+
+We use GEOS with GDAL in our MapWinGIS project (mapwingis.codeplex.com) and
+we have some questions about clipping and how it is implemented in GEOS.
+
+I have a polyline shapefile with the USA major roads, most roads overlap
+multiple states.
+I also have a polygon shapefile with USA states.
+
+When I clip the roads with the states I would expect a polyline as a result
+where a road that crosses a state border is clipped resulting in two
+polylines.
+Is this the expected behavior and which GEOS methods should I use to
+accomplish this?
+
+Now switching the layers. I clip the states with the roads and when a road
+crosses the state and starts and ends outside the state the state is
+divided into two polygons with the road as the new border.
+This might be less common, so I wonder if I can expect from GEOS to handle
+this. And again which GEOS methods should I use if this is possible?
+
+Of course I did some searching for documentation, but couldn't find it.
+If the documentation explains my questions please give me the url.
+
+Thanks,
+
+Paul
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131216/38ea9725/attachment.html>
+
+From strk at keybit.net  Mon Dec 16 03:02:09 2013
+From: strk at keybit.net (Sandro Santilli)
+Date: Mon, 16 Dec 2013 12:02:09 +0100
+Subject: [geos-devel] Clipping geometries
+In-Reply-To: <CAHNf2YSg=OiD9TF=y6YzsR2RqG_yT=Jrg7kO-QYmK+1hfhBLKg@mail.gmail.com>
+References: <CAHNf2YSg=OiD9TF=y6YzsR2RqG_yT=Jrg7kO-QYmK+1hfhBLKg@mail.gmail.com>
+Message-ID: <20131216110209.GB5729@localhost>
+
+On Mon, Dec 16, 2013 at 10:54:47AM +0100, Paul Meems wrote:
+> Hi List,
+> 
+> We use GEOS with GDAL in our MapWinGIS project (mapwingis.codeplex.com) and
+> we have some questions about clipping and how it is implemented in GEOS.
+> 
+> I have a polyline shapefile with the USA major roads, most roads overlap
+> multiple states.
+> I also have a polygon shapefile with USA states.
+> 
+> When I clip the roads with the states I would expect a polyline as a result
+> where a road that crosses a state border is clipped resulting in two
+> polylines.
+> Is this the expected behavior and which GEOS methods should I use to
+> accomplish this?
+
+ST_Intersection(road, state), for each state, would give the state-belonging
+segment at each call.
+
+> Now switching the layers. I clip the states with the roads and when a road
+> crosses the state and starts and ends outside the state the state is
+> divided into two polygons with the road as the new border.
+> This might be less common, so I wonder if I can expect from GEOS to handle
+> this. And again which GEOS methods should I use if this is possible?
+
+There's no single method in GEOS doing that.
+PostGIS exposes an ST_Split method to do it, which basically
+polygonizes the noded linework of inputs.
+
+--strk;
+
+From bontepaarden at gmail.com  Mon Dec 16 23:22:13 2013
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Tue, 17 Dec 2013 08:22:13 +0100
+Subject: [geos-devel] Clipping geometries
+In-Reply-To: <20131216110209.GB5729@localhost>
+References: <CAHNf2YSg=OiD9TF=y6YzsR2RqG_yT=Jrg7kO-QYmK+1hfhBLKg@mail.gmail.com>
+	<20131216110209.GB5729@localhost>
+Message-ID: <CAHNf2YTOuQQL+2-hs1J9+3YbGp5AbN8+Lqk7YxQKCcCs+D+hMA@mail.gmail.com>
+
+Thanks Sandro for your answer.
+Is some documentation available which tells me which combinations
+(line-polygon, polygon-polygon, line-line, etc.) should work and which not?
+
+
+Thanks,
+
+
+
+Paul
+
+ *Paul Meems *
+Release manager, configuration manager
+and forum moderator of MapWindow GIS.
+www.mapwindow.org
+
+Owner of MapWindow.nl - Support for
+Dutch speaking users.
+www.mapwindow.nl
+
+
+
+
+2013/12/16 Sandro Santilli <strk at keybit.net>
+
+> On Mon, Dec 16, 2013 at 10:54:47AM +0100, Paul Meems wrote:
+> > Hi List,
+> >
+> > We use GEOS with GDAL in our MapWinGIS project (mapwingis.codeplex.com)
+> and
+> > we have some questions about clipping and how it is implemented in GEOS.
+> >
+> > I have a polyline shapefile with the USA major roads, most roads overlap
+> > multiple states.
+> > I also have a polygon shapefile with USA states.
+> >
+> > When I clip the roads with the states I would expect a polyline as a
+> result
+> > where a road that crosses a state border is clipped resulting in two
+> > polylines.
+> > Is this the expected behavior and which GEOS methods should I use to
+> > accomplish this?
+>
+> ST_Intersection(road, state), for each state, would give the
+> state-belonging
+> segment at each call.
+>
+> > Now switching the layers. I clip the states with the roads and when a
+> road
+> > crosses the state and starts and ends outside the state the state is
+> > divided into two polygons with the road as the new border.
+> > This might be less common, so I wonder if I can expect from GEOS to
+> handle
+> > this. And again which GEOS methods should I use if this is possible?
+>
+> There's no single method in GEOS doing that.
+> PostGIS exposes an ST_Split method to do it, which basically
+> polygonizes the noded linework of inputs.
+>
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131217/7388512f/attachment.html>
+
+From aperi2007 at gmail.com  Tue Dec 17 03:33:41 2013
+From: aperi2007 at gmail.com (Andrea Peri)
+Date: Tue, 17 Dec 2013 12:33:41 +0100
+Subject: [geos-devel] Clipping geometries
+Message-ID: <CABqTJk-+QA4tx_e_23G-9JRqqcOpTb1z9aosQWKM=4eXGGHc_A@mail.gmail.com>
+
+The ST_Split is localized inside the LibLWGEom library.
+
+So it is also supported from spatialite 4.1.1 , infact it support the same
+LibLWGeom.
+
+An alternative solution could be if MapWindows support spatialite , I don't
+know if it is supported.
+
+
+-- 
+-----------------
+Andrea Peri
+. . . . . . . . .
+qwerty ?????
+-----------------
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131217/c0bc536c/attachment.html>
+
+From diregola at gmail.com  Tue Dec 17 06:05:28 2013
+From: diregola at gmail.com (Margherita Di Leo)
+Date: Tue, 17 Dec 2013 15:05:28 +0100
+Subject: [geos-devel] date and version number on the web site
+Message-ID: <CABa=8QpGLZJWpk2J_eb5beWnHApRN_0kbRQfvj+AV3S6CHPXeQ@mail.gmail.com>
+
+Hi,
+
+on the web site [1] i guess something is wrong with the release date and
+number:
+
+2013/08/25  geos-3.4.2.tar.bz2<http://download.osgeo.org/geos/geos-3.4.2.tar.bz2>(
+ Changes <http://trac.osgeo.org/geos/browser/tags/3.4.2/NEWS>)
+2013/09/04  geos-3.3.9.tar.bz2<http://download.osgeo.org/geos/geos-3.3.9.tar.bz2>(
+ Changes <http://trac.osgeo.org/geos/browser/tags/3.3.9/NEWS>)
+..
+
+In my understanding, the release 3.4.2 has date < than the 3.3.9
+
+?
+
+Thanks and best regards
+
+[1] http://trac.osgeo.org/geos/
+
+-- 
+Best regards,
+
+Dr. Margherita DI LEO
+Scientific / technical project officer
+
+European Commission - DG JRC
+Institute for Environment and Sustainability (IES)
+Via Fermi, 2749
+I-21027 Ispra (VA) - Italy - TP 261
+
+Tel. +39 0332 78 3600
+margherita.di-leo at jrc.ec.europa.eu
+
+Disclaimer: The views expressed are purely those of the writer and may not
+in any circumstance be regarded as stating an official position of the
+European Commission.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131217/72a4fa89/attachment.html>
+
+From mtnclimb at telus.net  Tue Dec 17 07:39:00 2013
+From: mtnclimb at telus.net (Martin Davis)
+Date: Tue, 17 Dec 2013 07:39:00 -0800
+Subject: [geos-devel] Clipping geometries
+In-Reply-To: <CAHNf2YTOuQQL+2-hs1J9+3YbGp5AbN8+Lqk7YxQKCcCs+D+hMA@mail.gmail.com>
+References: <CAHNf2YSg=OiD9TF=y6YzsR2RqG_yT=Jrg7kO-QYmK+1hfhBLKg@mail.gmail.com>	<20131216110209.GB5729@localhost>
+	<CAHNf2YTOuQQL+2-hs1J9+3YbGp5AbN8+Lqk7YxQKCcCs+D+hMA@mail.gmail.com>
+Message-ID: <52B07014.4070109@telus.net>
+
+All combinations work - it's just a question of what their semantics 
+are.  In general, the overlay operations obey the laws of point-set 
+theory under boolean operations.
+
+
+On 12/16/2013 11:22 PM, Paul Meems wrote:
+> Thanks Sandro for your answer.
+> Is some documentation available which tells me which combinations 
+> (line-polygon, polygon-polygon, line-line, etc.) should work and which 
+> not?
+>
+>
+>
+
+
+From remi.cura at gmail.com  Tue Dec 17 07:58:58 2013
+From: remi.cura at gmail.com (=?UTF-8?Q?R=C3=A9mi_Cura?=)
+Date: Tue, 17 Dec 2013 16:58:58 +0100
+Subject: [geos-devel] Clipping geometries
+In-Reply-To: <52B07014.4070109@telus.net>
+References: <CAHNf2YSg=OiD9TF=y6YzsR2RqG_yT=Jrg7kO-QYmK+1hfhBLKg@mail.gmail.com>
+	<20131216110209.GB5729@localhost>
+	<CAHNf2YTOuQQL+2-hs1J9+3YbGp5AbN8+Lqk7YxQKCcCs+D+hMA@mail.gmail.com>
+	<52B07014.4070109@telus.net>
+Message-ID: <CAJvUf_sMq9SgXGWbd2zdt9g=REcFrYKfkwMUk9x2Mkh_jE2yGA@mail.gmail.com>
+
+*Modulo the fact that you don't hit precision issues.
+
+Cheers,
+
+R?mi-C
+
+
+2013/12/17 Martin Davis <mtnclimb at telus.net>
+
+> All combinations work - it's just a question of what their semantics are.
+>  In general, the overlay operations obey the laws of point-set theory under
+> boolean operations.
+>
+>
+>
+> On 12/16/2013 11:22 PM, Paul Meems wrote:
+>
+>> Thanks Sandro for your answer.
+>> Is some documentation available which tells me which combinations
+>> (line-polygon, polygon-polygon, line-line, etc.) should work and which not?
+>>
+>>
+>>
+>>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131217/76833674/attachment.html>
+
+From strk at keybit.net  Tue Dec 17 10:24:39 2013
+From: strk at keybit.net (Sandro Santilli)
+Date: Tue, 17 Dec 2013 19:24:39 +0100
+Subject: [geos-devel] date and version number on the web site
+In-Reply-To: <CABa=8QpGLZJWpk2J_eb5beWnHApRN_0kbRQfvj+AV3S6CHPXeQ@mail.gmail.com>
+References: <CABa=8QpGLZJWpk2J_eb5beWnHApRN_0kbRQfvj+AV3S6CHPXeQ@mail.gmail.com>
+Message-ID: <20131217182439.GF6426@localhost>
+
+On Tue, Dec 17, 2013 at 03:05:28PM +0100, Margherita Di Leo wrote:
+> Hi,
+> 
+> on the web site [1] i guess something is wrong with the release date and
+> number:
+> 
+> 2013/08/25  geos-3.4.2.tar.bz2<http://download.osgeo.org/geos/geos-3.4.2.tar.bz2>(
+>  Changes <http://trac.osgeo.org/geos/browser/tags/3.4.2/NEWS>)
+> 2013/09/04  geos-3.3.9.tar.bz2<http://download.osgeo.org/geos/geos-3.3.9.tar.bz2>(
+>  Changes <http://trac.osgeo.org/geos/browser/tags/3.3.9/NEWS>)
+> ..
+> 
+> In my understanding, the release 3.4.2 has date < than the 3.3.9
+> 
+> ?
+> 
+> Thanks and best regards
+> 
+> [1] http://trac.osgeo.org/geos/
+
+
+It does, nothing wrong with that.
+The last change in 3.3.9 was actually committed on August 21
+(few days before 3.4.2 was released) but 3.3.9 release was only
+published later.
+
+The only real bug is the release date in the NEWS for in 3.3.9 tag,
+which I just fixed with r3969
+
+3.4.2 contains all the fixes that went into 3.3.9
+
+--strk;
+
+From bontepaarden at gmail.com  Wed Dec 18 03:53:12 2013
+From: bontepaarden at gmail.com (Paul Meems)
+Date: Wed, 18 Dec 2013 12:53:12 +0100
+Subject: [geos-devel] Clipping geometries
+In-Reply-To: <CABqTJk-+QA4tx_e_23G-9JRqqcOpTb1z9aosQWKM=4eXGGHc_A@mail.gmail.com>
+References: <CABqTJk-+QA4tx_e_23G-9JRqqcOpTb1z9aosQWKM=4eXGGHc_A@mail.gmail.com>
+Message-ID: <CAHNf2YTH6AdVUb4kGmg=QrLc+UbdtwgDpPX7wzVGe59Rkzu1PQ@mail.gmail.com>
+
+Thanks Andrea,
+
+MapWindow does not yet support spatialit. But when we have some free time
+we will look in to it.
+
+
+
+Paul
+
+ *Paul Meems *
+Release manager, configuration manager
+and forum moderator of MapWindow GIS.
+www.mapwindow.org
+
+Owner of MapWindow.nl - Support for
+Dutch speaking users.
+www.mapwindow.nl
+
+
+
+
+2013/12/17 Andrea Peri <aperi2007 at gmail.com>
+
+> The ST_Split is localized inside the LibLWGEom library.
+>
+> So it is also supported from spatialite 4.1.1 , infact it support the same
+> LibLWGeom.
+>
+> An alternative solution could be if MapWindows support spatialite , I
+> don't know if it is supported.
+>
+>
+> --
+> -----------------
+> Andrea Peri
+> . . . . . . . . .
+> qwerty ?????
+> -----------------
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20131218/2a5614d9/attachment.html>
+

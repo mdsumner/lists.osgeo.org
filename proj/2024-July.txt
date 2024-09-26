@@ -1,0 +1,1657 @@
+From lyarrington at gmail.com  Mon Jul  1 19:45:33 2024
+From: lyarrington at gmail.com (Landon Yarrington)
+Date: Mon, 1 Jul 2024 20:45:33 -0600
+Subject: [PROJ] Help with impossibly elusive horizontal datum
+Message-ID: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+
+Hello!
+I am trying to georeference an US Army map of northern Haiti made from
+aerial photographs taken in 1942 and 1944 using `gdal_translate` and
+`gdalwarp`. I need a sanity check because this is impossible, and so I'm
+asking for help. Here is the map from Lib. of Congress (
+https://www.loc.gov/resource/g4940m.gct00206/?sp=160&r=0.365,0.623,0.281,0.173,0
+).
+
+The map info states,
+```
+Horizontal Datum is based on the following astronomic values:
+Fort Islet Lighthouse Lat. 18?33'31.33", Long. 72?20'59.03"
+Santo Domingo Lighthouse Lat. 18?27'53.64", Long. 69?52'52.74"
+Cape Dame Marie Astro Lat. 18?36'47", Long. 74?25'53"
+Extensions of control from Astronomic Positions have been made by multiplex
+triangulation.
+
+One thousand meter Universal Transverse Mercator grid, Clarke 1866
+spheroid, zone 18.
+```
+I asked something similar in 2017 (
+https://gis.stackexchange.com/questions/255830/which-epgs-code-is-the-actual-crs-in-this-geopdf),
+but the advice doesn't seem directly applicable (even after adding the
+missing `towgs84` parameter). The two mapes portray the same geographic
+content, but the grids are pretty different with about ~1,000 meter offset.
+I guess this is because the map was projected with a custom (??) datum, and
+not NAD27?
+
+The very best accuracy to WGS84 I've been able to get with the 1st edition
+LOC map is ~1,000 meters offset. I think there must be some transformation
+involved, but it isn't clear to me at what point in the process. Should the
+Eastings and Northings in the map be transformed and use those transformed
+values as GCPs? Or should the GCPs use the grid values and some transform
+happen later? Or should is this just a really elusive horizontal datum...
+
+I've tried everything I can think of. Here is a starter using lat long GCP
+points on the LOC map image.
+```
+gdal_translate -gcp 627.457814 517.220980 -72.25 19.666667 -gcp 8893.0877
+517.331604 -72 19.666667 -gcp 8888.9205 6312.2196 -72 19.5 -gcp 623.864944
+6314.5746 -72.25 19.5 -of GTiff "GRN.tif" "GRN_gcps_latlong.tif"`
+
+gdalwarp -order 1 -r bilinear -s_srs '+proj=longlat +ellps=clrk66' -t_srs
+'+proj=utm +zone=18 +ellps=clrk66 +towgs84=-13,-95,-197,0,0,0,0 +units=m
++no_defs' GRN_gcps_latlong.tif GRN_projectedtif
+```
+If you prefer, here it is with 10+ GCPs using the map's grid.
+```
+gdal_translate -of GTiff -gcp 730.736 6110.949 789000 2158000 -gcp 736.387
+5795.335 789000 2159000 -gcp 741.696 5481.115 789000 2160000 -gcp 747.267
+5165.909 789000 2161000 -gcp 821.443 766.88 789000 2175000 -gcp 816.24
+1078.971 789000 2174000 -gcp 811.211 1394.578 789000 2173000 -gcp 6501.597
+551.782 807000 2176000 -gcp 6185.673 547.045 806000 2176000 -gcp 4288.393
+829.835 800000 2175000 -gcp 3975.028 824.02 799000 2175000 -gcp 3658.991
+818.975 798000 2175000 -gcp 3344.584 813.972 797000 2175000 -gcp 3027.108
+809.96 796000 2175000 -gcp 2711.015 805.008 795000 2175000 -gcp 2397.12
+800.185 794000 2175000 -gcp 4283.082 1142.947 800000 2174000 -gcp 3969.927
+1137.041 799000 2174000 -gcp 3653.994 1131.957 798000 2174000 -gcp 3339.13
+1126.642 797000 2174000 -gcp 3021.555 1121.964 796000 2174000 -gcp 2706.024
+1116.956 795000 2174000 -gcp 4272.358 1768.053 800000 2172000 -gcp 3959.532
+1762.746 799000 2172000 GRN.tif GRN_gcps.tif
+```
+I am indebted for any help to solve this!
+
+
+-- 
+Landon Yarrington, Ph.D.
+Colorado State University
+Department of Anthropology and Geography
+Andrew G. Clark Bldg, 301 University Ave #219
+Fort Collins, CO  80521
+USA
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240701/0060ec34/attachment.htm>
+
+From j1 at jimenezshaw.com  Tue Jul  2 00:08:37 2024
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 2 Jul 2024 10:08:37 +0300
+Subject: [PROJ] Help with impossibly elusive horizontal datum
+In-Reply-To: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+References: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+Message-ID: <CADRrdKvAph2M85-RaLV0G5XzcfXBO6ZVuYpBCBKw8RyQhbMVYQ@mail.gmail.com>
+
+Hi
+
+You say that you have 1000 m offset.
+And in the description of the reference it says
+One thousand meter Universal Transverse Mercator grid, Clarke 1866
+spheroid, zone 18.
+I have never seen that "One thousand meter UTM..." before, but it is
+probably related.
+If that is the case, I would expect it is a parameter in the projection,
+not in the datum (but who knows)
+
+On Tue, 2 Jul 2024, 04:45 Landon Yarrington via PROJ, <proj at lists.osgeo.org>
+wrote:
+
+> Hello!
+> I am trying to georeference an US Army map of northern Haiti made from
+> aerial photographs taken in 1942 and 1944 using `gdal_translate` and
+> `gdalwarp`. I need a sanity check because this is impossible, and so I'm
+> asking for help. Here is the map from Lib. of Congress (
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=160&r=0.365,0.623,0.281,0.173,0
+> ).
+>
+> The map info states,
+> ```
+> Horizontal Datum is based on the following astronomic values:
+> Fort Islet Lighthouse Lat. 18?33'31.33", Long. 72?20'59.03"
+> Santo Domingo Lighthouse Lat. 18?27'53.64", Long. 69?52'52.74"
+> Cape Dame Marie Astro Lat. 18?36'47", Long. 74?25'53"
+> Extensions of control from Astronomic Positions have been made by
+> multiplex triangulation.
+>
+> One thousand meter Universal Transverse Mercator grid, Clarke 1866
+> spheroid, zone 18.
+> ```
+> I asked something similar in 2017 (
+> https://gis.stackexchange.com/questions/255830/which-epgs-code-is-the-actual-crs-in-this-geopdf),
+> but the advice doesn't seem directly applicable (even after adding the
+> missing `towgs84` parameter). The two mapes portray the same geographic
+> content, but the grids are pretty different with about ~1,000 meter offset.
+> I guess this is because the map was projected with a custom (??) datum, and
+> not NAD27?
+>
+> The very best accuracy to WGS84 I've been able to get with the 1st edition
+> LOC map is ~1,000 meters offset. I think there must be some transformation
+> involved, but it isn't clear to me at what point in the process. Should the
+> Eastings and Northings in the map be transformed and use those transformed
+> values as GCPs? Or should the GCPs use the grid values and some transform
+> happen later? Or should is this just a really elusive horizontal datum...
+>
+> I've tried everything I can think of. Here is a starter using lat long GCP
+> points on the LOC map image.
+> ```
+> gdal_translate -gcp 627.457814 517.220980 -72.25 19.666667 -gcp 8893.0877
+> 517.331604 -72 19.666667 -gcp 8888.9205 6312.2196 -72 19.5 -gcp 623.864944
+> 6314.5746 -72.25 19.5 -of GTiff "GRN.tif" "GRN_gcps_latlong.tif"`
+>
+> gdalwarp -order 1 -r bilinear -s_srs '+proj=longlat +ellps=clrk66' -t_srs
+> '+proj=utm +zone=18 +ellps=clrk66 +towgs84=-13,-95,-197,0,0,0,0 +units=m
+> +no_defs' GRN_gcps_latlong.tif GRN_projectedtif
+> ```
+> If you prefer, here it is with 10+ GCPs using the map's grid.
+> ```
+> gdal_translate -of GTiff -gcp 730.736 6110.949 789000 2158000 -gcp 736.387
+> 5795.335 789000 2159000 -gcp 741.696 5481.115 789000 2160000 -gcp 747.267
+> 5165.909 789000 2161000 -gcp 821.443 766.88 789000 2175000 -gcp 816.24
+> 1078.971 789000 2174000 -gcp 811.211 1394.578 789000 2173000 -gcp 6501.597
+> 551.782 807000 2176000 -gcp 6185.673 547.045 806000 2176000 -gcp 4288.393
+> 829.835 800000 2175000 -gcp 3975.028 824.02 799000 2175000 -gcp 3658.991
+> 818.975 798000 2175000 -gcp 3344.584 813.972 797000 2175000 -gcp 3027.108
+> 809.96 796000 2175000 -gcp 2711.015 805.008 795000 2175000 -gcp 2397.12
+> 800.185 794000 2175000 -gcp 4283.082 1142.947 800000 2174000 -gcp 3969.927
+> 1137.041 799000 2174000 -gcp 3653.994 1131.957 798000 2174000 -gcp 3339.13
+> 1126.642 797000 2174000 -gcp 3021.555 1121.964 796000 2174000 -gcp 2706.024
+> 1116.956 795000 2174000 -gcp 4272.358 1768.053 800000 2172000 -gcp 3959.532
+> 1762.746 799000 2172000 GRN.tif GRN_gcps.tif
+> ```
+> I am indebted for any help to solve this!
+>
+>
+> --
+> Landon Yarrington, Ph.D.
+> Colorado State University
+> Department of Anthropology and Geography
+> Andrew G. Clark Bldg, 301 University Ave #219
+> Fort Collins, CO  80521
+> USA
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240702/b87ed0d4/attachment.htm>
+
+From gdt at lexort.com  Tue Jul  2 03:27:14 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Tue, 02 Jul 2024 06:27:14 -0400
+Subject: [PROJ] Help with impossibly elusive horizontal datum
+In-Reply-To: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+ (Landon Yarrington via PROJ's message of "Mon, 1 Jul 2024 20:45:33
+ -0600")
+References: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+Message-ID: <rmizfr0xf5p.fsf@s1.lexort.com>
+
+Landon Yarrington via PROJ <proj at lists.osgeo.org> writes:
+
+> I am trying to georeference an US Army map of northern Haiti made from
+> aerial photographs taken in 1942 and 1944 using `gdal_translate` and
+> `gdalwarp`. I need a sanity check because this is impossible, and so I'm
+> asking for help. Here is the map from Lib. of Congress (
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=160&r=0.365,0.623,0.281,0.173,0
+> ).
+>
+> The map info states,
+
+> Horizontal Datum is based on the following astronomic values:
+> Fort Islet Lighthouse Lat. 18?33'31.33", Long. 72?20'59.03"
+> Santo Domingo Lighthouse Lat. 18?27'53.64", Long. 69?52'52.74"
+> Cape Dame Marie Astro Lat. 18?36'47", Long. 74?25'53"
+> Extensions of control from Astronomic Positions have been made by multiplex
+> triangulation.
+
+This is remarkably clear and useful even if it is hard to understand.
+
+The mapmaker is saying that they made astronomic determinations of
+position at 3 named locations, presumably obvious on the map, and gives
+the values.  These coordinates are not related to any particular datum.
+Instead, they define a local datum.
+
+Critically, there is absolutely no reason to expect that the coordinates
+above match WGS84, other than that the time signals are consistent with
+greenwhich, and latitude is physical.  But that doesn't get you the last
+10s to 100s of meters.
+
+Almost certainly they had the benefit of radio time signals, so their
+longitudes should be pretty good.  Latitudes should be pretty good
+without needing to think about time.  Without really thinking, 1000m for
+a single determination strikes me as pretty good.  Before NAD83, which
+used satellite/etc. data, NAD27 was different from modern ITRF by 40m
+around me.  And that's a national datum that got to average multiple
+observations, even if it was held to be somewhat consistent with
+mid/late 1800s work.
+
+Our current datums derive from averages of many astronomic observations,
+straightened out with classical and satellite observations.  This "us
+army northern haiti datum of 1942" to name it, is local only and not
+connected to other datums.
+
+Surely if the people making the map had the technical ability to connect
+to NAD27, they would have done that.   However Haiti is a long way from
+Florida :-)
+
+> One thousand meter Universal Transverse Mercator grid, Clarke 1866
+> spheroid, zone 18.
+
+This is a projection, not a datum, and simply describes how to get
+projected grid coordinates from geodetic (lat/lon) coordinates.
+Indeed it is a projection typically used with NAD27.   NAD27 was the
+standard datum for the mainland.
+
+The "Thousand meter" pretty obviously refers to grid lines drawn on the
+map.  UTM does not really have a scale like that.
+
+> The very best accuracy to WGS84 I've been able to get with the 1st edition
+> LOC map is ~1,000 meters offset. I think there must be some transformation
+> involved, but it isn't clear to me at what point in the process. Should the
+> Eastings and Northings in the map be transformed and use those transformed
+> values as GCPs? Or should the GCPs use the grid values and some transform
+> happen later? Or should is this just a really elusive horizontal datum...
+
+There is no reason to expect this datum to be aligned with WGS84.
+
+> I've tried everything I can think of. Here is a starter using lat long GCP
+> points on the LOC map image.
+
+You really aren't explaining where those points came from.
+
+What I would do is:
+
+  First, I'd probably try to do this in qgis, and use the georeferencer.
+
+  Examine the map and find the 3 points where they have published
+  coordinates.  Realize that these coordinates are in the map's (local)
+  datum.  Guess at where they measured, but they only gave integer
+  seconds.
+
+  For those points, find their coordinates in WGS84/ITRF/NAD83 by using
+  modern georeferenced imagery.  Much harder, go there and make 48h
+  static dual-frequency GNSS observations.
+
+  Compute distances from modern coordinates and also from local
+  coordinates.  See if the distances match.  A sanity check.
+
+  Understand how different these are.  I'm guessing there will be
+  disagreement at the 0.01 degree level.
+
+  Perhaps, compute a transform from the local to the modern coordinates.
+  But, you'll need to transform in UTM, which means from haiti-local-UTM
+  to NAD27-UTM.
+
+  Accept that you really aren't going to be able to get an accurate
+  transform from the above.  Assume that other than orientation and
+  offset the map is pretty good quality (seems fair to me).  Assume that
+  the distortion from nad27-utm to nad83-utm due to the differing
+  ellipsoids is small compared to errors in the map (also seems fair to
+  me, at least for a first step).
+
+  Find about 10 features on the map that are still present today and
+  that you can identify on modern georeferenced imagery.
+
+  Add the 10 GCPs in the qgis georeferencer, based on modern
+  WGS84/ITRF/NAD83 of the features and clicking on the map.
+
+  Let the georeferencer estimate the transform, and see what it looks
+  like.
+
+
+
+
+  Most importantly, after asking for others to help you on the list,
+  write up careful notes about what you did and what you found and
+  report back to the list.  This is in my view the reciprocal obligation
+  undertaken by asking.
+
+
+Hope this helps!
+Greg
+
+From tean at netcompany.com  Tue Jul  2 04:56:59 2024
+From: tean at netcompany.com (=?utf-8?B?VGVpcyBBYWxiw6ZrLU5pZWxzZW4=?=)
+Date: Tue, 2 Jul 2024 11:56:59 +0000
+Subject: [PROJ] Help with building proj 5.1.0 with cmake
+Message-ID: <DU2P194MB156598133A0CE6D9F858473FB3DC2@DU2P194MB1565.EURP194.PROD.OUTLOOK.COM>
+
+Hi,
+
+I am having problems with building proj 5.1.0 with cmake. My problem arises in that I want to build the JNI .jar file so that I can use it with my java program. I found a readme.md with a description of how to build it using the nmake tool, but not one with cmake. Does anyone know how to compile it with the cmake tool?
+
+My current output from cmake is this:
+
+<path_to_proj>/PROJ-5.1.0/build>cmake ..
+CMake Deprecation Warning at CMakeLists.txt:12 (cmake_minimum_required):
+  Compatibility with CMake < 3.5 will be removed from a future version of
+  CMake.
+
+  Update the VERSION argument <min> value or use a ...<max> suffix to tell
+  CMake that the project does not need compatibility with older versions.
+
+
+-- Selecting Windows SDK version 10.0.22621.0 to target Windows 10.0.19045.
+--
+-- Configuring PROJ:
+--
+-- PROJ_VERSION                             = 5.0.0
+-- PROJ_ABI_VERSION                         = 5_0
+-- WARNING:
+-- Could not determine compiler toolset name to set PROJ_COMPILER_NAME variable.
+-- WARNING:
+-- Could not determine platform name to set PROJ_COMPILER_NAME variable.
+-- PROJ_PLATFORM_NAME                       = win32
+-- PROJ_COMPILER_NAME                       =
+-- PROJ_TESTS                               = ON
+--
+-- Configuring proj library:
+--
+-- JNI_SUPPORT                              = OFF
+-- PROJ_CORE_TARGET                         = proj
+-- PROJ_CORE_TARGET_OUTPUT_NAME             = proj_5_0
+-- PROJ_LIBRARY_TYPE                        = STATIC
+-- PROJ_LIBRARIES                           = proj
+-- Configuring done (0.3s)
+-- Generating done (0.2s)
+-- Build files have been written to: <path_to_proj>/PROJ-5.1.0/build
+
+I am on a bit of a time crunch, so any help is greatly appreciated!
+
+Med venlig hilsen / Best regards
+Teis Aalb?k-Nielsen
+Developer
+Mobile +45 2062 6252
+tean at netcompany.com<mailto:tean at netcompany.com>
+
+[Netcompany - New Message]
+
+Toldbod Plads 1
+DK - 9000 Aalborg
+Denmark
+
+Reception +45 7013 1440
+www.netcompany.com<https://www.netcompany.com/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240702/52b3837f/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image001.png
+Type: image/png
+Size: 3790 bytes
+Desc: image001.png
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240702/52b3837f/attachment-0001.png>
+
+From georgejbudeba at gmail.com  Sun Jul  7 00:38:24 2024
+From: georgejbudeba at gmail.com (George Budeba)
+Date: Sun, 07 Jul 2024 07:38:24 -0000
+Subject: [PROJ] You
+Message-ID: <CAF_2we_rLibaghLeXLEP5sjOwYNSh_g9PZd8Hz8Zf8_bCN=_tQ@mail.gmail.com>
+
+QQ
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240707/f25329ea/attachment.htm>
+
+From lyarrington at gmail.com  Fri Jul 12 13:55:50 2024
+From: lyarrington at gmail.com (Landon Yarrington)
+Date: Fri, 12 Jul 2024 14:55:50 -0600
+Subject: [PROJ] Help with impossibly elusive horizontal datum
+In-Reply-To: <rmizfr0xf5p.fsf@s1.lexort.com>
+References: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+ <rmizfr0xf5p.fsf@s1.lexort.com>
+Message-ID: <CACqk7x7-SUKUrHGjknk0S7z48fmc9tTzquJTfvzh_KZbggtWLA@mail.gmail.com>
+
+Thank you very much for your response!! Please note I've included minimal
+reproducible code at the end of the email, and I would be very grateful to
+anyone who would care to take a look and help.
+
+First, the three control extension points listed in the map info are quite
+far away and not on the map. And, the coordinates given for the points do
+not appear to align with the actual locations when viewed on Google Earth.
+Maybe this is a clue to the offset?
+
+Fort Islet lighthouse 18?33'31.33" -72?20'59.03", should be 18?33'18.08"
+-72?21'04.50"
+Santo Domingo lighthouse 18?27'53.64" -69?52'52.74", should be 18?27'51.39"
+-69?52'34.90"
+Dame Marie 18?36'47" -74?25'53", unknown but possibly 18?36'57.21"
+-74?25'26.94"
+
+I took your advice and used the QGIS georeferencer. This is actually what I
+initially did before reaching out here. I put google and bing satelite
+imagery on the canvas to pin ground control points. I chose 19 GCPs and set
+the algo to thin plate spline. The result has excellent accuracy. However,
+the result is not easily reproducible. I have personally been to all the
+locations I chose as GCPs and I know that---for the purpose of
+georeferencing---those sites are unchanged in any meaningful way since the
+1942 aerial photography used to make the map was taken. Not everyone is
+going to have this specialized knowledge, and why should they when there is
+already a UTM grid on the map? Can the grid intersections make the
+georeferencing process more reproducible without the need of ethnographic
+fieldwork?
+
+The map in question is the 1st edition (
+https://www.loc.gov/resource/g4940m.gct00206/?sp=168). There are at least 4
+subsequent editions (here is the 3rd
+https://www.loc.gov/resource/g4940m.gct00206/?sp=167). The 1st edition has
+the map info I quoted in my first message but is dropped from all later
+editions. All later editions explicitly state the datum is NAD27 (or NAD83
+for 4th and 5th editions). Curiously, the geographic representation in the
+1st edition is more expansive than the others; even though all the editions
+have their neatlines within 19?50', -72?15' and 19?40', -72?00', the 1st
+edition shows considerably more area. Example: the town of Limonade at the
+bottom center of the map. The road that leads southeast from Limonade
+extends about 1.29 km further than what is shown in later editions. In
+fact, if you look at the grid intersection 2178000m N and 801000m E on the
+1st edition and the same point on the later editions, the grid is nearly
+1000 meters off. Compare
+https://www.loc.gov/resource/g4940m.gct00206/?sp=168&r=0.314,0.573,0.372,0.229,0
+to
+https://www.loc.gov/resource/g4940m.gct00206/?sp=167&r=0.284,0.495,0.238,0.147,0.
+What is going on here?? Is this a datum difference, projection difference,
+both??
+
+So... the second thing I tried was selecting GCPs at each grid intersection
+on the 1st edition but subtracting 1000 meters from the northings. (I did
+141 GCPs.) This got the map's accuracy much better, but there was still a
+systematic offset. The best accuracy was in the center of the map. In the
+4th edition of the map, there is a note instructing how to convert from
+NAD27 to NAD83, which reads, "Grid: Add 35mE, add 198mN. Geographic:
+Subtract 1.4" Long, Add 2.2" Lat." OK. So, I also did these shifts to the
+GCPs that I had already offset by 1000m N. For each easting, I added 35m
+and each northing I added 198m. Then, I ran gdalwarp (code below). The
+result still has an offset but it's the best I've been able to get using
+the UTM grid, but sadly it is not nearly as accurate as the QGIS visual
+approach.
+
+Again, I am indebted for any help. The code below only uses 8 GCPs of the
+UTM intersections offset and shifted described above.
+
+```
+# download the tiff from Library of Congress
+wget
+https://www.loc.gov/resource/g4940m.gct00206/?download=https%3A%2F%2Ftile.loc.gov%2Fstorage-services%2Fmaster%2Fgmd%2Fgmd4m%2Fg4940m%2Fg4940m%2Fgct00206%2Fcs000168.tif
+-O cs000168.tif
+# add 8 ground control points using the UTM grid described above
+gdal_translate -of GTiff -gcp 833.408 5291.81 789035 2179198 -gcp 1146.904
+5296.971 790035 2179198 -gcp 3963.057 6290.092 799035 2176198 -gcp 843.374
+4660.743 789035 2181198 -gcp 1763.341 5935.218 792035 2177198 -gcp 2077.227
+5941.007 793035 2177198 -gcp 8369.034 5735.588 813035 2178198 -gcp 8684.098
+5741.097 814035 2178198 cs000168.tif cs000168_GCPs.tif
+# warp the map with thin plate spline
+gdalwarp -r near -tps -co COMPRESS=JPEG -co TILED=YES -s_srs EPSG:32618
+-t_srs EPSG:32618 cs000168_GCPs.tif cs000168_TO_epsg32618.tif
+```
+
+On Tue, Jul 2, 2024 at 4:40?AM Greg Troxel via PROJ <proj at lists.osgeo.org>
+wrote:
+
+> Landon Yarrington via PROJ <proj at lists.osgeo.org> writes:
+>
+> > I am trying to georeference an US Army map of northern Haiti made from
+> > aerial photographs taken in 1942 and 1944 using `gdal_translate` and
+> > `gdalwarp`. I need a sanity check because this is impossible, and so I'm
+> > asking for help. Here is the map from Lib. of Congress (
+> >
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=160&r=0.365,0.623,0.281,0.173,0
+> > ).
+> >
+> > The map info states,
+>
+> > Horizontal Datum is based on the following astronomic values:
+> > Fort Islet Lighthouse Lat. 18?33'31.33", Long. 72?20'59.03"
+> > Santo Domingo Lighthouse Lat. 18?27'53.64", Long. 69?52'52.74"
+> > Cape Dame Marie Astro Lat. 18?36'47", Long. 74?25'53"
+> > Extensions of control from Astronomic Positions have been made by
+> multiplex
+> > triangulation.
+>
+> This is remarkably clear and useful even if it is hard to understand.
+>
+> The mapmaker is saying that they made astronomic determinations of
+> position at 3 named locations, presumably obvious on the map, and gives
+> the values.  These coordinates are not related to any particular datum.
+> Instead, they define a local datum.
+>
+> Critically, there is absolutely no reason to expect that the coordinates
+> above match WGS84, other than that the time signals are consistent with
+> greenwhich, and latitude is physical.  But that doesn't get you the last
+> 10s to 100s of meters.
+>
+> Almost certainly they had the benefit of radio time signals, so their
+> longitudes should be pretty good.  Latitudes should be pretty good
+> without needing to think about time.  Without really thinking, 1000m for
+> a single determination strikes me as pretty good.  Before NAD83, which
+> used satellite/etc. data, NAD27 was different from modern ITRF by 40m
+> around me.  And that's a national datum that got to average multiple
+> observations, even if it was held to be somewhat consistent with
+> mid/late 1800s work.
+>
+> Our current datums derive from averages of many astronomic observations,
+> straightened out with classical and satellite observations.  This "us
+> army northern haiti datum of 1942" to name it, is local only and not
+> connected to other datums.
+>
+> Surely if the people making the map had the technical ability to connect
+> to NAD27, they would have done that.   However Haiti is a long way from
+> Florida :-)
+>
+> > One thousand meter Universal Transverse Mercator grid, Clarke 1866
+> > spheroid, zone 18.
+>
+> This is a projection, not a datum, and simply describes how to get
+> projected grid coordinates from geodetic (lat/lon) coordinates.
+> Indeed it is a projection typically used with NAD27.   NAD27 was the
+> standard datum for the mainland.
+>
+> The "Thousand meter" pretty obviously refers to grid lines drawn on the
+> map.  UTM does not really have a scale like that.
+>
+> > The very best accuracy to WGS84 I've been able to get with the 1st
+> edition
+> > LOC map is ~1,000 meters offset. I think there must be some
+> transformation
+> > involved, but it isn't clear to me at what point in the process. Should
+> the
+> > Eastings and Northings in the map be transformed and use those
+> transformed
+> > values as GCPs? Or should the GCPs use the grid values and some transform
+> > happen later? Or should is this just a really elusive horizontal datum...
+>
+> There is no reason to expect this datum to be aligned with WGS84.
+>
+> > I've tried everything I can think of. Here is a starter using lat long
+> GCP
+> > points on the LOC map image.
+>
+> You really aren't explaining where those points came from.
+>
+> What I would do is:
+>
+>   First, I'd probably try to do this in qgis, and use the georeferencer.
+>
+>   Examine the map and find the 3 points where they have published
+>   coordinates.  Realize that these coordinates are in the map's (local)
+>   datum.  Guess at where they measured, but they only gave integer
+>   seconds.
+>
+>   For those points, find their coordinates in WGS84/ITRF/NAD83 by using
+>   modern georeferenced imagery.  Much harder, go there and make 48h
+>   static dual-frequency GNSS observations.
+>
+>   Compute distances from modern coordinates and also from local
+>   coordinates.  See if the distances match.  A sanity check.
+>
+>   Understand how different these are.  I'm guessing there will be
+>   disagreement at the 0.01 degree level.
+>
+>   Perhaps, compute a transform from the local to the modern coordinates.
+>   But, you'll need to transform in UTM, which means from haiti-local-UTM
+>   to NAD27-UTM.
+>
+>   Accept that you really aren't going to be able to get an accurate
+>   transform from the above.  Assume that other than orientation and
+>   offset the map is pretty good quality (seems fair to me).  Assume that
+>   the distortion from nad27-utm to nad83-utm due to the differing
+>   ellipsoids is small compared to errors in the map (also seems fair to
+>   me, at least for a first step).
+>
+>   Find about 10 features on the map that are still present today and
+>   that you can identify on modern georeferenced imagery.
+>
+>   Add the 10 GCPs in the qgis georeferencer, based on modern
+>   WGS84/ITRF/NAD83 of the features and clicking on the map.
+>
+>   Let the georeferencer estimate the transform, and see what it looks
+>   like.
+>
+>
+>
+>
+>   Most importantly, after asking for others to help you on the list,
+>   write up careful notes about what you did and what you found and
+>   report back to the list.  This is in my view the reciprocal obligation
+>   undertaken by asking.
+>
+>
+> Hope this helps!
+> Greg
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+
+
+-- 
+Landon Yarrington, Ph.D.
+Colorado State University
+Department of Anthropology and Geography
+Andrew G. Clark Bldg, 301 University Ave #219
+Fort Collins, CO  80521
+USA
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240712/c133a728/attachment.htm>
+
+From gdt at lexort.com  Fri Jul 12 17:21:02 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 12 Jul 2024 20:21:02 -0400
+Subject: [PROJ] Help with impossibly elusive horizontal datum
+In-Reply-To: <CACqk7x7-SUKUrHGjknk0S7z48fmc9tTzquJTfvzh_KZbggtWLA@mail.gmail.com>
+ (Landon Yarrington's message of "Fri, 12 Jul 2024 14:55:50 -0600")
+References: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+ <rmizfr0xf5p.fsf@s1.lexort.com>
+ <CACqk7x7-SUKUrHGjknk0S7z48fmc9tTzquJTfvzh_KZbggtWLA@mail.gmail.com>
+Message-ID: <rmir0bygn0x.fsf@s1.lexort.com>
+
+Landon Yarrington <lyarrington at gmail.com> writes:
+
+> First, the three control extension points listed in the map info are quite
+> far away and not on the map. And, the coordinates given for the points do
+> not appear to align with the actual locations when viewed on Google Earth.
+> Maybe this is a clue to the offset?
+
+This is exactly a clue.  The lat/lon given in the map data are labeled
+astronomic, and they are the results of some number of measurements
+which have considerable error.  They decided to fix those stations with
+those values; this is the definition of a datum.  In the 1940s I am
+aware of no better way to connect coordinates in Haiti to coordinates in
+CONUS.  Surely the Army Map Service was world class in doing things like
+that.
+
+> Fort Islet lighthouse 18?33'31.33" -72?20'59.03", should be 18?33'18.08" > -72?21'04.50"
+> Santo Domingo lighthouse 18?27'53.64" -69?52'52.74", should be 18?27'51.39" -69?52'34.90"
+> Dame Marie 18?36'47" -74?25'53", unknown but possibly 18?36'57.21" -74?25'26.94"
+
+You say "should be", but you are really saying "In some particular
+modern coordinate system".  The definition of 0 longitude even in ITRF
+is totally arbitrary.  It is just that the values adopted for mapping
+Haiti and the values measured in a modern frame are different.  Yes, for
+latitude, one can say they are wrong, but gravity variation makes this
+hard.
+
+Looking only at minutes, and local - wgs84
+
+		lat		lon
+Fort Islet	13"		5.5"
+Santo Domingo	2.2"		-18"
+Dame Marie	-10"		-26"
+
+so this is not really that consistent.  This leads me to think there is
+rotation too.
+
+But really, you have a map which you hope is internally consistent and
+you can identify points on the modern ground that match points on the
+map.
+
+> I took your advice and used the QGIS georeferencer. This is actually what I
+> initially did before reaching out here. I put google and bing satelite
+> imagery on the canvas to pin ground control points. I chose 19 GCPs and set
+
+There is the question of whether those imagery layers are aligned to
+recent WGS84, recent NAD83, something else, or are just off.  But
+probably they are decent.
+
+I have checked MassGIS imagery against NAD83(2011) epoch 2010.0 (which
+the imagery is said to be in) and it matches to a pixel.  But it was
+taken recently, in an area where there is great ground control and a
+statewide RTK network.
+
+> the algo to thin plate spline. The result has excellent accuracy. However,
+> the result is not easily reproducible. I have personally been to all the
+> locations I chose as GCPs and I know that---for the purpose of
+> georeferencing---those sites are unchanged in any meaningful way since the
+> 1942 aerial photography used to make the map was taken. 
+
+It's great you have enough local knowledge to know what's undisturbed,
+and this is basically necessary to do what you are doing correctly.
+
+> Not everyone is going to have this specialized knowledge, and why
+> should they when there is already a UTM grid on the map? Can the grid
+> intersections make the georeferencing process more reproducible
+> without the need of ethnographic fieldwork?
+
+I think you are fundamentally misunderstanding the nature of UTM.  UTM
+is a projection, not a datum.  It takes latitude and longitude -- in
+some datum, relative to something -- and turns it into easting and
+northing.  This is just math, and has no bearing on or input from
+whether the latitude/longitude pairs are consistent with modern WGS84.
+
+Further, this is NAD27-style UTM with the Clarke ellipsoid, not
+NAD83/WGS84-style UTM with the GRS80 ellipsoid.
+
+Assuming that the UTM coordinates are in NAD27 is exactly as wrong an
+assumption as assuming that the map lat/lon are in NAD27.
+
+> The map in question is the 1st edition (
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=168). There are at least 4
+> subsequent editions (here is the 3rd
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=167). The 1st edition has
+> the map info I quoted in my first message but is dropped from all later
+> editions. All later editions explicitly state the datum is NAD27 (or NAD83
+> for 4th and 5th editions).
+
+The link you sent is the 2nd, but that's better, as it is the first that
+says NAD27, and the compilation date is 1963.
+
+I am not aware of any technology that would enable extending NAD27 from
+CONUS to Haiti in 1963.  That seems early for TRANSIT, but the dates in
+wikipedia do not 100% preclude AMS trying to tie in Haiti with it:
+   https://en.wikipedia.org/wiki/Transit_(satellite)
+
+If anyone knows any other techniques for tying Florida to Haiti in 1963,
+please post.  I know this isn't really Surveying-L but I bet a lot of
+readers would be interested.
+
+> Curiously, the geographic representation in the
+> 1st edition is more expansive than the others; even though all the editions
+> have their neatlines within 19?50', -72?15' and 19?40', -72?00', the 1st
+> edition shows considerably more area. Example: the town of Limonade at the
+> bottom center of the map. The road that leads southeast from Limonade
+> extends about 1.29 km further than what is shown in later editions. In
+> fact, if you look at the grid intersection 2178000m N and 801000m E on the
+> 1st edition and the same point on the later editions, the grid is nearly
+> 1000 meters off. Compare
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=168&r=0.314,0.573,0.372,0.229,0
+> to
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=167&r=0.284,0.495,0.238,0.147,0.
+> What is going on here?? Is this a datum difference, projection difference,
+> both??
+
+If the neatline are the same lat/lon and they show different content,
+then either they have fixed errors or the datum is different.  Same with
+projected coordinates.  But the datum is different; they say so.
+
+I would get the NAD27 coordinates for their 3 control points and then
+compute distance/bearing from "AMS Haiti Datum of 1948" (I'm making that
+up) to NAD27.  Those aren't real distances, but a datum shift.
+
+> So... the second thing I tried was selecting GCPs at each grid intersection
+> on the 1st edition but subtracting 1000 meters from the northings. (I did
+> 141 GCPs.) This got the map's accuracy much better, but there was still a
+> systematic offset.
+
+This doesn't really make sense.  You are assuming that the original
+coordinate system is the same as some modern one and it just
+isn't. Think about if you were given a map in NAD27 and you are trying
+to georeference it into WGS84, but nobody will given you a transform
+between the two datums.
+
+Or how about you had an army of surveyors to do an experiment.  Go to
+modern place that is 20km by 20 km.  Pick 3 places and drive pins.  For
+each, get really good GPS-derived coordinates.  Then, generate 6 random
+numbers and add them into the 3 pairs of coordinates.  Write those down
+and hand them to the surveying teams.  The teams get to use total
+stations, with 1 arc second theodolites, and 1-2 ppm electronic distance
+measurement, but are forbidden from using any satellites, any outside
+info, and from making any astronomic observations.  They are to survey
+the town.
+
+The map they make will be highly consistent with itself.  But there will
+be some offset and rotation because the assumed coordinates of the 3
+control points are in error.
+
+This is, as I understand it, essentially what happened, except that
+there was no oracle with random numbers.  There was instead the errors
+in astronomic determination of latitude and longitude.  Besides
+measuremnt errors, the direction of gravity is not aligned with the
+normal to the ellipsoid, and this results in latitude errors.
+
+> The best accuracy was in the center of the map. In the
+> 4th edition of the map, there is a note instructing how to convert from
+> NAD27 to NAD83, which reads, "Grid: Add 35mE, add 198mN. Geographic:
+> Subtract 1.4" Long, Add 2.2" Lat." OK. So, I also did these shifts to the
+> GCPs that I had already offset by 1000m N. For each easting, I added 35m
+> and each northing I added 198m. Then, I ran gdalwarp (code below). The
+> result still has an offset but it's the best I've been able to get using
+> the UTM grid, but sadly it is not nearly as accurate as the QGIS visual
+> approach.
+
+You are just fudging numbers by treating the UTM grid as true, and
+basically computing a single E/N shift by iteratively adjusting and
+looking.  But you are not estimating a rotation.  When you use GCPs with
+map coordinates in pixels and accurate WGS84 from imagery (if that is
+indeed acccurate), the georeferencer is doing least squares among all the
+points.
+
+> Again, I am indebted for any help. The code below only uses 8 GCPs of the
+> UTM intersections offset and shifted described above.
+>
+> ```
+> # download the tiff from Library of Congress
+> wget
+> https://www.loc.gov/resource/g4940m.gct00206/?download=https%3A%2F%2Ftile.loc.gov%2Fstorage-services%2Fmaster%2Fgmd%2Fgmd4m%2Fg4940m%2Fg4940m%2Fgct00206%2Fcs000168.tif
+> -O cs000168.tif
+> # add 8 ground control points using the UTM grid described above
+> gdal_translate -of GTiff -gcp 833.408 5291.81 789035 2179198 -gcp 1146.904
+> 5296.971 790035 2179198 -gcp 3963.057 6290.092 799035 2176198 -gcp 843.374
+> 4660.743 789035 2181198 -gcp 1763.341 5935.218 792035 2177198 -gcp 2077.227
+> 5941.007 793035 2177198 -gcp 8369.034 5735.588 813035 2178198 -gcp 8684.098
+> 5741.097 814035 2178198 cs000168.tif cs000168_GCPs.tif
+> # warp the map with thin plate spline
+> gdalwarp -r near -tps -co COMPRESS=JPEG -co TILED=YES -s_srs EPSG:32618
+> -t_srs EPSG:32618 cs000168_GCPs.tif cs000168_TO_epsg32618.tif
+> ```
+
+Why are you running gdal_translate rather than just using the
+georeferencer and letting it make a new tif?
+
+Another consideration is that the map datum is a local one, but
+presumably distances are correct.   So there should only be one
+translation and one rotation to go from map datum to NAD27.   Or, one
+translation, one rotation, and one scale factor to go from map datum UTM
+to WGS84 UTM.  And, the scale factor can be computed since the
+translation is small.    By using a complicated mapping fit, you are
+allowing distortions in the map datum to be leveled out.   If the map is
+distorted locally because of survey errors, that's good.  But if the map
+is internally consistent and the individual points have random errors,
+that's bad.
+
+From jagoncal at gmail.com  Sat Jul 13 05:34:37 2024
+From: jagoncal at gmail.com (=?UTF-8?Q?Jose_Gon=C3=A7alves?=)
+Date: Sat, 13 Jul 2024 13:34:37 +0100
+Subject: [PROJ] Help with impossibly elusive horizontal datum
+In-Reply-To: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+References: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+Message-ID: <CALHLaOQjzMrBaUmDYy8gJKUM6fvi838KDEoAn4yw_=PacnCEyg@mail.gmail.com>
+
+Hi
+I looked at the map grid GCPs you wrote in the gdal_translate command. The
+first one is: -gcp 730.736 6110.949 789000 2158000, but for that image
+position the UTM 18N coordinates are (789000,2159000). May that explain
+part of the error?
+Regards
+Jos?
+
+
+
+Em ter., 2 de jul. de 2024 ?s 04:20, Landon Yarrington via PROJ <
+proj at lists.osgeo.org> escreveu:
+
+> Hello!
+> I am trying to georeference an US Army map of northern Haiti made from
+> aerial photographs taken in 1942 and 1944 using `gdal_translate` and
+> `gdalwarp`. I need a sanity check because this is impossible, and so I'm
+> asking for help. Here is the map from Lib. of Congress (
+> https://www.loc.gov/resource/g4940m.gct00206/?sp=160&r=0.365,0.623,0.281,0.173,0
+> ).
+>
+> The map info states,
+> ```
+> Horizontal Datum is based on the following astronomic values:
+> Fort Islet Lighthouse Lat. 18?33'31.33", Long. 72?20'59.03"
+> Santo Domingo Lighthouse Lat. 18?27'53.64", Long. 69?52'52.74"
+> Cape Dame Marie Astro Lat. 18?36'47", Long. 74?25'53"
+> Extensions of control from Astronomic Positions have been made by
+> multiplex triangulation.
+>
+> One thousand meter Universal Transverse Mercator grid, Clarke 1866
+> spheroid, zone 18.
+> ```
+> I asked something similar in 2017 (
+> https://gis.stackexchange.com/questions/255830/which-epgs-code-is-the-actual-crs-in-this-geopdf),
+> but the advice doesn't seem directly applicable (even after adding the
+> missing `towgs84` parameter). The two mapes portray the same geographic
+> content, but the grids are pretty different with about ~1,000 meter offset.
+> I guess this is because the map was projected with a custom (??) datum, and
+> not NAD27?
+>
+> The very best accuracy to WGS84 I've been able to get with the 1st edition
+> LOC map is ~1,000 meters offset. I think there must be some transformation
+> involved, but it isn't clear to me at what point in the process. Should the
+> Eastings and Northings in the map be transformed and use those transformed
+> values as GCPs? Or should the GCPs use the grid values and some transform
+> happen later? Or should is this just a really elusive horizontal datum...
+>
+> I've tried everything I can think of. Here is a starter using lat long GCP
+> points on the LOC map image.
+> ```
+> gdal_translate -gcp 627.457814 517.220980 -72.25 19.666667 -gcp 8893.0877
+> 517.331604 -72 19.666667 -gcp 8888.9205 6312.2196 -72 19.5 -gcp 623.864944
+> 6314.5746 -72.25 19.5 -of GTiff "GRN.tif" "GRN_gcps_latlong.tif"`
+>
+> gdalwarp -order 1 -r bilinear -s_srs '+proj=longlat +ellps=clrk66' -t_srs
+> '+proj=utm +zone=18 +ellps=clrk66 +towgs84=-13,-95,-197,0,0,0,0 +units=m
+> +no_defs' GRN_gcps_latlong.tif GRN_projectedtif
+> ```
+> If you prefer, here it is with 10+ GCPs using the map's grid.
+> ```
+> gdal_translate -of GTiff -gcp 730.736 6110.949 789000 2158000 -gcp 736.387
+> 5795.335 789000 2159000 -gcp 741.696 5481.115 789000 2160000 -gcp 747.267
+> 5165.909 789000 2161000 -gcp 821.443 766.88 789000 2175000 -gcp 816.24
+> 1078.971 789000 2174000 -gcp 811.211 1394.578 789000 2173000 -gcp 6501.597
+> 551.782 807000 2176000 -gcp 6185.673 547.045 806000 2176000 -gcp 4288.393
+> 829.835 800000 2175000 -gcp 3975.028 824.02 799000 2175000 -gcp 3658.991
+> 818.975 798000 2175000 -gcp 3344.584 813.972 797000 2175000 -gcp 3027.108
+> 809.96 796000 2175000 -gcp 2711.015 805.008 795000 2175000 -gcp 2397.12
+> 800.185 794000 2175000 -gcp 4283.082 1142.947 800000 2174000 -gcp 3969.927
+> 1137.041 799000 2174000 -gcp 3653.994 1131.957 798000 2174000 -gcp 3339.13
+> 1126.642 797000 2174000 -gcp 3021.555 1121.964 796000 2174000 -gcp 2706.024
+> 1116.956 795000 2174000 -gcp 4272.358 1768.053 800000 2172000 -gcp 3959.532
+> 1762.746 799000 2172000 GRN.tif GRN_gcps.tif
+> ```
+> I am indebted for any help to solve this!
+>
+>
+> --
+> Landon Yarrington, Ph.D.
+> Colorado State University
+> Department of Anthropology and Geography
+> Andrew G. Clark Bldg, 301 University Ave #219
+> Fort Collins, CO  80521
+> USA
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240713/9503bbd7/attachment.htm>
+
+From molnar at sas.elte.hu  Mon Jul 15 12:08:43 2024
+From: molnar at sas.elte.hu (molnar)
+Date: Mon, 15 Jul 2024 19:08:43 +0000
+Subject: [PROJ] Fwd: Re:  Help with impossibly elusive horizontal datum
+In-Reply-To: <df2cf777d5afbf91569c7bbf44c942a2@sas.elte.hu>
+References: <CACqk7x4Oek=U3m43Z+xZ_ZpeFMXMPWmSeO8JfNJOFr6SB5t_MA@mail.gmail.com>
+ <rmizfr0xf5p.fsf@s1.lexort.com>
+ <CACqk7x7-SUKUrHGjknk0S7z48fmc9tTzquJTfvzh_KZbggtWLA@mail.gmail.com>
+ <rmir0bygn0x.fsf@s1.lexort.com>
+ <df2cf777d5afbf91569c7bbf44c942a2@sas.elte.hu>
+Message-ID: <fe6f887b1e89a914dcd3518e33774e7b@sas.elte.hu>
+
+
+Dear Landon,
+
+This is not your fault. There is no simple (7-parameter) definition 
+between the applied AMS-Haiti datum and any modern datum.
+We have to admit, that our predecessors not always
+knew, what they did (or more probably, they did not have enough time, to 
+finish their work properly).
+Fortunatly, other predecessors invented the correction grid method, and 
+this seems to be working.
+
+I really wanted to analyze, what might be the problem with the Haiti 
+maps.
+I downloaded some 25 sheets of the 1st editions of the western part of 
+Haiti from the website.
+I georefenced them in QGIS in their native map projection, by clicking 5 
+grid intersection points per sheet, to have an affine transformation 
+(plus quality control) between image coordinates and printed utm 
+coordinates.
+Next I restarted geocoding by collecting 15-20 control points (GCPs) per 
+sheet, so I clicked the same surface object on raw images (not using the 
+previous transformation) and clicked the same point on google satellite 
+map.
+Using this latter dataset, for some hundred GCPs, I generated 
+Clrk66-WGS84 coordinate pairs.
+This is, how I got the Clrk66 coordinets of the GCPs: I converted the 
+GCPs image coordinates, with affine transformation to overprinted UTM 
+coordinates, and with inverse proj transformation I transformed them to 
+Clrk66 ellipsoidal coordinate)
+This is how I got WGS854 coordinates: From the webmercator coordinates 
+of the GCPs on google satellite, with inverse proj  I got WGS84 
+ellipsoidal coordinates.
+(Certainly the GCPs obtained with this method might have as much as 30 
+meter errors, but it is half a millimetre on map, and Landon's problem 
+is the kilometer shift, that was not explained.)
+
+Analyzing these coordinate pairs some conclusions:
+-I could not find a single 7 parameter BursaWolf, (towgs84) 
+transformation,
+- For a single map sheet, finding and clicking GCPs on a map sheet, 
+usually the RMS error of a 2D Helmert transformation between raw image 
+coordinates and the google earth webmercator coordinates was better than 
+30 meter, that means the original mapping material used for this map was 
+quite ok. (Any map projection on a 1:50000 map on a 25x18km map sheet 
+works like this, if the mapping material is ok)
+- I generated a coordinate difference chart, (the attached 
+"latlon_diff_vectors.jpg") the coordinate differences are plotted as 
+vectors. The vector field seems to be continuous, but not uniform. On 
+top left corner of the area, the for Dame Marie map sheet, the 
+differences are
+negligible, but for other map sheets (like the Jerome sheet, next to it) 
+the ellipsoidal coordinate differences represent several hundred meter 
+differences. This implies, that even with correction grid, at the 
+vicinity of the borders of Dame Marie map sheet, there might be errors 
+as much as 200 meters.
+
+Using the ellipsoidal coordinate difference dataset, I generated a GSB 
+(Grid Shift Binary) for horizontal grid shift with some GDAL commands. 
+(Say thank to GDAL developers.) It took me a while, (This might be 
+another post :-)), but finally I got it. After getting through some QGIS 
+version problem (where to store the GSB files...) it worked as expected.
+
+And finally:
+For using the coordinate correction grid (attachment to this email), in 
+QGIS 3.24, this is what to do:
+1. Copy the attached "haiti_ams_wgs84.gsb" to
+C:\Users\USER\AppData\Roaming\QGIS\QGIS3\profiles\default\proj (USER is 
+your username) This is for Windows, for any other OS, check Qgis manual.
+2. Define a user defined map projection in QGIS, using the deprecated, 
+not recommended proj definition:
+"+proj=utm +zone=18 +ellps=clrk66 +nadgrids=haiti_ams_wgs84.gsb +units=m 
++no_defs"
+3. Geocode your map sheets by some utm grid intersections, choosing the 
+"To" coordinate system the user-defined coordinate system.
+4. You can add the geocoded sheet to any project (that has 
+transformation to WGS84), QGIS will warp your mapsheets on-the-fly, so 
+it might be slow.
+5. If it is too slow, you can resample your mapsheet into another 
+coordinate system with gdalwarp, and use the warped dataset in QGIS. For 
+QGIS it is less CPU consuming to handle a dataset that has a 7-parameter 
+transformation definition to present day map datums (instead of grid 
+shift definition) .
+
+It should work for western Haiti. If you need a higher accuracy grid, or 
+the whole country, you have to provide me GCPs, and I can generate the 
+GSB file.
+Best wishes,
+Gabor
+
+The mentioned files:
+latlon_diff_vectors.jpg:
+https://pasteboard.co/rEwS1oORV8i7.jpg
+
+I could not upload "haiti_ams_wgs84.gsb" on the pasteboard.co site, 
+neither in tif format, so I send it to you in a private email...
+
+
+
+
+> Landon Yarrington <lyarrington at gmail.com> writes:
+> 
+>> First, the three control extension points listed in the map info are 
+>> quite
+>> far away and not on the map. And, the coordinates given for the points 
+>> do
+>> not appear to align with the actual locations when viewed on Google 
+>> Earth.
+>> Maybe this is a clue to the offset?
+> 
+> This is exactly a clue.  The lat/lon given in the map data are labeled
+> astronomic, and they are the results of some number of measurements
+> which have considerable error.  They decided to fix those stations with
+> those values; this is the definition of a datum.  In the 1940s I am
+> aware of no better way to connect coordinates in Haiti to coordinates 
+> in
+> CONUS.  Surely the Army Map Service was world class in doing things 
+> like
+> that.
+> 
+>> Fort Islet lighthouse 18?33'31.33" -72?20'59.03", should be 
+>> 18?33'18.08" > -72?21'04.50"
+>> Santo Domingo lighthouse 18?27'53.64" -69?52'52.74", should be 
+>> 18?27'51.39" -69?52'34.90"
+>> Dame Marie 18?36'47" -74?25'53", unknown but possibly 18?36'57.21" 
+>> -74?25'26.94"
+> 
+> You say "should be", but you are really saying "In some particular
+> modern coordinate system".  The definition of 0 longitude even in ITRF
+> is totally arbitrary.  It is just that the values adopted for mapping
+> Haiti and the values measured in a modern frame are different.  Yes, 
+> for
+> latitude, one can say they are wrong, but gravity variation makes this
+> hard.
+> 
+> Looking only at minutes, and local - wgs84
+> 
+> 		lat		lon
+> Fort Islet	13"		5.5"
+> Santo Domingo	2.2"		-18"
+> Dame Marie	-10"		-26"
+> 
+> so this is not really that consistent.  This leads me to think there is
+> rotation too.
+> 
+> But really, you have a map which you hope is internally consistent and
+> you can identify points on the modern ground that match points on the
+> map.
+> 
+>> I took your advice and used the QGIS georeferencer. This is actually 
+>> what I
+>> initially did before reaching out here. I put google and bing satelite
+>> imagery on the canvas to pin ground control points. I chose 19 GCPs 
+>> and set
+> 
+> There is the question of whether those imagery layers are aligned to
+> recent WGS84, recent NAD83, something else, or are just off.  But
+> probably they are decent.
+> 
+> I have checked MassGIS imagery against NAD83(2011) epoch 2010.0 (which
+> the imagery is said to be in) and it matches to a pixel.  But it was
+> taken recently, in an area where there is great ground control and a
+> statewide RTK network.
+> 
+>> the algo to thin plate spline. The result has excellent accuracy. 
+>> However,
+>> the result is not easily reproducible. I have personally been to all 
+>> the
+>> locations I chose as GCPs and I know that---for the purpose of
+>> georeferencing---those sites are unchanged in any meaningful way since 
+>> the
+>> 1942 aerial photography used to make the map was taken.
+> 
+> It's great you have enough local knowledge to know what's undisturbed,
+> and this is basically necessary to do what you are doing correctly.
+> 
+>> Not everyone is going to have this specialized knowledge, and why
+>> should they when there is already a UTM grid on the map? Can the grid
+>> intersections make the georeferencing process more reproducible
+>> without the need of ethnographic fieldwork?
+> 
+> I think you are fundamentally misunderstanding the nature of UTM.  UTM
+> is a projection, not a datum.  It takes latitude and longitude -- in
+> some datum, relative to something -- and turns it into easting and
+> northing.  This is just math, and has no bearing on or input from
+> whether the latitude/longitude pairs are consistent with modern WGS84.
+> 
+> Further, this is NAD27-style UTM with the Clarke ellipsoid, not
+> NAD83/WGS84-style UTM with the GRS80 ellipsoid.
+> 
+> Assuming that the UTM coordinates are in NAD27 is exactly as wrong an
+> assumption as assuming that the map lat/lon are in NAD27.
+> 
+>> The map in question is the 1st edition (
+>> https://www.loc.gov/resource/g4940m.gct00206/?sp=168). There are at 
+>> least 4
+>> subsequent editions (here is the 3rd
+>> https://www.loc.gov/resource/g4940m.gct00206/?sp=167). The 1st edition 
+>> has
+>> the map info I quoted in my first message but is dropped from all 
+>> later
+>> editions. All later editions explicitly state the datum is NAD27 (or 
+>> NAD83
+>> for 4th and 5th editions).
+> 
+> The link you sent is the 2nd, but that's better, as it is the first 
+> that
+> says NAD27, and the compilation date is 1963.
+> 
+> I am not aware of any technology that would enable extending NAD27 from
+> CONUS to Haiti in 1963.  That seems early for TRANSIT, but the dates in
+> wikipedia do not 100% preclude AMS trying to tie in Haiti with it:
+>    https://en.wikipedia.org/wiki/Transit_(satellite)
+> 
+> If anyone knows any other techniques for tying Florida to Haiti in 
+> 1963,
+> please post.  I know this isn't really Surveying-L but I bet a lot of
+> readers would be interested.
+> 
+>> Curiously, the geographic representation in the
+>> 1st edition is more expansive than the others; even though all the 
+>> editions
+>> have their neatlines within 19?50', -72?15' and 19?40', -72?00', the 
+>> 1st
+>> edition shows considerably more area. Example: the town of Limonade at 
+>> the
+>> bottom center of the map. The road that leads southeast from Limonade
+>> extends about 1.29 km further than what is shown in later editions. In
+>> fact, if you look at the grid intersection 2178000m N and 801000m E on 
+>> the
+>> 1st edition and the same point on the later editions, the grid is 
+>> nearly
+>> 1000 meters off. Compare
+>> https://www.loc.gov/resource/g4940m.gct00206/?sp=168&r=0.314,0.573,0.372,0.229,0
+>> to
+>> https://www.loc.gov/resource/g4940m.gct00206/?sp=167&r=0.284,0.495,0.238,0.147,0.
+>> What is going on here?? Is this a datum difference, projection 
+>> difference,
+>> both??
+> 
+> If the neatline are the same lat/lon and they show different content,
+> then either they have fixed errors or the datum is different.  Same 
+> with
+> projected coordinates.  But the datum is different; they say so.
+> 
+> I would get the NAD27 coordinates for their 3 control points and then
+> compute distance/bearing from "AMS Haiti Datum of 1948" (I'm making 
+> that
+> up) to NAD27.  Those aren't real distances, but a datum shift.
+> 
+>> So... the second thing I tried was selecting GCPs at each grid 
+>> intersection
+>> on the 1st edition but subtracting 1000 meters from the northings. (I 
+>> did
+>> 141 GCPs.) This got the map's accuracy much better, but there was 
+>> still a
+>> systematic offset.
+> 
+> This doesn't really make sense.  You are assuming that the original
+> coordinate system is the same as some modern one and it just
+> isn't. Think about if you were given a map in NAD27 and you are trying
+> to georeference it into WGS84, but nobody will given you a transform
+> between the two datums.
+> 
+> Or how about you had an army of surveyors to do an experiment.  Go to
+> modern place that is 20km by 20 km.  Pick 3 places and drive pins.  For
+> each, get really good GPS-derived coordinates.  Then, generate 6 random
+> numbers and add them into the 3 pairs of coordinates.  Write those down
+> and hand them to the surveying teams.  The teams get to use total
+> stations, with 1 arc second theodolites, and 1-2 ppm electronic 
+> distance
+> measurement, but are forbidden from using any satellites, any outside
+> info, and from making any astronomic observations.  They are to survey
+> the town.
+> 
+> The map they make will be highly consistent with itself.  But there 
+> will
+> be some offset and rotation because the assumed coordinates of the 3
+> control points are in error.
+> 
+> This is, as I understand it, essentially what happened, except that
+> there was no oracle with random numbers.  There was instead the errors
+> in astronomic determination of latitude and longitude.  Besides
+> measuremnt errors, the direction of gravity is not aligned with the
+> normal to the ellipsoid, and this results in latitude errors.
+> 
+>> The best accuracy was in the center of the map. In the
+>> 4th edition of the map, there is a note instructing how to convert 
+>> from
+>> NAD27 to NAD83, which reads, "Grid: Add 35mE, add 198mN. Geographic:
+>> Subtract 1.4" Long, Add 2.2" Lat." OK. So, I also did these shifts to 
+>> the
+>> GCPs that I had already offset by 1000m N. For each easting, I added 
+>> 35m
+>> and each northing I added 198m. Then, I ran gdalwarp (code below). The
+>> result still has an offset but it's the best I've been able to get 
+>> using
+>> the UTM grid, but sadly it is not nearly as accurate as the QGIS 
+>> visual
+>> approach.
+> 
+> You are just fudging numbers by treating the UTM grid as true, and
+> basically computing a single E/N shift by iteratively adjusting and
+> looking.  But you are not estimating a rotation.  When you use GCPs 
+> with
+> map coordinates in pixels and accurate WGS84 from imagery (if that is
+> indeed acccurate), the georeferencer is doing least squares among all 
+> the
+> points.
+> 
+>> Again, I am indebted for any help. The code below only uses 8 GCPs of 
+>> the
+>> UTM intersections offset and shifted described above.
+>> 
+>> ```
+>> # download the tiff from Library of Congress
+>> wget
+>> https://www.loc.gov/resource/g4940m.gct00206/?download=https%3A%2F%2Ftile.loc.gov%2Fstorage-services%2Fmaster%2Fgmd%2Fgmd4m%2Fg4940m%2Fg4940m%2Fgct00206%2Fcs000168.tif
+>> -O cs000168.tif
+>> # add 8 ground control points using the UTM grid described above
+>> gdal_translate -of GTiff -gcp 833.408 5291.81 789035 2179198 -gcp 
+>> 1146.904
+>> 5296.971 790035 2179198 -gcp 3963.057 6290.092 799035 2176198 -gcp 
+>> 843.374
+>> 4660.743 789035 2181198 -gcp 1763.341 5935.218 792035 2177198 -gcp 
+>> 2077.227
+>> 5941.007 793035 2177198 -gcp 8369.034 5735.588 813035 2178198 -gcp 
+>> 8684.098
+>> 5741.097 814035 2178198 cs000168.tif cs000168_GCPs.tif
+>> # warp the map with thin plate spline
+>> gdalwarp -r near -tps -co COMPRESS=JPEG -co TILED=YES -s_srs 
+>> EPSG:32618
+>> -t_srs EPSG:32618 cs000168_GCPs.tif cs000168_TO_epsg32618.tif
+>> ```
+> 
+> Why are you running gdal_translate rather than just using the
+> georeferencer and letting it make a new tif?
+> 
+> Another consideration is that the map datum is a local one, but
+> presumably distances are correct.   So there should only be one
+> translation and one rotation to go from map datum to NAD27.   Or, one
+> translation, one rotation, and one scale factor to go from map datum 
+> UTM
+> to WGS84 UTM.  And, the scale factor can be computed since the
+> translation is small.    By using a complicated mapping fit, you are
+> allowing distortions in the map datum to be leveled out.   If the map 
+> is
+> distorted locally because of survey errors, that's good.  But if the 
+> map
+> is internally consistent and the individual points have random errors,
+> that's bad.
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+From winash12 at gmail.com  Wed Jul 17 03:06:20 2024
+From: winash12 at gmail.com (ashwin .D)
+Date: Wed, 17 Jul 2024 15:36:20 +0530
+Subject: [PROJ] Unable to install proj 9.3 due to linking errors
+Message-ID: <CAH0LXy42UdmZ7Xbv8Meg=X86JJjDr1_1_Sg-NFUF3wyqmPMsAQ@mail.gmail.com>
+
+Hello ,
+             I am trying to install PROJ 9.3. and I am getting linking
+errors on Ubuntu 20.04 LTS.
+
+I have enclosed the log file of the compilation errors.  My LD_LIBRARY_PATH
+as root is set to
+/usr/local/lib64 and that location does contain the libssl.so and
+libcrypto.so. Any suggestions on where I am going wrong ?
+
+The errors are undefined references -
+
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`SSL_alert_desc_string_long'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`SSL_CTX_free'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`X509_NAME_get_index_by_NID'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`OCSP_response_status'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`ASN1_STRING_print'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`X509_STORE_up_ref'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`BIO_meth_set_read'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`OCSP_RESPONSE_free'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`BIO_ctrl'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`X509_PUBKEY_get0_param'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`SSL_CTX_set_keylog_callback'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`EVP_PKEY_get_id'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`BIO_set_shutdown'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`SSL_set0_rbio'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`SSL_CTX_set_default_passwd_cb_userdata'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`BIO_get_data'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`X509_get0_extensions'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`SSL_CTX_get_cert_store'
+/usr/bin/ld: ../../lib/libproj.so.25.9.3.1: undefined reference to
+`OCSP_crl_reason_str'
+
+cmake version is 3.30.0
+Best regards,
+Ashwin.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240717/26b9e14c/attachment.htm>
+
+From nathanrsizemore at gmail.com  Tue Jul 23 17:41:17 2024
+From: nathanrsizemore at gmail.com (Nathan Sizemore)
+Date: Tue, 23 Jul 2024 20:41:17 -0400
+Subject: [PROJ] Building PROJ with SQLite3 in archive
+Message-ID: <CAB9dCz6AKB1ctV4W=QWLG-X3eQtZprri6NnNq1nPqF31HKDUTQ@mail.gmail.com>
+
+Hello,
+
+I am wanting to build libproj as a static lib, with sqlite included. It
+appears even though I am setting the sqlite paths, shared libs off, all
+sqlite refs in the static lib are undefined. I do not have any other sqlite
+installs on my system, only the custom one and no shared libs of it, only
+the .a.
+
+mkdir build
+cd build
+cmake -DCMAKE_INSTALL_PREFIX=/home/nate/dev/tmp/proj \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_APPS=OFF \
+      -DBUILD_TESTING=OFF \
+      -DBUILD_SHARED_LIBS=OFF \
+      -DENABLE_CURL=OFF \
+      -DENABLE_TIFF=OFF \
+      -DEXE_SQLITE3=/home/nate/dev/tmp/sqlite/bin/sqlite3 \
+      -DSQLite3_INCLUDE_DIR=/home/nate/dev/tmp/sqlite/include \
+      -DSQLite3_LIBRARY=/home/nate/dev/tmp/sqlite/lib/libsqlite3.a \
+      ..
+cmake --build . --parallel 10
+cmake --install .
+
+~/dev/tmp$ nm -u proj/lib/libproj.a | grep sqlite
+                 U _Z21pj_clear_sqlite_cachev
+                 U sqlite3_vsnprintf
+                 U sqlite3_bind_blob
+                 U sqlite3_bind_int64
+                 U sqlite3_bind_null
+                 U sqlite3_bind_text
+                 U sqlite3_close
+... and so on
+
+Am I missing anything or is sqlite forced as a shared dep?
+
+- nate
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240723/d9b93052/attachment.htm>
+
+From gdt at lexort.com  Wed Jul 24 05:59:54 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Wed, 24 Jul 2024 08:59:54 -0400
+Subject: [PROJ] Building PROJ with SQLite3 in archive
+In-Reply-To: <CAB9dCz6AKB1ctV4W=QWLG-X3eQtZprri6NnNq1nPqF31HKDUTQ@mail.gmail.com>
+ (Nathan Sizemore via PROJ's message of "Tue, 23 Jul 2024 20:41:17
+ -0400")
+References: <CAB9dCz6AKB1ctV4W=QWLG-X3eQtZprri6NnNq1nPqF31HKDUTQ@mail.gmail.com>
+Message-ID: <rmia5i7djxx.fsf@s1.lexort.com>
+
+Nathan Sizemore via PROJ <proj at lists.osgeo.org> writes:
+
+> ~/dev/tmp$ nm -u proj/lib/libproj.a | grep sqlite
+>                  U _Z21pj_clear_sqlite_cachev
+>                  U sqlite3_vsnprintf
+>                  U sqlite3_bind_blob
+>                  U sqlite3_bind_int64
+>                  U sqlite3_bind_null
+>                  U sqlite3_bind_text
+>                  U sqlite3_close
+> ... and so on
+>
+> Am I missing anything or is sqlite forced as a shared dep?
+
+Normally, people statically link libraries into executables.  You should
+instead be looking at bin/proj, with ldd and "objdump -x".
+
+I think what you are missing that what you want to do is unusual, and
+not what is normally meant by 'build static'.
+
+From kapadokija at gmail.com  Tue Jul 30 05:11:11 2024
+From: kapadokija at gmail.com (Mladen Mijatovic)
+Date: Tue, 30 Jul 2024 14:11:11 +0200
+Subject: [PROJ] Issue with inverted axis
+Message-ID: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+
+Hi all,
+
+Is there a way to identify if crs has an inverted axis? In most of the
+cases axes are Lat,Lon or E,N but I stumbled on one with axis N,E -
+EPSG:2193. In this case I need to invert coordinates before the
+transformation and I am not sure how to identify this situation in general.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240730/02905b82/attachment.htm>
+
+From nhv at meganet.net  Tue Jul 30 05:45:31 2024
+From: nhv at meganet.net (Norman Vine)
+Date: Tue, 30 Jul 2024 08:45:31 -0400
+Subject: [PROJ] Issue with inverted axis
+In-Reply-To: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+References: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+Message-ID: <9380176F-4AB6-40AD-889A-94F352DFA293@meganet.net>
+
+https://proj.org/en/9.4/faq.html#why-is-the-axis-ordering-in-proj-not-consistent
+
+> On Jul 30, 2024, at 8:11 AM, Mladen Mijatovic via PROJ <proj at lists.osgeo.org> wrote:
+> 
+> Hi all,
+> 
+> Is there a way to identify if crs has an inverted axis? In most of the cases axes are Lat,Lon or E,N but I stumbled on one with axis N,E - EPSG:2193. In this case I need to invert coordinates before the transformation and I am not sure how to identify this situation in general. 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+
+From j1 at jimenezshaw.com  Tue Jul 30 05:37:36 2024
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 30 Jul 2024 14:37:36 +0200
+Subject: [PROJ] Issue with inverted axis
+In-Reply-To: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+References: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+Message-ID: <CADRrdKs3PjKza2YYjwzJo4rX_DO4P=mv91uvw88q5aP2=qvCdQ@mail.gmail.com>
+
+Hi Mladen,
+
+In which context do you want to do that? python? C++? CLI? What are you
+doing later with that info (like calling cs2cs or anything else)?
+If you just want to know for a few cases,
+https://spatialreference.org/ref/epsg/2193/ is an easy reference. There is
+axis information.
+
+Cheers
+
+On Tue, 30 Jul 2024 at 14:11, Mladen Mijatovic via PROJ <
+proj at lists.osgeo.org> wrote:
+
+> Hi all,
+>
+> Is there a way to identify if crs has an inverted axis? In most of the
+> cases axes are Lat,Lon or E,N but I stumbled on one with axis N,E -
+> EPSG:2193. In this case I need to invert coordinates before the
+> transformation and I am not sure how to identify this situation in general.
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240730/743f24a1/attachment.htm>
+
+From kapadokija at gmail.com  Tue Jul 30 07:10:17 2024
+From: kapadokija at gmail.com (Mladen Mijatovic)
+Date: Tue, 30 Jul 2024 16:10:17 +0200
+Subject: [PROJ] Issue with inverted axis
+In-Reply-To: <CADRrdKs3PjKza2YYjwzJo4rX_DO4P=mv91uvw88q5aP2=qvCdQ@mail.gmail.com>
+References: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+ <CADRrdKs3PjKza2YYjwzJo4rX_DO4P=mv91uvw88q5aP2=qvCdQ@mail.gmail.com>
+Message-ID: <CAGCPN7H8417QWN2n-Bb-+7e4LZZeDJbY0LkZVx4To=8XvTfAug@mail.gmail.com>
+
+Hi Javier,
+
+I am using a .NET wrapper around the Proj, called SharpProj. I am creating
+crs from a database, using *proj_create_from_database* with authority EPSG
+and coe 2193 as params.  Next thing I try is to convert some positions using*
+proj_create_crs_to_crs_from_pj *with EPSG:2193 as source crs and EPSG:4326
+as target crs. Next call is to *proj_trans* without forwarding and with and
+with coordinates [-41.302232653193769, 174.77951032151356] as lat, lon. The
+result is an array of 2, converted[0] = 799875.43712394813 and converted[1]
+= 400261.41900983331 From this array I need to know what to pick as
+Northing and what as Easting.
+
+???, 30. ??? 2024. ? 14:37 Javier Jimenez Shaw <j1 at jimenezshaw.com> ??
+???????/??:
+
+> Hi Mladen,
+>
+> In which context do you want to do that? python? C++? CLI? What are you
+> doing later with that info (like calling cs2cs or anything else)?
+> If you just want to know for a few cases,
+> https://spatialreference.org/ref/epsg/2193/ is an easy reference. There
+> is axis information.
+>
+> Cheers
+>
+> On Tue, 30 Jul 2024 at 14:11, Mladen Mijatovic via PROJ <
+> proj at lists.osgeo.org> wrote:
+>
+>> Hi all,
+>>
+>> Is there a way to identify if crs has an inverted axis? In most of the
+>> cases axes are Lat,Lon or E,N but I stumbled on one with axis N,E -
+>> EPSG:2193. In this case I need to invert coordinates before the
+>> transformation and I am not sure how to identify this situation in general.
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240730/8d00b344/attachment.htm>
+
+From j1 at jimenezshaw.com  Tue Jul 30 07:42:55 2024
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Tue, 30 Jul 2024 16:42:55 +0200
+Subject: [PROJ] Issue with inverted axis
+In-Reply-To: <CAGCPN7H8417QWN2n-Bb-+7e4LZZeDJbY0LkZVx4To=8XvTfAug@mail.gmail.com>
+References: <CAGCPN7FDGR1wurQnetNjh4dRqh09E0oTOyPjv2TmHVTGpRcTpg@mail.gmail.com>
+ <CADRrdKs3PjKza2YYjwzJo4rX_DO4P=mv91uvw88q5aP2=qvCdQ@mail.gmail.com>
+ <CAGCPN7H8417QWN2n-Bb-+7e4LZZeDJbY0LkZVx4To=8XvTfAug@mail.gmail.com>
+Message-ID: <CADRrdKvqttTcWgSjsCvR6bbrRoaV9w=cGnVzOkLLqyGzOexbiQ@mail.gmail.com>
+
+With *proj_crs_get_coordinate_system* and  *proj_cs_get_axis_info* you can
+get the needed info.
+See the difference between CRS (coordinate reference system) and CS
+(coordinate system).
+
+On Tue, 30 Jul 2024 at 16:10, Mladen Mijatovic <kapadokija at gmail.com> wrote:
+
+> Hi Javier,
+>
+> I am using a .NET wrapper around the Proj, called SharpProj. I am creating
+> crs from a database, using *proj_create_from_database* with authority
+> EPSG and coe 2193 as params.  Next thing I try is to convert some positions
+> using* proj_create_crs_to_crs_from_pj *with EPSG:2193 as source crs and
+> EPSG:4326 as target crs. Next call is to *proj_trans* without forwarding
+> and with and with coordinates [-41.302232653193769, 174.77951032151356]
+> as lat, lon. The result is an array of 2, converted[0] = 799875.43712394813
+> and converted[1] = 400261.41900983331 From this array I need to know what
+> to pick as Northing and what as Easting.
+>
+> ???, 30. ??? 2024. ? 14:37 Javier Jimenez Shaw <j1 at jimenezshaw.com> ??
+> ???????/??:
+>
+>> Hi Mladen,
+>>
+>> In which context do you want to do that? python? C++? CLI? What are you
+>> doing later with that info (like calling cs2cs or anything else)?
+>> If you just want to know for a few cases,
+>> https://spatialreference.org/ref/epsg/2193/ is an easy reference. There
+>> is axis information.
+>>
+>> Cheers
+>>
+>> On Tue, 30 Jul 2024 at 14:11, Mladen Mijatovic via PROJ <
+>> proj at lists.osgeo.org> wrote:
+>>
+>>> Hi all,
+>>>
+>>> Is there a way to identify if crs has an inverted axis? In most of the
+>>> cases axes are Lat,Lon or E,N but I stumbled on one with axis N,E -
+>>> EPSG:2193. In this case I need to invert coordinates before the
+>>> transformation and I am not sure how to identify this situation in general.
+>>> _______________________________________________
+>>> PROJ mailing list
+>>> PROJ at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/proj
+>>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20240730/fc88bf52/attachment.htm>
+

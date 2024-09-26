@@ -1,0 +1,1082 @@
+From sean.gillies at gmail.com  Wed Jan  3 10:34:01 2018
+From: sean.gillies at gmail.com (Sean Gillies)
+Date: Wed, 3 Jan 2018 11:34:01 -0700
+Subject: [geos-devel] dynamic_cast may yield null pointers in
+ AbstractSTRtree::query and AbstractSTRtree::itemsTree on OS X
+Message-ID: <CAOodmJqpkftFbD517FHxL8TLGZVv6p-_gRkivRsey-p5=HWQ1w@mail.gmail.com>
+
+Hi and Happy New Year, all.
+
+I found time recently to make notes on a frustrating issue that I'm having
+with GEOS in the Shapely binary wheels for OS X that I'm publishing on
+PyPI. I'm not certain whether there's a GEOS bug, a dynamic loader bug, a
+ctypes bug, misuse of computers on my part, or all four. I'd really
+appreciate a bit of advice from anyone with more C++ and Mach-O wisdom that
+would rule out a few of these possibilities.
+
+Here's the gist of it: Shapely uses dlopen (via Python's ctypes) to load
+libgeos_c.dylib at run time. The GEOS C++ library (libgeos-3.6.2.dylib, for
+example) is a dependent library of libgeos_c.dylib. I have been
+distributing the GEOS libs with my Shapely binaries for convenience of
+users, but Shapely also works with GEOS installed to the standard places on
+your system. I've never experienced or seen report of a problem with
+Shapely's loading of the GEOS libraries *in isolation* that hasn't been
+fixed.
+
+My Fiona package for Python also depends on libgeos_c.dylib, but in the
+more familiar way: it's a dependent library of GDAL, which is loaded when
+Fiona's C extension modules are loaded in Python.
+
+If we import fiona in a Python script and then import shapely from a binary
+wheel that includes GEOS libraries, the script will abort in either
+AbstractSTRtree::query or AbstractSTRtree::itemsTree because the dynamic
+casts yield null pointers. As far as I can tell, loading two copies of the
+C++ GEOS library is where the trouble starts. Is the trouble in the loader,
+the library code, or my builds? I do not know.
+
+There's no problem on Linux. The Linux library loader may be more foolproof
+or the library code might be compiled more correctly in a way that I don't
+yet see. I'm using the following flags in my builds – the dual architecture
+build is the only thing that seems unusual to me.
+
+environment =
+    MACOSX_DEPLOYMENT_TARGET=10.9
+configure-options =
+    CFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+    CXXFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+    LDFLAGS="-arch i386 -arch x86_64"
+
+The thing that makes me suspect that there is a localized bug in GEOS is
+that loading the library twice doesn't lead to failures in computing areas,
+lengths, predicates, or WKT serializations. Only in the AbstractSTRtree
+module as far as I can tell.
+
+I've made a ticket at https://trac.osgeo.org/geos/ticket/848 and have
+attached a script that reproduces the problem as well as demonstrating that
+other GEOS modules are unaffected.
+
+It's interesting, but mostly baffling and humbling to go so deep into the
+weeds of dynamic library loading. I'm over my head here and super grateful
+for insights and discussion.
+
+-- 
+Sean Gillies
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180103/aeba3217/attachment.html>
+
+From schwehr at gmail.com  Thu Jan  4 11:22:32 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Thu, 4 Jan 2018 11:22:32 -0800
+Subject: [geos-devel] dynamic_cast may yield null pointers in
+ AbstractSTRtree::query and AbstractSTRtree::itemsTree on OS X
+In-Reply-To: <CAOodmJqpkftFbD517FHxL8TLGZVv6p-_gRkivRsey-p5=HWQ1w@mail.gmail.com>
+References: <CAOodmJqpkftFbD517FHxL8TLGZVv6p-_gRkivRsey-p5=HWQ1w@mail.gmail.com>
+Message-ID: <CACmBxyvHGEm=fYzk8faHi11eZAu5M1jCqG4Z6wcSuZsQEOR37w@mail.gmail.com>
+
+Ouch :(
+
+Some thoughts... you might be getting different versions of the library
+(e.g. different compiler versions or flags for the same version of
+libgeos).  otool -L and dtrace are places to start, but aren't fun.  Is it
+happening on multiple machines?  Using macports, fink, homebrew, or for the
+libs?
+
+On Wed, Jan 3, 2018 at 10:34 AM, Sean Gillies <sean.gillies at gmail.com>
+wrote:
+
+> Hi and Happy New Year, all.
+>
+> I found time recently to make notes on a frustrating issue that I'm having
+> with GEOS in the Shapely binary wheels for OS X that I'm publishing on
+> PyPI. I'm not certain whether there's a GEOS bug, a dynamic loader bug, a
+> ctypes bug, misuse of computers on my part, or all four. I'd really
+> appreciate a bit of advice from anyone with more C++ and Mach-O wisdom that
+> would rule out a few of these possibilities.
+>
+> Here's the gist of it: Shapely uses dlopen (via Python's ctypes) to load
+> libgeos_c.dylib at run time. The GEOS C++ library (libgeos-3.6.2.dylib, for
+> example) is a dependent library of libgeos_c.dylib. I have been
+> distributing the GEOS libs with my Shapely binaries for convenience of
+> users, but Shapely also works with GEOS installed to the standard places on
+> your system. I've never experienced or seen report of a problem with
+> Shapely's loading of the GEOS libraries *in isolation* that hasn't been
+> fixed.
+>
+> My Fiona package for Python also depends on libgeos_c.dylib, but in the
+> more familiar way: it's a dependent library of GDAL, which is loaded when
+> Fiona's C extension modules are loaded in Python.
+>
+> If we import fiona in a Python script and then import shapely from a
+> binary wheel that includes GEOS libraries, the script will abort in either
+> AbstractSTRtree::query or AbstractSTRtree::itemsTree because the dynamic
+> casts yield null pointers. As far as I can tell, loading two copies of the
+> C++ GEOS library is where the trouble starts. Is the trouble in the loader,
+> the library code, or my builds? I do not know.
+>
+> There's no problem on Linux. The Linux library loader may be more
+> foolproof or the library code might be compiled more correctly in a way
+> that I don't yet see. I'm using the following flags in my builds – the dual
+> architecture build is the only thing that seems unusual to me.
+>
+> environment =
+>     MACOSX_DEPLOYMENT_TARGET=10.9
+> configure-options =
+>     CFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+>     CXXFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+>     LDFLAGS="-arch i386 -arch x86_64"
+>
+> The thing that makes me suspect that there is a localized bug in GEOS is
+> that loading the library twice doesn't lead to failures in computing areas,
+> lengths, predicates, or WKT serializations. Only in the AbstractSTRtree
+> module as far as I can tell.
+>
+> I've made a ticket at https://trac.osgeo.org/geos/ticket/848 and have
+> attached a script that reproduces the problem as well as demonstrating that
+> other GEOS modules are unaffected.
+>
+> It's interesting, but mostly baffling and humbling to go so deep into the
+> weeds of dynamic library loading. I'm over my head here and super grateful
+> for insights and discussion.
+>
+> --
+> Sean Gillies
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180104/66efad6b/attachment.html>
+
+From sean.gillies at gmail.com  Fri Jan  5 10:04:53 2018
+From: sean.gillies at gmail.com (Sean Gillies)
+Date: Fri, 5 Jan 2018 11:04:53 -0700
+Subject: [geos-devel] dynamic_cast may yield null pointers in
+ AbstractSTRtree::query and AbstractSTRtree::itemsTree on OS X
+In-Reply-To: <CACmBxyvHGEm=fYzk8faHi11eZAu5M1jCqG4Z6wcSuZsQEOR37w@mail.gmail.com>
+References: <CAOodmJqpkftFbD517FHxL8TLGZVv6p-_gRkivRsey-p5=HWQ1w@mail.gmail.com>
+ <CACmBxyvHGEm=fYzk8faHi11eZAu5M1jCqG4Z6wcSuZsQEOR37w@mail.gmail.com>
+Message-ID: <CAOodmJq+5CSFD0Hz=jTHoYW__htvXX0Mn1H1dcZE91vjftDykQ@mail.gmail.com>
+
+Hi Kurt,
+
+Thanks for the sympathy!
+
+It's the same library version. Same library build, even. I have a system
+that builds GEOS once, copies it into the two Python package trees, and
+uses install_name_tool to relink all the Python .so modules.
+https://github.com/matthew-brett/delocate (if you're curious) wraps both
+install_name_tool and otool and is what the SciPy team uses to make binary
+wheels (the Python distribution format) for numpy, scipy, pandas etc.
+
+$ delocate-listdeps --all ~/Downloads/scipy-1.0.0-cp27-
+cp27m-macosx_10_6_intel.macosx_10_9_intel.macosx_10_9_
+x86_64.macosx_10_10_intel.macosx_10_10_x86_64.whl
+/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate
+/usr/lib/libSystem.B.dylib
+/usr/lib/libstdc++.6.0.9.dylib
+@loader_path/../../../../.dylibs/libgcc_s.1.dylib
+@loader_path/../../../../.dylibs/libgfortran.3.dylib
+@loader_path/../../../../.dylibs/libquadmath.0.dylib
+@loader_path/../../../.dylibs/libgcc_s.1.dylib
+@loader_path/../../../.dylibs/libgfortran.3.dylib
+@loader_path/../../../.dylibs/libquadmath.0.dylib
+@loader_path/../.dylibs/libgcc_s.1.dylib
+@loader_path/../.dylibs/libgfortran.3.dylib
+@loader_path/../.dylibs/libquadmath.0.dylib
+@loader_path/libgcc_s.1.dylib
+@loader_path/libquadmath.0.dylib
+
+This works like a charm for SciPy packages, which don't have overlapping
+dependencies like shapely and fiona do, and also works fine for shapely and
+fiona outside of the AbstractSTRTree module.
+
+
+On Thu, Jan 4, 2018 at 12:22 PM, Kurt Schwehr <schwehr at gmail.com> wrote:
+
+> Ouch :(
+>
+> Some thoughts... you might be getting different versions of the library
+> (e.g. different compiler versions or flags for the same version of
+> libgeos).  otool -L and dtrace are places to start, but aren't fun.  Is it
+> happening on multiple machines?  Using macports, fink, homebrew, or for the
+> libs?
+>
+> On Wed, Jan 3, 2018 at 10:34 AM, Sean Gillies <sean.gillies at gmail.com>
+> wrote:
+>
+>> Hi and Happy New Year, all.
+>>
+>> I found time recently to make notes on a frustrating issue that I'm
+>> having with GEOS in the Shapely binary wheels for OS X that I'm publishing
+>> on PyPI. I'm not certain whether there's a GEOS bug, a dynamic loader bug,
+>> a ctypes bug, misuse of computers on my part, or all four. I'd really
+>> appreciate a bit of advice from anyone with more C++ and Mach-O wisdom that
+>> would rule out a few of these possibilities.
+>>
+>> Here's the gist of it: Shapely uses dlopen (via Python's ctypes) to load
+>> libgeos_c.dylib at run time. The GEOS C++ library (libgeos-3.6.2.dylib, for
+>> example) is a dependent library of libgeos_c.dylib. I have been
+>> distributing the GEOS libs with my Shapely binaries for convenience of
+>> users, but Shapely also works with GEOS installed to the standard places on
+>> your system. I've never experienced or seen report of a problem with
+>> Shapely's loading of the GEOS libraries *in isolation* that hasn't been
+>> fixed.
+>>
+>> My Fiona package for Python also depends on libgeos_c.dylib, but in the
+>> more familiar way: it's a dependent library of GDAL, which is loaded when
+>> Fiona's C extension modules are loaded in Python.
+>>
+>> If we import fiona in a Python script and then import shapely from a
+>> binary wheel that includes GEOS libraries, the script will abort in either
+>> AbstractSTRtree::query or AbstractSTRtree::itemsTree because the dynamic
+>> casts yield null pointers. As far as I can tell, loading two copies of the
+>> C++ GEOS library is where the trouble starts. Is the trouble in the loader,
+>> the library code, or my builds? I do not know.
+>>
+>> There's no problem on Linux. The Linux library loader may be more
+>> foolproof or the library code might be compiled more correctly in a way
+>> that I don't yet see. I'm using the following flags in my builds – the dual
+>> architecture build is the only thing that seems unusual to me.
+>>
+>> environment =
+>>     MACOSX_DEPLOYMENT_TARGET=10.9
+>> configure-options =
+>>     CFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+>>     CXXFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+>>     LDFLAGS="-arch i386 -arch x86_64"
+>>
+>> The thing that makes me suspect that there is a localized bug in GEOS is
+>> that loading the library twice doesn't lead to failures in computing areas,
+>> lengths, predicates, or WKT serializations. Only in the AbstractSTRtree
+>> module as far as I can tell.
+>>
+>> I've made a ticket at https://trac.osgeo.org/geos/ticket/848 and have
+>> attached a script that reproduces the problem as well as demonstrating that
+>> other GEOS modules are unaffected.
+>>
+>> It's interesting, but mostly baffling and humbling to go so deep into the
+>> weeds of dynamic library loading. I'm over my head here and super grateful
+>> for insights and discussion.
+>>
+>> --
+>> Sean Gillies
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>
+>
+>
+> --
+> --
+> http://schwehr.org
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+
+
+-- 
+Sean Gillies
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180105/ce5e03d6/attachment.html>
+
+From geos-trac at osgeo.org  Fri Jan  5 10:22:31 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 05 Jan 2018 18:22:31 -0000
+Subject: [geos-devel] [GEOS] #849: clang-tidy:
+ readability-container-size-empty site() == 0 can be replaced with empty()
+Message-ID: <045.ac6eb8a3e951ef17e0cf58dda1d5426d@osgeo.org>
+
+#849: clang-tidy: readability-container-size-empty  site() == 0 can be replaced
+with empty()
+-------------------------+-------------------------------------------------
+ Reporter:  goatbar      |      Owner:  geos-devel@…
+     Type:  defect       |     Status:  new
+ Priority:  minor        |  Milestone:  3.6.3
+Component:  Default      |    Version:  master
+ Severity:  Unassigned   |   Keywords:  clangtidy size empty readability-
+                         |  container-size-empty
+-------------------------+-------------------------------------------------
+ https://clang.llvm.org/extra/clang-tidy/checks/readability-container-size-
+ empty.html
+
+ There are at least 9 of these
+
+ e.g.
+
+ {{{#!c++
+ std::size_t
+ CoordinateArraySequence::getDimension() const
+ {
+     if( dimension != 0 )
+         return dimension;
+
+     if( vect->size() == 0 )
+         return 3;
+
+     if( ISNAN((*vect)[0].z) )
+         dimension = 2;
+     else
+         dimension = 3;
+
+     return dimension;
+ }
+ }}}
+
+ Could be
+
+ {{{#!c++
+ std::size_t
+ CoordinateArraySequence::getDimension() const
+ {
+     if( dimension != 0 )
+         return dimension;
+
+     if( vect->empty() )  // <<-- fix here
+         return 3;
+
+     if( ISNAN((*vect)[0].z) )
+         dimension = 2;
+     else
+         dimension = 3;
+
+     return dimension;
+ }
+ }}}
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/849>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Fri Jan  5 10:34:17 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri, 05 Jan 2018 18:34:17 -0000
+Subject: [geos-devel] [GEOS] #849: clang-tidy:
+ readability-container-size-empty size() == 0 can be replaced with empty()
+ (was: clang-tidy: readability-container-size-empty site() == 0 can be
+ replaced with empty())
+In-Reply-To: <045.ac6eb8a3e951ef17e0cf58dda1d5426d@osgeo.org>
+References: <045.ac6eb8a3e951ef17e0cf58dda1d5426d@osgeo.org>
+Message-ID: <060.ad4efe7f991c39f877a142cdf361f90d@osgeo.org>
+
+#849: clang-tidy: readability-container-size-empty  size() == 0 can be replaced
+with empty()
+-------------------------------------------------+-------------------------
+ Reporter:  goatbar                              |       Owner:  geos-
+                                                 |  devel@…
+     Type:  defect                               |      Status:  new
+ Priority:  minor                                |   Milestone:  3.6.3
+Component:  Default                              |     Version:  master
+ Severity:  Unassigned                           |  Resolution:
+ Keywords:  clangtidy size empty readability-    |
+  container-size-empty                           |
+-------------------------------------------------+-------------------------
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/849#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From schwehr at gmail.com  Fri Jan  5 10:36:03 2018
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Fri, 5 Jan 2018 10:36:03 -0800
+Subject: [geos-devel] dynamic_cast may yield null pointers in
+ AbstractSTRtree::query and AbstractSTRtree::itemsTree on OS X
+In-Reply-To: <CAOodmJq+5CSFD0Hz=jTHoYW__htvXX0Mn1H1dcZE91vjftDykQ@mail.gmail.com>
+References: <CAOodmJqpkftFbD517FHxL8TLGZVv6p-_gRkivRsey-p5=HWQ1w@mail.gmail.com>
+ <CACmBxyvHGEm=fYzk8faHi11eZAu5M1jCqG4Z6wcSuZsQEOR37w@mail.gmail.com>
+ <CAOodmJq+5CSFD0Hz=jTHoYW__htvXX0Mn1H1dcZE91vjftDykQ@mail.gmail.com>
+Message-ID: <CACmBxysee-OwimmFUck6FTd9bAUMky92gGD6N2wATqkUxWi28w@mail.gmail.com>
+
+AbstractSTRtree doesn't look particularly interesting at first glance.  I
+only see a few linter issues like param names that don't match, a redundant
+return on void method
+
+:(
+
+On Fri, Jan 5, 2018 at 10:04 AM, Sean Gillies <sean.gillies at gmail.com>
+wrote:
+
+> Hi Kurt,
+>
+> Thanks for the sympathy!
+>
+> It's the same library version. Same library build, even. I have a system
+> that builds GEOS once, copies it into the two Python package trees, and
+> uses install_name_tool to relink all the Python .so modules.
+> https://github.com/matthew-brett/delocate (if you're curious) wraps both
+> install_name_tool and otool and is what the SciPy team uses to make binary
+> wheels (the Python distribution format) for numpy, scipy, pandas etc.
+>
+> $ delocate-listdeps --all ~/Downloads/scipy-1.0.0-cp27-c
+> p27m-macosx_10_6_intel.macosx_10_9_intel.macosx_10_9_x86_64.
+> macosx_10_10_intel.macosx_10_10_x86_64.whl
+> /System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate
+> /usr/lib/libSystem.B.dylib
+> /usr/lib/libstdc++.6.0.9.dylib
+> @loader_path/../../../../.dylibs/libgcc_s.1.dylib
+> @loader_path/../../../../.dylibs/libgfortran.3.dylib
+> @loader_path/../../../../.dylibs/libquadmath.0.dylib
+> @loader_path/../../../.dylibs/libgcc_s.1.dylib
+> @loader_path/../../../.dylibs/libgfortran.3.dylib
+> @loader_path/../../../.dylibs/libquadmath.0.dylib
+> @loader_path/../.dylibs/libgcc_s.1.dylib
+> @loader_path/../.dylibs/libgfortran.3.dylib
+> @loader_path/../.dylibs/libquadmath.0.dylib
+> @loader_path/libgcc_s.1.dylib
+> @loader_path/libquadmath.0.dylib
+>
+> This works like a charm for SciPy packages, which don't have overlapping
+> dependencies like shapely and fiona do, and also works fine for shapely and
+> fiona outside of the AbstractSTRTree module.
+>
+>
+> On Thu, Jan 4, 2018 at 12:22 PM, Kurt Schwehr <schwehr at gmail.com> wrote:
+>
+>> Ouch :(
+>>
+>> Some thoughts... you might be getting different versions of the library
+>> (e.g. different compiler versions or flags for the same version of
+>> libgeos).  otool -L and dtrace are places to start, but aren't fun.  Is it
+>> happening on multiple machines?  Using macports, fink, homebrew, or for the
+>> libs?
+>>
+>> On Wed, Jan 3, 2018 at 10:34 AM, Sean Gillies <sean.gillies at gmail.com>
+>> wrote:
+>>
+>>> Hi and Happy New Year, all.
+>>>
+>>> I found time recently to make notes on a frustrating issue that I'm
+>>> having with GEOS in the Shapely binary wheels for OS X that I'm publishing
+>>> on PyPI. I'm not certain whether there's a GEOS bug, a dynamic loader bug,
+>>> a ctypes bug, misuse of computers on my part, or all four. I'd really
+>>> appreciate a bit of advice from anyone with more C++ and Mach-O wisdom that
+>>> would rule out a few of these possibilities.
+>>>
+>>> Here's the gist of it: Shapely uses dlopen (via Python's ctypes) to load
+>>> libgeos_c.dylib at run time. The GEOS C++ library (libgeos-3.6.2.dylib, for
+>>> example) is a dependent library of libgeos_c.dylib. I have been
+>>> distributing the GEOS libs with my Shapely binaries for convenience of
+>>> users, but Shapely also works with GEOS installed to the standard places on
+>>> your system. I've never experienced or seen report of a problem with
+>>> Shapely's loading of the GEOS libraries *in isolation* that hasn't been
+>>> fixed.
+>>>
+>>> My Fiona package for Python also depends on libgeos_c.dylib, but in the
+>>> more familiar way: it's a dependent library of GDAL, which is loaded when
+>>> Fiona's C extension modules are loaded in Python.
+>>>
+>>> If we import fiona in a Python script and then import shapely from a
+>>> binary wheel that includes GEOS libraries, the script will abort in either
+>>> AbstractSTRtree::query or AbstractSTRtree::itemsTree because the dynamic
+>>> casts yield null pointers. As far as I can tell, loading two copies of the
+>>> C++ GEOS library is where the trouble starts. Is the trouble in the loader,
+>>> the library code, or my builds? I do not know.
+>>>
+>>> There's no problem on Linux. The Linux library loader may be more
+>>> foolproof or the library code might be compiled more correctly in a way
+>>> that I don't yet see. I'm using the following flags in my builds – the dual
+>>> architecture build is the only thing that seems unusual to me.
+>>>
+>>> environment =
+>>>     MACOSX_DEPLOYMENT_TARGET=10.9
+>>> configure-options =
+>>>     CFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+>>>     CXXFLAGS="-arch i386 -arch x86_64 -O2 -Wl,-S -Wall -Wstrict-prototypes"
+>>>     LDFLAGS="-arch i386 -arch x86_64"
+>>>
+>>> The thing that makes me suspect that there is a localized bug in GEOS is
+>>> that loading the library twice doesn't lead to failures in computing areas,
+>>> lengths, predicates, or WKT serializations. Only in the AbstractSTRtree
+>>> module as far as I can tell.
+>>>
+>>> I've made a ticket at https://trac.osgeo.org/geos/ticket/848 and have
+>>> attached a script that reproduces the problem as well as demonstrating that
+>>> other GEOS modules are unaffected.
+>>>
+>>> It's interesting, but mostly baffling and humbling to go so deep into
+>>> the weeds of dynamic library loading. I'm over my head here and super
+>>> grateful for insights and discussion.
+>>>
+>>> --
+>>> Sean Gillies
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>>
+>>
+>>
+>> --
+>> --
+>> http://schwehr.org
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>
+>
+>
+> --
+> Sean Gillies
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+
+
+-- 
+--
+http://schwehr.org
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20180105/8f91f794/attachment-0001.html>
+
+From geos-trac at osgeo.org  Wed Jan 10 12:13:59 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 10 Jan 2018 20:13:59 -0000
+Subject: [geos-devel] [GEOS] #850: Segfault in
+ geos::algorithm::ConvexHull::preSort with extreme outlier
+Message-ID: <046.c1ce43c98a39655c523014d2e576713f@osgeo.org>
+
+#850: Segfault in geos::algorithm::ConvexHull::preSort with extreme outlier
+------------------------+--------------------------
+ Reporter:  sgillies    |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.6.3
+Component:  Default     |    Version:  3.5.1
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ First reported in https://github.com/Toblerity/Shapely/issues/555, I've
+ been able to reproduce it with GEOS 3.5.1 from Debian Stretch.
+
+ The user's input has an extreme outlier, the first point:
+
+ {{{
+ [(280756800.63603467, 7571780.5096410504),
+  (-0.00043553364940478493, -1.1745985126662545e-05),
+  (-0.0040809829767810965, -0.00011006076189068978),
+  (-0.0041201583341660313, -0.00011111728913462023),
+  (-0.006976907320408115, -0.00018816146492247227),
+  (-0.0069397726510486172, -0.00018715997340633273),
+  (-0.0074676533800189931, -0.000201396483469504),
+  (-0.13462489887442128, -0.0036307230426676734),
+  (-0.010721780626750072, -0.00028915762480866283),
+  (-0.010775949783764172, -0.00029061852246303201),
+  (-0.011934357539045426, -0.0003218598289746266),
+  (-0.019390152385490519, -0.00052293649740946452),
+  (-0.016403812662021146, -0.00044239736574681491),
+  (-0.013937679796751739, -0.00037588778618408299),
+  (-0.0073628397580766435, -0.00019856974598662623),
+  (-0.0013082267409651623, -3.5281801617658642e-05),
+  (-0.0019059940589774278, -5.14030956166791e-05)]
+ }}}
+
+ {{{
+ (gdb) run test.py
+ Starting program: /tmp/venv/bin/python3 test.py
+ [Thread debugging using libthread_db enabled]
+ Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+ Program received signal SIGSEGV, Segmentation fault.
+ 0x00007ffff5240204 in ?? () from /usr/lib/x86_64-linux-
+ gnu/libgeos-3.5.1.so
+ (gdb) up
+ #1  0x00007ffff5240a22 in
+ geos::algorithm::ConvexHull::preSort(std::vector<geos::geom::Coordinate
+ const*, std::allocator<geos::geom::Coordinate const*> >&) ()
+    from /usr/lib/x86_64-linux-gnu/libgeos-3.5.1.so
+ }}}
+
+ If the outlier is removed from the input, the convex hull computation
+ succeeds.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/850>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Jan 16 00:14:00 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 16 Jan 2018 08:14:00 -0000
+Subject: [geos-devel] [GEOS] #853: Windows compile failing on 32/64bit with
+ CMake: Could not find finite or isfinite function or macro!
+Message-ID: <042.9d7208c68cf43e6df16e988fd6a6f193@osgeo.org>
+
+#853: Windows compile failing on 32/64bit with CMake: Could not find finite or
+isfinite function or macro!
+----------------------+--------------------------
+ Reporter:  robe      |      Owner:  geos-devel@…
+     Type:  defect    |     Status:  new
+ Priority:  major     |  Milestone:  3.7.0
+Component:  Default   |    Version:  master
+ Severity:  Critical  |   Keywords:
+----------------------+--------------------------
+ Just noticed this, winnie's compiles started failing after these committs
+ sometime January 10th.  Not sure which is at fault.
+
+ https://winnie.postgis.net:444/job/GEOS_Master/GCC_TYPE=gcc481,MAKE_TYPE=cmake,OS_BUILD=32/142/
+
+ {{{
+ Summary
+
+     removing -ansi and fPIC from C++ compilation (details)
+     getting stricter with warnings (details)
+     cmake: improving handling version (details)
+
+ Commit ed57b476690b07f1e8b51b015ec35ac6970aac7e by Sandro Santilli
+
+ removing -ansi and fPIC from C++ compilation
+
+ The file was modified   CMakeLists.txt
+ Commit 62380be288dc5cd2e6b5e8afc69e7b9e716546dc by Sandro Santilli
+
+ getting stricter with warnings
+
+ The file was modified   CMakeLists.txt
+ Commit d43e678578cfc60d02fbb051319d65e638474515 by Sandro Santilli
+
+ cmake: improving handling version
+ }}}
+
+ Note she builds using CMake.  Transcript looks like this
+
+
+ {{{
+ -- The C compiler identification is GNU 4.8.3
+ -- The CXX compiler identification is GNU 4.8.3
+ -- Check for working C compiler: C:/ming64gcc48/mingw64/bin/gcc.exe
+ -- Check for working C compiler: C:/ming64gcc48/mingw64/bin/gcc.exe --
+ works
+ -- Detecting C compiler ABI info
+ -- Detecting C compiler ABI info - done
+ -- Detecting C compile features
+ -- Detecting C compile features - done
+ -- Check for working CXX compiler: C:/ming64gcc48/mingw64/bin/g++.exe
+ -- Check for working CXX compiler: C:/ming64gcc48/mingw64/bin/g++.exe --
+ works
+ -- Detecting CXX compiler ABI info
+
+ -- Detecting CXX compiler ABI info - done
+ -- Detecting CXX compile features
+
+ -- Detecting CXX compile features - done
+ -- Setting C++ requirement to C++11
+ -- Setting GEOS version 3.7.0dev as port of JTS 1.13.0
+ -- Setting GEOS C API version 1.11.0
+ -- Setting GEOS build type - Debug
+ -- Forcing IEEE 754 using flag -ffloat-store - ON
+ -- Setting GEOS compilation with small functions inlining - NO
+ -- Setting GEOS compilation with assert() macro enabled - OFF
+ -- Looking for include file stdint.h
+
+ -- Looking for include file stdint.h - found
+ -- Looking for include file inttypes.h
+
+ -- Looking for include file inttypes.h - found
+ -- Looking for include file ieeefp.h
+ -- Looking for include file ieeefp.h - not found
+ -- Looking for sys/types.h
+
+ -- Looking for sys/types.h - found
+ -- Looking for stddef.h
+
+ -- Looking for stddef.h - found
+ -- Check size of int64_t
+
+ -- Check size of int64_t - done
+ -- Performing Test HAVE_STD_ISFINITE
+ -- Performing Test HAVE_STD_ISFINITE - Failed
+ -- Looking for isfinite
+
+ -- Looking for isfinite - not found
+ -- Found Git: C:/ming64gcc48/msys/usr/bin/git.exe (found version "2.8.2")
+ -- Generating GEOS E:/jenkins/geos/branches/build64cmake/geos_revision.h
+ -- Generating GEOS
+ E:/jenkins/geos/branches/build64cmake/include/geos/platform.h
+ -- Generating GEOS
+ E:/jenkins/geos/branches/build64cmake/include/geos/version.h
+ -- Generating GEOS E:/jenkins/geos/branches/build64cmake/capi/geos_c.h
+
+ -- Enable GEOS unit tests build - ON
+ -- Enable GEOS XML tests build - ON
+ -- Enable GEOS large geometry tests build - ON
+ -- Enable GEOS performance tests build - ON
+ -- CMake 3.7.2 successfully configured GEOS using MSYS Makefiles generator
+ -- Configuring done
+
+ -- Generating done
+ -- Build files have been written to: E:/jenkins/geos/branches/build64cmake
+
+ :
+ :
+ [35m[1mScanning dependencies of target geos[0m
+ [  0%] [32mBuilding CXX object
+ src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj[0m
+
+ In file included from
+ E:/jenkins/geos/branches/3.7cmake/include/geos/geom/Coordinate.h:19:0,
+                  from
+ E:/jenkins/geos/branches/3.7cmake/src/algorithm/Angle.cpp:23:
+ E:/jenkins/geos/branches/build64cmake/include/geos/platform.h:155:3:
+ error: #error "Could not find finite or isfinite function or macro!"
+  # error "Could not find finite or isfinite function or macro!"
+    ^
+ src/CMakeFiles/geos.dir/build.make:63: recipe for target
+ 'src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj' failed
+ make[2]: *** [src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj] Error 1
+ CMakeFiles/Makefile2:201: recipe for target 'src/CMakeFiles/geos.dir/all'
+ failed
+ make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+ Makefile:138: recipe for target 'all' failed
+ make: *** [all] Error 2
+
+ }}}
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/853>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Jan 16 01:07:15 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 16 Jan 2018 09:07:15 -0000
+Subject: [geos-devel] [GEOS] #853: Windows compile failing on 32/64bit
+ with CMake: Could not find finite or isfinite function or macro!
+In-Reply-To: <042.9d7208c68cf43e6df16e988fd6a6f193@osgeo.org>
+References: <042.9d7208c68cf43e6df16e988fd6a6f193@osgeo.org>
+Message-ID: <057.623c179f3790e1d386381bfb4cad248d@osgeo.org>
+
+#853: Windows compile failing on 32/64bit with CMake: Could not find finite or
+isfinite function or macro!
+----------------------+------------------------
+ Reporter:  robe      |       Owner:  cvvergara
+     Type:  defect    |      Status:  new
+ Priority:  major     |   Milestone:  3.7.0
+Component:  Default   |     Version:  master
+ Severity:  Critical  |  Resolution:
+ Keywords:            |
+----------------------+------------------------
+Changes (by strk):
+
+ * cc: cvvergara (added)
+ * owner:  geos-devel@… => cvvergara
+
+
+Old description:
+
+> Just noticed this, winnie's compiles started failing after these committs
+> sometime January 10th.  Not sure which is at fault.
+>
+> https://winnie.postgis.net:444/job/GEOS_Master/GCC_TYPE=gcc481,MAKE_TYPE=cmake,OS_BUILD=32/142/
+>
+> {{{
+> Summary
+>
+>     removing -ansi and fPIC from C++ compilation (details)
+>     getting stricter with warnings (details)
+>     cmake: improving handling version (details)
+>
+> Commit ed57b476690b07f1e8b51b015ec35ac6970aac7e by Sandro Santilli
+>
+> removing -ansi and fPIC from C++ compilation
+>
+> The file was modified   CMakeLists.txt
+> Commit 62380be288dc5cd2e6b5e8afc69e7b9e716546dc by Sandro Santilli
+>
+> getting stricter with warnings
+>
+> The file was modified   CMakeLists.txt
+> Commit d43e678578cfc60d02fbb051319d65e638474515 by Sandro Santilli
+>
+> cmake: improving handling version
+> }}}
+>
+> Note she builds using CMake.  Transcript looks like this
+>
+
+> {{{
+> -- The C compiler identification is GNU 4.8.3
+> -- The CXX compiler identification is GNU 4.8.3
+> -- Check for working C compiler: C:/ming64gcc48/mingw64/bin/gcc.exe
+> -- Check for working C compiler: C:/ming64gcc48/mingw64/bin/gcc.exe --
+> works
+> -- Detecting C compiler ABI info
+> -- Detecting C compiler ABI info - done
+> -- Detecting C compile features
+> -- Detecting C compile features - done
+> -- Check for working CXX compiler: C:/ming64gcc48/mingw64/bin/g++.exe
+> -- Check for working CXX compiler: C:/ming64gcc48/mingw64/bin/g++.exe --
+> works
+> -- Detecting CXX compiler ABI info
+>
+> -- Detecting CXX compiler ABI info - done
+> -- Detecting CXX compile features
+>
+> -- Detecting CXX compile features - done
+> -- Setting C++ requirement to C++11
+> -- Setting GEOS version 3.7.0dev as port of JTS 1.13.0
+> -- Setting GEOS C API version 1.11.0
+> -- Setting GEOS build type - Debug
+> -- Forcing IEEE 754 using flag -ffloat-store - ON
+> -- Setting GEOS compilation with small functions inlining - NO
+> -- Setting GEOS compilation with assert() macro enabled - OFF
+> -- Looking for include file stdint.h
+>
+> -- Looking for include file stdint.h - found
+> -- Looking for include file inttypes.h
+>
+> -- Looking for include file inttypes.h - found
+> -- Looking for include file ieeefp.h
+> -- Looking for include file ieeefp.h - not found
+> -- Looking for sys/types.h
+>
+> -- Looking for sys/types.h - found
+> -- Looking for stddef.h
+>
+> -- Looking for stddef.h - found
+> -- Check size of int64_t
+>
+> -- Check size of int64_t - done
+> -- Performing Test HAVE_STD_ISFINITE
+> -- Performing Test HAVE_STD_ISFINITE - Failed
+> -- Looking for isfinite
+>
+> -- Looking for isfinite - not found
+> -- Found Git: C:/ming64gcc48/msys/usr/bin/git.exe (found version "2.8.2")
+> -- Generating GEOS E:/jenkins/geos/branches/build64cmake/geos_revision.h
+> -- Generating GEOS
+> E:/jenkins/geos/branches/build64cmake/include/geos/platform.h
+> -- Generating GEOS
+> E:/jenkins/geos/branches/build64cmake/include/geos/version.h
+> -- Generating GEOS E:/jenkins/geos/branches/build64cmake/capi/geos_c.h
+>
+> -- Enable GEOS unit tests build - ON
+> -- Enable GEOS XML tests build - ON
+> -- Enable GEOS large geometry tests build - ON
+> -- Enable GEOS performance tests build - ON
+> -- CMake 3.7.2 successfully configured GEOS using MSYS Makefiles
+> generator
+> -- Configuring done
+>
+> -- Generating done
+> -- Build files have been written to:
+> E:/jenkins/geos/branches/build64cmake
+>
+> :
+> :
+> [35m[1mScanning dependencies of target geos[0m
+> [  0%] [32mBuilding CXX object
+> src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj[0m
+>
+> In file included from
+> E:/jenkins/geos/branches/3.7cmake/include/geos/geom/Coordinate.h:19:0,
+>                  from
+> E:/jenkins/geos/branches/3.7cmake/src/algorithm/Angle.cpp:23:
+> E:/jenkins/geos/branches/build64cmake/include/geos/platform.h:155:3:
+> error: #error "Could not find finite or isfinite function or macro!"
+>  # error "Could not find finite or isfinite function or macro!"
+>    ^
+> src/CMakeFiles/geos.dir/build.make:63: recipe for target
+> 'src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj' failed
+> make[2]: *** [src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj] Error 1
+> CMakeFiles/Makefile2:201: recipe for target 'src/CMakeFiles/geos.dir/all'
+> failed
+> make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+> Makefile:138: recipe for target 'all' failed
+> make: *** [all] Error 2
+>
+> }}}
+
+New description:
+
+ Just noticed this, winnie's compiles started failing after these committs
+ sometime January 10th.  Not sure which is at fault.
+
+ https://winnie.postgis.net:444/job/GEOS_Master/GCC_TYPE=gcc481,MAKE_TYPE=cmake,OS_BUILD=32/142/
+
+ {{{
+ Summary
+
+     removing -ansi and fPIC from C++ compilation (details)
+     getting stricter with warnings (details)
+     cmake: improving handling version (details)
+
+ Commit ed57b476690b07f1e8b51b015ec35ac6970aac7e by Sandro Santilli
+
+ removing -ansi and fPIC from C++ compilation
+
+ The file was modified   CMakeLists.txt
+ Commit 62380be288dc5cd2e6b5e8afc69e7b9e716546dc by Sandro Santilli
+
+ getting stricter with warnings
+
+ The file was modified   CMakeLists.txt
+ Commit d43e678578cfc60d02fbb051319d65e638474515 by Sandro Santilli
+
+ cmake: improving handling version
+ }}}
+
+ Note she builds using CMake.  Transcript looks like this
+
+
+ {{{
+ -- The C compiler identification is GNU 4.8.3
+ -- The CXX compiler identification is GNU 4.8.3
+ -- Check for working C compiler: C:/ming64gcc48/mingw64/bin/gcc.exe
+ -- Check for working C compiler: C:/ming64gcc48/mingw64/bin/gcc.exe --
+ works
+ -- Detecting C compiler ABI info
+ -- Detecting C compiler ABI info - done
+ -- Detecting C compile features
+ -- Detecting C compile features - done
+ -- Check for working CXX compiler: C:/ming64gcc48/mingw64/bin/g++.exe
+ -- Check for working CXX compiler: C:/ming64gcc48/mingw64/bin/g++.exe --
+ works
+ -- Detecting CXX compiler ABI info
+
+ -- Detecting CXX compiler ABI info - done
+ -- Detecting CXX compile features
+
+ -- Detecting CXX compile features - done
+ -- Setting C++ requirement to C++11
+ -- Setting GEOS version 3.7.0dev as port of JTS 1.13.0
+ -- Setting GEOS C API version 1.11.0
+ -- Setting GEOS build type - Debug
+ -- Forcing IEEE 754 using flag -ffloat-store - ON
+ -- Setting GEOS compilation with small functions inlining - NO
+ -- Setting GEOS compilation with assert() macro enabled - OFF
+ -- Looking for include file stdint.h
+
+ -- Looking for include file stdint.h - found
+ -- Looking for include file inttypes.h
+
+ -- Looking for include file inttypes.h - found
+ -- Looking for include file ieeefp.h
+ -- Looking for include file ieeefp.h - not found
+ -- Looking for sys/types.h
+
+ -- Looking for sys/types.h - found
+ -- Looking for stddef.h
+
+ -- Looking for stddef.h - found
+ -- Check size of int64_t
+
+ -- Check size of int64_t - done
+ -- Performing Test HAVE_STD_ISFINITE
+ -- Performing Test HAVE_STD_ISFINITE - Failed
+ -- Looking for isfinite
+
+ -- Looking for isfinite - not found
+ -- Found Git: C:/ming64gcc48/msys/usr/bin/git.exe (found version "2.8.2")
+ -- Generating GEOS E:/jenkins/geos/branches/build64cmake/geos_revision.h
+ -- Generating GEOS
+ E:/jenkins/geos/branches/build64cmake/include/geos/platform.h
+ -- Generating GEOS
+ E:/jenkins/geos/branches/build64cmake/include/geos/version.h
+ -- Generating GEOS E:/jenkins/geos/branches/build64cmake/capi/geos_c.h
+
+ -- Enable GEOS unit tests build - ON
+ -- Enable GEOS XML tests build - ON
+ -- Enable GEOS large geometry tests build - ON
+ -- Enable GEOS performance tests build - ON
+ -- CMake 3.7.2 successfully configured GEOS using MSYS Makefiles generator
+ -- Configuring done
+
+ -- Generating done
+ -- Build files have been written to: E:/jenkins/geos/branches/build64cmake
+
+ :
+ :
+ [35m[1mScanning dependencies of target geos[0m
+ [  0%] [32mBuilding CXX object
+ src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj[0m
+
+ In file included from
+ E:/jenkins/geos/branches/3.7cmake/include/geos/geom/Coordinate.h:19:0,
+                  from
+ E:/jenkins/geos/branches/3.7cmake/src/algorithm/Angle.cpp:23:
+ E:/jenkins/geos/branches/build64cmake/include/geos/platform.h:155:3:
+ error: #error "Could not find finite or isfinite function or macro!"
+  # error "Could not find finite or isfinite function or macro!"
+    ^
+ src/CMakeFiles/geos.dir/build.make:63: recipe for target
+ 'src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj' failed
+ make[2]: *** [src/CMakeFiles/geos.dir/algorithm/Angle.cpp.obj] Error 1
+ CMakeFiles/Makefile2:201: recipe for target 'src/CMakeFiles/geos.dir/all'
+ failed
+ make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+ Makefile:138: recipe for target 'all' failed
+ make: *** [all] Error 2
+
+ }}}
+
+--
+
+Comment:
+
+ Commit author is actually Vicky, dunno why Jenkins doesn't show that. I
+ did accept/commit her patches though.
+
+ Vicki, can you look at this please ?
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/853#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Wed Jan 31 09:40:31 2018
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 31 Jan 2018 17:40:31 -0000
+Subject: [geos-devel] [GEOS] #523: SymDifference between two valid
+ geometries return an _invalid_ geometry [JTS fails too]
+In-Reply-To: <042.d90275df74f75eb46f2131b0d019e212@osgeo.org>
+References: <042.d90275df74f75eb46f2131b0d019e212@osgeo.org>
+Message-ID: <057.6d309f4555fc17c5f63696e8e7e85dab@osgeo.org>
+
+#523: SymDifference between two valid geometries return an _invalid_ geometry
+[JTS fails too]
+------------------------+---------------------------
+ Reporter:  strk        |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  GEOS Future
+Component:  Default     |     Version:  3.3.2
+ Severity:  Unassigned  |  Resolution:
+ Keywords:  jtsfail     |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ This issue is reported to be fixed by the fix for #838 too:
+ https://github.com/locationtech/jts/issues/107#issuecomment-361962900
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/523#comment:6>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+

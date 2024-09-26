@@ -1,0 +1,3290 @@
+From nhv at cape.com  Tue Feb  1 01:34:25 2005
+From: nhv at cape.com (Norman Vine)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance - smart-ptr vs ref counting
+In-Reply-To: <ED3A48B9840E594890A2BC172D119465E63C5A@mailman>
+Message-ID: <EKEJIKAILPONGGENMBGACEOOKEAA.nhv@cape.com>
+
+Chapman, Martin writes:
+>  
+> I don't think storing points in an stl vector is the problem.  I think the problem is definitely the copying of the point 
+> arrays many times, and allocating/deallocating lots of objects in every loop. 
+
+*exactly*  this I believe comes about by trying to emulate Java in C++
+in order to keep the code base 'similar'
+
+< There was some good discussion on this back in Nov 2002 >
+
+Cheers
+
+Norman
+
+
+From strk at refractions.net  Tue Feb  1 08:58:38 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance - smart-ptr vs ref counting
+In-Reply-To: <ED3A48B9840E594890A2BC172D11946501CFFF5D@mailman>
+References: <ED3A48B9840E594890A2BC172D11946501CFFF5D@mailman>
+Message-ID: <20050201135838.GB92430@freek.keybit.net>
+
+On Mon, Jan 31, 2005 at 06:08:30PM -0700, Chapman, Martin wrote:
+> -- Has anyone profiled the code recently,  without profiling statistics
+> optimization discussions are really just guesswork.
+> I certainly agree with that statement.
+
+I've added a profiler class to GEOS some time ago now.
+If you define PROFILE to 1 in src/headers/geos/profiler.h
+you get some profiling (where it is handled).
+
+This is the profiling output for Buffer operation:
+
+ num:3 min:6049 max:10308 avg:8558 tot:25674 [AbstractSTRtree::build]
+ num:4413 min:9 max:8419 avg:18.5488 tot:81856 [AbstractSTRtree::query(searchBou
+nds)]
+ num:1 min:349964 max:349964 avg:349964 tot:349964 [BufferBuilder::computeNodedE
+dges()]
+ num:1 min:34981 max:34981 avg:34981 tot:34981 [BufferBuilder::computeNodedEdges
+: labeling]
+ num:1 min:520560 max:520560 avg:520560 tot:520560 [BufferOp::bufferOriginalPrec
+ision()]
+ num:700 min:10 max:821 avg:28.9743 tot:20282 [EdgeList::findEqualEdge()]
+ num:700 min:5 max:785 avg:15.6757 tot:10973 [EdgeList::findEqualEdge(Edge *e)]
+ num:3 min:62170 max:127389 avg:104003 tot:312009 [IteratedNoder::node]
+ num:11 min:0 max:4 avg:1.09091 tot:12 [LineSegment::LineSegment(void)]
+ num:7257 min:0 max:28 avg:0.342566 tot:2486 [LineSegment::setCoordinates(const
+Coordinate&, const Coordinate &)]
+ num:9230 min:2 max:1873 avg:12.2067 tot:112668 [MCQuadtreeNoder::intersectChain
+s computeOverlap]
+ num:4413 min:11 max:10358 avg:26.1842 tot:115551 [MCQuadtreeNoder::intersectCha
+ins query]
+ num:11812 min:1 max:656 avg:2.12809 tot:25137 [SegmentNodeList::add(Coordinate
+*, int, double)]
+
+Test result=true Test time:531252
+
+Most of the time is spent in the IteratedNoder (about 1/2).
+
+I'll do more splitting of the IteratedNoder work.
+
+--strk;
+
+From strk at refractions.net  Tue Feb  1 10:27:27 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance - smart-ptr vs ref counting
+In-Reply-To: <EKEJIKAILPONGGENMBGAGEOGKEAA.nhv@cape.com>
+References: <5A94289A9268514C8D6C0F1FF44BA027225879@venus.VividSolutions.com>
+	<EKEJIKAILPONGGENMBGAGEOGKEAA.nhv@cape.com>
+Message-ID: <20050201152727.GA94548@freek.keybit.net>
+
+On Mon, Jan 31, 2005 at 08:14:27PM -0500, Norman Vine wrote:
+> Martin Davis writes:
+> >
+> > Norman Vine
+> > > 
+> > > Martin Davis writes:
+> > > > 
+> > > > 
+> > > > That was pretty much my point - smart pointers alone don't produce 
+> > > > memory efficiency, they just make the code safer (and hopefully 
+> > > > easier).
+> > > 
+> > > Well they are a little faster then any garbage collection 
+> > > routine could ever be but you are right 'speed issues' aren't 
+> > > why they are used.
+> > > 
+> > > Has anyone profiled the code recently,  without profiling 
+> > > statistics optimization discussions are really just guesswork.
+> > 
+> > Something to note here is that the original profiling numbers given by
+> > strk were based on the buffer algorithm.  Buffer is by far the most
+> > complex algorithm in JTS, and inherently has to create lots of new
+> > coordinate sequences (amongst other things).  There may be no way to
+> > remove this requirement, in which case the only way to improve the speed
+> > is to increase the speed of memory allocation.
+> 
+> One thing that would probably speed things a bit is to inline the
+> trivial constructors and destructors :-)
+
+I would do this, but is it possible to inline functions w/out
+breaking ABI ? Will using the 'inline' keyword be enough ?
+
+--strk;
+
+> 
+> It might be worth looking into special memory managers but AFAICT 
+> most of the 'coordinates' are actually stored in STL vectors and these 
+> are generally about as efficient as you can get at minimizing allocation
+> costs.
+> 
+> Norman
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From ferdinando.villa at uvm.edu  Tue Feb  1 10:36:41 2005
+From: ferdinando.villa at uvm.edu (Ferdinando Villa)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance - smart-ptr vs ref counting
+In-Reply-To: <20050201152727.GA94548@freek.keybit.net>
+Message-ID: <000001c50873$d3d24040$2aa6c684@ECOINFORMATICS>
+
+
+
+>> One thing that would probably speed things a bit is to inline the 
+>> trivial constructors and destructors :-)
+
+>I would do this, but is it possible to inline functions w/out breaking
+ABI ? Will using the 'inline' keyword be enough ?
+
+I may be wrong, but I suspect this is the kind of thing that a good
+compiler could optimize away anyway.... maybe it's worthwile to check
+gcc's docs or run some simple tests to make sure it really matters,
+before embarking in a boring and unnecessary typing exercise...
+
+ferdinando
+
+--strk;
+
+> 
+> It might be worth looking into special memory managers but AFAICT
+> most of the 'coordinates' are actually stored in STL vectors and these
+
+> are generally about as efficient as you can get at minimizing
+allocation
+> costs.
+> 
+> Norman
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From strk at refractions.net  Tue Feb  1 10:55:46 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <20050128121955.GA52503@freek.keybit.net>
+References: <20050128121955.GA52503@freek.keybit.net>
+Message-ID: <20050201155546.GB94548@freek.keybit.net>
+
+On Fri, Jan 28, 2005 at 01:19:55PM +0100, strk@refractions.net wrote:
+> Some time ago I've been researching about GEOS performance
+> problems as related to JTS. Attached is a shapefile and an .xml
+> test you can use to compare the two.
+> 
+> JTS does not support buffers tests, so you'll need to use another
+> method for that. I used JUMP, which reports computation time.
+> 
+> Well. The operation is a buffer(polygon, 2000).
+> 
+>  JTS:  18 seconds
+> GEOS: 574 seconds (9 minutes, 34 secs)
+
+I've found out I was using non-optimized builds (-O0).
+With -O2 GEOS timing reduces to 63 seconds.
+
+Still worth profiling, but JTS/GEOS are much closer.
+
+Most of the time is spent in MCQuadtreeNoder::intersectChains().
+
+--strk;
+
+> 
+> GEOS computation keeps the CPU pretty busy (98.2-99.8%)
+> and takes up to about 170 MB of ram
+> 
+> JTS seems to use 3 threads, the bigger using at most 80% 
+> of CPU, but most of the time far below that point.
+> JUMP reports 104MB committed, but I'm not sure about the meaning.
+> 
+> For GEOS, valgrind reports (with buffer 500):
+>  malloc/free: 2982697 allocs, 2982697 frees, 924407212 bytes allocated.
+> 
+> How much do you think this wild allocation negatively influence the
+> poor performance of GEOS ?
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From mbdavis at VividSolutions.com  Tue Feb  1 13:52:23 2005
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA02722587B@venus.VividSolutions.com>
+
+Well it's good to hear that GEOS isn't wildly different to JTS timings
+after all.
+ 
+After some more thought I think there may be some improvements which
+don't require implementing smart ptrs and ref counting (not that these
+are bad things to do, they just take time).
+ 
+I suspect that heavy use is being made of
+CoordinateSequence::getCoordinate, and that this is resulting in many
+Coordinate objects being allocated.  A better pattern for callers is to
+preallocate a single Coordinate and then use getCoordinate(Coordinate *)
+to retrieve coordinate values into it.  (JTS doesn't do this now, but
+will be moving to this style to reduce *its* allocation of Coordinate
+objects).
+ 
+ 
+ 
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.      www.vividsolutions.com
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20050201/64499fcc/attachment.html
+From strk at refractions.net  Tue Feb  1 17:22:54 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA02722587B@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587B@venus.VividSolutions.com>
+Message-ID: <20050201222254.GB97614@freek.keybit.net>
+
+On Tue, Feb 01, 2005 at 10:52:23AM -0800, Martin Davis wrote:
+> Well it's good to hear that GEOS isn't wildly different to JTS timings
+> after all.
+
+Yeah, but it's still 3.5 times slower ...
+
+> After some more thought I think there may be some improvements which
+> don't require implementing smart ptrs and ref counting (not that these
+> are bad things to do, they just take time).
+>  
+> I suspect that heavy use is being made of
+> CoordinateSequence::getCoordinate, and that this is resulting in many
+> Coordinate objects being allocated.  A better pattern for callers is to
+> preallocate a single Coordinate and then use getCoordinate(Coordinate *)
+> to retrieve coordinate values into it.  (JTS doesn't do this now, but
+> will be moving to this style to reduce *its* allocation of Coordinate
+> objects).
+
+GEOS use CoordinateSequence::getAt, which returns a *reference*, so
+no allocation is involved. Explicit copy is performed if the caller
+assigns the return to a real Coordinate (as opposite to a Coordinate
+ref).
+
+Taking a closer look of our bottleneck
+(indexMonotoneChain::computeOverlaps) I found out that GEOS
+uses CoordinateSequence where JTS uses Coordinate[].
+This means one level of indirection less.
+GEOS getAt internally calls the equivalent of JTS [] operator,
+calling it directly should give us some better results.
+
+Probably inlining CoordinateSequence::getAt() would give same
+results w/ less effort but breaking ABI. I'll check this.
+
+--strk;
+
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.      www.vividsolutions.com
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+>  
+
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From strk at refractions.net  Tue Feb  1 17:25:05 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <20050201222254.GB97614@freek.keybit.net>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587B@venus.VividSolutions.com>
+	<20050201222254.GB97614@freek.keybit.net>
+Message-ID: <20050201222505.GC97614@freek.keybit.net>
+
+On Tue, Feb 01, 2005 at 11:22:54PM +0100, strk@refractions.net wrote:
+> On Tue, Feb 01, 2005 at 10:52:23AM -0800, Martin Davis wrote:
+> > Well it's good to hear that GEOS isn't wildly different to JTS timings
+> > after all.
+> 
+> Yeah, but it's still 3.5 times slower ...
+> 
+> > After some more thought I think there may be some improvements which
+> > don't require implementing smart ptrs and ref counting (not that these
+> > are bad things to do, they just take time).
+> >  
+> > I suspect that heavy use is being made of
+> > CoordinateSequence::getCoordinate, and that this is resulting in many
+> > Coordinate objects being allocated.  A better pattern for callers is to
+> > preallocate a single Coordinate and then use getCoordinate(Coordinate *)
+> > to retrieve coordinate values into it.  (JTS doesn't do this now, but
+> > will be moving to this style to reduce *its* allocation of Coordinate
+> > objects).
+> 
+> GEOS use CoordinateSequence::getAt, which returns a *reference*, so
+> no allocation is involved. Explicit copy is performed if the caller
+> assigns the return to a real Coordinate (as opposite to a Coordinate
+> ref).
+> 
+> Taking a closer look of our bottleneck
+> (indexMonotoneChain::computeOverlaps) I found out that GEOS
+> uses CoordinateSequence where JTS uses Coordinate[].
+> This means one level of indirection less.
+> GEOS getAt internally calls the equivalent of JTS [] operator,
+> calling it directly should give us some better results.
+> 
+> Probably inlining CoordinateSequence::getAt() would give same
+> results w/ less effort but breaking ABI. I'll check this.
+
+Oops.. I correct myself, we cannot inline CoordinateSequence::getAt()
+as it's a virtual class. Still I'd consider using vector<Coordinate>,
+which can returned with no copy involved by the DefaultCoordinateSequence
+using the toVector() method.
+
+--strk;
+
+> 
+> --strk;
+> 
+> > Martin Davis, Senior Technical Architect
+> > Vivid Solutions Inc.      www.vividsolutions.com
+> > Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> > Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> >  
+> 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From nhv at cape.com  Tue Feb  1 18:52:14 2005
+From: nhv at cape.com (Norman Vine)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance - smart-ptr vs ref counting
+In-Reply-To: <000001c50873$d3d24040$2aa6c684@ECOINFORMATICS>
+Message-ID: <EKEJIKAILPONGGENMBGAMECEKFAA.nhv@cape.com>
+
+Ferdinando Villa writes:
+> 
+> >> One thing that would probably speed things a bit is to inline the 
+> >> trivial constructors and destructors :-)
+> 
+> >I would do this, but is it possible to inline functions w/out breaking
+> ABI ? Will using the 'inline' keyword be enough ?
+> 
+> I may be wrong, but I suspect this is the kind of thing that a good
+> compiler could optimize away anyway.... maybe it's worthwile to check
+> gcc's docs or run some simple tests to make sure it really matters,
+> before embarking in a boring and unnecessary typing exercise...
+
+Compilers can do wonders but not many will inline code outside of the
+file that it resides in :-)
+
+Cheers
+
+Norman
+
+From strk at refractions.net  Wed Feb  2 03:44:43 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <20050201222505.GC97614@freek.keybit.net>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587B@venus.VividSolutions.com>
+	<20050201222254.GB97614@freek.keybit.net>
+	<20050201222505.GC97614@freek.keybit.net>
+Message-ID: <20050202084443.GA97993@freek.keybit.net>
+
+On Tue, Feb 01, 2005 at 11:25:05PM +0100, strk@refractions.net wrote:
+> On Tue, Feb 01, 2005 at 11:22:54PM +0100, strk@refractions.net wrote:
+> > On Tue, Feb 01, 2005 at 10:52:23AM -0800, Martin Davis wrote:
+> > > Well it's good to hear that GEOS isn't wildly different to JTS timings
+> > > after all.
+> > 
+> > Yeah, but it's still 3.5 times slower ...
+> > 
+> > > After some more thought I think there may be some improvements which
+> > > don't require implementing smart ptrs and ref counting (not that these
+> > > are bad things to do, they just take time).
+> > >  
+> > > I suspect that heavy use is being made of
+> > > CoordinateSequence::getCoordinate, and that this is resulting in many
+> > > Coordinate objects being allocated.  A better pattern for callers is to
+> > > preallocate a single Coordinate and then use getCoordinate(Coordinate *)
+> > > to retrieve coordinate values into it.  (JTS doesn't do this now, but
+> > > will be moving to this style to reduce *its* allocation of Coordinate
+> > > objects).
+> > 
+> > GEOS use CoordinateSequence::getAt, which returns a *reference*, so
+> > no allocation is involved. Explicit copy is performed if the caller
+> > assigns the return to a real Coordinate (as opposite to a Coordinate
+> > ref).
+> > 
+> > Taking a closer look of our bottleneck
+> > (indexMonotoneChain::computeOverlaps) I found out that GEOS
+> > uses CoordinateSequence where JTS uses Coordinate[].
+> > This means one level of indirection less.
+> > GEOS getAt internally calls the equivalent of JTS [] operator,
+> > calling it directly should give us some better results.
+> > 
+> > Probably inlining CoordinateSequence::getAt() would give same
+> > results w/ less effort but breaking ABI. I'll check this.
+> 
+> Oops.. I correct myself, we cannot inline CoordinateSequence::getAt()
+> as it's a virtual class. Still I'd consider using vector<Coordinate>,
+> which can returned with no copy involved by the DefaultCoordinateSequence
+> using the toVector() method.
+
+Using a vector in indexMonotoneChain takes timing down from 63 to 60
+seconds.
+
+I've verified that none of the JTS code in index/, in noding/,
+in algorithm/ and in geomgraph/ use CoordinateSequence, while
+GEOS does it everywhere.
+
+My proposal is to make GEOS interfaces closer to JTS in using vectors
+of Coordinates wherever JTS uses Coordinate[]. 
+
+In order to maintain current API we should add new interfaces
+instead of replacing old ones. ABI would still break, but this
+seems inevitable so far.
+
+Comments ?
+
+--strk;
+
+
+> 
+> --strk;
+> 
+> > 
+> > --strk;
+> > 
+> > > Martin Davis, Senior Technical Architect
+> > > Vivid Solutions Inc.      www.vividsolutions.com
+> > > Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> > > Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> > >  
+> > 
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From mbdavis at VividSolutions.com  Wed Feb  2 12:17:35 2005
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA02722587D@venus.VividSolutions.com>
+
+> My proposal is to make GEOS interfaces closer to JTS in using 
+> vectors of Coordinates wherever JTS uses Coordinate[]. 
+
+In actual fact, the use of CoordinateSequence in GEOS was completely
+deliberate, and I intend to migrate JTS to use that pattern as well.
+The reason was to encapsulate the representation of coordinate values,
+to easily allow using alternative coordinates and coordinate list
+implementations with JTS/GEOS.
+
+There may be a performance penalty to be paid for this flexibility, but
+I (and others) think that the increased versatility and cleaner
+architecture.  In fact, I would expect that with C++'s much better
+optimization and richer language model the penalty (if any) should be
+much less than in Java.  
+
+Since CoordinateSequence::getAt() returns a reference, I don't see why
+that would be much slower than simply dereferencing an array.
+
+> I'd consider using vector<Coordinate>, which can returned 
+> with no copy involved by the DefaultCoordinateSequence using 
+> the toVector() method.
+
+Could this be the source of the problem?  JTS uses getCoordinates all
+over the place.  This is NOT going to be efficient under the new
+CoordinateSequence pattern, since it requires converting a
+CoordinateSequence into a Coordinate[].  Instead, the JTS code will have
+to be rewritten to use a getCoordinate(int, Coordinate) method, which
+will extract the coordinate value into a provided Coordinate object.
+This lets the caller manage the memory (and in most cases, very few
+actual Coordinate objects have to be allocated).  I suspect that GEOS,
+although partially implemented using the CoordinateSequence pattern, was
+not fully converted to this pattern (fair enough, since this is a major
+change to the code and a major departure from alignment with JTS).
+Strk, can you confirm this assumption?
+
+So there's 2 choices - alter GEOS now, or wait until JTS moves and then
+mirror it.  
+
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.      www.vividsolutions.com
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+From strk at refractions.net  Wed Feb  2 12:48:36 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA02722587D@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587D@venus.VividSolutions.com>
+Message-ID: <20050202174836.GA5315@freek.keybit.net>
+
+On Wed, Feb 02, 2005 at 09:17:35AM -0800, Martin Davis wrote:
+> > My proposal is to make GEOS interfaces closer to JTS in using 
+> > vectors of Coordinates wherever JTS uses Coordinate[]. 
+> 
+> In actual fact, the use of CoordinateSequence in GEOS was completely
+> deliberate, and I intend to migrate JTS to use that pattern as well.
+> The reason was to encapsulate the representation of coordinate values,
+> to easily allow using alternative coordinates and coordinate list
+> implementations with JTS/GEOS.
+
+Yes, I recognize my own acts there.
+
+> 
+> There may be a performance penalty to be paid for this flexibility, but
+> I (and others) think that the increased versatility and cleaner
+> architecture.  In fact, I would expect that with C++'s much better
+> optimization and richer language model the penalty (if any) should be
+> much less than in Java.  
+> 
+> Since CoordinateSequence::getAt() returns a reference, I don't see why
+> that would be much slower than simply dereferencing an array.
+
+That's a virtual call, so cannot be statically bound.
+A simple coordlist[4] on the other hand is usually inlined.
+(C++ gurus correct me if I'm wrong)
+
+> 
+> > I'd consider using vector<Coordinate>, which can returned 
+> > with no copy involved by the DefaultCoordinateSequence using 
+> > the toVector() method.
+> 
+> Could this be the source of the problem?  JTS uses getCoordinates all
+> over the place.  This is NOT going to be efficient under the new
+> CoordinateSequence pattern, since it requires converting a
+> CoordinateSequence into a Coordinate[].  Instead, the JTS code will have
+> to be rewritten to use a getCoordinate(int, Coordinate) method, which
+> will extract the coordinate value into a provided Coordinate object.
+
+I'm doing tests with the latest JTS code handy.
+Geometry#getCoordinates() returns Coordinate[], not CoordinateSequence.
+Note that for DefaultCoordinateSequence, the #toVector() method
+doesn't involve any copy. Any different implementation will probably
+require a copy but the assumption of a "fast" implementation has
+always been in JTS, see the toInternalCoordinate() method.
+
+> This lets the caller manage the memory (and in most cases, very few
+> actual Coordinate objects have to be allocated).  I suspect that GEOS,
+> although partially implemented using the CoordinateSequence pattern, was
+> not fully converted to this pattern (fair enough, since this is a major
+> change to the code and a major departure from alignment with JTS).
+> Strk, can you confirm this assumption?
+
+Nope. GEOS actually dropped CoordinateArrays and CoordinateList classes
+merging all into CoordinateSequence. In no case direct vector<Coordinate>
+is used.
+
+--strk;
+
+> So there's 2 choices - alter GEOS now, or wait until JTS moves and then
+> mirror it.  
+> 
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.      www.vividsolutions.com
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From mbdavis at VividSolutions.com  Wed Feb  2 13:05:31 2005
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA02722587E@venus.VividSolutions.com>
+
+> That's a virtual call, so cannot be statically bound.
+> A simple coordlist[4] on the other hand is usually inlined. 
+> (C++ gurus correct me if I'm wrong)
+
+Good point.  But surely this alone can't account for the difference
+between GEOS and JTS?  I doubt Java is doing much "inlining" either.
+
+> Geometry#getCoordinates() returns Coordinate[], not
+CoordinateSequence. 
+
+I know, that's my point.  The JTS codebase should be using
+getCoordinateSequence almost exclusively.
+
+> assumption of a "fast" implementation has always been in JTS, 
+> see the toInternalCoordinate() method.
+
+Yes, but I'm trying to move JTS away from assuming this.
+
+> Nope. GEOS actually dropped CoordinateArrays and 
+> CoordinateList classes merging all into CoordinateSequence. 
+
+That's unfortunate - these 3 classes have very different uses.
+
+> Note that for DefaultCoordinateSequence, 
+> the #toVector() method doesn't involve any copy.
+
+Well that removes one possible source of unecessary memory allocation.
+Can you think of anywhere else where memory allocation might be
+happening that could be removed?
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.      www.vividsolutions.com
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+From strk at refractions.net  Wed Feb  2 13:27:09 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA02722587E@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587E@venus.VividSolutions.com>
+Message-ID: <20050202182709.GB5315@freek.keybit.net>
+
+On Wed, Feb 02, 2005 at 10:05:31AM -0800, Martin Davis wrote:
+> > That's a virtual call, so cannot be statically bound.
+> > A simple coordlist[4] on the other hand is usually inlined. 
+> > (C++ gurus correct me if I'm wrong)
+> 
+> Good point.  But surely this alone can't account for the difference
+> between GEOS and JTS?  I doubt Java is doing much "inlining" either.
+
+I have a precise answer, after spending the whole day on it.
+It doesn't help much. Buffer(2000) runs in 59secs vs. 60secs
+of using CoordinateSequence :(
+
+> > Geometry#getCoordinates() returns Coordinate[], not
+> CoordinateSequence. 
+> 
+> I know, that's my point.  The JTS codebase should be using
+> getCoordinateSequence almost exclusively.
+> 
+> > assumption of a "fast" implementation has always been in JTS, 
+> > see the toInternalCoordinate() method.
+> 
+> Yes, but I'm trying to move JTS away from assuming this.
+> 
+> > Nope. GEOS actually dropped CoordinateArrays and 
+> > CoordinateList classes merging all into CoordinateSequence. 
+> 
+> That's unfortunate - these 3 classes have very different uses.
+
+I guess they will need a change anyway in next JTS, as they
+work on Coordinate[], not CoordinateSequence.
+
+> > Note that for DefaultCoordinateSequence, 
+> > the #toVector() method doesn't involve any copy.
+> 
+> Well that removes one possible source of unecessary memory allocation.
+> Can you think of anywhere else where memory allocation might be
+> happening that could be removed?
+
+Well.. all over the codebase.. not easy to tell.
+For sure we have a ::removeRepeatedPoints which always returns
+a copy while for JTS only copies when needed, but again I don't 
+think it's enough to make that difference.
+
+I think it'll be usefull to have JTS give some debugging/profiling
+info to compare operations (allocations, copies...)
+
+--strk;
+
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.      www.vividsolutions.com
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Thu Feb  3 06:29:32 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <20050202182709.GB5315@freek.keybit.net>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587E@venus.VividSolutions.com>
+	<20050202182709.GB5315@freek.keybit.net>
+Message-ID: <20050203112932.GD13152@freek.keybit.net>
+
+Thanks to Norman Vine I've handled to run gprof.
+I found a couple of probaly useless copying.
+
+One is SegmentString taking ownership of passed-in CoordinateSequence
+and deleting it a destruction time.
+
+To avoid segfaults it returns a cloned version with getCoordinates()
+while I added getCoordinatesRO() for callers that don't need
+a copy. It should avoid deleting and cloning. 
+Lifespan of newly constructed coordinates should be tracked more
+carefully though, as buffer ops constructs circles and then trims
+them down, so deletion of unused coordinates will be needed while
+the coordinates used in the output should be kept. Much easier
+with Java GC... A smart_pointer might be useful there.
+
+Another one is Edge, doing the same thing (taking ownership and
+deleting the passed-in sequence).
+
+I'll do some more tests to see how this can be handled.
+
+--strk;
+
+On Wed, Feb 02, 2005 at 07:27:09PM +0100, strk@refractions.net wrote:
+> On Wed, Feb 02, 2005 at 10:05:31AM -0800, Martin Davis wrote:
+> > > That's a virtual call, so cannot be statically bound.
+> > > A simple coordlist[4] on the other hand is usually inlined. 
+> > > (C++ gurus correct me if I'm wrong)
+> > 
+> > Good point.  But surely this alone can't account for the difference
+> > between GEOS and JTS?  I doubt Java is doing much "inlining" either.
+> 
+> I have a precise answer, after spending the whole day on it.
+> It doesn't help much. Buffer(2000) runs in 59secs vs. 60secs
+> of using CoordinateSequence :(
+> 
+> > > Geometry#getCoordinates() returns Coordinate[], not
+> > CoordinateSequence. 
+> > 
+> > I know, that's my point.  The JTS codebase should be using
+> > getCoordinateSequence almost exclusively.
+> > 
+> > > assumption of a "fast" implementation has always been in JTS, 
+> > > see the toInternalCoordinate() method.
+> > 
+> > Yes, but I'm trying to move JTS away from assuming this.
+> > 
+> > > Nope. GEOS actually dropped CoordinateArrays and 
+> > > CoordinateList classes merging all into CoordinateSequence. 
+> > 
+> > That's unfortunate - these 3 classes have very different uses.
+> 
+> I guess they will need a change anyway in next JTS, as they
+> work on Coordinate[], not CoordinateSequence.
+> 
+> > > Note that for DefaultCoordinateSequence, 
+> > > the #toVector() method doesn't involve any copy.
+> > 
+> > Well that removes one possible source of unecessary memory allocation.
+> > Can you think of anywhere else where memory allocation might be
+> > happening that could be removed?
+> 
+> Well.. all over the codebase.. not easy to tell.
+> For sure we have a ::removeRepeatedPoints which always returns
+> a copy while for JTS only copies when needed, but again I don't 
+> think it's enough to make that difference.
+> 
+> I think it'll be usefull to have JTS give some debugging/profiling
+> info to compare operations (allocations, copies...)
+> 
+> --strk;
+> 
+> > 
+> > Martin Davis, Senior Technical Architect
+> > Vivid Solutions Inc.      www.vividsolutions.com
+> > Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> > Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Thu Feb  3 06:37:26 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <20050203112932.GD13152@freek.keybit.net>
+References: <5A94289A9268514C8D6C0F1FF44BA02722587E@venus.VividSolutions.com>
+	<20050202182709.GB5315@freek.keybit.net>
+	<20050203112932.GD13152@freek.keybit.net>
+Message-ID: <20050203113726.GE13152@freek.keybit.net>
+
+An example for the Edge case:
+
+Edge::getCollapsedEdge()
+
+allocates a new DefaultCoordinateSequence, pass it to a new Edge
+and returns the Edge.
+
+The newly created DefaultCoordinateSequence will leak. How can this
+be avoided ?
+
+How long must the Sequence last in memory ?
+Who should delete it ?
+Can we think about having a possibly-owning possibly-notowning
+Edge instance ? Should we use smart_ptr ?
+
+--strk;
+
+On Thu, Feb 03, 2005 at 12:29:32PM +0100, strk@refractions.net wrote:
+> Thanks to Norman Vine I've handled to run gprof.
+> I found a couple of probaly useless copying.
+> 
+> One is SegmentString taking ownership of passed-in CoordinateSequence
+> and deleting it a destruction time.
+> 
+> To avoid segfaults it returns a cloned version with getCoordinates()
+> while I added getCoordinatesRO() for callers that don't need
+> a copy. It should avoid deleting and cloning. 
+> Lifespan of newly constructed coordinates should be tracked more
+> carefully though, as buffer ops constructs circles and then trims
+> them down, so deletion of unused coordinates will be needed while
+> the coordinates used in the output should be kept. Much easier
+> with Java GC... A smart_pointer might be useful there.
+> 
+> Another one is Edge, doing the same thing (taking ownership and
+> deleting the passed-in sequence).
+> 
+> I'll do some more tests to see how this can be handled.
+> 
+> --strk;
+> 
+> On Wed, Feb 02, 2005 at 07:27:09PM +0100, strk@refractions.net wrote:
+> > On Wed, Feb 02, 2005 at 10:05:31AM -0800, Martin Davis wrote:
+> > > > That's a virtual call, so cannot be statically bound.
+> > > > A simple coordlist[4] on the other hand is usually inlined. 
+> > > > (C++ gurus correct me if I'm wrong)
+> > > 
+> > > Good point.  But surely this alone can't account for the difference
+> > > between GEOS and JTS?  I doubt Java is doing much "inlining" either.
+> > 
+> > I have a precise answer, after spending the whole day on it.
+> > It doesn't help much. Buffer(2000) runs in 59secs vs. 60secs
+> > of using CoordinateSequence :(
+> > 
+> > > > Geometry#getCoordinates() returns Coordinate[], not
+> > > CoordinateSequence. 
+> > > 
+> > > I know, that's my point.  The JTS codebase should be using
+> > > getCoordinateSequence almost exclusively.
+> > > 
+> > > > assumption of a "fast" implementation has always been in JTS, 
+> > > > see the toInternalCoordinate() method.
+> > > 
+> > > Yes, but I'm trying to move JTS away from assuming this.
+> > > 
+> > > > Nope. GEOS actually dropped CoordinateArrays and 
+> > > > CoordinateList classes merging all into CoordinateSequence. 
+> > > 
+> > > That's unfortunate - these 3 classes have very different uses.
+> > 
+> > I guess they will need a change anyway in next JTS, as they
+> > work on Coordinate[], not CoordinateSequence.
+> > 
+> > > > Note that for DefaultCoordinateSequence, 
+> > > > the #toVector() method doesn't involve any copy.
+> > > 
+> > > Well that removes one possible source of unecessary memory allocation.
+> > > Can you think of anywhere else where memory allocation might be
+> > > happening that could be removed?
+> > 
+> > Well.. all over the codebase.. not easy to tell.
+> > For sure we have a ::removeRepeatedPoints which always returns
+> > a copy while for JTS only copies when needed, but again I don't 
+> > think it's enough to make that difference.
+> > 
+> > I think it'll be usefull to have JTS give some debugging/profiling
+> > info to compare operations (allocations, copies...)
+> > 
+> > --strk;
+> > 
+> > > 
+> > > Martin Davis, Senior Technical Architect
+> > > Vivid Solutions Inc.      www.vividsolutions.com
+> > > Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> > > Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> > > 
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Fri Feb  4 18:29:30 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof
+Message-ID: <20050204232930.GA29710@freek.keybit.net>
+
+Attached is output of gprof on the buffer operation
+posted here some days ago.
+
+Profiled are buffer ops for 100, 500 and 2000 units.
+
+As you can see the 100 version have Coordinate copy
+taking the most time (9.43%), while the other 2 have
+Envelope intersection test taking the most (16.45%, 8.51%).
+
+Note that I changed BufferSubgraph::computeDepths to use
+a set<> instead of a vector<> for checking already visited
+nodes. This radically changed weight of functions, as 
+the BufferSubgraph::contains was taking the most time for
+both buffer 500 and buffer 2000 before the change.
+
+If anyone want to do some experiment theirself you need
+to configure geos using:
+
+	./configure ... CXXFLAGS="-pg -g"
+
+Then go to source/test and run 
+
+	make static
+
+This will produce a staticXMLTester. You just run it to produce
+a gmon.out out, then run gprof .../staticXMLTester to get profiler
+output.
+
+--strk;
+
+From strk at refractions.net  Fri Feb  4 18:30:13 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof (missing attachment)
+Message-ID: <20050204233013.GB29710@freek.keybit.net>
+
+As usual attachment comes late, sorry.
+--strk;
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: prof.tgz
+Type: application/x-tar-gz
+Size: 713018 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20050205/cf467df0/prof.bin
+From strk at refractions.net  Sun Feb  6 05:36:37 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof (missing attachment)
+In-Reply-To: <20050204233013.GB29710@freek.keybit.net>
+References: <20050204233013.GB29710@freek.keybit.net>
+Message-ID: <20050206103637.GA44596@freek.keybit.net>
+
+I've been working on Coordinate copies reduction.
+The bigger cut has been done changing NodeMap Coordinate->Node
+map to use Coordinate pointers instead of objects as keys.
+This has been done also on other containers.
+Also, some useless copies in deep-inside funx have been dropped.
+
+For the buffer 2000 case Coordinate copies have been reduced
+from 13151966 to 5973354.
+Coordinate assignment operators was called 13068095 times before
+1652108 now.
+
+Time spent in copy constructor reduced from 1.89% to 0.90%.
+Time spent in assignment operator reduced from 2.08% to 0.43%.
+
+Also, profile output showed that the BufferSubgraph::copmuteDepths
+was taking a lot. I've reconduced this to the use of a vector instead
+of a set for taking track of visitedNodes. Changed this.
+
+Total time from 62 secs reduced to 52 secs.
+
+Now both buffer500 and buffer2000 show about the same structure of
+timings (before visitedNodes change they were different, showing low
+scalability). 
+
+The top-most functions are Envelope::intersects and AbstractSTRtree::query.
+Next come iterators.
+
+Maybe we can get some more speed using random access for vectors instead
+of iterators, which check for out-of-bound conditions. Also I'd inspect
+the use of the 'foreach' standard algorithm when appropriate.
+
+--strk;
+
+
+On Sat, Feb 05, 2005 at 12:30:13AM +0100, strk@refractions.net wrote:
+> As usual attachment comes late, sorry.
+> --strk;
+
+
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From nhv at cape.com  Sun Feb  6 06:25:09 2005
+From: nhv at cape.com (Norman Vine)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof (missing attachment)
+In-Reply-To: <20050206103637.GA44596@freek.keybit.net>
+Message-ID: <EKEJIKAILPONGGENMBGAAEPJKFAA.nhv@cape.com>
+
+strk@refractions.net writes:
+>
+> The top-most functions are Envelope::intersects and AbstractSTRtree::query.
+> Next come iterators.
+
+< untested >
+This might be a little faster in that it allows for early outs  :-)
+
+bool Envelope::intersects(const Coordinate& p1,const Coordinate& p2,const Coordinate& q1,const Coordinate& q2) {
+    if( min(p1.x,p2.x) > max(q1.x,q2.x) ||
+          max(p1.x,p2.x) < min(q1.x,q2.x) ||
+          min(p1.y,p2.y) > max(q1.y,q2.y) ||
+          max(p1.y,p2.y) < min(q1.y,q2.y) )
+		return false;
+	return true;
+}
+
+Might be worth testing both Intersects as inlines also
+
+Norman
+
+From nhv at cape.com  Sun Feb  6 07:02:05 2005
+From: nhv at cape.com (Norman Vine)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof (missing attachment)
+In-Reply-To: <EKEJIKAILPONGGENMBGAAEPJKFAA.nhv@cape.com>
+Message-ID: <EKEJIKAILPONGGENMBGAKEPJKFAA.nhv@cape.com>
+
+If this is actually a hotspot probably best to take advantage
+of all the apriori knowledge we can :-)
+
+< I think this is correct some one should check my logic though >
+
+bool Envelope::intersects(const Coordinate& p1,const Coordinate& p2,const Coordinate& q1,const Coordinate& q2)
+{
+/* please leave this commented code as documentation 
+    if( min(p1.x,p2.x) > max(q1.x,q2.x) ||
+          max(p1.x,p2.x) < min(q1.x,q2.x) ||
+          min(p1.y,p2.y) > max(q1.y,q2.y) ||
+          max(p1.y,p2.y) < min(q1.y,q2.y) )
+        return false;
+    return true;
+*/
+
+    if( p1.x < p2.x )  {
+        if( q1.x > q2.x )  {
+            if( p1.x > q1.x )  return false;
+            if( p2.x < q2.x )  return false;
+        } else {
+            if( p1.x > q2.x )  return false;
+            if( p2.x < q1.x )  return false;
+        }
+    } else {
+        if( q1.x > q2.x )  {
+            if( p2.x > q1.x )  return false;
+            if( p1.x < q2.x )  return false;
+        } else {
+            if( p2.x > q2.x )  return false;
+            if( p1.x < q1.x )  return false;
+        }
+    }
+
+    if( p1.y < p2.y ) {
+        if( q1.y > q2.y )  {
+            if( p1.y > q1.y )  return false;
+            if( p2.y < q2.y )  return false;
+        } else {
+            if( p1.y > q2.y )  return false;
+            if( p2.y < q1.y )  return false;
+        }
+    } else {
+        if( q1.y > q2.y ) {
+            if( p2.y > q1.y )  return false;
+            if( p1.y < q2.y )  return false;
+        } else {
+            if( p2.y > q2.y )  return false;
+            if( p1.y < q1.y )  return false;
+        }
+    }
+    return true;
+}
+
+
+From strk at refractions.net  Sun Feb  6 07:28:30 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof (missing attachment)
+In-Reply-To: <EKEJIKAILPONGGENMBGAKEPJKFAA.nhv@cape.com>
+References: <EKEJIKAILPONGGENMBGAAEPJKFAA.nhv@cape.com>
+	<EKEJIKAILPONGGENMBGAKEPJKFAA.nhv@cape.com>
+Message-ID: <20050206122830.GA45212@freek.keybit.net>
+
+Sorry, I didn't specify that, the function is this, already
+optimized:
+
+bool
+Envelope::intersects(const Envelope* other) const
+{
+        // Optimized to reduce function calls
+        if ( isnull ) return false;
+        return !(other->minx > maxx ||
+                         other->maxx < minx ||
+                         other->miny > maxy ||
+                         other->maxy < miny);
+}
+
+Note that isnull is a bool, original code called ::isNull, a step
+after I've inlined it using maxx<minx || maxy<miny. Currenlty it
+is a single bool check.
+Maybe the return !(expr) is not optimized by the compiler, but I'm 
+not sure at that would be simple.... first expression evaluating
+to false should prevent further checkings. Am I wrong ?
+
+Inlining it should have some benefits as the function is invoked
+269666299 times (for buffer2000).
+
+--strk;
+
+On Sun, Feb 06, 2005 at 07:02:05AM -0500, Norman Vine wrote:
+> If this is actually a hotspot probably best to take advantage
+> of all the apriori knowledge we can :-)
+> 
+> < I think this is correct some one should check my logic though >
+> 
+> bool Envelope::intersects(const Coordinate& p1,const Coordinate& p2,const Coordinate& q1,const Coordinate& q2)
+> {
+> /* please leave this commented code as documentation 
+>     if( min(p1.x,p2.x) > max(q1.x,q2.x) ||
+>           max(p1.x,p2.x) < min(q1.x,q2.x) ||
+>           min(p1.y,p2.y) > max(q1.y,q2.y) ||
+>           max(p1.y,p2.y) < min(q1.y,q2.y) )
+>         return false;
+>     return true;
+> */
+> 
+>     if( p1.x < p2.x )  {
+>         if( q1.x > q2.x )  {
+>             if( p1.x > q1.x )  return false;
+>             if( p2.x < q2.x )  return false;
+>         } else {
+>             if( p1.x > q2.x )  return false;
+>             if( p2.x < q1.x )  return false;
+>         }
+>     } else {
+>         if( q1.x > q2.x )  {
+>             if( p2.x > q1.x )  return false;
+>             if( p1.x < q2.x )  return false;
+>         } else {
+>             if( p2.x > q2.x )  return false;
+>             if( p1.x < q1.x )  return false;
+>         }
+>     }
+> 
+>     if( p1.y < p2.y ) {
+>         if( q1.y > q2.y )  {
+>             if( p1.y > q1.y )  return false;
+>             if( p2.y < q2.y )  return false;
+>         } else {
+>             if( p1.y > q2.y )  return false;
+>             if( p2.y < q1.y )  return false;
+>         }
+>     } else {
+>         if( q1.y > q2.y ) {
+>             if( p2.y > q1.y )  return false;
+>             if( p1.y < q2.y )  return false;
+>         } else {
+>             if( p2.y > q2.y )  return false;
+>             if( p1.y < q1.y )  return false;
+>         }
+>     }
+>     return true;
+> }
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Sun Feb  6 09:11:02 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] gprof (missing attachment)
+In-Reply-To: <20050206122830.GA45212@freek.keybit.net>
+References: <EKEJIKAILPONGGENMBGAAEPJKFAA.nhv@cape.com>
+	<EKEJIKAILPONGGENMBGAKEPJKFAA.nhv@cape.com>
+	<20050206122830.GA45212@freek.keybit.net>
+Message-ID: <20050206141101.GA46001@freek.keybit.net>
+
+I've found out that while profiling I had compiler
+optimizations turned off. This augmented a lot STL timings..
+
+Here are top lines of new -O2 profiling for buffer 500:
+
+  %   cumulative   self              self     total                              time   seconds   seconds    calls   s/call   s/call  name
+ 13.51      2.33     2.33  7962785     0.00     0.00  geos::Envelope::intersects(geos::Envelope const*) const
+  8.52      3.80     1.47    54569     0.00     0.00  geos::AbstractSTRtree::query(void const*, geos::AbstractNode*, std::vector<void*, std::allocator<void*> >*)
+  4.12      4.51     0.71   755477     0.00     0.00  geos::RobustDeterminant::signOfDet2x2(double, double, double, double)
+  3.77      5.16     0.65   279274     0.00     0.00  geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&)
+  3.30      5.73     0.57  3106372     0.00     0.00  geos::Envelope::getMaxY() const
+  2.72      6.20     0.47  7546996     0.00     0.00  geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+
+
+The Envelope::GetMaxY definitely needs inlining. Probably most of Envelope
+methods should.
+
+--strk;
+
+On Sun, Feb 06, 2005 at 01:28:30PM +0100, strk@refractions.net wrote:
+> Sorry, I didn't specify that, the function is this, already
+> optimized:
+> 
+> bool
+> Envelope::intersects(const Envelope* other) const
+> {
+>         // Optimized to reduce function calls
+>         if ( isnull ) return false;
+>         return !(other->minx > maxx ||
+>                          other->maxx < minx ||
+>                          other->miny > maxy ||
+>                          other->maxy < miny);
+> }
+> 
+> Note that isnull is a bool, original code called ::isNull, a step
+> after I've inlined it using maxx<minx || maxy<miny. Currenlty it
+> is a single bool check.
+> Maybe the return !(expr) is not optimized by the compiler, but I'm 
+> not sure at that would be simple.... first expression evaluating
+> to false should prevent further checkings. Am I wrong ?
+> 
+> Inlining it should have some benefits as the function is invoked
+> 269666299 times (for buffer2000).
+> 
+> --strk;
+> 
+> On Sun, Feb 06, 2005 at 07:02:05AM -0500, Norman Vine wrote:
+> > If this is actually a hotspot probably best to take advantage
+> > of all the apriori knowledge we can :-)
+> > 
+> > < I think this is correct some one should check my logic though >
+> > 
+> > bool Envelope::intersects(const Coordinate& p1,const Coordinate& p2,const Coordinate& q1,const Coordinate& q2)
+> > {
+> > /* please leave this commented code as documentation 
+> >     if( min(p1.x,p2.x) > max(q1.x,q2.x) ||
+> >           max(p1.x,p2.x) < min(q1.x,q2.x) ||
+> >           min(p1.y,p2.y) > max(q1.y,q2.y) ||
+> >           max(p1.y,p2.y) < min(q1.y,q2.y) )
+> >         return false;
+> >     return true;
+> > */
+> > 
+> >     if( p1.x < p2.x )  {
+> >         if( q1.x > q2.x )  {
+> >             if( p1.x > q1.x )  return false;
+> >             if( p2.x < q2.x )  return false;
+> >         } else {
+> >             if( p1.x > q2.x )  return false;
+> >             if( p2.x < q1.x )  return false;
+> >         }
+> >     } else {
+> >         if( q1.x > q2.x )  {
+> >             if( p2.x > q1.x )  return false;
+> >             if( p1.x < q2.x )  return false;
+> >         } else {
+> >             if( p2.x > q2.x )  return false;
+> >             if( p1.x < q1.x )  return false;
+> >         }
+> >     }
+> > 
+> >     if( p1.y < p2.y ) {
+> >         if( q1.y > q2.y )  {
+> >             if( p1.y > q1.y )  return false;
+> >             if( p2.y < q2.y )  return false;
+> >         } else {
+> >             if( p1.y > q2.y )  return false;
+> >             if( p2.y < q1.y )  return false;
+> >         }
+> >     } else {
+> >         if( q1.y > q2.y ) {
+> >             if( p2.y > q1.y )  return false;
+> >             if( p1.y < q2.y )  return false;
+> >         } else {
+> >             if( p2.y > q2.y )  return false;
+> >             if( p1.y < q1.y )  return false;
+> >         }
+> >     }
+> >     return true;
+> > }
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From mcoletti at gmail.com  Mon Feb  7 11:08:43 2005
+From: mcoletti at gmail.com (Mark Coletti)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <71E37EF6B7DCC1499CEA0316A256832801C98488@loki.wc.globexplorer.net>
+References: <AcUHyteXZwn7LFC9SciwoqO8eVLXNQAHE6AAAAHxaRAAATWydw==>
+	<71E37EF6B7DCC1499CEA0316A256832801C98488@loki.wc.globexplorer.net>
+Message-ID: <120095080502070808431709f1@mail.gmail.com>
+
+On Mon, 31 Jan 2005 16:42:44 -0800, Chris G. Nicholas
+<cgn@globexplorer.com> wrote:
+> >  an enterprise api should have both smart pointers and ref-counting available as an option.
+ 
+> Martin is certainly correct that smart pointers, reference counting and garbage collection are all related.  But one has to decide if a geometry API and in-memory features are fundamentally multithreaded animals, what their persistence mechanisms are, and what happens when one thread does wierd things while others are interested in a particular feature.  [...]
+
+> I would argue that reasonable assumptions, i.e. simple thread safety and *s*p*e*e*d*, are 
+> much more preferrable than exotic special cases. Straightforward readers/writer locks 
+> should suffice; (not sure what the pthread equivalent is, but on Solaris it is rwlock(3thr) ) .
+
+The Boost C++ Library offers reference-counting smart pointers that
+have built-in thread locking.  See shared_ptr class at
+http://boost.org/.  The Boost library also offers a large number of
+other useful classes, functions, and macros.
+
+Cheers,
+
+Mark
+-- 
+I'm taking reality in small doses to build immunity.
+
+From MChapman at sanz.com  Mon Feb  7 11:17:04 2005
+From: MChapman at sanz.com (Chapman, Martin)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+Message-ID: <ED3A48B9840E594890A2BC172D11946501CFFF86@mailman>
+
+Mark,
+
+Boost looks really nice.  Once you use smart pointers you'll never go
+back to dumb ones.  It almost makes C++ as elegant and simple as Java.
+
+Martin
+
+-----Original Message-----
+From: Mark Coletti [mailto:mcoletti@gmail.com] 
+Sent: Monday, February 07, 2005 9:09 AM
+To: GEOS Development List
+Subject: Re: [geos-devel] JTS/GEOS performance
+
+
+On Mon, 31 Jan 2005 16:42:44 -0800, Chris G. Nicholas
+<cgn@globexplorer.com> wrote:
+> >  an enterprise api should have both smart pointers and ref-counting 
+> > available as an option.
+ 
+> Martin is certainly correct that smart pointers, reference counting 
+> and garbage collection are all related.  But one has to decide if a 
+> geometry API and in-memory features are fundamentally multithreaded 
+> animals, what their persistence mechanisms are, and what happens when 
+> one thread does wierd things while others are interested in a 
+> particular feature.  [...]
+
+> I would argue that reasonable assumptions, i.e. simple thread safety 
+> and *s*p*e*e*d*, are
+> much more preferrable than exotic special cases. Straightforward
+readers/writer locks 
+> should suffice; (not sure what the pthread equivalent is, but on
+Solaris it is rwlock(3thr) ) .
+
+The Boost C++ Library offers reference-counting smart pointers that have
+built-in thread locking.  See shared_ptr class at http://boost.org/.
+The Boost library also offers a large number of other useful classes,
+functions, and macros.
+
+Cheers,
+
+Mark
+-- 
+I'm taking reality in small doses to build immunity.
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Tue Feb  8 04:53:07 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <ED3A48B9840E594890A2BC172D11946501CFFF86@mailman>
+References: <ED3A48B9840E594890A2BC172D11946501CFFF86@mailman>
+Message-ID: <20050208095307.GA67037@freek.keybit.net>
+
+On Mon, Feb 07, 2005 at 09:17:04AM -0700, Chapman, Martin wrote:
+> Mark,
+> 
+> Boost looks really nice.  Once you use smart pointers you'll never go
+> back to dumb ones.  It almost makes C++ as elegant and simple as Java.
+> 
+> Martin
+
+It might be worth switching, for the sake of port sanity.
+Anyway, Coordinate copies are not our current bottleneck.
+
+--strk;
+
+
+> 
+> -----Original Message-----
+> From: Mark Coletti [mailto:mcoletti@gmail.com] 
+> Sent: Monday, February 07, 2005 9:09 AM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] JTS/GEOS performance
+> 
+> 
+> On Mon, 31 Jan 2005 16:42:44 -0800, Chris G. Nicholas
+> <cgn@globexplorer.com> wrote:
+> > >  an enterprise api should have both smart pointers and ref-counting 
+> > > available as an option.
+>  
+> > Martin is certainly correct that smart pointers, reference counting 
+> > and garbage collection are all related.  But one has to decide if a 
+> > geometry API and in-memory features are fundamentally multithreaded 
+> > animals, what their persistence mechanisms are, and what happens when 
+> > one thread does wierd things while others are interested in a 
+> > particular feature.  [...]
+> 
+> > I would argue that reasonable assumptions, i.e. simple thread safety 
+> > and *s*p*e*e*d*, are
+> > much more preferrable than exotic special cases. Straightforward
+> readers/writer locks 
+> > should suffice; (not sure what the pthread equivalent is, but on
+> Solaris it is rwlock(3thr) ) .
+> 
+> The Boost C++ Library offers reference-counting smart pointers that have
+> built-in thread locking.  See shared_ptr class at http://boost.org/.
+> The Boost library also offers a large number of other useful classes,
+> functions, and macros.
+> 
+> Cheers,
+> 
+> Mark
+> -- 
+> I'm taking reality in small doses to build immunity.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Tue Feb  8 07:00:47 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] JTS/GEOS performance
+In-Reply-To: <20050208095307.GA67037@freek.keybit.net>
+References: <ED3A48B9840E594890A2BC172D11946501CFFF86@mailman>
+	<20050208095307.GA67037@freek.keybit.net>
+Message-ID: <20050208120047.GA68156@freek.keybit.net>
+
+On Tue, Feb 08, 2005 at 10:53:07AM +0100, strk@refractions.net wrote:
+> On Mon, Feb 07, 2005 at 09:17:04AM -0700, Chapman, Martin wrote:
+> > Mark,
+> > 
+> > Boost looks really nice.  Once you use smart pointers you'll never go
+> > back to dumb ones.  It almost makes C++ as elegant and simple as Java.
+> > 
+> > Martin
+> 
+> It might be worth switching, for the sake of port sanity.
+> Anyway, Coordinate copies are not our current bottleneck.
+
+I correct myself. Coordinate copies are the bottleneck for
+buffer100, while they arent for buffer2000.
+I'm still talking about our profiling test case.
+
+--strk
+
+> 
+> --strk;
+> 
+> 
+> > 
+> > -----Original Message-----
+> > From: Mark Coletti [mailto:mcoletti@gmail.com] 
+> > Sent: Monday, February 07, 2005 9:09 AM
+> > To: GEOS Development List
+> > Subject: Re: [geos-devel] JTS/GEOS performance
+> > 
+> > 
+> > On Mon, 31 Jan 2005 16:42:44 -0800, Chris G. Nicholas
+> > <cgn@globexplorer.com> wrote:
+> > > >  an enterprise api should have both smart pointers and ref-counting 
+> > > > available as an option.
+> >  
+> > > Martin is certainly correct that smart pointers, reference counting 
+> > > and garbage collection are all related.  But one has to decide if a 
+> > > geometry API and in-memory features are fundamentally multithreaded 
+> > > animals, what their persistence mechanisms are, and what happens when 
+> > > one thread does wierd things while others are interested in a 
+> > > particular feature.  [...]
+> > 
+> > > I would argue that reasonable assumptions, i.e. simple thread safety 
+> > > and *s*p*e*e*d*, are
+> > > much more preferrable than exotic special cases. Straightforward
+> > readers/writer locks 
+> > > should suffice; (not sure what the pthread equivalent is, but on
+> > Solaris it is rwlock(3thr) ) .
+> > 
+> > The Boost C++ Library offers reference-counting smart pointers that have
+> > built-in thread locking.  See shared_ptr class at http://boost.org/.
+> > The Boost library also offers a large number of other useful classes,
+> > functions, and macros.
+> > 
+> > Cheers,
+> > 
+> > Mark
+> > -- 
+> > I'm taking reality in small doses to build immunity.
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From axel_orth at gmx.de  Tue Feb  8 09:17:54 2005
+From: axel_orth at gmx.de (axel orth)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] configure error: no c compiler
+Message-ID: <28797.1107872274@www55.gmx.net>
+
+hey,
+
+i just downloaded GEOS to work with PostGIS - PostgreSQL and use cygwin o do
+so
+using the install guide i tried to configure geos-2.1.0 and got following
+error: "configure: error: no acceptable C compiler found in $PATH"
+
+the mentioned config.log doesn't tell me much since there are a lot of path
+mentioned
+
+i downloaded the compiler SDCC but don't know what to do
+
+
+please help me
+
+
+
+-- 
+DSL Komplett von GMX +++ Supergünstig und stressfrei einsteigen!
+AKTION "Kein Einrichtungspreis" nutzen: http://www.gmx.net/de/go/dsl
+
+From carueda at ucdavis.edu  Mon Feb 14 17:58:49 2005
+From: carueda at ucdavis.edu (Carlos A. Rueda)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] citing GEOS
+Message-ID: <42112D29.4070404@ucdavis.edu>
+
+We are planning a paper describing a tool which uses the GEOS library
+and we would like to make a proper citation. Is there any preferred
+citation we should use? --thanks.
+
+Carlos
+
+From strk at refractions.net  Tue Feb 15 12:39:50 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <20050201155546.GB94548@freek.keybit.net>
+References: <20050128121955.GA52503@freek.keybit.net>
+	<20050201155546.GB94548@freek.keybit.net>
+Message-ID: <20050215173950.GA40953@freek.keybit.net>
+
+On Tue, Feb 01, 2005 at 04:55:46PM +0100, strk@refractions.net wrote:
+> On Fri, Jan 28, 2005 at 01:19:55PM +0100, strk@refractions.net wrote:
+> > Some time ago I've been researching about GEOS performance
+> > problems as related to JTS. Attached is a shapefile and an .xml
+> > test you can use to compare the two.
+> > 
+> > JTS does not support buffers tests, so you'll need to use another
+> > method for that. I used JUMP, which reports computation time.
+> > 
+> > Well. The operation is a buffer(polygon, 2000).
+> > 
+> >  JTS:  18 seconds
+> > GEOS: 574 seconds (9 minutes, 34 secs)
+> 
+> I've found out I was using non-optimized builds (-O0).
+> With -O2 GEOS timing reduces to 63 seconds.
+
+Timing is now 43 seconds (from 63). We are getting closer ...
+
+I've done other optimizations of the code.
+The bigger one is probably inlining of most Envelope methods,
+but I've also added some preallocations for standard containers
+(mostly in indexSTRtree).
+
+Our bottleneck now is STRtree::STRIntersectsOp::intersects(), with
+15.35% of time spent. This function basically calls the inlined
+Envelope::intersects, so not much to optimize there, and no inlining
+possible. 
+
+I wonder if checking for intersection 45281976 times is really correct
+or our indexes are broken... 
+
+First line of flat profile:
+
+Flat profile:
+
+Each sample counts as 0.01 seconds.
+  %   cumulative   self              self     total
+ time   seconds   seconds    calls   s/call   s/call  name
+ 15.35     14.27    14.27 45281976     0.00     0.00  geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+  7.73     21.46     7.19                             geos::AbstractSTRtree::query(void const*)
+  4.28     25.44     3.98    28602     0.00     0.00  geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&)
+  3.72     28.90     3.46 40923120     0.00     0.00  geos::DefaultCoordinateSequence::add(geos::Coordinate const&)
+
+--strk;
+
+
+> 
+> Still worth profiling, but JTS/GEOS are much closer.
+> 
+> Most of the time is spent in MCQuadtreeNoder::intersectChains().
+> 
+> --strk;
+> 
+> > 
+> > GEOS computation keeps the CPU pretty busy (98.2-99.8%)
+> > and takes up to about 170 MB of ram
+> > 
+> > JTS seems to use 3 threads, the bigger using at most 80% 
+> > of CPU, but most of the time far below that point.
+> > JUMP reports 104MB committed, but I'm not sure about the meaning.
+> > 
+> > For GEOS, valgrind reports (with buffer 500):
+> >  malloc/free: 2982697 allocs, 2982697 frees, 924407212 bytes allocated.
+> > 
+> > How much do you think this wild allocation negatively influence the
+> > poor performance of GEOS ?
+> > 
+> > --strk;
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From jon.schlueter at gmail.com  Tue Feb 15 16:30:50 2005
+From: jon.schlueter at gmail.com (Jon Schlueter)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <20050215173950.GA40953@freek.keybit.net>
+References: <20050128121955.GA52503@freek.keybit.net>
+	<20050201155546.GB94548@freek.keybit.net>
+	<20050215173950.GA40953@freek.keybit.net>
+Message-ID: <bd1f1cc9050215133050b1bd62@mail.gmail.com>
+
+> First line of flat profile:
+> 
+> Flat profile:
+> 
+> Each sample counts as 0.01 seconds.
+>   %   cumulative   self              self     total
+>  time   seconds   seconds    calls   s/call   s/call  name
+>  15.35     14.27    14.27 45281976     0.00     0.00  geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+>   7.73     21.46     7.19                             geos::AbstractSTRtree::query(void const*)
+>   4.28     25.44     3.98    28602     0.00     0.00  geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&)
+>   3.72     28.90     3.46 40923120     0.00     0.00  geos::DefaultCoordinateSequence::add(geos::Coordinate const&)
+> 
+
+
+Dumb question (I've been partly following the discussion but not very closely).
+
+Which functions are the slowest per call?
+
+are there any optimizations that can reduce the number of Calls to
+these functions?
+         has anyone looked at the complexity of these functions? O(n)
+type analysis?
+
+Jon Schlueter
+
+From strk at refractions.net  Wed Feb 16 03:21:09 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <bd1f1cc9050215133050b1bd62@mail.gmail.com>
+References: <20050128121955.GA52503@freek.keybit.net>
+	<20050201155546.GB94548@freek.keybit.net>
+	<20050215173950.GA40953@freek.keybit.net>
+	<bd1f1cc9050215133050b1bd62@mail.gmail.com>
+Message-ID: <20050216082109.GC41962@freek.keybit.net>
+
+On Tue, Feb 15, 2005 at 04:30:50PM -0500, Jon Schlueter wrote:
+> > First line of flat profile:
+> > 
+> > Flat profile:
+> > 
+> > Each sample counts as 0.01 seconds.
+> >   %   cumulative   self              self     total
+> >  time   seconds   seconds    calls   s/call   s/call  name
+> >  15.35     14.27    14.27 45281976     0.00     0.00  geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+> >   7.73     21.46     7.19                             geos::AbstractSTRtree::query(void const*)
+> >   4.28     25.44     3.98    28602     0.00     0.00  geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&)
+> >   3.72     28.90     3.46 40923120     0.00     0.00  geos::DefaultCoordinateSequence::add(geos::Coordinate const&)
+> > 
+> 
+> 
+> Dumb question (I've been partly following the discussion but not very closely).
+> 
+> Which functions are the slowest per call?
+> 
+> are there any optimizations that can reduce the number of Calls to
+> these functions?
+>          has anyone looked at the complexity of these functions? O(n)
+> type analysis?
+
+What you see above is the report of slowest functions.
+The '% time' column reports percent of total run time.
+'self seconds' are the seconds spent inside that function.
+Both values do not contain time spent in child functions.
+The first listed runs in constant time.
+
+To see time spent in functions including its childs you have
+to look at the call graph. It has not been reported here, but
+you can have a feeling of it looking at the attachment I posted
+some days ago. Refer to the gprof manual for details:
+http://www.gnu.org/software/binutils/manual/gprof-2.9.1/html_mono/gprof.html
+
+--strk;
+
+> 
+> Jon Schlueter
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From jon.schlueter at gmail.com  Wed Feb 16 17:15:22 2005
+From: jon.schlueter at gmail.com (Jon Schlueter)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] cygwin Compile Error
+Message-ID: <bd1f1cc905021614155451657a@mail.gmail.com>
+
+I'm using cygwin under windows xp pro
+
+$ gcc -v
+Reading specs from /usr/lib/gcc-lib/i686-pc-cygwin/3.3.3/specs
+Configured with: /gcc/gcc-3.3.3-3/configure --verbose --prefix=/usr
+--exec-prefix=/usr --sysconfdir=/etc --libdir=/usr/lib
+--libexecdir=/usr/lib --mandir=/usr/share/man
+--infodir=/usr/share/info
+--enable-languages=c,ada,c++,d,f77,java,objc,
+pascal --enable-nls --without-included-gettext --enable-libgcj
+--with-system-zlib --enable-interpreter --enable-threads=posix
+--enable-java-gc=boehm --enable-sjlj-exceptions
+--disable-version-specific-runtime-libs --disable-win32-registry
+Thread model: posix
+gcc version 3.3.3 (cygwin special)
+
+I just pulled down the CVS version of geos from CVS
+
+I configured it and then tried compiling when I hit this error
+
+Jonschl@Endemion ~/geos-cvs/geos/source/geom
+$ make
+if /bin/bash ../../libtool --mode=compile --tag=CXX g++
+-DHAVE_CONFIG_H -I. -I. -I../../source/headers -I../../source/he
+aders/geos -I../../source/headers -DGEOS_VERSION=""2.1.1""    -g -O2
+-MT CommonBits.lo -MD -MP -MF ".deps/CommonBits.Tpo
+" -c -o CommonBits.lo `test -f '../precision/CommonBits.cpp' || echo
+'./'`../precision/CommonBits.cpp; \
+then mv -f ".deps/CommonBits.Tpo" ".deps/CommonBits.Plo"; else rm -f
+".deps/CommonBits.Tpo"; exit 1; fi
+ g++ -DHAVE_CONFIG_H -I. -I. -I../../source/headers
+-I../../source/headers/geos -I../../source/headers -DGEOS_VERSION=2.
+1.1 -g -O2 -MT CommonBits.lo -MD -MP -MF .deps/CommonBits.Tpo -c
+../precision/CommonBits.cpp  -DPIC -o .libs/CommonBits.
+o
+In file included from /usr/include/c++/3.3.3/cmath:51,
+                 from /usr/include/c++/3.3.3/bits/locale_facets.tcc:41,
+                 from /usr/include/c++/3.3.3/locale:47,
+                 from /usr/include/c++/3.3.3/bits/ostream.tcc:37,
+                 from /usr/include/c++/3.3.3/ostream:535,
+                 from /usr/include/c++/3.3.3/iostream:45,
+                 from ../../source/headers/geos/geom.h:20,
+                 from ../../source/headers/geos/precision.h:54,
+                 from ../precision/CommonBits.cpp:27:
+/usr/include/ieeefp.h:185: error: previous declaration of `int isnan(double)'
+   with C++ linkage
+/usr/include/math.h:125: error: conflicts with new declaration with C linkage
+/usr/include/ieeefp.h:186: error: previous declaration of `int isinf(double)'
+   with C++ linkage
+/usr/include/math.h:126: error: conflicts with new declaration with C linkage
+/usr/include/ieeefp.h:187: error: previous declaration of `int finite(double)'
+   with C++ linkage
+/usr/include/math.h:127: error: conflicts with new declaration with C linkage
+/usr/include/ieeefp.h:191: error: previous declaration of `int isnanf(float)'
+   with C++ linkage
+/usr/include/math.h:240: error: conflicts with new declaration with C linkage
+/usr/include/ieeefp.h:192: error: previous declaration of `int isinff(float)'
+   with C++ linkage
+/usr/include/math.h:241: error: conflicts with new declaration with C linkage
+/usr/include/ieeefp.h:193: error: previous declaration of `int finitef(float)'
+   with C++ linkage
+/usr/include/math.h:242: error: conflicts with new declaration with C linkage
+make: *** [CommonBits.lo] Error 1
+
+
+I did a little bit of digging and found the following patch fixed the
+compile error
+
+$ cvs diff -ub
+cvs diff: Diffing .
+Index: geom.h
+===================================================================
+RCS file: /home/cvs/postgis/geos/source/headers/geos/geom.h,v
+retrieving revision 1.38
+diff -u -b -r1.38 geom.h
+--- geom.h      15 Feb 2005 17:15:13 -0000      1.38
++++ geom.h      16 Feb 2005 22:25:34 -0000
+@@ -22,7 +22,7 @@
+ #include <vector>
+ #include <algorithm>
+ #include <map>
+-#include <math.h>
++#include <cmath>
+ #include <geos/platform.h>
+
+ using namespace std;
+
+
+Is this a known issue? or just on my system?
+
+Jon Schlueter
+
+From mcoletti at gmail.com  Wed Feb 16 17:28:57 2005
+From: mcoletti at gmail.com (Mark Coletti)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] cygwin Compile Error
+In-Reply-To: <bd1f1cc905021614155451657a@mail.gmail.com>
+References: <bd1f1cc905021614155451657a@mail.gmail.com>
+Message-ID: <1200950805021614286b8f61a5@mail.gmail.com>
+
+On Wed, 16 Feb 2005 17:15:22 -0500, Jon Schlueter
+<jon.schlueter@gmail.com> wrote:
+> I'm using cygwin under windows xp pro
+> 
+> $ gcc -v
+> Reading specs from /usr/lib/gcc-lib/i686-pc-cygwin/3.3.3/specs
+> Configured with: /gcc/gcc-3.3.3-3/configure --verbose --prefix=/usr
+> --exec-prefix=/usr --sysconfdir=/etc --libdir=/usr/lib
+> --libexecdir=/usr/lib --mandir=/usr/share/man
+> --infodir=/usr/share/info
+> --enable-languages=c,ada,c++,d,f77,java,objc,
+> pascal --enable-nls --without-included-gettext --enable-libgcj
+> --with-system-zlib --enable-interpreter --enable-threads=posix
+> --enable-java-gc=boehm --enable-sjlj-exceptions
+> --disable-version-specific-runtime-libs --disable-win32-registry
+> Thread model: posix
+> gcc version 3.3.3 (cygwin special)
+> 
+> I just pulled down the CVS version of geos from CVS
+> 
+> I configured it and then tried compiling when I hit this error
+> 
+> Jonschl@Endemion ~/geos-cvs/geos/source/geom
+> $ make
+> if /bin/bash ../../libtool --mode=compile --tag=CXX g++
+> -DHAVE_CONFIG_H -I. -I. -I../../source/headers -I../../source/he
+> aders/geos -I../../source/headers -DGEOS_VERSION=""2.1.1""    -g -O2
+> -MT CommonBits.lo -MD -MP -MF ".deps/CommonBits.Tpo
+> " -c -o CommonBits.lo `test -f '../precision/CommonBits.cpp' || echo
+> './'`../precision/CommonBits.cpp; \
+> then mv -f ".deps/CommonBits.Tpo" ".deps/CommonBits.Plo"; else rm -f
+> ".deps/CommonBits.Tpo"; exit 1; fi
+>  g++ -DHAVE_CONFIG_H -I. -I. -I../../source/headers
+> -I../../source/headers/geos -I../../source/headers -DGEOS_VERSION=2.
+> 1.1 -g -O2 -MT CommonBits.lo -MD -MP -MF .deps/CommonBits.Tpo -c
+> ../precision/CommonBits.cpp  -DPIC -o .libs/CommonBits.
+> o
+> In file included from /usr/include/c++/3.3.3/cmath:51,
+>                  from /usr/include/c++/3.3.3/bits/locale_facets.tcc:41,
+>                  from /usr/include/c++/3.3.3/locale:47,
+>                  from /usr/include/c++/3.3.3/bits/ostream.tcc:37,
+>                  from /usr/include/c++/3.3.3/ostream:535,
+>                  from /usr/include/c++/3.3.3/iostream:45,
+>                  from ../../source/headers/geos/geom.h:20,
+>                  from ../../source/headers/geos/precision.h:54,
+>                  from ../precision/CommonBits.cpp:27:
+> /usr/include/ieeefp.h:185: error: previous declaration of `int isnan(double)'
+>    with C++ linkage
+> /usr/include/math.h:125: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:186: error: previous declaration of `int isinf(double)'
+>    with C++ linkage
+> /usr/include/math.h:126: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:187: error: previous declaration of `int finite(double)'
+>    with C++ linkage
+> /usr/include/math.h:127: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:191: error: previous declaration of `int isnanf(float)'
+>    with C++ linkage
+> /usr/include/math.h:240: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:192: error: previous declaration of `int isinff(float)'
+>    with C++ linkage
+> /usr/include/math.h:241: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:193: error: previous declaration of `int finitef(float)'
+>    with C++ linkage
+> /usr/include/math.h:242: error: conflicts with new declaration with C linkage
+> make: *** [CommonBits.lo] Error 1
+> 
+> I did a little bit of digging and found the following patch fixed the
+> compile error
+> 
+> $ cvs diff -ub
+> cvs diff: Diffing .
+> Index: geom.h
+> ===================================================================
+> RCS file: /home/cvs/postgis/geos/source/headers/geos/geom.h,v
+> retrieving revision 1.38
+> diff -u -b -r1.38 geom.h
+> --- geom.h      15 Feb 2005 17:15:13 -0000      1.38
+> +++ geom.h      16 Feb 2005 22:25:34 -0000
+> @@ -22,7 +22,7 @@
+>  #include <vector>
+>  #include <algorithm>
+>  #include <map>
+> -#include <math.h>
+> +#include <cmath>
+>  #include <geos/platform.h>
+> 
+>  using namespace std;
+> 
+> Is this a known issue? or just on my system?
+> 
+> Jon Schlueter
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+I had the same problem building in Ming/Msys, but did the far more inelegant 
+   extern "C" {} 
+wrapper nonsense -- which is what cmath does behind the scenes..
+
+-- 
+I'm taking reality in small doses to build immunity.
+
+From dblasby at openplans.org  Wed Feb 16 17:50:42 2005
+From: dblasby at openplans.org (dblasby@openplans.org)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Compiling JTS
+Message-ID: <1108594242.4213ce42d951e@webmail.limegroup.com>
+
+I thought the GEOS folks might be interested in the work I've done to
+get JTS compiled using the java plugin for GCC ("GCJ").
+
+The results are AMAZING!
+
+There's more information here:
+http://docs.codehaus.org/display/GEOS/Compiling+JTS
+
+I'm using the compiled JTS to turn postgresql (and other databases) into
+a Spatial Database completely back-ended by (compiled) JTS:
+
+http://docs.codehaus.org/display/GEOS/spatialDBbox
+http://docs.codehaus.org/display/GEOS/Postgresql+Bindings
+http://docs.codehaus.org/display/GEOS/Add+A+Function
+
+There's more information about the compiled JTS on the JTS mailing list,
+and 'Spatial Database in a Box' on the postgis mailing list.
+
+dave
+
+
+
+----------------------------------------------------------
+This mail sent through IMP: https://webmail.limegroup.com/
+
+From strk at refractions.net  Thu Feb 17 04:43:43 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] cygwin Compile Error
+In-Reply-To: <bd1f1cc905021614155451657a@mail.gmail.com>
+References: <bd1f1cc905021614155451657a@mail.gmail.com>
+Message-ID: <20050217094343.GD56817@freek.keybit.net>
+
+I've applied your patch.
+Thanks.
+--strk;
+
+On Wed, Feb 16, 2005 at 05:15:22PM -0500, Jon Schlueter wrote:
+> I'm using cygwin under windows xp pro
+> 
+> $ gcc -v
+> Reading specs from /usr/lib/gcc-lib/i686-pc-cygwin/3.3.3/specs
+> Configured with: /gcc/gcc-3.3.3-3/configure --verbose --prefix=/usr
+> --exec-prefix=/usr --sysconfdir=/etc --libdir=/usr/lib
+> --libexecdir=/usr/lib --mandir=/usr/share/man
+> --infodir=/usr/share/info
+> --enable-languages=c,ada,c++,d,f77,java,objc,
+> pascal --enable-nls --without-included-gettext --enable-libgcj
+> --with-system-zlib --enable-interpreter --enable-threads=posix
+> --enable-java-gc=boehm --enable-sjlj-exceptions
+> --disable-version-specific-runtime-libs --disable-win32-registry
+> Thread model: posix
+> gcc version 3.3.3 (cygwin special)
+> 
+> I just pulled down the CVS version of geos from CVS
+> 
+> I configured it and then tried compiling when I hit this error
+> 
+> Jonschl@Endemion ~/geos-cvs/geos/source/geom
+> $ make
+> if /bin/bash ../../libtool --mode=compile --tag=CXX g++
+> -DHAVE_CONFIG_H -I. -I. -I../../source/headers -I../../source/he
+> aders/geos -I../../source/headers -DGEOS_VERSION=""2.1.1""    -g -O2
+> -MT CommonBits.lo -MD -MP -MF ".deps/CommonBits.Tpo
+> " -c -o CommonBits.lo `test -f '../precision/CommonBits.cpp' || echo
+> './'`../precision/CommonBits.cpp; \
+> then mv -f ".deps/CommonBits.Tpo" ".deps/CommonBits.Plo"; else rm -f
+> ".deps/CommonBits.Tpo"; exit 1; fi
+>  g++ -DHAVE_CONFIG_H -I. -I. -I../../source/headers
+> -I../../source/headers/geos -I../../source/headers -DGEOS_VERSION=2.
+> 1.1 -g -O2 -MT CommonBits.lo -MD -MP -MF .deps/CommonBits.Tpo -c
+> ../precision/CommonBits.cpp  -DPIC -o .libs/CommonBits.
+> o
+> In file included from /usr/include/c++/3.3.3/cmath:51,
+>                  from /usr/include/c++/3.3.3/bits/locale_facets.tcc:41,
+>                  from /usr/include/c++/3.3.3/locale:47,
+>                  from /usr/include/c++/3.3.3/bits/ostream.tcc:37,
+>                  from /usr/include/c++/3.3.3/ostream:535,
+>                  from /usr/include/c++/3.3.3/iostream:45,
+>                  from ../../source/headers/geos/geom.h:20,
+>                  from ../../source/headers/geos/precision.h:54,
+>                  from ../precision/CommonBits.cpp:27:
+> /usr/include/ieeefp.h:185: error: previous declaration of `int isnan(double)'
+>    with C++ linkage
+> /usr/include/math.h:125: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:186: error: previous declaration of `int isinf(double)'
+>    with C++ linkage
+> /usr/include/math.h:126: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:187: error: previous declaration of `int finite(double)'
+>    with C++ linkage
+> /usr/include/math.h:127: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:191: error: previous declaration of `int isnanf(float)'
+>    with C++ linkage
+> /usr/include/math.h:240: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:192: error: previous declaration of `int isinff(float)'
+>    with C++ linkage
+> /usr/include/math.h:241: error: conflicts with new declaration with C linkage
+> /usr/include/ieeefp.h:193: error: previous declaration of `int finitef(float)'
+>    with C++ linkage
+> /usr/include/math.h:242: error: conflicts with new declaration with C linkage
+> make: *** [CommonBits.lo] Error 1
+> 
+> 
+> I did a little bit of digging and found the following patch fixed the
+> compile error
+> 
+> $ cvs diff -ub
+> cvs diff: Diffing .
+> Index: geom.h
+> ===================================================================
+> RCS file: /home/cvs/postgis/geos/source/headers/geos/geom.h,v
+> retrieving revision 1.38
+> diff -u -b -r1.38 geom.h
+> --- geom.h      15 Feb 2005 17:15:13 -0000      1.38
+> +++ geom.h      16 Feb 2005 22:25:34 -0000
+> @@ -22,7 +22,7 @@
+>  #include <vector>
+>  #include <algorithm>
+>  #include <map>
+> -#include <math.h>
+> +#include <cmath>
+>  #include <geos/platform.h>
+> 
+>  using namespace std;
+> 
+> 
+> Is this a known issue? or just on my system?
+> 
+> Jon Schlueter
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From jon.schlueter at gmail.com  Thu Feb 17 13:24:59 2005
+From: jon.schlueter at gmail.com (Jon Schlueter)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] cygwin Compile Error
+In-Reply-To: <20050217094343.GD56817@freek.keybit.net>
+References: <bd1f1cc905021614155451657a@mail.gmail.com>
+	<20050217094343.GD56817@freek.keybit.net>
+Message-ID: <bd1f1cc905021710245272db74@mail.gmail.com>
+
+update,
+
+I found multiple math.h includes but the only thing that I could find
+that would get it to compile under cygwin was to make ieeefp.h extern
+"C" with the following
+
+Index: geos/platform.h.in
+===================================================================
+RCS file: /home/cvs/postgis/geos/source/headers/geos/platform.h.in,v
+retrieving revision 1.6
+diff -u -b -r1.6 platform.h.in
+--- geos/platform.h.in  30 Nov 2004 13:05:59 -0000      1.6
++++ geos/platform.h.in  17 Feb 2005 18:35:49 -0000
+@@ -11,7 +11,10 @@
+ #undef HAVE_IEEEFP_H
+
+ #ifdef HAVE_IEEEFP_H
++extern "C"
++{
+ #include <ieeefp.h>
++};
+ #endif
+
+and I'm not totally sure of the ramifications of this change to other platforms
+
+it is compiling and passes the tests with this change
+
+Thanks
+Jon Schlueter
+
+
+On Thu, 17 Feb 2005 10:43:43 +0100, strk@refractions.net
+<strk@refractions.net> wrote:
+> I've applied your patch.
+> Thanks.
+> --strk;
+> 
+> On Wed, Feb 16, 2005 at 05:15:22PM -0500, Jon Schlueter wrote:
+> > I'm using cygwin under windows xp pro
+> >
+> > $ gcc -v
+> > Reading specs from /usr/lib/gcc-lib/i686-pc-cygwin/3.3.3/specs
+> > Configured with: /gcc/gcc-3.3.3-3/configure --verbose --prefix=/usr
+> > --exec-prefix=/usr --sysconfdir=/etc --libdir=/usr/lib
+> > --libexecdir=/usr/lib --mandir=/usr/share/man
+> > --infodir=/usr/share/info
+> > --enable-languages=c,ada,c++,d,f77,java,objc,
+> > pascal --enable-nls --without-included-gettext --enable-libgcj
+> > --with-system-zlib --enable-interpreter --enable-threads=posix
+> > --enable-java-gc=boehm --enable-sjlj-exceptions
+> > --disable-version-specific-runtime-libs --disable-win32-registry
+> > Thread model: posix
+> > gcc version 3.3.3 (cygwin special)
+> >
+> > I just pulled down the CVS version of geos from CVS
+> >
+> > I configured it and then tried compiling when I hit this error
+> >
+> > Jonschl@Endemion ~/geos-cvs/geos/source/geom
+> > $ make
+> > if /bin/bash ../../libtool --mode=compile --tag=CXX g++
+> > -DHAVE_CONFIG_H -I. -I. -I../../source/headers -I../../source/he
+> > aders/geos -I../../source/headers -DGEOS_VERSION=""2.1.1""    -g -O2
+> > -MT CommonBits.lo -MD -MP -MF ".deps/CommonBits.Tpo
+> > " -c -o CommonBits.lo `test -f '../precision/CommonBits.cpp' || echo
+> > './'`../precision/CommonBits.cpp; \
+> > then mv -f ".deps/CommonBits.Tpo" ".deps/CommonBits.Plo"; else rm -f
+> > ".deps/CommonBits.Tpo"; exit 1; fi
+> >  g++ -DHAVE_CONFIG_H -I. -I. -I../../source/headers
+> > -I../../source/headers/geos -I../../source/headers -DGEOS_VERSION=2.
+> > 1.1 -g -O2 -MT CommonBits.lo -MD -MP -MF .deps/CommonBits.Tpo -c
+> > ../precision/CommonBits.cpp  -DPIC -o .libs/CommonBits.
+> > o
+> > In file included from /usr/include/c++/3.3.3/cmath:51,
+> >                  from /usr/include/c++/3.3.3/bits/locale_facets.tcc:41,
+> >                  from /usr/include/c++/3.3.3/locale:47,
+> >                  from /usr/include/c++/3.3.3/bits/ostream.tcc:37,
+> >                  from /usr/include/c++/3.3.3/ostream:535,
+> >                  from /usr/include/c++/3.3.3/iostream:45,
+> >                  from ../../source/headers/geos/geom.h:20,
+> >                  from ../../source/headers/geos/precision.h:54,
+> >                  from ../precision/CommonBits.cpp:27:
+> > /usr/include/ieeefp.h:185: error: previous declaration of `int isnan(double)'
+> >    with C++ linkage
+> > /usr/include/math.h:125: error: conflicts with new declaration with C linkage
+> > /usr/include/ieeefp.h:186: error: previous declaration of `int isinf(double)'
+> >    with C++ linkage
+> > /usr/include/math.h:126: error: conflicts with new declaration with C linkage
+> > /usr/include/ieeefp.h:187: error: previous declaration of `int finite(double)'
+> >    with C++ linkage
+> > /usr/include/math.h:127: error: conflicts with new declaration with C linkage
+> > /usr/include/ieeefp.h:191: error: previous declaration of `int isnanf(float)'
+> >    with C++ linkage
+> > /usr/include/math.h:240: error: conflicts with new declaration with C linkage
+> > /usr/include/ieeefp.h:192: error: previous declaration of `int isinff(float)'
+> >    with C++ linkage
+> > /usr/include/math.h:241: error: conflicts with new declaration with C linkage
+> > /usr/include/ieeefp.h:193: error: previous declaration of `int finitef(float)'
+> >    with C++ linkage
+> > /usr/include/math.h:242: error: conflicts with new declaration with C linkage
+> > make: *** [CommonBits.lo] Error 1
+> >
+> >
+> > I did a little bit of digging and found the following patch fixed the
+> > compile error
+> >
+> > $ cvs diff -ub
+> > cvs diff: Diffing .
+> > Index: geom.h
+> > ===================================================================
+> > RCS file: /home/cvs/postgis/geos/source/headers/geos/geom.h,v
+> > retrieving revision 1.38
+> > diff -u -b -r1.38 geom.h
+> > --- geom.h      15 Feb 2005 17:15:13 -0000      1.38
+> > +++ geom.h      16 Feb 2005 22:25:34 -0000
+> > @@ -22,7 +22,7 @@
+> >  #include <vector>
+> >  #include <algorithm>
+> >  #include <map>
+> > -#include <math.h>
+> > +#include <cmath>
+> >  #include <geos/platform.h>
+> >
+> >  using namespace std;
+> >
+> >
+> > Is this a known issue? or just on my system?
+> >
+> > Jon Schlueter
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+>
+
+From strk at refractions.net  Fri Feb 18 12:18:14 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] cygwin Compile Error
+In-Reply-To: <bd1f1cc905021710245272db74@mail.gmail.com>
+References: <bd1f1cc905021614155451657a@mail.gmail.com>
+	<20050217094343.GD56817@freek.keybit.net>
+	<bd1f1cc905021710245272db74@mail.gmail.com>
+Message-ID: <20050218171814.GE71420@freek.keybit.net>
+
+On Thu, Feb 17, 2005 at 01:24:59PM -0500, Jon Schlueter wrote:
+> update,
+> 
+> I found multiple math.h includes but the only thing that I could find
+> that would get it to compile under cygwin was to make ieeefp.h extern
+> "C" with the following
+
+Didn't using <cmath> all over work (I don't think we should have
+direct .h inclusions anyway)
+--strk;
+
+> 
+> Index: geos/platform.h.in
+> ===================================================================
+> RCS file: /home/cvs/postgis/geos/source/headers/geos/platform.h.in,v
+> retrieving revision 1.6
+> diff -u -b -r1.6 platform.h.in
+> --- geos/platform.h.in  30 Nov 2004 13:05:59 -0000      1.6
+> +++ geos/platform.h.in  17 Feb 2005 18:35:49 -0000
+> @@ -11,7 +11,10 @@
+>  #undef HAVE_IEEEFP_H
+> 
+>  #ifdef HAVE_IEEEFP_H
+> +extern "C"
+> +{
+>  #include <ieeefp.h>
+> +};
+>  #endif
+> 
+> and I'm not totally sure of the ramifications of this change to other platforms
+> 
+> it is compiling and passes the tests with this change
+> 
+> Thanks
+> Jon Schlueter
+> 
+> 
+> On Thu, 17 Feb 2005 10:43:43 +0100, strk@refractions.net
+> <strk@refractions.net> wrote:
+> > I've applied your patch.
+> > Thanks.
+> > --strk;
+> > 
+> > On Wed, Feb 16, 2005 at 05:15:22PM -0500, Jon Schlueter wrote:
+> > > I'm using cygwin under windows xp pro
+> > >
+> > > $ gcc -v
+> > > Reading specs from /usr/lib/gcc-lib/i686-pc-cygwin/3.3.3/specs
+> > > Configured with: /gcc/gcc-3.3.3-3/configure --verbose --prefix=/usr
+> > > --exec-prefix=/usr --sysconfdir=/etc --libdir=/usr/lib
+> > > --libexecdir=/usr/lib --mandir=/usr/share/man
+> > > --infodir=/usr/share/info
+> > > --enable-languages=c,ada,c++,d,f77,java,objc,
+> > > pascal --enable-nls --without-included-gettext --enable-libgcj
+> > > --with-system-zlib --enable-interpreter --enable-threads=posix
+> > > --enable-java-gc=boehm --enable-sjlj-exceptions
+> > > --disable-version-specific-runtime-libs --disable-win32-registry
+> > > Thread model: posix
+> > > gcc version 3.3.3 (cygwin special)
+> > >
+> > > I just pulled down the CVS version of geos from CVS
+> > >
+> > > I configured it and then tried compiling when I hit this error
+> > >
+> > > Jonschl@Endemion ~/geos-cvs/geos/source/geom
+> > > $ make
+> > > if /bin/bash ../../libtool --mode=compile --tag=CXX g++
+> > > -DHAVE_CONFIG_H -I. -I. -I../../source/headers -I../../source/he
+> > > aders/geos -I../../source/headers -DGEOS_VERSION=""2.1.1""    -g -O2
+> > > -MT CommonBits.lo -MD -MP -MF ".deps/CommonBits.Tpo
+> > > " -c -o CommonBits.lo `test -f '../precision/CommonBits.cpp' || echo
+> > > './'`../precision/CommonBits.cpp; \
+> > > then mv -f ".deps/CommonBits.Tpo" ".deps/CommonBits.Plo"; else rm -f
+> > > ".deps/CommonBits.Tpo"; exit 1; fi
+> > >  g++ -DHAVE_CONFIG_H -I. -I. -I../../source/headers
+> > > -I../../source/headers/geos -I../../source/headers -DGEOS_VERSION=2.
+> > > 1.1 -g -O2 -MT CommonBits.lo -MD -MP -MF .deps/CommonBits.Tpo -c
+> > > ../precision/CommonBits.cpp  -DPIC -o .libs/CommonBits.
+> > > o
+> > > In file included from /usr/include/c++/3.3.3/cmath:51,
+> > >                  from /usr/include/c++/3.3.3/bits/locale_facets.tcc:41,
+> > >                  from /usr/include/c++/3.3.3/locale:47,
+> > >                  from /usr/include/c++/3.3.3/bits/ostream.tcc:37,
+> > >                  from /usr/include/c++/3.3.3/ostream:535,
+> > >                  from /usr/include/c++/3.3.3/iostream:45,
+> > >                  from ../../source/headers/geos/geom.h:20,
+> > >                  from ../../source/headers/geos/precision.h:54,
+> > >                  from ../precision/CommonBits.cpp:27:
+> > > /usr/include/ieeefp.h:185: error: previous declaration of `int isnan(double)'
+> > >    with C++ linkage
+> > > /usr/include/math.h:125: error: conflicts with new declaration with C linkage
+> > > /usr/include/ieeefp.h:186: error: previous declaration of `int isinf(double)'
+> > >    with C++ linkage
+> > > /usr/include/math.h:126: error: conflicts with new declaration with C linkage
+> > > /usr/include/ieeefp.h:187: error: previous declaration of `int finite(double)'
+> > >    with C++ linkage
+> > > /usr/include/math.h:127: error: conflicts with new declaration with C linkage
+> > > /usr/include/ieeefp.h:191: error: previous declaration of `int isnanf(float)'
+> > >    with C++ linkage
+> > > /usr/include/math.h:240: error: conflicts with new declaration with C linkage
+> > > /usr/include/ieeefp.h:192: error: previous declaration of `int isinff(float)'
+> > >    with C++ linkage
+> > > /usr/include/math.h:241: error: conflicts with new declaration with C linkage
+> > > /usr/include/ieeefp.h:193: error: previous declaration of `int finitef(float)'
+> > >    with C++ linkage
+> > > /usr/include/math.h:242: error: conflicts with new declaration with C linkage
+> > > make: *** [CommonBits.lo] Error 1
+> > >
+> > >
+> > > I did a little bit of digging and found the following patch fixed the
+> > > compile error
+> > >
+> > > $ cvs diff -ub
+> > > cvs diff: Diffing .
+> > > Index: geom.h
+> > > ===================================================================
+> > > RCS file: /home/cvs/postgis/geos/source/headers/geos/geom.h,v
+> > > retrieving revision 1.38
+> > > diff -u -b -r1.38 geom.h
+> > > --- geom.h      15 Feb 2005 17:15:13 -0000      1.38
+> > > +++ geom.h      16 Feb 2005 22:25:34 -0000
+> > > @@ -22,7 +22,7 @@
+> > >  #include <vector>
+> > >  #include <algorithm>
+> > >  #include <map>
+> > > -#include <math.h>
+> > > +#include <cmath>
+> > >  #include <geos/platform.h>
+> > >
+> > >  using namespace std;
+> > >
+> > >
+> > > Is this a known issue? or just on my system?
+> > >
+> > > Jon Schlueter
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at refractions.net  Fri Feb 18 12:21:22 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] final classes
+Message-ID: <20050218172122.GF71420@freek.keybit.net>
+
+I'm still working on performance tuning for GEOS.
+Trying to improve AbstractSTRTree::query() I wanted
+to inline ItemBoundable->getBounds() and AbstractNode->getBounds(),
+but this is impossible unless we define them as 'final'.
+
+Can we consider them final or not ?
+Checking out JTS code I found out that NO class if declared
+as final. Has that been a choice or a misreguarded feature
+due to Java not getting any performance penalty from not-doing so ?
+
+--strk;
+
+From fclee at highstream.net  Sat Feb 19 17:17:30 2005
+From: fclee at highstream.net (Frederick C.Lee)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Unable to complete Mac OS X Build
+Message-ID: <fc3974ba34fd7421092f753b13a67460@highstream.net>
+
+Environment:
+     Mac OS X (10.3.8) "Panther"
+     Darwin Version: powerpc-apple-darwin7.8.0
+
+Geos: version 2.1.1
+
+Scenario:
+     I ran the ./configure then make.    I got the following:
+
+----------------------------------
+Making all in geos
+make[4]: *** No rule to make target `../../../configure.in', needed by 
+`Makefile.in'.  Stop.
+
+----------------------------------
+
+Question: How to I get/formulate a rule to make the target 
+'configure.in', needed by Makefile.in?
+Any Remedy?
+
+
+Thanks...as I prepare slamming into future brick walls....
+
+Ric.
+
+
+From steve.lime at dnr.state.mn.us  Sun Feb 20 00:21:20 2005
+From: steve.lime at dnr.state.mn.us (Steve Lime)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Unable to complete Mac OS X Build
+Message-ID: <s217ca19.027@co5.dnr.state.mn.us>
+
+Run autogen.sh instead, that takes care of everything. Geos should build
+cleanly on MacOS then...
+
+Steve
+
+>>> fclee@highstream.net 02/19/05 4:17 PM >>>
+Environment:
+     Mac OS X (10.3.8) "Panther"
+     Darwin Version: powerpc-apple-darwin7.8.0
+
+Geos: version 2.1.1
+
+Scenario:
+     I ran the ./configure then make.    I got the following:
+
+----------------------------------
+Making all in geos
+make[4]: *** No rule to make target `../../../configure.in', needed by 
+`Makefile.in'.  Stop.
+
+----------------------------------
+
+Question: How to I get/formulate a rule to make the target 
+'configure.in', needed by Makefile.in?
+Any Remedy?
+
+
+Thanks...as I prepare slamming into future brick walls....
+
+Ric.
+
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From pramsey at refractions.net  Sun Feb 20 16:22:30 2005
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] 2nd notice for Open Source Geospatial '05
+Message-ID: <813447593f2a2456f39bba6eff5face4@refractions.net>
+
+As I have said before, OSGIS is the best conference of any sort I have 
+ever been to.  Highly recommended!  Here is a reminder note from the 
+OSGIS'05 committee:
+
+Please mark your calendars!
+
+Open Source Geospatial '05 - MUM3/EOGEO
+   June 16-18
+   Minneapolis, MN - USA
+
+   http://mapserver.gis.umn.edu/mum/mtg2005.html
+
+Please visit the web site for
+
+    - online registration (plus paper forms)
+    - online presentation, technical session and demo submission
+    - updated program
+    - workshop abstracts
+    - sponsorship information
+    - travel and hotel information including online reservation access
+
+Some important dates:
+
+    - April 14, 2005 Early registration ends
+    - April 15, 2005 Call for presentations, technical sessions,
+      demo sessions ends
+    - May 21, 2005 Radisson Hotel room block no longer available
+    - May 31, 2005 No registration refunds after this date
+
+We encourage you to make arrangements early. This will ensure access
+to any workshops you'd like to take, but also really helps the 
+conference
+planners make sure accomodations are available for all that need them.
+
+Hope to see you all in Minneapolis this June!
+
+Best Regards - the EOGEO, OSGIS, and MUM3 steering committee.
+
+
+From strk at refractions.net  Tue Feb 22 13:32:27 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <20050215173950.GA40953@freek.keybit.net>
+References: <20050128121955.GA52503@freek.keybit.net>
+	<20050201155546.GB94548@freek.keybit.net>
+	<20050215173950.GA40953@freek.keybit.net>
+Message-ID: <20050222183227.GD8504@freek.keybit.net>
+
+On Tue, Feb 15, 2005 at 06:39:50PM +0100, strk@refractions.net wrote:
+> On Tue, Feb 01, 2005 at 04:55:46PM +0100, strk@refractions.net wrote:
+> > On Fri, Jan 28, 2005 at 01:19:55PM +0100, strk@refractions.net wrote:
+> > > Some time ago I've been researching about GEOS performance
+> > > problems as related to JTS. Attached is a shapefile and an .xml
+> > > test you can use to compare the two.
+> > > 
+> > > JTS does not support buffers tests, so you'll need to use another
+> > > method for that. I used JUMP, which reports computation time.
+> > > 
+> > > Well. The operation is a buffer(polygon, 2000).
+> > > 
+> > >  JTS:  18 seconds
+> > > GEOS: 574 seconds (9 minutes, 34 secs)
+> > 
+> > I've found out I was using non-optimized builds (-O0).
+> > With -O2 GEOS timing reduces to 63 seconds.
+> 
+> Timing is now 43 seconds (from 63). We are getting closer ...
+
+We hit 33 seconds.
+Some memory allocations reduction and some inlining.
+
+I'm sure we can get good performance improvement by providing
+a complete STRtree::query() functoin. Current one invokes
+the AbstractSTRtree:: version, which makes static binding 
+impossible.
+
+Another thing to look at is the way SegmentNodeList manages
+SegmentNodes. Currently it always builds a new SegmentNode for
+every addition request, then checks to see if a SegmentNode is
+already present in the node sets (see geos::yComparator) and
+eventually deletes the newly created one.. We could use a
+small key object instead, storing only the values used in 
+comparison...
+
+Finally I'd keep removing heap allocations from mass-allocated
+objects and add reserve() functions to some array-based ones.
+
+Since all this changes break ABI it would definitely be useful
+a compatibility layer with Abstract Data Types. Something like:
+
+libeasygeos.so/easygeos.h
+	typedef struct EasyGeometry_t EasyGeometry;
+	bool intersects(EasyGeometry *a, EasyGeoemtry *b);
+	bool union(EasyGeometry *a, EasyGeoemtry *b);
+	...
+
+What do you think ?
+
+--strk(new head of Flat profile follows);
+
+Flat profile:                                                                   
+Each sample counts as 0.01 seconds.                                               %   cumulative   self              self     total
+ time   seconds   seconds    calls   s/call   s/call  name
+ 29.89     78.64    78.64 232042887     0.00     0.00  geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+ 20.39    132.27    53.63   451654     0.00     0.00  geos::AbstractSTRtree::query(void const*, geos::AbstractNode*, std::vector<void*, std::allocator<void*> >*)                                                                                 4.63    144.46    12.19 194036421     0.00     0.00  geos::ItemBoundable::getBounds()                                                                           4.47    156.22    11.76 14852093     0.00     0.00  geos::yComparator(geos::Boundable*, geos::Boundable*)                                                       4.28    167.47    11.25 19520052     0.00     0.00  geos::Edge::equals(geos::Edge*)                                                                             2.61    174.33     6.86  2288324     0.00     0.00  geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&)
+  2.55    181.05     6.72 68212774     0.00     0.00  geos::AbstractNode::getBounds()
+
+> 
+> I've done other optimizations of the code.
+> The bigger one is probably inlining of most Envelope methods,
+> but I've also added some preallocations for standard containers
+> (mostly in indexSTRtree).
+> 
+> Our bottleneck now is STRtree::STRIntersectsOp::intersects(), with
+> 15.35% of time spent. This function basically calls the inlined
+> Envelope::intersects, so not much to optimize there, and no inlining
+> possible. 
+> 
+> I wonder if checking for intersection 45281976 times is really correct
+> or our indexes are broken... 
+> 
+> First line of flat profile:
+> 
+> Flat profile:
+> 
+> Each sample counts as 0.01 seconds.
+>   %   cumulative   self              self     total
+>  time   seconds   seconds    calls   s/call   s/call  name
+>  15.35     14.27    14.27 45281976     0.00     0.00  geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+>   7.73     21.46     7.19                             geos::AbstractSTRtree::query(void const*)
+>   4.28     25.44     3.98    28602     0.00     0.00  geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate const&)
+>   3.72     28.90     3.46 40923120     0.00     0.00  geos::DefaultCoordinateSequence::add(geos::Coordinate const&)
+> 
+> --strk;
+> 
+> 
+> > 
+> > Still worth profiling, but JTS/GEOS are much closer.
+> > 
+> > Most of the time is spent in MCQuadtreeNoder::intersectChains().
+> > 
+> > --strk;
+> > 
+> > > 
+> > > GEOS computation keeps the CPU pretty busy (98.2-99.8%)
+> > > and takes up to about 170 MB of ram
+> > > 
+> > > JTS seems to use 3 threads, the bigger using at most 80% 
+> > > of CPU, but most of the time far below that point.
+> > > JUMP reports 104MB committed, but I'm not sure about the meaning.
+> > > 
+> > > For GEOS, valgrind reports (with buffer 500):
+> > >  malloc/free: 2982697 allocs, 2982697 frees, 924407212 bytes allocated.
+> > > 
+> > > How much do you think this wild allocation negatively influence the
+> > > poor performance of GEOS ?
+> > > 
+> > > --strk;
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From ferdinando.villa at uvm.edu  Tue Feb 22 13:32:45 2005
+From: ferdinando.villa at uvm.edu (Ferdinando Villa)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <20050222183227.GD8504@freek.keybit.net>
+Message-ID: <000001c5190c$e6c6fe30$2aa6c684@ECOINFORMATICS>
+
+Maybe the "easygeos" layer could be the place to integrate smart
+pointers, too? So we get to pass shapes and managers with value
+semantics and forget about it all :)
+
+ferdinando
+
+-----Original Message-----
+From: geos-devel-bounces@geos.refractions.net
+[mailto:geos-devel-bounces@geos.refractions.net] On Behalf Of
+strk@refractions.net
+Sent: Tuesday, February 22, 2005 1:32 PM
+To: geos-devel@geos.refractions.net
+Subject: Re: [geos-devel] Updated timings/profiling.
+
+
+On Tue, Feb 15, 2005 at 06:39:50PM +0100, strk@refractions.net wrote:
+> On Tue, Feb 01, 2005 at 04:55:46PM +0100, strk@refractions.net wrote:
+> > On Fri, Jan 28, 2005 at 01:19:55PM +0100, strk@refractions.net 
+> > wrote:
+> > > Some time ago I've been researching about GEOS performance 
+> > > problems as related to JTS. Attached is a shapefile and an .xml 
+> > > test you can use to compare the two.
+> > > 
+> > > JTS does not support buffers tests, so you'll need to use another 
+> > > method for that. I used JUMP, which reports computation time.
+> > > 
+> > > Well. The operation is a buffer(polygon, 2000).
+> > > 
+> > >  JTS:  18 seconds
+> > > GEOS: 574 seconds (9 minutes, 34 secs)
+> > 
+> > I've found out I was using non-optimized builds (-O0).
+> > With -O2 GEOS timing reduces to 63 seconds.
+> 
+> Timing is now 43 seconds (from 63). We are getting closer ...
+
+We hit 33 seconds.
+Some memory allocations reduction and some inlining.
+
+I'm sure we can get good performance improvement by providing
+a complete STRtree::query() functoin. Current one invokes
+the AbstractSTRtree:: version, which makes static binding 
+impossible.
+
+Another thing to look at is the way SegmentNodeList manages
+SegmentNodes. Currently it always builds a new SegmentNode for every
+addition request, then checks to see if a SegmentNode is already present
+in the node sets (see geos::yComparator) and eventually deletes the
+newly created one.. We could use a small key object instead, storing
+only the values used in 
+comparison...
+
+Finally I'd keep removing heap allocations from mass-allocated objects
+and add reserve() functions to some array-based ones.
+
+Since all this changes break ABI it would definitely be useful a
+compatibility layer with Abstract Data Types. Something like:
+
+libeasygeos.so/easygeos.h
+	typedef struct EasyGeometry_t EasyGeometry;
+	bool intersects(EasyGeometry *a, EasyGeoemtry *b);
+	bool union(EasyGeometry *a, EasyGeoemtry *b);
+	...
+
+What do you think ?
+
+--strk(new head of Flat profile follows);
+
+Flat profile:
+
+Each sample counts as 0.01 seconds.
+%   cumulative   self              self     total
+ time   seconds   seconds    calls   s/call   s/call  name
+ 29.89     78.64    78.64 232042887     0.00     0.00
+geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+ 20.39    132.27    53.63   451654     0.00     0.00
+geos::AbstractSTRtree::query(void const*, geos::AbstractNode*,
+std::vector<void*, std::allocator<void*> >*)
+4.63    144.46    12.19 194036421     0.00     0.00
+geos::ItemBoundable::getBounds()
+4.47    156.22    11.76 14852093     0.00     0.00
+geos::yComparator(geos::Boundable*, geos::Boundable*)
+4.28    167.47    11.25 19520052     0.00     0.00
+geos::Edge::equals(geos::Edge*)
+2.61    174.33     6.86  2288324     0.00     0.00
+geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&,
+geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate
+const&)
+  2.55    181.05     6.72 68212774     0.00     0.00
+geos::AbstractNode::getBounds()
+
+> 
+> I've done other optimizations of the code.
+> The bigger one is probably inlining of most Envelope methods, but I've
+
+> also added some preallocations for standard containers (mostly in 
+> indexSTRtree).
+> 
+> Our bottleneck now is STRtree::STRIntersectsOp::intersects(), with 
+> 15.35% of time spent. This function basically calls the inlined 
+> Envelope::intersects, so not much to optimize there, and no inlining 
+> possible.
+> 
+> I wonder if checking for intersection 45281976 times is really correct
+
+> or our indexes are broken...
+> 
+> First line of flat profile:
+> 
+> Flat profile:
+> 
+> Each sample counts as 0.01 seconds.
+>   %   cumulative   self              self     total
+>  time   seconds   seconds    calls   s/call   s/call  name
+>  15.35     14.27    14.27 45281976     0.00     0.00
+geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+>   7.73     21.46     7.19
+geos::AbstractSTRtree::query(void const*)
+>   4.28     25.44     3.98    28602     0.00     0.00
+geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&,
+geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate
+const&)
+>   3.72     28.90     3.46 40923120     0.00     0.00
+geos::DefaultCoordinateSequence::add(geos::Coordinate const&)
+> 
+> --strk;
+> 
+> 
+> > 
+> > Still worth profiling, but JTS/GEOS are much closer.
+> > 
+> > Most of the time is spent in MCQuadtreeNoder::intersectChains().
+> > 
+> > --strk;
+> > 
+> > > 
+> > > GEOS computation keeps the CPU pretty busy (98.2-99.8%) and takes 
+> > > up to about 170 MB of ram
+> > > 
+> > > JTS seems to use 3 threads, the bigger using at most 80%
+> > > of CPU, but most of the time far below that point.
+> > > JUMP reports 104MB committed, but I'm not sure about the meaning.
+> > > 
+> > > For GEOS, valgrind reports (with buffer 500):
+> > >  malloc/free: 2982697 allocs, 2982697 frees, 924407212 bytes 
+> > > allocated.
+> > > 
+> > > How much do you think this wild allocation negatively influence 
+> > > the poor performance of GEOS ?
+> > > 
+> > > --strk;
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net 
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net 
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+
+From strk at refractions.net  Tue Feb 22 17:36:13 2005
+From: strk at refractions.net (strk@refractions.net)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Updated timings/profiling.
+In-Reply-To: <000001c5190c$e6c6fe30$2aa6c684@ECOINFORMATICS>
+References: <20050222183227.GD8504@freek.keybit.net>
+	<000001c5190c$e6c6fe30$2aa6c684@ECOINFORMATICS>
+Message-ID: <20050222223613.GA13162@freek.keybit.net>
+
+On Tue, Feb 22, 2005 at 01:32:45PM -0500, Ferdinando Villa wrote:
+> Maybe the "easygeos" layer could be the place to integrate smart
+> pointers, too? So we get to pass shapes and managers with value
+> semantics and forget about it all :)
+
+It could be a way to integrate smart pointers internally w/out
+changing the interfaces (both binary and source-level).
+
+--strk;
+
+
+> 
+> ferdinando
+> 
+> -----Original Message-----
+> From: geos-devel-bounces@geos.refractions.net
+> [mailto:geos-devel-bounces@geos.refractions.net] On Behalf Of
+> strk@refractions.net
+> Sent: Tuesday, February 22, 2005 1:32 PM
+> To: geos-devel@geos.refractions.net
+> Subject: Re: [geos-devel] Updated timings/profiling.
+> 
+> 
+> On Tue, Feb 15, 2005 at 06:39:50PM +0100, strk@refractions.net wrote:
+> > On Tue, Feb 01, 2005 at 04:55:46PM +0100, strk@refractions.net wrote:
+> > > On Fri, Jan 28, 2005 at 01:19:55PM +0100, strk@refractions.net 
+> > > wrote:
+> > > > Some time ago I've been researching about GEOS performance 
+> > > > problems as related to JTS. Attached is a shapefile and an .xml 
+> > > > test you can use to compare the two.
+> > > > 
+> > > > JTS does not support buffers tests, so you'll need to use another 
+> > > > method for that. I used JUMP, which reports computation time.
+> > > > 
+> > > > Well. The operation is a buffer(polygon, 2000).
+> > > > 
+> > > >  JTS:  18 seconds
+> > > > GEOS: 574 seconds (9 minutes, 34 secs)
+> > > 
+> > > I've found out I was using non-optimized builds (-O0).
+> > > With -O2 GEOS timing reduces to 63 seconds.
+> > 
+> > Timing is now 43 seconds (from 63). We are getting closer ...
+> 
+> We hit 33 seconds.
+> Some memory allocations reduction and some inlining.
+> 
+> I'm sure we can get good performance improvement by providing
+> a complete STRtree::query() functoin. Current one invokes
+> the AbstractSTRtree:: version, which makes static binding 
+> impossible.
+> 
+> Another thing to look at is the way SegmentNodeList manages
+> SegmentNodes. Currently it always builds a new SegmentNode for every
+> addition request, then checks to see if a SegmentNode is already present
+> in the node sets (see geos::yComparator) and eventually deletes the
+> newly created one.. We could use a small key object instead, storing
+> only the values used in 
+> comparison...
+> 
+> Finally I'd keep removing heap allocations from mass-allocated objects
+> and add reserve() functions to some array-based ones.
+> 
+> Since all this changes break ABI it would definitely be useful a
+> compatibility layer with Abstract Data Types. Something like:
+> 
+> libeasygeos.so/easygeos.h
+> 	typedef struct EasyGeometry_t EasyGeometry;
+> 	bool intersects(EasyGeometry *a, EasyGeoemtry *b);
+> 	bool union(EasyGeometry *a, EasyGeoemtry *b);
+> 	...
+> 
+> What do you think ?
+> 
+> --strk(new head of Flat profile follows);
+> 
+> Flat profile:
+> 
+> Each sample counts as 0.01 seconds.
+> %   cumulative   self              self     total
+>  time   seconds   seconds    calls   s/call   s/call  name
+>  29.89     78.64    78.64 232042887     0.00     0.00
+> geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+>  20.39    132.27    53.63   451654     0.00     0.00
+> geos::AbstractSTRtree::query(void const*, geos::AbstractNode*,
+> std::vector<void*, std::allocator<void*> >*)
+> 4.63    144.46    12.19 194036421     0.00     0.00
+> geos::ItemBoundable::getBounds()
+> 4.47    156.22    11.76 14852093     0.00     0.00
+> geos::yComparator(geos::Boundable*, geos::Boundable*)
+> 4.28    167.47    11.25 19520052     0.00     0.00
+> geos::Edge::equals(geos::Edge*)
+> 2.61    174.33     6.86  2288324     0.00     0.00
+> geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&,
+> geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate
+> const&)
+>   2.55    181.05     6.72 68212774     0.00     0.00
+> geos::AbstractNode::getBounds()
+> 
+> > 
+> > I've done other optimizations of the code.
+> > The bigger one is probably inlining of most Envelope methods, but I've
+> 
+> > also added some preallocations for standard containers (mostly in 
+> > indexSTRtree).
+> > 
+> > Our bottleneck now is STRtree::STRIntersectsOp::intersects(), with 
+> > 15.35% of time spent. This function basically calls the inlined 
+> > Envelope::intersects, so not much to optimize there, and no inlining 
+> > possible.
+> > 
+> > I wonder if checking for intersection 45281976 times is really correct
+> 
+> > or our indexes are broken...
+> > 
+> > First line of flat profile:
+> > 
+> > Flat profile:
+> > 
+> > Each sample counts as 0.01 seconds.
+> >   %   cumulative   self              self     total
+> >  time   seconds   seconds    calls   s/call   s/call  name
+> >  15.35     14.27    14.27 45281976     0.00     0.00
+> geos::STRtree::STRIntersectsOp::intersects(void const*, void const*)
+> >   7.73     21.46     7.19
+> geos::AbstractSTRtree::query(void const*)
+> >   4.28     25.44     3.98    28602     0.00     0.00
+> geos::RobustLineIntersector::computeIntersect(geos::Coordinate const&,
+> geos::Coordinate const&, geos::Coordinate const&, geos::Coordinate
+> const&)
+> >   3.72     28.90     3.46 40923120     0.00     0.00
+> geos::DefaultCoordinateSequence::add(geos::Coordinate const&)
+> > 
+> > --strk;
+> > 
+> > 
+> > > 
+> > > Still worth profiling, but JTS/GEOS are much closer.
+> > > 
+> > > Most of the time is spent in MCQuadtreeNoder::intersectChains().
+> > > 
+> > > --strk;
+> > > 
+> > > > 
+> > > > GEOS computation keeps the CPU pretty busy (98.2-99.8%) and takes 
+> > > > up to about 170 MB of ram
+> > > > 
+> > > > JTS seems to use 3 threads, the bigger using at most 80%
+> > > > of CPU, but most of the time far below that point.
+> > > > JUMP reports 104MB committed, but I'm not sure about the meaning.
+> > > > 
+> > > > For GEOS, valgrind reports (with buffer 500):
+> > > >  malloc/free: 2982697 allocs, 2982697 frees, 924407212 bytes 
+> > > > allocated.
+> > > > 
+> > > > How much do you think this wild allocation negatively influence 
+> > > > the poor performance of GEOS ?
+> > > > 
+> > > > --strk;
+> > > > _______________________________________________
+> > > > geos-devel mailing list
+> > > > geos-devel@geos.refractions.net 
+> > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net 
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net 
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From David.Jacques at CCRS.NRCan.gc.ca  Mon Feb 28 08:03:53 2005
+From: David.Jacques at CCRS.NRCan.gc.ca (David.Jacques@CCRS.NRCan.gc.ca)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Download links on GEOS homepage not extractable ?
+Message-ID: <B7F9814D6850C949947CF8DEA13477810207ABD8@s5-ccr-r2.ccrs.nrcan.gc.ca>
+
+
+I've been trying to build a new Postgres/PostGIS system as per the
+Instruction on this web page
+http://postgis.refractions.net/windows/WindowsHowTo.html
+I'd like to incorporate GEOS functionality such as Within(), Intersects(),
+etc. 
+However I have been unable to unzip / extract the tar.bz files in the links
+on the
+GEOS homepage. I get the following at the Cygwin prompt. 
+
+$ bunzip2 geos-2.0.1.tar.bz2
+$ pwd
+$ /usr/src
+$ ls
+ geos-2.0.1.tar				postgresql-8.0.0cvs.tar.bz2
+ postgresql-8.0.0cvs-1-log.tar.bz2	proj-4.4.9
+ postgresql-8.0.0cvs-1.sh		proj-4.4.9.tar.gz
+ postgresql-8.0.0cvs-1.sh.log
+
+$ tar xvzf geos-2.0.1.tar
+ tar: Child returned status 1
+ tar: Error exit delayed from previous errors
+
+Anyone know what is going on here ?
+I downloaded the proj4 software and extracted it no problem.
+
+Thanks in advance.
+
+David
+
+From nhv at cape.com  Mon Feb 28 08:42:18 2005
+From: nhv at cape.com (Norman Vine)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Download links on GEOS homepage not extractable ?
+In-Reply-To: <B7F9814D6850C949947CF8DEA13477810207ABD8@s5-ccr-r2.ccrs.nrcan.gc.ca>
+Message-ID: <EKEJIKAILPONGGENMBGAEEJHKJAA.nhv@cape.com>
+
+David.Jacques writes:
+> 
+> I've been trying to build a new Postgres/PostGIS system as per the
+> Instruction on this web page
+> http://postgis.refractions.net/windows/WindowsHowTo.html
+> I'd like to incorporate GEOS functionality such as Within(), Intersects(),
+> etc. 
+> However I have been unable to unzip / extract the tar.bz files in the links
+> on the
+> GEOS homepage. I get the following at the Cygwin prompt. 
+> 
+> $ bunzip2 geos-2.0.1.tar.bz2
+> $ pwd
+> $ /usr/src
+> $ ls
+>  geos-2.0.1.tar				postgresql-8.0.0cvs.tar.bz2
+>  postgresql-8.0.0cvs-1-log.tar.bz2	proj-4.4.9
+>  postgresql-8.0.0cvs-1.sh		proj-4.4.9.tar.gz
+>  postgresql-8.0.0cvs-1.sh.log
+> 
+> $ tar xvzf geos-2.0.1.tar
+>  tar: Child returned status 1
+>  tar: Error exit delayed from previous errors
+
+% tar -- help
+< snip >
+Archive format selection:
+  -V, --label=NAME                   create archive with volume name NAME
+              PATTERN                at list/extract time, a globbing PATTERN
+  -o, --old-archive, --portability   write a V7 format archive
+      --posix                        write a POSIX format archive
+  -j, --bzip2                        filter the archive through bzip2
+  -z, --gzip, --ungzip               filter the archive through gzip
+  -Z, --compress, --uncompress       filter the archive through compress
+      --use-compress-program=PROG    filter through PROG (must accept -d)
+
+HTH
+
+Norman
+
+
+
+
+
+From David.Jacques at CCRS.NRCan.gc.ca  Mon Feb 28 09:09:50 2005
+From: David.Jacques at CCRS.NRCan.gc.ca (David.Jacques@CCRS.NRCan.gc.ca)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Download links on GEOS homepage not extractable 
+	?
+Message-ID: <B7F9814D6850C949947CF8DEA13477810207ABDC@s5-ccr-r2.ccrs.nrcan.gc.ca>
+
+Thanks. I guess I was following those instructions too literally. (D'owh)
+
+ tar xvfj worked fine.
+
+ 
+
+-----Original Message-----
+From: geos-devel-bounces@geos.refractions.net
+[mailto:geos-devel-bounces@geos.refractions.net] On Behalf Of Norman Vine
+Sent: Monday, March 28, 2005 8:32 AM
+To: GEOS Development List
+Subject: RE: [geos-devel] Download links on GEOS homepage not extractable ?
+
+David.Jacques writes:
+> 
+> I've been trying to build a new Postgres/PostGIS system as per the 
+> Instruction on this web page 
+> http://postgis.refractions.net/windows/WindowsHowTo.html
+> I'd like to incorporate GEOS functionality such as Within(), 
+> Intersects(), etc.
+> However I have been unable to unzip / extract the tar.bz files in the 
+> links on the GEOS homepage. I get the following at the Cygwin prompt.
+> 
+> $ bunzip2 geos-2.0.1.tar.bz2
+> $ pwd
+> $ /usr/src
+> $ ls
+>  geos-2.0.1.tar				postgresql-8.0.0cvs.tar.bz2
+>  postgresql-8.0.0cvs-1-log.tar.bz2	proj-4.4.9
+>  postgresql-8.0.0cvs-1.sh		proj-4.4.9.tar.gz
+>  postgresql-8.0.0cvs-1.sh.log
+> 
+> $ tar xvzf geos-2.0.1.tar
+>  tar: Child returned status 1
+>  tar: Error exit delayed from previous errors
+
+% tar -- help
+< snip >
+Archive format selection:
+  -V, --label=NAME                   create archive with volume name NAME
+              PATTERN                at list/extract time, a globbing
+PATTERN
+  -o, --old-archive, --portability   write a V7 format archive
+      --posix                        write a POSIX format archive
+  -j, --bzip2                        filter the archive through bzip2
+  -z, --gzip, --ungzip               filter the archive through gzip
+  -Z, --compress, --uncompress       filter the archive through compress
+      --use-compress-program=PROG    filter through PROG (must accept -d)
+
+HTH
+
+Norman
+
+
+
+
+_______________________________________________
+geos-devel mailing list
+geos-devel@geos.refractions.net
+http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From bjolly at utk.edu  Mon Feb 28 13:43:41 2005
+From: bjolly at utk.edu (Alan Jolly)
+Date: Fri Nov  2 20:52:40 2007
+Subject: [geos-devel] Visual Studio Wrapper Classes
+Message-ID: <OMEAJNECHBMAFICEDBKCCEKACBAA.bjolly@utk.edu>
+
+I am trying to use a few of the geos objects in the development of a .NET
+project that will hopefully eventually become a web application.  To do this
+I would like to use managed code and avoid ATL web services.  Does anyone
+know if when writing wrapper classes I would need write classes just for the
+class constructors and methods I am directly accessing (geometry, wktwriter,
+geometry factory etc.) or will I need to write wrapper classes for the
+objects accessed by objects like geometry.
+
+Any suggestions on a plan of attack to include some of the geos
+functionality in a web environment?  Thanks to all those who have taken the
+time to contribute to this effort.
+
+Alan Jolly
+GIS Consultant (Extension Assistant I)
+Department of Biosystems Engineering and Environmental Science
+The University of Tennessee
+2506 E. J. Chapman Drive
+Knoxville TN 37996-4531
+Tel: 865-974-3774 Fax: 865-974-4514
+Email: bjolly@utk.edu
+
+
+

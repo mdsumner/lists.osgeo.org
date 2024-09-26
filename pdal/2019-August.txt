@@ -1,0 +1,1727 @@
+From jedfrechette at gmail.com  Thu Aug  1 11:13:20 2019
+From: jedfrechette at gmail.com (Jed Frechette)
+Date: Thu, 1 Aug 2019 12:13:20 -0600
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+Message-ID: <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+
+On Wed, 31 Jul 2019 08:28:09 -0500 Howard Butler wrote:
+> On second thought, we'll table the removal until 2.1 to allow a full
+> release cycle for everyone who might be impacted to catch up, but we will
+> still plan to remove these drivers. Again, if you are going to be impacted
+> by this change we would like to hear from you. We don't know of much use of
+> these drivers, and their continued maintenance burden does not seem worth
+> it given their limited use.
+
+Good timing! In the next few days we were about to start building some
+tools based on them.
+
+The use case was to round-trip data to PDAL and back from inside a
+couple of applications that include embedded Python interpreters, but
+have limited support for other PDAL formats. In particular, although
+the specific applications we're working with do have some level of
+support for both las and e57, the built in readers and writers don't
+always handle arbitrary dimensions well, if at all.
+
+Since an SQLite interface is included in the Python Standard Library
+the idea was to use that rather than trying to muck about with adding
+external modules to each application's Python install (and the
+maintenance nightmare that entails). Based on PDAL's current docs,
+SQLite looked like a good candidate for storing points with arbitrary
+dimensions in a way that was both well supported by PDAL and easily
+accessible by anything with a Python interpreter. If SQLite is
+deprecated, then good old text files look like about the only other
+container that would fill that niche.
+
+I should note that all of this was theoretical and we may well have
+run in to issues trying to put it in to practice. Nonetheless, it
+seemed like a reasonable approach and knowing that at least one
+commercial lidar software had used their own flavor of SQLite as a
+native file format gave me some additional confidence that it wan't a
+bad solution.
+
+As an aside, I don't know if it makes sense for PDAL to have a
+"native" container format or not, but it would be helpful to more
+clearly document which writer/reader pairs can be expected to
+losslessly round-trip data if PDAL is the only application involved.
+With the number of useful filters PDAL already has, I don't think it
+is unreasonable to start thinking about it as a central part of a
+processing workflow rather than just  a tool for moving data from
+External Application A to External Application B. The more it takes on
+a central role the more I think it makes sense to be asking "What's
+the best container format to use with PDAL?" rather than just
+conforming to whatever might be supported by external applications.
+
+Best wishes,
+
+-- 
+Jed Frechette
+
+From howard at hobu.co  Thu Aug  1 11:32:05 2019
+From: howard at hobu.co (Howard Butler)
+Date: Thu, 1 Aug 2019 13:32:05 -0500
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+Message-ID: <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+
+
+
+> On Aug 1, 2019, at 1:13 PM, Jed Frechette <jedfrechette at gmail.com> wrote:
+> 
+> On Wed, 31 Jul 2019 08:28:09 -0500 Howard Butler wrote:
+>> On second thought, we'll table the removal until 2.1 to allow a full release cycle for everyone who might be impacted to catch up, but we will still plan to remove these drivers. Again, if you are going to be impacted by this change we would like to hear from you. We don't know of much use of these drivers, and their continued maintenance burden does not seem worth it given their limited use.
+> 
+> The use case was to round-trip data to PDAL and back from inside a couple of applications that include embedded Python interpreters, but have limited support for other PDAL formats. In particular, although the specific applications we're working with do have some level of
+> support for both las and e57, the built in readers and writers don't always handle arbitrary dimensions well, if at all.
+
+I think TileDB is a better choice for this task at the moment than SQLite with the upcoming PDAL 2.0 release. Norman Barker is supporting it through PDAL's support venues, and I believe his firm is available for paid support opportunities. It is going to perform much better and it supports streaming. The SQLite drivers were a proof of concept that I developed based on our experience with both the Oracle and pgpointcloud drivers, and while it is interesting for database storage of point clouds, it has some significant downsides.
+
+TileDB's interface in Python is much better than SQLite's and is going to give you much more convenient numpy access to the points and  attributes. With SQLite you would have to build that all up yourself, and you would likely need to protect yourself from us making any schema changes to the SQLite storage layout too. 
+
+> As an aside, I don't know if it makes sense for PDAL to have a "native" container format or not, but it would be helpful to more
+> clearly document which writer/reader pairs can be expected to losslessly round-trip data if PDAL is the only application involved.
+
+We don't really have such a thing. LAS and LAZ with extra_bytes is likely the closest thing it we have released at the moment, especially if you stuff metadata in VLRs, but it isn't pure by any means.
+
+> With the number of useful filters PDAL already has, I don't think it is unreasonable to start thinking about it as a central part of a processing workflow rather than just  a tool for moving data from External Application A to External Application B. The more it takes on
+> a central role the more I think it makes sense to be asking "What's the best container format to use with PDAL?" rather than just conforming to whatever might be supported by external applications.
+
+HDF or TileDB might make the most sense as the binary container for this task. Both would give you maximum flexibility, compressed binary storage with universal platform support, and opportunity to advertise the data in other computing environments beyond PDAL. It hasn't been a requirement for us to develop something like this, however.  You should explore whether or not the TileDB drivers that Norman Barker recently added are sufficient for this task, but I would suspect some of the finer points like PDAL's metadata and such might not fully survive a transit. It's hard work to get all of that stuff right. We haven't done it.
+
+Howard
+
+From jedfrechette at gmail.com  Thu Aug  1 12:09:33 2019
+From: jedfrechette at gmail.com (Jed Frechette)
+Date: Thu, 1 Aug 2019 13:09:33 -0600
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+Message-ID: <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+
+On Thu, Aug 1, 2019 at 12:32 PM Howard Butler <howard at hobu.co> wrote:
+> I think TileDB is a better choice for this task at the moment than SQLite with the upcoming PDAL 2.0 release. Norman Barker is supporting it through PDAL's support venues, and I believe his firm is available for paid support opportunities. It is going to perform much better and it supports streaming. The SQLite drivers were a proof of concept that I developed based on our experience with both the Oracle and pgpointcloud drivers, and while it is interesting for database storage of point clouds, it has some significant downsides.
+
+Thanks for the good advice. I had looked in to TileDB and it seems
+really interesting but given how general it is I wasn't sure how well
+the implementation played with PDAL. It's good to hear that it is at
+least a candidate for a nativeish container format.
+
+The biggest challenge I see with it for the use case I outlined is
+that it is a compiled Python module. Unfortunately, we're mostly stuck
+on Windows and even with the help of conda, keeping various modules
+working together is a pain. Trying to do it while adding in Python
+version mismatches and trying to match whatever compiler was used to
+build the embedded interpreter pretty quickly negates any ease of use
+advantages Python might have offered so it's probably time to look at
+other ways of extending the applications in question.
+
+Or just use text files ;-) Most of our data sets are only several
+hundred million points, so although far from ideal it's certainly
+manageable.
+
+Best,
+
+
+--
+Jed Frechette
+
+From howard at hobu.co  Thu Aug  1 12:26:34 2019
+From: howard at hobu.co (Howard Butler)
+Date: Thu, 1 Aug 2019 14:26:34 -0500
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+Message-ID: <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+
+
+
+> On Aug 1, 2019, at 2:09 PM, Jed Frechette <jedfrechette at gmail.com> wrote:
+> 
+> On Thu, Aug 1, 2019 at 12:32 PM Howard Butler <howard at hobu.co> wrote:
+>> I think TileDB is a better choice for this task at the moment than SQLite with the upcoming PDAL 2.0 release. Norman Barker is supporting it through PDAL's support venues, and I believe his firm is available for paid support opportunities. It is going to perform much better and it supports streaming. The SQLite drivers were a proof of concept that I developed based on our experience with both the Oracle and pgpointcloud drivers, and while it is interesting for database storage of point clouds, it has some significant downsides.
+> 
+> Thanks for the good advice. I had looked in to TileDB and it seems
+> really interesting but given how general it is I wasn't sure how well
+> the implementation played with PDAL. It's good to hear that it is at
+> least a candidate for a nativeish container format.
+
+Numpy is also a candidate. We don't have a writers.numpy, but all the code to do so is in the Python extension. You could then save npz files and transit your data that way. Happy to merge a patch on it, but it won't make the 2.0 release cutoff.
+
+Howard
+
+From andrew.bell.ia at gmail.com  Thu Aug  1 12:37:16 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 1 Aug 2019 15:37:16 -0400
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+Message-ID: <CACJ51z3aoc2U0MDYxrFreBsPXoVDRw1Ym_eNKjzpOOes-hsHoA@mail.gmail.com>
+
+I don't know if it's helpful, but PLY and PCD both support binary encoding
+of any set of dimensions.
+
+On Thu, Aug 1, 2019 at 3:26 PM Howard Butler <howard at hobu.co> wrote:
+
+>
+>
+> > On Aug 1, 2019, at 2:09 PM, Jed Frechette <jedfrechette at gmail.com>
+> wrote:
+> >
+> > On Thu, Aug 1, 2019 at 12:32 PM Howard Butler <howard at hobu.co> wrote:
+> >> I think TileDB is a better choice for this task at the moment than
+> SQLite with the upcoming PDAL 2.0 release. Norman Barker is supporting it
+> through PDAL's support venues, and I believe his firm is available for paid
+> support opportunities. It is going to perform much better and it supports
+> streaming. The SQLite drivers were a proof of concept that I developed
+> based on our experience with both the Oracle and pgpointcloud drivers, and
+> while it is interesting for database storage of point clouds, it has some
+> significant downsides.
+> >
+> > Thanks for the good advice. I had looked in to TileDB and it seems
+> > really interesting but given how general it is I wasn't sure how well
+> > the implementation played with PDAL. It's good to hear that it is at
+> > least a candidate for a nativeish container format.
+>
+> Numpy is also a candidate. We don't have a writers.numpy, but all the code
+> to do so is in the Python extension. You could then save npz files and
+> transit your data that way. Happy to merge a patch on it, but it won't make
+> the 2.0 release cutoff.
+>
+> Howard
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190801/82466e45/attachment.html>
+
+From jedfrechette at gmail.com  Thu Aug  1 12:57:19 2019
+From: jedfrechette at gmail.com (Jed Frechette)
+Date: Thu, 1 Aug 2019 13:57:19 -0600
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+Message-ID: <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+
+On Thu, Aug 1, 2019 at 1:26 PM Howard Butler <howard at hobu.co> wrote:
+> Numpy is also a candidate.
+
+How much should I be worried about this warning in the 1.9.1 docs?
+
+"""
+It is untested whether problems may occur if the versions of Python
+used in writing the file and for reading the file don’t match.
+"""
+
+Is this referring to issues such as:
+
+https://stackoverflow.com/questions/24105148/load-python-2-npy-file-in-python-3
+
+or something else?
+
+-- 
+Jed Frechette
+
+From howard at hobu.co  Thu Aug  1 13:04:24 2019
+From: howard at hobu.co (Howard Butler)
+Date: Thu, 1 Aug 2019 15:04:24 -0500
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+ <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+Message-ID: <E62EE57F-20D8-4A88-AA20-B7BCAA6CF65F@hobu.co>
+
+
+
+> On Aug 1, 2019, at 2:57 PM, Jed Frechette <jedfrechette at gmail.com> wrote:
+> 
+> On Thu, Aug 1, 2019 at 1:26 PM Howard Butler <howard at hobu.co> wrote:
+>> Numpy is also a candidate.
+> 
+> How much should I be worried about this warning in the 1.9.1 docs?
+
+Lots? ;)
+
+More seriously, I think things are a little better than they used to be, but there were definitely dragons here in the past. This internal and external lack of interchange is why efforts like Arrow are gaining traction, but there has been bumps along that road too.  I'd be curious to hear what Norman has to say on this topic as it is a space they are charging after quite intently. 
+
+> 
+> """
+> It is untested whether problems may occur if the versions of Python
+> used in writing the file and for reading the file don’t match.
+> """
+> 
+> Is this referring to issues such as:
+> 
+> https://stackoverflow.com/questions/24105148/load-python-2-npy-file-in-python-3
+> 
+> or something else?
+
+Yeah. 
+
+
+From norman.barker at gmail.com  Thu Aug  1 13:06:14 2019
+From: norman.barker at gmail.com (Norman Barker)
+Date: Thu, 1 Aug 2019 15:06:14 -0500
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+ <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+Message-ID: <CAN_Dn-GCW_yukMBo-m=TigUYKHWBrgLzpUPPbMShOBjbPz2+WA@mail.gmail.com>
+
+Thanks for the mention Howard.
+
+The TileDB driver is supported and is actively developed. TileDB is generic
+across other domains but the implementation in PDAL is solid and TileDB
+might be a good transfer format for your use case. If you decide to use
+TileDB within PDAL then happy to discuss it further.
+
+Without meaning to hijack this thread, which toolchain (e.g. mingw64) are
+you using when you build from source and are not using conda?
+
+
+
+On Thu, Aug 1, 2019 at 2:58 PM Jed Frechette <jedfrechette at gmail.com> wrote:
+
+> On Thu, Aug 1, 2019 at 1:26 PM Howard Butler <howard at hobu.co> wrote:
+> > Numpy is also a candidate.
+>
+> How much should I be worried about this warning in the 1.9.1 docs?
+>
+> """
+> It is untested whether problems may occur if the versions of Python
+> used in writing the file and for reading the file don’t match.
+> """
+>
+> Is this referring to issues such as:
+>
+>
+> https://stackoverflow.com/questions/24105148/load-python-2-npy-file-in-python-3
+>
+> or something else?
+>
+> --
+> Jed Frechette
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190801/68748e06/attachment-0001.html>
+
+From norman.barker at gmail.com  Thu Aug  1 13:21:07 2019
+From: norman.barker at gmail.com (Norman Barker)
+Date: Thu, 1 Aug 2019 15:21:07 -0500
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <E62EE57F-20D8-4A88-AA20-B7BCAA6CF65F@hobu.co>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+ <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+ <E62EE57F-20D8-4A88-AA20-B7BCAA6CF65F@hobu.co>
+Message-ID: <CAN_Dn-HvJwUmQPgUjxgm_+gJen_uN3PN16o+snhTwSXgSyW2aQ@mail.gmail.com>
+
+>
+> >More seriously, I think things are a little better than they used to be,
+> but there were definitely dragons here in the past. This internal and
+> external lack of interchange is why efforts like >Arrow are gaining
+> traction, but there has been bumps along that road too.  I'd be curious to
+> hear what Norman has to say on this topic as it is a space they are
+> charging after quite intently.
+>
+> Round tripping between PDAL and other tools using TileDB is something we
+have done. I will be creating a couple of example python notebooks
+demonstrating some of this in the next few weeks. We have done a fair
+amount of testing of creating TileDB arrays with PDAL and then accessing /
+modifying the arrays outside of PDAL with other tools and then back to PDAL
+which I think is the use case you are describing. It works well.
+
+
+> > """
+> > It is untested whether problems may occur if the versions of Python
+> > used in writing the file and for reading the file don’t match.
+> > """
+> >
+> > Is this referring to issues such as:
+> >
+> >
+> https://stackoverflow.com/questions/24105148/load-python-2-npy-file-in-python-3
+> >
+> > or something else?
+>
+> Yeah.
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190801/84d0dff1/attachment.html>
+
+From jedfrechette at gmail.com  Thu Aug  1 14:16:22 2019
+From: jedfrechette at gmail.com (Jed Frechette)
+Date: Thu, 1 Aug 2019 15:16:22 -0600
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <CAN_Dn-GCW_yukMBo-m=TigUYKHWBrgLzpUPPbMShOBjbPz2+WA@mail.gmail.com>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+ <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+ <CAN_Dn-GCW_yukMBo-m=TigUYKHWBrgLzpUPPbMShOBjbPz2+WA@mail.gmail.com>
+Message-ID: <CAACeADbWCZcTv920aA9-E8oYcKTNLuNXsJ-b7HxcH3GFtsDO3Q@mail.gmail.com>
+
+On Thu, Aug 1, 2019 at 2:06 PM Norman Barker <norman.barker at gmail.com> wrote:
+> Without meaning to hijack this thread, which toolchain (e.g. mingw64) are you using when you build from source and are not using conda?
+
+Not being able to control the toolchain was the problem I was hoping
+to bypass. Ideally, by having something we can use in environments
+where we have Python, but aren't guaranteed to have much else. To give
+concrete examples, two of the applications we wanted to extend
+initially were Agisoft and Houdini.
+
+Agisoft includes a Python interpreter that sys.version reports as
+"3.5.2 (default, Aug 28 2018, 15:41:10) [MSC v.1600 64 bit (AMD64)]".
+The embedded Python doesn't ship with Numpy or much else in the way of
+useful modules, and other than Python there is no other real extension
+mechanism for the application.
+
+Houdini also ships with Python, "2.7.15 (default, Apr  8 2019,
+15:38:59) [MSC v.1916 64 bit (AMD64)]" in that case. Despite still
+being on 2.7 (for ecosystem reasons) Houdini is a lot better. It does
+at least include Numpy and also offers a bunch of other ways to extend
+the application including a C++ SDK and even their own method of
+making C++ functions accessible from Python [1].
+
+In both cases, I know it is possible to add external Python modules to
+the embedded distributions, but the process seems very brittle and
+unsustainable, especially when you start getting in to modules that
+mix Python and C++ e.g. [2].
+
+I don't know that this is necessarily a problem that PDAL needs to
+solve. Although having a portable format that could easily be handled
+by pure Python would be convenient, there are certainly downsides to
+working within that restriction. If the current SQLite implementation
+isn't a good solution, I'm not necessarily arguing to keep it. More
+than anything I'm just glad this thread happened the week before we
+started working on it. ;-)
+
+TileDB does seem like a good working format for situations where we
+have more control over the toolchain.
+
+Best,
+
+[1] https://www.sidefx.com/docs/houdini/hom/extendingwithcpp.html
+[2] https://www.sidefx.com/forum/topic/58442/
+
+-- 
+Jed Frechette
+
+From howard at hobu.co  Fri Aug  2 08:51:10 2019
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 2 Aug 2019 10:51:10 -0500
+Subject: [pdal] Proposal: Remove SQLite reader/writer for PDAL 2.0
+In-Reply-To: <CAACeADbWCZcTv920aA9-E8oYcKTNLuNXsJ-b7HxcH3GFtsDO3Q@mail.gmail.com>
+References: <mailman.44210.1564591998.17185.pdal@lists.osgeo.org>
+ <CAACeADbyDTHajLr9_m=A3pUWXM_t-jXuRy=9PKzoj0eXhthxgw@mail.gmail.com>
+ <B36D6AC5-DB02-4FBD-A245-B088862B022C@hobu.co>
+ <CAACeADaRFNdo0hEC+M0PP0RHC7sUa+iyn5oC-xTJ0dxGyj+S6w@mail.gmail.com>
+ <70F976D9-3FA8-4C7A-9929-B96B4B8C547E@hobu.co>
+ <CAACeADYHZ8H03B991jPH4mhGRpvU++iLjFDi3PMHcvTDDArjUA@mail.gmail.com>
+ <CAN_Dn-GCW_yukMBo-m=TigUYKHWBrgLzpUPPbMShOBjbPz2+WA@mail.gmail.com>
+ <CAACeADbWCZcTv920aA9-E8oYcKTNLuNXsJ-b7HxcH3GFtsDO3Q@mail.gmail.com>
+Message-ID: <07773B67-5BF0-4940-B906-1AF14D420297@hobu.co>
+
+
+
+> On Aug 1, 2019, at 4:16 PM, Jed Frechette <jedfrechette at gmail.com> wrote:
+> 
+> I'm not necessarily arguing to keep it. More than anything I'm just glad this thread happened the week before we started working on it. ;-)
+
+Even if you had started with it, the drivers would have been moved the SQLite drivers to https://github.com/PDAL/unsuppported-plugins <https://github.com/PDAL/unsuppported-plugins> which would have still given you the option of building things up yourself and using them. 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190802/184cd320/attachment.html>
+
+From karln at surdex.com  Thu Aug  8 08:29:52 2019
+From: karln at surdex.com (Karl North)
+Date: Thu, 8 Aug 2019 15:29:52 +0000
+Subject: [pdal] losing precision in PDAL pipeline
+Message-ID: <DM5PR17MB10990317EF3E0B7BB2BB0D59C2D70@DM5PR17MB1099.namprd17.prod.outlook.com>
+
+Good morning once again PDAL'ers.  It's a new day, and a new issue...
+
+I'm running a multi-step process using several executions of "pdal translate" and at the end assembling the various parts ( multiple LAS files ) from these executions into a final point cloud ( LAS file ) for delivery.  All of the "pdal translate" commands include the string : --writers.las.forward="all" in order to preserve the precision of the source data.
+
+My problem is that at the final step where I use "pdal pipeline" to merge the various parts, my file precision gets truncated from 0.001 to 0.01 units.
+
+Below is a simple minimalist sample JSON file that I am running through "pdal pipeline" to do the merge operation.  I have checked and all the input LAS files have 0.001 precision but the output LAS has only 0.01 precision.  I expected the forward=all line to preserve scales and offsets.
+
+Please help.  What am I missing?
+
+{
+    "pipeline":[
+        {
+            "type":"readers.las",
+            "tag":"WT_4447_596_step01b",
+            "filename":"WT_4447_596_step01b.las"
+        },
+        {
+            "type":"readers.las",
+            "tag":"WT_4447_596_step02",
+            "filename":"WT_4447_596_step02.las"
+        },
+        {
+            "type":"writers.las",
+            "inputs":["WT_4447_596_step01b","WT_4447_596_step02"],
+            "forward":"all",
+            "filename":"WT_4447_596_step03.las"
+        }
+    ]
+}
+
+Karl
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190808/32a740aa/attachment.html>
+
+From thejus.kambi at gmail.com  Thu Aug  8 08:35:28 2019
+From: thejus.kambi at gmail.com (thejus kambi)
+Date: Thu, 8 Aug 2019 10:35:28 -0500
+Subject: [pdal] losing precision in PDAL pipeline
+In-Reply-To: <DM5PR17MB10990317EF3E0B7BB2BB0D59C2D70@DM5PR17MB1099.namprd17.prod.outlook.com>
+References: <DM5PR17MB10990317EF3E0B7BB2BB0D59C2D70@DM5PR17MB1099.namprd17.prod.outlook.com>
+Message-ID: <CAN9Cm==uQqjevk=BSnBgp6=GQpWTsXcuqGG0JebrDR1cNY3VRg@mail.gmail.com>
+
+Hello Karl,
+
+By default the scale value used in PDAL is 0.01. So if you need higher
+precision you may want to provide "scale_x", "scale_y" and "scale_z"
+parameters in your input and output.
+
+Warm Regards,
+Thejus
+
+
+On Thu, Aug 8, 2019 at 10:29 AM Karl North <karln at surdex.com> wrote:
+
+> Good morning once again PDAL’ers.  It’s a new day, and a new issue…
+>
+>
+>
+> I’m running a multi-step process using several executions of “pdal
+> translate” and at the end assembling the various parts ( multiple LAS files
+> ) from these executions into a final point cloud ( LAS file ) for
+> delivery.  All of the “pdal translate” commands include the string :
+> --writers.las.forward="all" in order to preserve the precision of the
+> source data.
+>
+>
+>
+> My problem is that at the final step where I use “pdal pipeline” to merge
+> the various parts, my file precision gets truncated from 0.001 to 0.01
+> units.
+>
+>
+>
+> Below is a simple minimalist sample JSON file that I am running through
+> “pdal pipeline” to do the merge operation.  I have checked and all the
+> input LAS files have 0.001 precision but the output LAS has only 0.01
+> precision.  I expected the forward=all line to preserve scales and offsets.
+>
+>
+>
+> Please help.  What am I missing?
+>
+>
+>
+> {
+>
+>     "pipeline":[
+>
+>         {
+>
+>             "type":"readers.las",
+>
+>             "tag":"WT_4447_596_step01b",
+>
+>             "filename":"WT_4447_596_step01b.las"
+>
+>         },
+>
+>         {
+>
+>             "type":"readers.las",
+>
+>             "tag":"WT_4447_596_step02",
+>
+>             "filename":"WT_4447_596_step02.las"
+>
+>         },
+>
+>         {
+>
+>             "type":"writers.las",
+>
+>             "inputs":["WT_4447_596_step01b","WT_4447_596_step02"],
+>
+>             "forward":"all",
+>
+>             "filename":"WT_4447_596_step03.las"
+>
+>         }
+>
+>     ]
+>
+> }
+>
+>
+>
+> Karl
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190808/1422fa84/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Aug  8 08:55:58 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 8 Aug 2019 11:55:58 -0400
+Subject: [pdal] losing precision in PDAL pipeline
+In-Reply-To: <DM5PR17MB10990317EF3E0B7BB2BB0D59C2D70@DM5PR17MB1099.namprd17.prod.outlook.com>
+References: <DM5PR17MB10990317EF3E0B7BB2BB0D59C2D70@DM5PR17MB1099.namprd17.prod.outlook.com>
+Message-ID: <CACJ51z0rpQeOiBdUwbcbyygpRPcdd0tvjb2ViesY-bEo+BpQcg@mail.gmail.com>
+
+I suspect the scale of your input files differs. If this is the case, the
+scale values aren't forwarded. You'll have to set them manually.
+
+,
+
+On Thu, Aug 8, 2019, 11:29 AM Karl North <karln at surdex.com> wrote:
+
+> Good morning once again PDAL’ers.  It’s a new day, and a new issue…
+>
+>
+>
+> I’m running a multi-step process using several executions of “pdal
+> translate” and at the end assembling the various parts ( multiple LAS files
+> ) from these executions into a final point cloud ( LAS file ) for
+> delivery.  All of the “pdal translate” commands include the string :
+> --writers.las.forward="all" in order to preserve the precision of the
+> source data.
+>
+>
+>
+> My problem is that at the final step where I use “pdal pipeline” to merge
+> the various parts, my file precision gets truncated from 0.001 to 0.01
+> units.
+>
+>
+>
+> Below is a simple minimalist sample JSON file that I am running through
+> “pdal pipeline” to do the merge operation.  I have checked and all the
+> input LAS files have 0.001 precision but the output LAS has only 0.01
+> precision.  I expected the forward=all line to preserve scales and offsets.
+>
+>
+>
+> Please help.  What am I missing?
+>
+>
+>
+> {
+>
+>     "pipeline":[
+>
+>         {
+>
+>             "type":"readers.las",
+>
+>             "tag":"WT_4447_596_step01b",
+>
+>             "filename":"WT_4447_596_step01b.las"
+>
+>         },
+>
+>         {
+>
+>             "type":"readers.las",
+>
+>             "tag":"WT_4447_596_step02",
+>
+>             "filename":"WT_4447_596_step02.las"
+>
+>         },
+>
+>         {
+>
+>             "type":"writers.las",
+>
+>             "inputs":["WT_4447_596_step01b","WT_4447_596_step02"],
+>
+>             "forward":"all",
+>
+>             "filename":"WT_4447_596_step03.las"
+>
+>         }
+>
+>     ]
+>
+> }
+>
+>
+>
+> Karl
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190808/2d322a99/attachment-0001.html>
+
+From andrew.bell.ia at gmail.com  Thu Aug  8 10:37:30 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 8 Aug 2019 13:37:30 -0400
+Subject: [pdal] losing precision in PDAL pipeline
+In-Reply-To: <CACJ51z0rpQeOiBdUwbcbyygpRPcdd0tvjb2ViesY-bEo+BpQcg@mail.gmail.com>
+References: <DM5PR17MB10990317EF3E0B7BB2BB0D59C2D70@DM5PR17MB1099.namprd17.prod.outlook.com>
+ <CACJ51z0rpQeOiBdUwbcbyygpRPcdd0tvjb2ViesY-bEo+BpQcg@mail.gmail.com>
+Message-ID: <CACJ51z3ZkBd54mdwGGNf9Q15eW3EWzac1pqfH1J+3VJXN7Ej4g@mail.gmail.com>
+
+This is caused by a bug that writes metadata for LAS scale/offset with
+excess precision.  I've opened this issue to address the problem:
+https://github.com/PDAL/PDAL/issues/2663
+
+On Thu, Aug 8, 2019 at 11:55 AM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+> I suspect the scale of your input files differs. If this is the case, the
+> scale values aren't forwarded. You'll have to set them manually.
+>
+> ,
+>
+> On Thu, Aug 8, 2019, 11:29 AM Karl North <karln at surdex.com> wrote:
+>
+>> Good morning once again PDAL’ers.  It’s a new day, and a new issue…
+>>
+>>
+>>
+>> I’m running a multi-step process using several executions of “pdal
+>> translate” and at the end assembling the various parts ( multiple LAS files
+>> ) from these executions into a final point cloud ( LAS file ) for
+>> delivery.  All of the “pdal translate” commands include the string :
+>> --writers.las.forward="all" in order to preserve the precision of the
+>> source data.
+>>
+>>
+>>
+>> My problem is that at the final step where I use “pdal pipeline” to merge
+>> the various parts, my file precision gets truncated from 0.001 to 0.01
+>> units.
+>>
+>>
+>>
+>> Below is a simple minimalist sample JSON file that I am running through
+>> “pdal pipeline” to do the merge operation.  I have checked and all the
+>> input LAS files have 0.001 precision but the output LAS has only 0.01
+>> precision.  I expected the forward=all line to preserve scales and offsets.
+>>
+>>
+>>
+>> Please help.  What am I missing?
+>>
+>>
+>>
+>> {
+>>
+>>     "pipeline":[
+>>
+>>         {
+>>
+>>             "type":"readers.las",
+>>
+>>             "tag":"WT_4447_596_step01b",
+>>
+>>             "filename":"WT_4447_596_step01b.las"
+>>
+>>         },
+>>
+>>         {
+>>
+>>             "type":"readers.las",
+>>
+>>             "tag":"WT_4447_596_step02",
+>>
+>>             "filename":"WT_4447_596_step02.las"
+>>
+>>         },
+>>
+>>         {
+>>
+>>             "type":"writers.las",
+>>
+>>             "inputs":["WT_4447_596_step01b","WT_4447_596_step02"],
+>>
+>>             "forward":"all",
+>>
+>>             "filename":"WT_4447_596_step03.las"
+>>
+>>         }
+>>
+>>     ]
+>>
+>> }
+>>
+>>
+>>
+>> Karl
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190808/c5c458b3/attachment.html>
+
+From rebecca at clarke.net.nz  Wed Aug 21 20:03:18 2019
+From: rebecca at clarke.net.nz (Rebecca Clarke)
+Date: Thu, 22 Aug 2019 15:03:18 +1200
+Subject: [pdal] writers.las unable to convert scaled value
+Message-ID: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+
+Kia ora PDAL’ers
+
+I am trying to reproject a LAS file using the following command and JSON
+file.
+
+pdal pipeline reproject.json --readers.las.filename=BC36_2316.las
+--writers.las.filename=BC36_2316_reprojected.las
+--filters.reprojection.out_srs="+init=epsg:4167
++geoidgrids='moturiki-1953-to-nzvd2016-conversion.gtx'"
+
+
+{
+    "pipeline" :
+    [
+        {
+            "type":"readers.las",
+            "filename":"#"
+        },
+        {
+            "type":"filters.reprojection",
+            "in_srs":"EPSG:4167",
+            "out_srs":"EPSG:4167"
+        },
+        {
+            "type":"writers.las",
+            "filename":"#",
+            "a_srs":"EPSG:4167",
+            "forward":"header",
+            "scale_x":"0.01",
+            "scale_y":"0.01",
+            "scale_z":"0.01"
+        }
+    ]
+}
+
+
+I'm getting this error and no amount of googling has helped me find a
+solution.
+
+
+PDAL: writers.las: Unable to convert scaled value (-Infinity) to int32 for
+dimension 'Z' when writing LAS/LAZ file ...
+
+Any help would be much appreciated.
+
+Rebecca
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/0f5f5769/attachment.html>
+
+From adam.d.steer at gmail.com  Wed Aug 21 20:50:44 2019
+From: adam.d.steer at gmail.com (adam steer)
+Date: Thu, 22 Aug 2019 13:50:44 +1000
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+Message-ID: <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+
+Hi Rebecca
+
+What are the min and max Z values for your laz file? does it have a sneaky
+infinite value in there?
+
+…and is your geoid grid introducing any divide-by-zeros to create
+un-handleable values?
+
+Cheers
+
+Adam
+
+
+On Thu, 22 Aug 2019 at 13:03, Rebecca Clarke <rebecca at clarke.net.nz> wrote:
+
+> Kia ora PDAL’ers
+>
+> I am trying to reproject a LAS file using the following command and JSON
+> file.
+>
+> pdal pipeline reproject.json --readers.las.filename=BC36_2316.las
+> --writers.las.filename=BC36_2316_reprojected.las
+> --filters.reprojection.out_srs="+init=epsg:4167
+> +geoidgrids='moturiki-1953-to-nzvd2016-conversion.gtx'"
+>
+>
+> {
+>     "pipeline" :
+>     [
+>         {
+>             "type":"readers.las",
+>             "filename":"#"
+>         },
+>         {
+>             "type":"filters.reprojection",
+>             "in_srs":"EPSG:4167",
+>             "out_srs":"EPSG:4167"
+>         },
+>         {
+>             "type":"writers.las",
+>             "filename":"#",
+>             "a_srs":"EPSG:4167",
+>             "forward":"header",
+>             "scale_x":"0.01",
+>             "scale_y":"0.01",
+>             "scale_z":"0.01"
+>         }
+>     ]
+> }
+>
+>
+> I'm getting this error and no amount of googling has helped me find a
+> solution.
+>
+>
+> PDAL: writers.las: Unable to convert scaled value (-Infinity) to int32 for
+> dimension 'Z' when writing LAS/LAZ file ...
+>
+> Any help would be much appreciated.
+>
+> Rebecca
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Dr. Adam Steer
+http://spatialised.net
+https://www.researchgate.net/profile/Adam_Steer
+http://au.linkedin.com/in/adamsteer
+http://orcid.org/0000-0003-0046-7236
++61 427 091 712 ::  @adamdsteer
+
+Suits are bad for business: http://www.spatialised.net/business-penguins/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/039e31ae/attachment.html>
+
+From rebecca at clarke.net.nz  Wed Aug 21 21:50:37 2019
+From: rebecca at clarke.net.nz (Rebecca Clarke)
+Date: Thu, 22 Aug 2019 16:50:37 +1200
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+Message-ID: <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+
+Hi Adam,
+
+I ran lasinfo on the las file and get the following result:
+Z                3696      58127
+
+What would be the best way to determine if the geoid is introducing any
+divide-by-zeros?
+
+I loaded the gtx into postgis and these are the results from using the
+ST_SummaryStats:
+
+'count' 'sum' 'mean' 'stddev' 'min' 'max'
+14364 | 4215.86899040639 | 0.293502435979281 | 0.0288004424645927 |
+0.17399999499321 | 0.49099999666214
+
+Cheers
+
+Rebecca
+
+On Thu, Aug 22, 2019 at 3:50 PM adam steer <adam.d.steer at gmail.com> wrote:
+
+> Hi Rebecca
+>
+> What are the min and max Z values for your laz file? does it have a sneaky
+> infinite value in there?
+>
+> …and is your geoid grid introducing any divide-by-zeros to create
+> un-handleable values?
+>
+> Cheers
+>
+> Adam
+>
+>
+> On Thu, 22 Aug 2019 at 13:03, Rebecca Clarke <rebecca at clarke.net.nz>
+> wrote:
+>
+>> Kia ora PDAL’ers
+>>
+>> I am trying to reproject a LAS file using the following command and JSON
+>> file.
+>>
+>> pdal pipeline reproject.json --readers.las.filename=BC36_2316.las
+>> --writers.las.filename=BC36_2316_reprojected.las
+>> --filters.reprojection.out_srs="+init=epsg:4167
+>> +geoidgrids='moturiki-1953-to-nzvd2016-conversion.gtx'"
+>>
+>>
+>> {
+>>     "pipeline" :
+>>     [
+>>         {
+>>             "type":"readers.las",
+>>             "filename":"#"
+>>         },
+>>         {
+>>             "type":"filters.reprojection",
+>>             "in_srs":"EPSG:4167",
+>>             "out_srs":"EPSG:4167"
+>>         },
+>>         {
+>>             "type":"writers.las",
+>>             "filename":"#",
+>>             "a_srs":"EPSG:4167",
+>>             "forward":"header",
+>>             "scale_x":"0.01",
+>>             "scale_y":"0.01",
+>>             "scale_z":"0.01"
+>>         }
+>>     ]
+>> }
+>>
+>>
+>> I'm getting this error and no amount of googling has helped me find a
+>> solution.
+>>
+>>
+>> PDAL: writers.las: Unable to convert scaled value (-Infinity) to int32
+>> for dimension 'Z' when writing LAS/LAZ file ...
+>>
+>> Any help would be much appreciated.
+>>
+>> Rebecca
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> --
+> Dr. Adam Steer
+> http://spatialised.net
+> https://www.researchgate.net/profile/Adam_Steer
+> http://au.linkedin.com/in/adamsteer
+> http://orcid.org/0000-0003-0046-7236
+> +61 427 091 712 ::  @adamdsteer
+>
+> Suits are bad for business: http://www.spatialised.net/business-penguins/
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/203d1ef2/attachment-0001.html>
+
+From adam.d.steer at gmail.com  Wed Aug 21 22:36:03 2019
+From: adam.d.steer at gmail.com (adam steer)
+Date: Thu, 22 Aug 2019 15:36:03 +1000
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+ <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+Message-ID: <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+
+Hi Rebecca
+
+
+> I ran lasinfo on the las file and get the following result:
+> Z                3696      58127
+>
+
+Ah those are unscaled values - so scaled to metres it would be 36.96 and
+581.27?
+
+What would be the best way to determine if the geoid is introducing any
+> divide-by-zeros?
+>
+> I loaded the gtx into postgis and these are the results from using the
+> ST_SummaryStats:
+>
+> 'count' 'sum' 'mean' 'stddev' 'min' 'max'
+> 14364 | 4215.86899040639 | 0.293502435979281 | 0.0288004424645927 |
+> 0.17399999499321 | 0.49099999666214
+>
+
+That’s a cool way to do it! I wondered if there were null or nodata values
+in the gtx file for some of your las points, but it appears not…
+
+My last easy check idea is to make sure all the las points sit within
+the moturiki 1953 region.
+
+I don’t feel like I’m being super helpful, sorry - just walking down a list
+of things that might produce an ‘-Infinity'….
+
+Regards,
+
+Adam
+
+
+>
+> Cheers
+>
+> Rebecca
+>
+> On Thu, Aug 22, 2019 at 3:50 PM adam steer <adam.d.steer at gmail.com> wrote:
+>
+>> Hi Rebecca
+>>
+>> What are the min and max Z values for your laz file? does it have a
+>> sneaky infinite value in there?
+>>
+>> …and is your geoid grid introducing any divide-by-zeros to create
+>> un-handleable values?
+>>
+>> Cheers
+>>
+>> Adam
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/45f3c1e2/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Aug 22 04:02:20 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 22 Aug 2019 07:02:20 -0400
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+ <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+ <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+Message-ID: <CACJ51z2+BkRKM2sRArm1A8MouFd+D7+GT=409JvtN8SzgETqdQ@mail.gmail.com>
+
+Hi Rebecca,
+
+I'm assuming that you can write the file without the reprojection filter.
+If that is indeed the case, then Adam is right and some point is being
+reprojected to an infinite Z value (points that are unable to be
+transformed are dropped).  I'm not sure what you would like in the end, but
+you can write the output to some format you can examine (text, for
+example), to determine the points that are problematic.  There could also
+be some problem with the proj specification you've provided, but I'm not
+familiar enough with those details to be of much help.
+
+Best,
+
+On Thu, Aug 22, 2019 at 1:36 AM adam steer <adam.d.steer at gmail.com> wrote:
+
+> Hi Rebecca
+>
+>
+>> I ran lasinfo on the las file and get the following result:
+>> Z                3696      58127
+>>
+>
+> Ah those are unscaled values - so scaled to metres it would be 36.96 and
+> 581.27?
+>
+> What would be the best way to determine if the geoid is introducing any
+>> divide-by-zeros?
+>>
+>> I loaded the gtx into postgis and these are the results from using the
+>> ST_SummaryStats:
+>>
+>> 'count' 'sum' 'mean' 'stddev' 'min' 'max'
+>> 14364 | 4215.86899040639 | 0.293502435979281 | 0.0288004424645927 |
+>> 0.17399999499321 | 0.49099999666214
+>>
+>
+> That’s a cool way to do it! I wondered if there were null or nodata values
+> in the gtx file for some of your las points, but it appears not…
+>
+> My last easy check idea is to make sure all the las points sit within
+> the moturiki 1953 region.
+>
+> I don’t feel like I’m being super helpful, sorry - just walking down a
+> list of things that might produce an ‘-Infinity'….
+>
+> Regards,
+>
+> Adam
+>
+>
+>>
+>> Cheers
+>>
+>> Rebecca
+>>
+>> On Thu, Aug 22, 2019 at 3:50 PM adam steer <adam.d.steer at gmail.com>
+>> wrote:
+>>
+>>> Hi Rebecca
+>>>
+>>> What are the min and max Z values for your laz file? does it have a
+>>> sneaky infinite value in there?
+>>>
+>>> …and is your geoid grid introducing any divide-by-zeros to create
+>>> un-handleable values?
+>>>
+>>> Cheers
+>>>
+>>> Adam
+>>>
+>> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/631d9924/attachment.html>
+
+From thejus.kambi at gmail.com  Thu Aug 22 04:33:34 2019
+From: thejus.kambi at gmail.com (thejus kambi)
+Date: Thu, 22 Aug 2019 06:33:34 -0500
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CACJ51z2+BkRKM2sRArm1A8MouFd+D7+GT=409JvtN8SzgETqdQ@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+ <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+ <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+ <CACJ51z2+BkRKM2sRArm1A8MouFd+D7+GT=409JvtN8SzgETqdQ@mail.gmail.com>
+Message-ID: <CAN9Cm=k1=fEOQr+W7rzbz+=xjQ0e6JM9Evj8Hn1gZf_4YPhB1A@mail.gmail.com>
+
+Hello Andrew,
+
+For one of my queries, you had mentioned that the readers and writers
+can/will be replaced by command line parameters. Do you think something
+like that is happening?
+The query was for "translate" command and not pipeline.
+
+Warm regards,
+Thejus
+
+On Thu, Aug 22, 2019 at 6:02 AM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+>
+> Hi Rebecca,
+>
+> I'm assuming that you can write the file without the reprojection filter.
+> If that is indeed the case, then Adam is right and some point is being
+> reprojected to an infinite Z value (points that are unable to be
+> transformed are dropped).  I'm not sure what you would like in the end, but
+> you can write the output to some format you can examine (text, for
+> example), to determine the points that are problematic.  There could also
+> be some problem with the proj specification you've provided, but I'm not
+> familiar enough with those details to be of much help.
+>
+> Best,
+>
+> On Thu, Aug 22, 2019 at 1:36 AM adam steer <adam.d.steer at gmail.com> wrote:
+>
+>> Hi Rebecca
+>>
+>>
+>>> I ran lasinfo on the las file and get the following result:
+>>> Z                3696      58127
+>>>
+>>
+>> Ah those are unscaled values - so scaled to metres it would be 36.96 and
+>> 581.27?
+>>
+>> What would be the best way to determine if the geoid is introducing any
+>>> divide-by-zeros?
+>>>
+>>> I loaded the gtx into postgis and these are the results from using the
+>>> ST_SummaryStats:
+>>>
+>>> 'count' 'sum' 'mean' 'stddev' 'min' 'max'
+>>> 14364 | 4215.86899040639 | 0.293502435979281 | 0.0288004424645927 |
+>>> 0.17399999499321 | 0.49099999666214
+>>>
+>>
+>> That’s a cool way to do it! I wondered if there were null or nodata
+>> values in the gtx file for some of your las points, but it appears not…
+>>
+>> My last easy check idea is to make sure all the las points sit within
+>> the moturiki 1953 region.
+>>
+>> I don’t feel like I’m being super helpful, sorry - just walking down a
+>> list of things that might produce an ‘-Infinity'….
+>>
+>> Regards,
+>>
+>> Adam
+>>
+>>
+>>>
+>>> Cheers
+>>>
+>>> Rebecca
+>>>
+>>> On Thu, Aug 22, 2019 at 3:50 PM adam steer <adam.d.steer at gmail.com>
+>>> wrote:
+>>>
+>>>> Hi Rebecca
+>>>>
+>>>> What are the min and max Z values for your laz file? does it have a
+>>>> sneaky infinite value in there?
+>>>>
+>>>> …and is your geoid grid introducing any divide-by-zeros to create
+>>>> un-handleable values?
+>>>>
+>>>> Cheers
+>>>>
+>>>> Adam
+>>>>
+>>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/0a287404/attachment-0001.html>
+
+From andrew.bell.ia at gmail.com  Thu Aug 22 04:47:52 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 22 Aug 2019 07:47:52 -0400
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CAN9Cm=k1=fEOQr+W7rzbz+=xjQ0e6JM9Evj8Hn1gZf_4YPhB1A@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+ <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+ <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+ <CACJ51z2+BkRKM2sRArm1A8MouFd+D7+GT=409JvtN8SzgETqdQ@mail.gmail.com>
+ <CAN9Cm=k1=fEOQr+W7rzbz+=xjQ0e6JM9Evj8Hn1gZf_4YPhB1A@mail.gmail.com>
+Message-ID: <CACJ51z2tHGWOvV4aTqYzwW5YKur46qSP7-VH1CBujN=z-R3sFg@mail.gmail.com>
+
+This is a good thought, Thejus, but that issue only comes up when using the
+--json option with PDAL translate.  Also, even if options were getting
+dropped/replaced, changing the scale won't ever get you Inf values.  They
+almost always come from strange reprojections.
+
+If anyone is interested, this is the issue that Thejus was referring to:
+https://github.com/PDAL/PDAL/issues/2538 .  I haven't had a chance to fix
+it yet.
+
+On Thu, Aug 22, 2019 at 7:33 AM thejus kambi <thejus.kambi at gmail.com> wrote:
+
+> Hello Andrew,
+>
+> For one of my queries, you had mentioned that the readers and writers
+> can/will be replaced by command line parameters. Do you think something
+> like that is happening?
+> The query was for "translate" command and not pipeline.
+>
+> Warm regards,
+> Thejus
+>
+> On Thu, Aug 22, 2019 at 6:02 AM Andrew Bell <andrew.bell.ia at gmail.com>
+> wrote:
+>
+>>
+>> Hi Rebecca,
+>>
+>> I'm assuming that you can write the file without the reprojection
+>> filter.  If that is indeed the case, then Adam is right and some point is
+>> being reprojected to an infinite Z value (points that are unable to be
+>> transformed are dropped).  I'm not sure what you would like in the end, but
+>> you can write the output to some format you can examine (text, for
+>> example), to determine the points that are problematic.  There could also
+>> be some problem with the proj specification you've provided, but I'm not
+>> familiar enough with those details to be of much help.
+>>
+>> Best,
+>>
+>> On Thu, Aug 22, 2019 at 1:36 AM adam steer <adam.d.steer at gmail.com>
+>> wrote:
+>>
+>>> Hi Rebecca
+>>>
+>>>
+>>>> I ran lasinfo on the las file and get the following result:
+>>>> Z                3696      58127
+>>>>
+>>>
+>>> Ah those are unscaled values - so scaled to metres it would be 36.96 and
+>>> 581.27?
+>>>
+>>> What would be the best way to determine if the geoid is introducing any
+>>>> divide-by-zeros?
+>>>>
+>>>> I loaded the gtx into postgis and these are the results from using the
+>>>> ST_SummaryStats:
+>>>>
+>>>> 'count' 'sum' 'mean' 'stddev' 'min' 'max'
+>>>> 14364 | 4215.86899040639 | 0.293502435979281 | 0.0288004424645927 |
+>>>> 0.17399999499321 | 0.49099999666214
+>>>>
+>>>
+>>> That’s a cool way to do it! I wondered if there were null or nodata
+>>> values in the gtx file for some of your las points, but it appears not…
+>>>
+>>> My last easy check idea is to make sure all the las points sit within
+>>> the moturiki 1953 region.
+>>>
+>>> I don’t feel like I’m being super helpful, sorry - just walking down a
+>>> list of things that might produce an ‘-Infinity'….
+>>>
+>>> Regards,
+>>>
+>>> Adam
+>>>
+>>>
+>>>>
+>>>> Cheers
+>>>>
+>>>> Rebecca
+>>>>
+>>>> On Thu, Aug 22, 2019 at 3:50 PM adam steer <adam.d.steer at gmail.com>
+>>>> wrote:
+>>>>
+>>>>> Hi Rebecca
+>>>>>
+>>>>> What are the min and max Z values for your laz file? does it have a
+>>>>> sneaky infinite value in there?
+>>>>>
+>>>>> …and is your geoid grid introducing any divide-by-zeros to create
+>>>>> un-handleable values?
+>>>>>
+>>>>> Cheers
+>>>>>
+>>>>> Adam
+>>>>>
+>>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>>
+>> --
+>> Andrew Bell
+>> andrew.bell.ia at gmail.com
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/554b2c70/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Aug 22 12:05:53 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 22 Aug 2019 15:05:53 -0400
+Subject: [pdal] PDAL 2.0 Released
+Message-ID: <CACJ51z1kekPnhA_BcpJG_5BPm9Y7OHzfFr3yb8LDfr_2h=Uj5Q@mail.gmail.com>
+
+All,
+
+We've released PDAL version 2.0 for download
+
+https://github.com/PDAL/PDAL/releases/tag/2.0.0
+
+This version provides support for the E57 format and provides more tools
+for point segmentation.  It also provides native support for the PCD
+format, which previously required the PCL plugin.
+
+Note that if you want python support, you must now use python 3.  You must
+also use GDAL of at least version 2.2.
+
+Docker images will follow soon.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190822/80046c7d/attachment.html>
+
+From andrew.bell.ia at gmail.com  Fri Aug 23 06:00:14 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Fri, 23 Aug 2019 09:00:14 -0400
+Subject: [pdal] PDAL Version 2.0.1
+Message-ID: <CACJ51z3+od3i_eSuuOHdOxhaU=_yjpvjTi_t-a0m73kpAPG5ow@mail.gmail.com>
+
+All,
+
+I mistagged version 2.0.0 yesterday, so it has been retracted and replaced
+with version 2.0.1.
+
+Thanks,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190823/2358020a/attachment.html>
+
+From rebecca at clarke.net.nz  Thu Aug 29 04:11:26 2019
+From: rebecca at clarke.net.nz (Rebecca Clarke)
+Date: Thu, 29 Aug 2019 23:11:26 +1200
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CACJ51z2tHGWOvV4aTqYzwW5YKur46qSP7-VH1CBujN=z-R3sFg@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+ <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+ <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+ <CACJ51z2+BkRKM2sRArm1A8MouFd+D7+GT=409JvtN8SzgETqdQ@mail.gmail.com>
+ <CAN9Cm=k1=fEOQr+W7rzbz+=xjQ0e6JM9Evj8Hn1gZf_4YPhB1A@mail.gmail.com>
+ <CACJ51z2tHGWOvV4aTqYzwW5YKur46qSP7-VH1CBujN=z-R3sFg@mail.gmail.com>
+Message-ID: <CANY3h+Q+avHBq6x9=Pn3Ga6hPFYRi7U=AntjXHA4bb89x1aU+A@mail.gmail.com>
+
+Thanks for all your help and suggestions.
+After a short break, I relooked at the issue today and found it to be a
+case of mistaken spatial reference system.
+The grid and the las data had different srs which meant there were points
+falling outside of the moturiki 1953 region.
+In effect creating infinte values.
+
+
+
+On Thu, Aug 22, 2019 at 11:48 PM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+> This is a good thought, Thejus, but that issue only comes up when using
+> the --json option with PDAL translate.  Also, even if options were getting
+> dropped/replaced, changing the scale won't ever get you Inf values.  They
+> almost always come from strange reprojections.
+>
+> If anyone is interested, this is the issue that Thejus was referring to:
+> https://github.com/PDAL/PDAL/issues/2538 .  I haven't had a chance to fix
+> it yet.
+>
+> On Thu, Aug 22, 2019 at 7:33 AM thejus kambi <thejus.kambi at gmail.com>
+> wrote:
+>
+>> Hello Andrew,
+>>
+>> For one of my queries, you had mentioned that the readers and writers
+>> can/will be replaced by command line parameters. Do you think something
+>> like that is happening?
+>> The query was for "translate" command and not pipeline.
+>>
+>> Warm regards,
+>> Thejus
+>>
+>> On Thu, Aug 22, 2019 at 6:02 AM Andrew Bell <andrew.bell.ia at gmail.com>
+>> wrote:
+>>
+>>>
+>>> Hi Rebecca,
+>>>
+>>> I'm assuming that you can write the file without the reprojection
+>>> filter.  If that is indeed the case, then Adam is right and some point is
+>>> being reprojected to an infinite Z value (points that are unable to be
+>>> transformed are dropped).  I'm not sure what you would like in the end, but
+>>> you can write the output to some format you can examine (text, for
+>>> example), to determine the points that are problematic.  There could also
+>>> be some problem with the proj specification you've provided, but I'm not
+>>> familiar enough with those details to be of much help.
+>>>
+>>> Best,
+>>>
+>>> On Thu, Aug 22, 2019 at 1:36 AM adam steer <adam.d.steer at gmail.com>
+>>> wrote:
+>>>
+>>>> Hi Rebecca
+>>>>
+>>>>
+>>>>> I ran lasinfo on the las file and get the following result:
+>>>>> Z                3696      58127
+>>>>>
+>>>>
+>>>> Ah those are unscaled values - so scaled to metres it would be 36.96
+>>>> and 581.27?
+>>>>
+>>>> What would be the best way to determine if the geoid is introducing any
+>>>>> divide-by-zeros?
+>>>>>
+>>>>> I loaded the gtx into postgis and these are the results from using the
+>>>>> ST_SummaryStats:
+>>>>>
+>>>>> 'count' 'sum' 'mean' 'stddev' 'min' 'max'
+>>>>> 14364 | 4215.86899040639 | 0.293502435979281 | 0.0288004424645927 |
+>>>>> 0.17399999499321 | 0.49099999666214
+>>>>>
+>>>>
+>>>> That’s a cool way to do it! I wondered if there were null or nodata
+>>>> values in the gtx file for some of your las points, but it appears not…
+>>>>
+>>>> My last easy check idea is to make sure all the las points sit within
+>>>> the moturiki 1953 region.
+>>>>
+>>>> I don’t feel like I’m being super helpful, sorry - just walking down a
+>>>> list of things that might produce an ‘-Infinity'….
+>>>>
+>>>> Regards,
+>>>>
+>>>> Adam
+>>>>
+>>>>
+>>>>>
+>>>>> Cheers
+>>>>>
+>>>>> Rebecca
+>>>>>
+>>>>> On Thu, Aug 22, 2019 at 3:50 PM adam steer <adam.d.steer at gmail.com>
+>>>>> wrote:
+>>>>>
+>>>>>> Hi Rebecca
+>>>>>>
+>>>>>> What are the min and max Z values for your laz file? does it have a
+>>>>>> sneaky infinite value in there?
+>>>>>>
+>>>>>> …and is your geoid grid introducing any divide-by-zeros to create
+>>>>>> un-handleable values?
+>>>>>>
+>>>>>> Cheers
+>>>>>>
+>>>>>> Adam
+>>>>>>
+>>>>> _______________________________________________
+>>>> pdal mailing list
+>>>> pdal at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>>
+>>>
+>>> --
+>>> Andrew Bell
+>>> andrew.bell.ia at gmail.com
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190829/5db74f8c/attachment.html>
+
+From adam.d.steer at gmail.com  Thu Aug 29 04:40:56 2019
+From: adam.d.steer at gmail.com (adam steer)
+Date: Thu, 29 Aug 2019 14:40:56 +0300
+Subject: [pdal] writers.las unable to convert scaled value
+In-Reply-To: <CANY3h+Q+avHBq6x9=Pn3Ga6hPFYRi7U=AntjXHA4bb89x1aU+A@mail.gmail.com>
+References: <CANY3h+R=uq1AYY9p3U=du2EJQQ2rHfmN8+MM+mtfec134-oauw@mail.gmail.com>
+ <CAFORoygYDSSXwLqBWiR-mY5roPLQUR0BQsVM_w1XT0DziaAR8Q@mail.gmail.com>
+ <CANY3h+RLNdeSkus+7y0TZ+SOWhpvPvj3Nv_EoLHonmHJvMV6Mw@mail.gmail.com>
+ <CAFORoyi_Sv3dkVCUtx2OQMxwcqVS7+d2O8Y7fJbcwVOOkzUYUA@mail.gmail.com>
+ <CACJ51z2+BkRKM2sRArm1A8MouFd+D7+GT=409JvtN8SzgETqdQ@mail.gmail.com>
+ <CAN9Cm=k1=fEOQr+W7rzbz+=xjQ0e6JM9Evj8Hn1gZf_4YPhB1A@mail.gmail.com>
+ <CACJ51z2tHGWOvV4aTqYzwW5YKur46qSP7-VH1CBujN=z-R3sFg@mail.gmail.com>
+ <CANY3h+Q+avHBq6x9=Pn3Ga6hPFYRi7U=AntjXHA4bb89x1aU+A@mail.gmail.com>
+Message-ID: <CAFORoyj7sXxbdvVZh9dETK1Q_Dtn02p1oj81OzC7K=Ayk+U0QQ@mail.gmail.com>
+
+Great to hear you’ve found a resolution, and happy to help!
+
+Regards,
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190829/0c12b264/attachment.html>
+

@@ -1,0 +1,721 @@
+From Mikael.Rittri at carmenta.com  Thu Apr  2 03:19:14 2015
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Thu, 2 Apr 2015 10:19:14 +0000
+Subject: [Proj] Emulating Lambert Conic Conformal (2SP Michigan) in PROJ.4.
+Message-ID: <E4AB3DD44D22854B819908379DE4AD493DE401E0@SETHNWS023.carmenta.se>
+
+Almost a year ago, Even Rouault wrote
+
+> I've followed the update process of the EPSG SRS database to latest
+> v8.4, and just committed the updated files into libgeotiff, GDAL and
+> PROJ trunk. Also submitted to PostGIS.
+
+> From what I can see, among many changes and additions, 2 new projection 
+> methods have been added:
+> * 1051,Lambert Conic Conformal (2SP Michigan)
+> --> looks very close to standard "Lambert Conic Conformal (2SP)", with
+> the addition of a new parameter K, the ellipsoid scaling factor.
+> * 1052,Colombia Urban
+>
+> I don't think any of those 2 new methods are currently handled by PROJ,
+> so the new PCS based on those projection methods (3 Michigan SRS, and
+> several dozains of Colombia PCS) will not be handled by GDAL nor PROJ.
+(archived at http://lists.maptools.org/pipermail/proj/2014-May/006855.html).
+
+
+I have been thinking about how the new Lambert Michigan systems could
+be handled in PROJ.4, and I have found three ways that do not require
+new functionality in PROJ.4. 
+
+
+A) One could drop the ellipsoid scaling factor K from the projection
+definitions, if one also replaces the Clarke 1866 ellipsoid with a
+user-defined ellipsoid that is K times larger than Clarke 1866. Using
+a modified Clarke 1866 is how these systems have been described by
+Michigan authorities,
+http://www.michigan.gov/documents/DNR_Map_Proj_and_MI_Georef_Info_20889_7.pdf.
+Such a modified Clarke ought to work together with the usual +datum=NAD27
+one would use for NAD27-based CRS definitions, since grid shift files do
+not care about the ellipsoid size. 
+     However, this method does not really reflect how the new Michigan CRS
+instances are defined in EPSG, so it is kind of cheating. 
+
+
+B) More EPSG-conformant would be to use +proj=lcc with two standard
+parallels, lat_1 and lat_2, as well as a scale factor, k_0. The value
+of the ellipsoid scaling factor K is simply assigned to k_0. PROJ.4 has
+always supported combining two standard parallels with a scale factor
+(for a suitable value of "always"). But one has to remember to convert
+the False Easting from US survey feet to metres. 
+
+Definitions with example conversions:
+
+NAD27 / Michigan North, EPSG:6966
+>proj +proj=lcc +ellps=clrk66 +lat_0=44.78333333333333 +lon_0=-87.0 +lat_1=45.4833333333333 +lat_2=47.08333333333333 +x_0=609601.2192 +y_0=0 +k_0=1.0000382 +units=us-ft +datum=NAD27 +no_defs
+
+89W 48N
+1510177.73      1179359.09
+
+NAD27 / Michigan Central, EPSG:6201
+>proj +proj=lcc +ellps=clrk66 +lat_0=43.31666666666667 +lon_0=-84.33333333333333 +lat_1=44.18333333333333 +lat_2=45.7 +x_0=609601.2192 +y_0=0 +k_0=1.0000382 +units=us-ft +datum=NAD27 +no_defs
+
+83d10'W 43d45'N
+2308335.75      160210.48
+
+NAD27 / Michigan South, EPSG:6202
+>proj +proj=lcc +ellps=clrk66 +lat_0=41.5 +lon_0=-84.33333333333333 +lat_1=42.1 +lat_2=43.66666666666667 +x_0=609601.2192 +y_0=0 +k_0=1.0000382 +units=us-ft +datum=NAD27 +no_defs
+
+86W 42N
+1546955.83      186706.19
+
+For Michigan Central, the example conversion above agrees with 
+the test example in IOGP Guidance Note 7.2, section 1.3.1.5, http://www.ogp.org.uk/pubs/373-07-2.pdf. For the two other systems,
+I do not have test data, so there is always a risk that I made 
+some blunder, but the basic design seems to work. 
+
+
+C) For every Lambert Conic Conformal (2SP Michigan) projection
+instance intended for a given ellipsoid, it is possible to
+find an equivalent definition using the ordinary Lambert Conic
+Conformal (2SP) method. The idea is that the ellipsoid scaling
+factor K can be emulated by tweaking the two standard parallels.
+While this technique is unnecessary in PROJ.4, it could be useful
+in other software that does not support giving both scale factor
+and two standard parallels to an LCC projection.
+
+I have amused myself by trying this, and I found these values for
+the tweaked standard parallels:
+
+NAD27 / Michigan North:   45.6608876152 and 46.9073300238.
+NAD27 / Michigan Central: 44.3736977068 and 45.5111167520.
+NAD27 / Michigan South:   42.2824326153 and 43.4856140554. 
+
+Other projection parameters should remain the same, except for
+the dropped K. So we get the following ordinary 2SP definitions
+(with the same example conversions as before):
+
+NAD27 / Michigan North
+>proj +proj=lcc +ellps=clrk66 +lat_0=44.78333333333333 +lon_0=-87.0 +lat_1=45.6608876152 +lat_2=46.9073300238 +x_0=609601.2192 +y_0=0 +units=us-ft +datum=NAD27 +no_defs
+
+89W 48N
+1510177.73      1179359.09
+
+NAD27 / Michigan Central
+>proj +proj=lcc +ellps=clrk66 +lat_0=43.31666666666667 +lon_0=-84.33333333333333 +lat_1=44.3736977068 +lat_2=45.5111167520 +x_0=609601.2192 +y_0=0 +units=us-ft +datum=NAD27 +no_defs
+
+83d10'W 43d45'N
+2308335.75      160210.48
+
+NAD27 / Michigan South
+>proj +proj=lcc +ellps=clrk66 +lat_0=41.5 +lon_0=-84.33333333333333 +lat_1=42.2824326153 +lat_2=43.4856140554 +x_0=609601.2192 +y_0=0 +units=us-ft +datum=NAD27 +no_defs
+
+86W 42N
+1546955.83      186706.19
+
+Again, we get the correct result for Michigan Central. For the two other
+systems, the results agree with those from method B), so if I have made
+blunders, they are at least consistent blunders! 
+
+
+Conclusions: The definitions of method B) or C) could be added to the
+epsg file of PROJ.4. But I assume it would have to be done manually,
+until libgeotiff can extract correct definitions of LCC (2SP Michigan)
+instances directly from the EPSG database. (I believe the epsg file in
+PROJ.4 is generated from the libgeotiff .csv files for EPSG.) I don't
+know if libgeotiff can do that extraction yet. Nor do I know how
+WKT for LCC (2SP Michigan) ought to look, nor whether GDAL/OGR
+has any support for LCC (2SP Michigan) yet. 
+
+One could hope that the EPSG committee would replace all LCC (2SP Michigan)
+definitions by the equivalent ordinary LCC (2SP) definitions. But the EPSG
+committee doesn't publish workarounds (unless it is an official workaround
+defined by a national mapping agency), so I don't think they would like to
+do that.
+
+Best regards,
+
+Mikael Rittri
+Carmenta
+Sweden
+http://www.carmenta.com
+
+
+
+From andrea.aime at geo-solutions.it  Mon Apr  6 10:25:53 2015
+From: andrea.aime at geo-solutions.it (Andrea Aime)
+Date: Mon, 6 Apr 2015 19:25:53 +0200
+Subject: [Proj] Why is cs2cs not compensating for the difference between
+ ellispoid and sphere?
+Message-ID: <CA+nxMTu4EMHGVUx05JYFXpDmZmrgY_pUqrS3xAj8UYq5_PTE7g@mail.gmail.com>
+
+Hi,
+does anybody know why when going from WGS84 to the 1924 authalic sphere
+cs2cs is not compensating for the difference in flattening (and thus not
+changing a bit
+the latitute)?
+
+cs2cs -v +datum=WGS84 +proj=lonlat +to +proj=lonlat  +a=6371228 +b=6371228
++units=m +no_defs
+# ---- From Coordinate System ----
+#Lat/long (Geodetic)
+#
+# +datum=WGS84 +proj=lonlat +ellps=WGS84 +towgs84=0,0,0
+# ---- To Coordinate System ----
+#Lat/long (Geodetic)
+#
+# +proj=lonlat +a=6371228 +b=6371228 +units=m +no_defs
+10 10
+10dE 10dN 0.000
+
+I was expecting this behavior only when adding +nadgrids=@nul (as reported
+in the
+faq, http://proj.maptools.org/faq.html, which is using a similar command
+line...).
+
+What am I missing?
+
+Cheers
+Andrea
+
+-- 
+==
+GeoServer Professional Services from the experts! Visit
+http://goo.gl/NWWaa2 for more information.
+==
+
+Ing. Andrea Aime
+@geowolf
+Technical Lead
+
+GeoSolutions S.A.S.
+Via Poggio alle Viti 1187
+55054  Massarosa (LU)
+Italy
+phone: +39 0584 962313
+fax: +39 0584 1660272
+mob: +39  339 8844549
+
+http://www.geo-solutions.it
+http://twitter.com/geosolutions_it
+
+*AVVERTENZE AI SENSI DEL D.Lgs. 196/2003*
+
+Le informazioni contenute in questo messaggio di posta elettronica e/o
+nel/i file/s allegato/i sono da considerarsi strettamente riservate. Il
+loro utilizzo è consentito esclusivamente al destinatario del messaggio,
+per le finalità indicate nel messaggio stesso. Qualora riceviate questo
+messaggio senza esserne il destinatario, Vi preghiamo cortesemente di
+darcene notizia via e-mail e di procedere alla distruzione del messaggio
+stesso, cancellandolo dal Vostro sistema. Conservare il messaggio stesso,
+divulgarlo anche in parte, distribuirlo ad altri soggetti, copiarlo, od
+utilizzarlo per finalità diverse, costituisce comportamento contrario ai
+principi dettati dal D.Lgs. 196/2003.
+
+
+
+The information in this message and/or attachments, is intended solely for
+the attention and use of the named addressee(s) and may be confidential or
+proprietary in nature or covered by the provisions of privacy act
+(Legislative Decree June, 30 2003, no.196 - Italy's New Data Protection
+Code).Any use not in accord with its purpose, any disclosure, reproduction,
+copying, distribution, or either dissemination, either whole or partial, is
+strictly forbidden except previous formal approval of the named
+addressee(s). If you are not the intended recipient, please contact
+immediately the sender by telephone, fax or e-mail and delete the
+information in this message that has been received in error. The sender
+does not give any warranty or accept liability as the content, accuracy or
+completeness of sent messages and accepts no responsibility  for changes
+made after they were sent or for other risks which arise as a result of
+e-mail transmission, viruses, etc.
+
+-------------------------------------------------------
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20150406/09f453e6/attachment.html>
+
+From even.rouault at spatialys.com  Mon Apr  6 10:54:32 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 6 Apr 2015 19:54:32 +0200
+Subject: [Proj] Why is cs2cs not compensating for the difference between
+	ellispoid and sphere?
+In-Reply-To: <CA+nxMTu4EMHGVUx05JYFXpDmZmrgY_pUqrS3xAj8UYq5_PTE7g@mail.gmail.com>
+References: <CA+nxMTu4EMHGVUx05JYFXpDmZmrgY_pUqrS3xAj8UYq5_PTE7g@mail.gmail.com>
+Message-ID: <201504061954.32618.even.rouault@spatialys.com>
+
+Le lundi 06 avril 2015 19:25:53, Andrea Aime a écrit :
+> Hi,
+> does anybody know why when going from WGS84 to the 1924 authalic sphere
+> cs2cs is not compensating for the difference in flattening (and thus not
+> changing a bit
+> the latitute)?
+> 
+> cs2cs -v +datum=WGS84 +proj=lonlat +to +proj=lonlat  +a=6371228 +b=6371228
+> +units=m +no_defs
+> # ---- From Coordinate System ----
+> #Lat/long (Geodetic)
+> #
+> # +datum=WGS84 +proj=lonlat +ellps=WGS84 +towgs84=0,0,0
+> # ---- To Coordinate System ----
+> #Lat/long (Geodetic)
+> #
+> # +proj=lonlat +a=6371228 +b=6371228 +units=m +no_defs
+> 10 10
+> 10dE 10dN 0.000
+> 
+> I was expecting this behavior only when adding +nadgrids=@nul (as reported
+> in the
+> faq, http://proj.maptools.org/faq.html, which is using a similar command
+> line...).
+> 
+> What am I missing?
+
+Andrea,
+
+this must be linked to 
+http://trac.osgeo.org/proj/wiki/FAQ#WhydoIgetdifferentresultswith4.5.0and4.6.0
+
+Basically you need to add +towgs84=0,0,0 to the target coordinate system so as 
+to have a full datum definition.
+
+$ cs2cs +datum=WGS84 +proj=lonlat +to +proj=lonlat  +a=6371228 +b=6371228 
++towgs84=0,0,0
+10 10
+10dE	9d56'3.819"N 6269.402
+
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From daniel.buse at giga-infosystems.com  Mon Apr 13 07:12:46 2015
+From: daniel.buse at giga-infosystems.com (Daniel Buse)
+Date: Mon, 13 Apr 2015 16:12:46 +0200
+Subject: [Proj] cs2cs differences between Windows and Linux
+Message-ID: <552BCEDE.1060509@giga-infosystems.com>
+
+Hello,
+
+I noticed some small discrepancies in cs2cs between Windows and Linux.
+
+Version for both is "Rel. 4.8.0, 6 March 2012"
+
+Command used:
+cs2cs -f "%.17g" +proj=tmerc +lat_0=0 +lon_0=15 +k=1 +x_0=5500000 +y_0=0 
++ellps=bessel +datum=potsdam +units=m +no_defs +to +proj=utm +zone=33 
++ellps=WGS84 +datum=WGS84 +units=m +no_defs
+
+Coordinates used:
+5398786.5625 5672047.509765625
+
+Result Windows:
+398690.85663695924 5670224.1293941503
+
+Result Linux:
+398690.85663695924 5670224.1293941513
+
+Difference is with 5670224.1293941503 in the second to last place.
+
+Can anybody explain why this might be happening and what I could do 
+about it?
+
+Best regards,
+Daniel
+
+
+From even.rouault at spatialys.com  Mon Apr 13 07:20:45 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 13 Apr 2015 16:20:45 +0200
+Subject: [Proj] cs2cs differences between Windows and Linux
+In-Reply-To: <552BCEDE.1060509@giga-infosystems.com>
+References: <552BCEDE.1060509@giga-infosystems.com>
+Message-ID: <201504131620.45893.even.rouault@spatialys.com>
+
+Le lundi 13 avril 2015 16:12:46, Daniel Buse a écrit :
+> Hello,
+> 
+> I noticed some small discrepancies in cs2cs between Windows and Linux.
+> 
+> Version for both is "Rel. 4.8.0, 6 March 2012"
+> 
+> Command used:
+> cs2cs -f "%.17g" +proj=tmerc +lat_0=0 +lon_0=15 +k=1 +x_0=5500000 +y_0=0
+> +ellps=bessel +datum=potsdam +units=m +no_defs +to +proj=utm +zone=33
+> +ellps=WGS84 +datum=WGS84 +units=m +no_defs
+> 
+> Coordinates used:
+> 5398786.5625 5672047.509765625
+> 
+> Result Windows:
+> 398690.85663695924 5670224.1293941503
+> 
+> Result Linux:
+> 398690.85663695924 5670224.1293941513
+> 
+> Difference is with 5670224.1293941503 in the second to last place.
+
+The difference occurs at the 16th decimal place which is the limit of 
+significance of 64bit floating point numbers. The reason for the difference is 
+probably a different set of floating point instructions and optimizations used 
+by the compilers (SSE vs x87, etc...). Nothing to really worry about. You 
+should likely reduce your "%.17g" to something smaller as you probably don't 
+need a precision of 0,1 nanometers as you currently ask for ;-)
+
+> 
+> Can anybody explain why this might be happening and what I could do
+> about it?
+> 
+> Best regards,
+> Daniel
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From Michel.Dastous at bentley.com  Mon Apr 13 08:31:00 2015
+From: Michel.Dastous at bentley.com (Michel.Dastous at bentley.com)
+Date: Mon, 13 Apr 2015 15:31:00 +0000
+Subject: [Proj] ACT Standard Grid (AGD66)
+Message-ID: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+
+Hi,
+
+I'm currently trying to publish an Oracle dataset marked as SRID 82474 and cannot determine the proper proj4 init string corresponding to it.  I was able to extract the WKT definition from Oracle:
+
+
+PROJCS["ACT Standard Grid (AGD66)", GEOGCS [ "Australian Geodetic 1966 ACT", DATUM ["AGD 66 ACT", SPHEROID ["Australian", 6378160, 298.25],-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96], PRIMEM [ "Greenwich", 0.000000 ], UNIT ["Decimal Degree", 0.01745329251994330]], PROJECTION ["Transverse Mercator"], PARAMETER ["Scale_Factor", 1.000086], PARAMETER ["Central_Meridian", 149.0092948333], PARAMETER ["False_Easting", 200000.000000], PARAMETER ["False_Northing", 4510193.4939], UNIT ["Meter", 1.000000000000]]
+
+The best we have is:
++proj=tmerc +lon_0=149.0092948333 +k=1.000086 +x_0=200000 +y_0=4510193.4939 +ellps=aust_SA +towgs84=-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96 +units=m +no_defs  <>
+
+Unfortunately this produce a displacement of around 200 meters when  reprojected to Bing coordinate system.
+
+Can anyone help?
+
+Thanks,
+
+Michel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20150413/c5622fcd/attachment.html>
+
+From peifer at gmx.eu  Mon Apr 13 10:39:50 2015
+From: peifer at gmx.eu (Hermann Peifer)
+Date: Mon, 13 Apr 2015 19:39:50 +0200
+Subject: [Proj] ACT Standard Grid (AGD66)
+In-Reply-To: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+References: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+Message-ID: <552BFF66.40006@gmx.eu>
+
+
+About +towgs84=-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96
+
+The EPSG database has pretty similar values for coordinate operations 
+1458 and 1665, see e.g. at 
+http://epsg-registry.org/export.htm?wkt=urn:ogc:def:coordinateOperation:EPSG::1665
+
+These values are however given according to METHOD: Coordinate Frame 
+Rotation. You'd need to revert the sign of the rotation values, as 
+explained in 
+https://trac.osgeo.org/proj/wiki/GenParms#towgs84-DatumtransformationtoWGS84, 
+so you should use
+
++towgs84=-129.19,-41.21,130.73,.25,.37,.33,-2.96
+
+I am however not so sure if this will help you to get rid of a 200m offset.
+
+Hermann
+
+On 2015-04-13 17:31, Michel.Dastous at bentley.com wrote:
+> Hi,
+>
+> I’m currently trying to publish an Oracle dataset marked as SRID 82474
+> and cannot determine the proper proj4 init string corresponding to it.
+> I was able to extract the WKT definition from Oracle:
+>
+> /PROJCS["ACT Standard Grid (AGD66)", GEOGCS [ "Australian Geodetic 1966
+> ACT", DATUM ["AGD 66 ACT", SPHEROID ["Australian", 6378160,
+> 298.25],-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96], PRIMEM [
+> "Greenwich", 0.000000 ], UNIT ["Decimal Degree", 0.01745329251994330]],
+> PROJECTION ["Transverse Mercator"], PARAMETER ["Scale_Factor",
+> 1.000086], PARAMETER ["Central_Meridian", 149.0092948333], PARAMETER
+> ["False_Easting", 200000.000000], PARAMETER ["False_Northing",
+> 4510193.4939], UNIT ["Meter", 1.000000000000]]/
+>
+> The best we have is:
+>
+> /+proj=tmerc +lon_0=149.0092948333 +k=1.000086 +x_0=200000
+> +y_0=4510193.4939 +ellps=aust_SA
+> +towgs84=-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96 +units=m +no_defs  <>/
+>
+> Unfortunately this produce a displacement of around 200 meters when
+>   reprojected to Bing coordinate system.
+>
+> Can anyone help?
+>
+> Thanks,
+>
+> Michel
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+
+From andre+joost at nurfuerspam.de  Mon Apr 13 11:39:37 2015
+From: andre+joost at nurfuerspam.de (Andre Joost)
+Date: Mon, 13 Apr 2015 20:39:37 +0200
+Subject: [Proj] ACT Standard Grid (AGD66)
+In-Reply-To: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+References: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+Message-ID: <mgh2ng$3ko$1@ger.gmane.org>
+
+Am 13.04.2015 um 17:31 schrieb Michel.Dastous at bentley.com:
+
+>
+> PROJCS["ACT Standard Grid (AGD66)", GEOGCS [ "Australian Geodetic
+> 1966 ACT", DATUM ["AGD 66 ACT", SPHEROID ["Australian", 6378160,
+> 298.25],-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96], PRIMEM [
+> "Greenwich", 0.000000 ], UNIT ["Decimal Degree",
+> 0.01745329251994330]], PROJECTION ["Transverse Mercator"], PARAMETER
+> ["Scale_Factor", 1.000086], PARAMETER ["Central_Meridian",
+> 149.0092948333], PARAMETER ["False_Easting", 200000.000000],
+> PARAMETER ["False_Northing", 4510193.4939], UNIT ["Meter",
+> 1.000000000000]]
+>
+> The best we have is: +proj=tmerc +lon_0=149.0092948333 +k=1.000086
+> +x_0=200000 +y_0=4510193.4939 +ellps=aust_SA
+> +towgs84=-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96 +units=m +no_defs
+> <>
+>
+> Unfortunately this produce a displacement of around 200 meters when
+> reprojected to Bing coordinate system.
+
+What projection string do you use for the "Bing coordinate system"?
+
+If that has no +towgs84, then no datum shift will be applied. From the 
+EPSG database, I have these datum shift parameters in proj.4 notation:
+
+tfm1108: +towgs84=-133,-48,148,0,0,0,0 
+replaced by 6905 on 19.11.2014
+
+tfm1665: +towgs84=-129.193,-41.212,130.73,0.246,0,374,0.329,-2.955 
+Capital Territory
+
+tfm1666: +towgs84=-119.353,-48.301,139.484,0.415,0.26,0.437,-0.613 
+NSW,Victoria
+
+tfm1667: +towgs84=-120.271,-64.543,161.632,0.217,0.067,0.129,2.499 Tasmania
+
+tfm1668: +towgs84=-124.133,-42.003,137.4,-0.008,0.557,0.178,-1,854 
+Northern Territory
+
+tfm5841: +towgs84=-124,-60,154,0,0,0,0                             Papua 
+New Guinea
+
+tfm15788: +towgs84=-127.8,-52.3,152.9,0,0,0,0
+tfm15980: +towgs84=-117.808,-51.536,137.784,0.303,0.446,0.234,-0.29
+
+tfm6905: +towgs84=-128,-52,153,0,0,0,0 
+replaces 1108 from 19.11.2014
+
+
+HTH,
+André Joost
+
+
+
+From richard.greenwood at gmail.com  Mon Apr 13 17:18:23 2015
+From: richard.greenwood at gmail.com (Richard Greenwood)
+Date: Mon, 13 Apr 2015 18:18:23 -0600
+Subject: [Proj] ACT Standard Grid (AGD66)
+In-Reply-To: <552BFF66.40006@gmx.eu>
+References: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+	<552BFF66.40006@gmx.eu>
+Message-ID: <CAHBySPY+WmY8PGBYvzBrpa_sO-8VZv6Fdi8r5snJLLFHC6=aKA@mail.gmail.com>
+
+On Mon, Apr 13, 2015 at 11:39 AM, Hermann Peifer <peifer at gmx.eu> wrote:
+
+>
+> About +towgs84=-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96
+>
+> The EPSG database has pretty similar values for coordinate operations
+> 1458 and 1665, see e.g. at
+>
+> http://epsg-registry.org/export.htm?wkt=urn:ogc:def:coordinateOperation:EPSG::1665
+>
+> These values are however given according to METHOD: Coordinate Frame
+> Rotation. You'd need to revert the sign of the rotation values, as
+> explained in
+>
+> https://trac.osgeo.org/proj/wiki/GenParms#towgs84-DatumtransformationtoWGS84
+> ,
+> so you should use
+>
+> +towgs84=-129.19,-41.21,130.73,.25,.37,.33,-2.96
+>
+
+If you reverse the sign then shouldn't it be:
+
++towgs84=129.19,41.21,-130.73,-.25,-.37,-.33,2.96
+
+or am I missing what you are suggesting?
+
+Rich
+
+
+
+I am however not so sure if this will help you to get rid of a 200m offset.
+>
+> Hermann
+>
+> On 2015-04-13 17:31, Michel.Dastous at bentley.com wrote:
+> > Hi,
+> >
+> > I’m currently trying to publish an Oracle dataset marked as SRID 82474
+> > and cannot determine the proper proj4 init string corresponding to it.
+> > I was able to extract the WKT definition from Oracle:
+> >
+> > /PROJCS["ACT Standard Grid (AGD66)", GEOGCS [ "Australian Geodetic 1966
+> > ACT", DATUM ["AGD 66 ACT", SPHEROID ["Australian", 6378160,
+> > 298.25],-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96], PRIMEM [
+> > "Greenwich", 0.000000 ], UNIT ["Decimal Degree", 0.01745329251994330]],
+> > PROJECTION ["Transverse Mercator"], PARAMETER ["Scale_Factor",
+> > 1.000086], PARAMETER ["Central_Meridian", 149.0092948333], PARAMETER
+> > ["False_Easting", 200000.000000], PARAMETER ["False_Northing",
+> > 4510193.4939], UNIT ["Meter", 1.000000000000]]/
+> >
+> > The best we have is:
+> >
+> > /+proj=tmerc +lon_0=149.0092948333 +k=1.000086 +x_0=200000
+> > +y_0=4510193.4939 +ellps=aust_SA
+> > +towgs84=-129.19,-41.21,130.73,-.25,-.37,-.33,-2.96 +units=m +no_defs
+> <>/
+> >
+> > Unfortunately this produce a displacement of around 200 meters when
+> >   reprojected to Bing coordinate system.
+> >
+> > Can anyone help?
+> >
+> > Thanks,
+> >
+> > Michel
+> >
+> >
+> >
+> > _______________________________________________
+> > Proj mailing list
+> > Proj at lists.maptools.org
+> > http://lists.maptools.org/mailman/listinfo/proj
+> >
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+
+-- 
+Richard W. Greenwood, PLS
+www.greenwoodmap.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20150413/9a58e326/attachment.html>
+
+From andre+joost at nurfuerspam.de  Mon Apr 13 20:51:55 2015
+From: andre+joost at nurfuerspam.de (Andre Joost)
+Date: Tue, 14 Apr 2015 05:51:55 +0200
+Subject: [Proj] ACT Standard Grid (AGD66)
+In-Reply-To: <CAHBySPY+WmY8PGBYvzBrpa_sO-8VZv6Fdi8r5snJLLFHC6=aKA@mail.gmail.com>
+References: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>	<552BFF66.40006@gmx.eu>
+	<CAHBySPY+WmY8PGBYvzBrpa_sO-8VZv6Fdi8r5snJLLFHC6=aKA@mail.gmail.com>
+Message-ID: <mgi2t1$ikg$1@ger.gmane.org>
+
+Am 14.04.2015 um 02:18 schrieb Richard Greenwood:
+> On Mon, Apr 13, 2015 at 11:39 AM, Hermann Peifer <peifer at gmx.eu> wrote:
+
+>> ,
+>> so you should use
+>>
+>> +towgs84=-129.19,-41.21,130.73,.25,.37,.33,-2.96
+>>
+>
+> If you reverse the sign then shouldn't it be:
+>
+> +towgs84=129.19,41.21,-130.73,-.25,-.37,-.33,2.96
+>
+> or am I missing what you are suggesting?
+>
+
+Only the rotations have to be reversed. The first three are shifts, and 
+the last one is a scale factor. These remain unchanged.
+
+HTH,
+André Joost
+
+
+
+
+From Michel.Dastous at bentley.com  Tue Apr 14 09:54:43 2015
+From: Michel.Dastous at bentley.com (Michel.Dastous at bentley.com)
+Date: Tue, 14 Apr 2015 16:54:43 +0000
+Subject: [Proj] ACT Standard Grid (AGD66)
+In-Reply-To: <mgi2t1$ikg$1@ger.gmane.org>
+References: <c476645b35544352ad73113bdcdaeb86@extprdex04.bentley.com>
+	<552BFF66.40006@gmx.eu>
+	<CAHBySPY+WmY8PGBYvzBrpa_sO-8VZv6Fdi8r5snJLLFHC6=aKA@mail.gmail.com>
+	<mgi2t1$ikg$1@ger.gmane.org>
+Message-ID: <61c1bfde89dd4878b664a9b77728cd46@extprdex04.bentley.com>
+
+Thank you all, after reverting the rotation values everything is fine!
+
+Michel
+
+-----Original Message-----
+From: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] On Behalf Of Andre Joost
+Sent: Monday, April 13, 2015 11:52 PM
+To: proj at lists.maptools.org
+Subject: Re: [Proj] ACT Standard Grid (AGD66)
+
+Am 14.04.2015 um 02:18 schrieb Richard Greenwood:
+> On Mon, Apr 13, 2015 at 11:39 AM, Hermann Peifer <peifer at gmx.eu> wrote:
+
+>> ,
+>> so you should use
+>>
+>> +towgs84=-129.19,-41.21,130.73,.25,.37,.33,-2.96
+>>
+>
+> If you reverse the sign then shouldn't it be:
+>
+> +towgs84=129.19,41.21,-130.73,-.25,-.37,-.33,2.96
+>
+> or am I missing what you are suggesting?
+>
+
+Only the rotations have to be reversed. The first three are shifts, and the last one is a scale factor. These remain unchanged.
+
+HTH,
+André Joost
+
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+

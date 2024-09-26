@@ -1,0 +1,2112 @@
+From B.Dukai at tudelft.nl  Tue Feb  4 03:35:16 2020
+From: B.Dukai at tudelft.nl (=?UTF-8?Q?Bal=c3=a1zs_Dukai?=)
+Date: Tue, 4 Feb 2020 12:35:16 +0100
+Subject: [pdal] EPT points in polygon with the C++ API
+Message-ID: <70d98e87-a042-2e7d-6fdc-eff17d506e74@tudelft.nl>
+
+Hi,
+
+I've been testing the C++ API for reading an Entwine Point Tile and I 
+have a working implementation for reading, filtering the points in one 
+go. I've been relying on the docs, the PDAL unit tests and source code 
+for guidance. Each of them are great on its own, but especially thanks 
+for the clean and well structured code and tests which makes it 
+relatively easy to pick up PDAL.
+
+My goal is to use PDAL as a C++ library to get the points from an EPT 
+that are inside a given polygon. There are millions of polygons that the 
+application needs to process, thus millions of queries against the EPT. 
+The EPT covers a country (AOI), uses LAS and about 2TB in size.
+
+*Background:*
+
+There is a working implementation with LASlib, in which we have several 
+LAZ files (tiles if you want) covering the AOI, and run an application 
+process for each LAZ file. Due to polygons that span across LAZ files, 
+we need to re-tile the LAZ files to include some buffer for each file. 
+My assumption is that with the EPT+PDAL combo we could omit the costly 
+re-tiling process and just query the EPT directly, and have "good" 
+performance in retrieving the points for each polygon.
+
+*What I did:*
+
+Below is some pesudocode of the relevant parts of my current, not 
+working, implementation.
+
+polygons = a vector of 2D polygons
+
+dirpath = path to the EPT directory
+
+function ( polygons, dirpath ) {
+
+     pdal::EptReader *reader*;
+     pdal::PointTable *eptTable*;
+     std::string *eptPath* = "ept://" + dirpath;
+     std::vector<pdal::BOX2D> *poly_bboxes*;
+
+     // Compute the bounding box for each polygon and create a 
+pdal::BOX2D from it, which will be passed as "bounds" to the EptReader
+
+     for ( *polygon* in *polygons* ) {
+
+*poly_bboxes*.push_back( pdal::BOX2D( compute_bbox(*polygon *) );
+
+     }
+
+     for ( *box2d* in *poly_bboxes* ) {
+
+         // I'm re-creating the Options for each polygon, because I 
+think I need to update the "bounds" for each of them in order to get the 
+points only withing their bounding box.
+
+         pdal::Options *options*;
+*options*.add( "filename", *eptPath* );
+*options*.add( "bounds", *box2d* );
+
+         // I'm using setOptions to clear all previously set Options and 
+sets the new ones. Essentially, to replace the "bounds" of the reader. 
+This is the essence of my question, how to reset the "bounds" on the 
+reader in a loop?
+
+*reader*.setOptions(*options* );
+*reader*.prepare(*eptTable* );         // I'm suspecting that I should 
+do this only once in the beginning (and not in the loop), but the docs 
+say that .prepare() must be called at the terminal stage, after all 
+options has been set.
+
+         const auto *set*(*reader*.execute(*eptTable *) );
+
+         for (const pdal::PointViewPtr& *view* : *set*) {
+
+             for (pdal::point_count_t p(0); p < *view*->size(); ++p) {
+
+                 // I'm processing the point here. This works fine.
+
+             }
+
+         }
+
+     }
+
+}
+
+*Questons:*
+
+1. My primary, technical question is how to reset the "bounds" Option on 
+a Reader in a loop?
+
+2. A more "meta" question is if the process above is sensible and 
+efficient in terms of PDAL API use for a retrieving the points within a 
+given polygon, for many many polygons :-)?
+
+3. For the time being we have our own point-in-polygon implementation, 
+hence I'm only querying the EPT for the bounding boxes of the polygons. 
+Once the points in the bbox are retrieved, we do the actual 
+point-in-polygon test. But I've been looking into the Crop Filter to 
+eventually completely replace our point-in-polygon implementation. As 
+far as I understand I would need to feed the Crop Filter with the WKT of 
+the polygon, which would have some overhead for casting back-and-forth 
+to WKT. Is the Crop Filter a reasonable choice for replacing the 
+point-in-polygon query in the process above?
+
+I hope someone could give me a few pointers even though the niche 
+question :-)
+
+Thanks,
+
+Balázs
+
+
+From andrew.bell.ia at gmail.com  Tue Feb  4 06:59:19 2020
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Tue, 4 Feb 2020 09:59:19 -0500
+Subject: [pdal] Fwd:  EPT points in polygon with the C++ API
+In-Reply-To: <CACJ51z3xGLn3h4C3m2sg_wxdHss3UDSXBWDPJWh_4MxxND5HGg@mail.gmail.com>
+References: <70d98e87-a042-2e7d-6fdc-eff17d506e74@tudelft.nl>
+ <CACJ51z3xGLn3h4C3m2sg_wxdHss3UDSXBWDPJWh_4MxxND5HGg@mail.gmail.com>
+Message-ID: <CACJ51z2+GiLZBCQAP888=N1GTB=OVFZqVWsRa-OvPMf5X5MY7g@mail.gmail.com>
+
+On Tue, Feb 4, 2020 at 6:43 AM Balázs Dukai <B.Dukai at tudelft.nl> wrote:
+
+>
+> 1. My primary, technical question is how to reset the "bounds" Option on
+> a Reader in a loop?
+>
+
+You don't.  Just start over every time.  prepare() does processing to
+prepare the query from the EPT source.  You need make sure it's executed
+for each query.  Probably easiest is just to recreate the reader/pipeline
+in some function for each bounding box.
+
+
+> 2. A more "meta" question is if the process above is sensible and
+> efficient in terms of PDAL API use for a retrieving the points within a
+> given polygon, for many many polygons :-)?
+>
+
+If you're retrieving things from EPT through PDAL, yes.  The EPT spec is
+public and you're welcome to write your own implementation that does
+exactly what you want.
+
+3. For the time being we have our own point-in-polygon implementation,
+> hence I'm only querying the EPT for the bounding boxes of the polygons.
+> Once the points in the bbox are retrieved, we do the actual
+> point-in-polygon test. But I've been looking into the Crop Filter to
+> eventually completely replace our point-in-polygon implementation. As
+> far as I understand I would need to feed the Crop Filter with the WKT of
+> the polygon, which would have some overhead for casting back-and-forth
+> to WKT. Is the Crop Filter a reasonable choice for replacing the
+> point-in-polygon query in the process above?
+>
+
+The PDAL EPT reader will do this for you.  See the `polygon` option.  The
+PDAL point-in-polygon algorithm seems to be better than most.  It's
+optimized for checking many points in a polygon.  I believe that the
+algorithm source is documented in the code.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200204/09d889c7/attachment.html>
+
+From howard at hobu.co  Tue Feb  4 07:01:47 2020
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 4 Feb 2020 09:01:47 -0600
+Subject: [pdal] EPT points in polygon with the C++ API
+In-Reply-To: <CACJ51z2+GiLZBCQAP888=N1GTB=OVFZqVWsRa-OvPMf5X5MY7g@mail.gmail.com>
+References: <70d98e87-a042-2e7d-6fdc-eff17d506e74@tudelft.nl>
+ <CACJ51z3xGLn3h4C3m2sg_wxdHss3UDSXBWDPJWh_4MxxND5HGg@mail.gmail.com>
+ <CACJ51z2+GiLZBCQAP888=N1GTB=OVFZqVWsRa-OvPMf5X5MY7g@mail.gmail.com>
+Message-ID: <2F127BFB-B6BF-4C19-9C54-85BF00D42AA1@hobu.co>
+
+
+
+> On Feb 4, 2020, at 8:59 AM, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+> 
+> The PDAL EPT reader will do this for you.  See the `polygon` option.  The PDAL point-in-polygon algorithm seems to be better than most.  It's optimized for checking many points in a polygon.  I believe that the algorithm source is documented in the code.
+
+Note that efficient polygon culling in the PDAL EPT reader is planned for release in PDAL 2.1. You'll need to build master from source if you need it just now.
+
+
+
+From r.schimcho at gmail.com  Tue Feb  4 23:57:12 2020
+From: r.schimcho at gmail.com (Raphael Schimchowitsch)
+Date: Wed, 5 Feb 2020 08:57:12 +0100
+Subject: [pdal] e57 writers file can't be imported
+Message-ID: <CAFTi2NN+u69AjJoDr4g5SbhSN14n61kw4nSueOzxM3cZd+gTbQ@mail.gmail.com>
+
+Hi!
+I'm new on PDAL, and hope this is the good mailing list for that!
+I followed the tutorial
+https://github.com/PDAL/PDAL/blob/master/examples/writing/tutorial.cpp and
+wanted to create an e57 file instead of a LAS one.
+So I changed
+"myfile.las" to "myfile.e57" and "createStage("writers.las")" to
+"createStage("writers.e57"), thinking Stagefactory would do the jib.
+The file "myfile.e57" is well created but when I try to import it, every
+soft I use generate an error saying that he can't import the e57. Is there
+a step I'm missing?
+
+Thanks!
+
+(And sorry sorry if it is not the right place to ask!!)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200205/fd4db5de/attachment.html>
+
+From andrew.bell.ia at gmail.com  Wed Feb  5 04:07:28 2020
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Wed, 5 Feb 2020 07:07:28 -0500
+Subject: [pdal] e57 writers file can't be imported
+In-Reply-To: <CAFTi2NN+u69AjJoDr4g5SbhSN14n61kw4nSueOzxM3cZd+gTbQ@mail.gmail.com>
+References: <CAFTi2NN+u69AjJoDr4g5SbhSN14n61kw4nSueOzxM3cZd+gTbQ@mail.gmail.com>
+Message-ID: <CACJ51z0-N3dgcnJJG1DkVSB1ce2ZzJhv_EP-EMv6oqd0aAg8ng@mail.gmail.com>
+
+The e57 drivers are built as plugins.  Make sure that you've built them.
+See item 2 in the FAQ:
+
+https://pdal.io/faq.html
+
+On Wed, Feb 5, 2020 at 2:58 AM Raphael Schimchowitsch <r.schimcho at gmail.com>
+wrote:
+
+> Hi!
+> I'm new on PDAL, and hope this is the good mailing list for that!
+> I followed the tutorial
+> https://github.com/PDAL/PDAL/blob/master/examples/writing/tutorial.cpp
+> and wanted to create an e57 file instead of a LAS one.
+> So I changed
+> "myfile.las" to "myfile.e57" and "createStage("writers.las")" to
+> "createStage("writers.e57"), thinking Stagefactory would do the jib.
+> The file "myfile.e57" is well created but when I try to import it, every
+> soft I use generate an error saying that he can't import the e57. Is there
+> a step I'm missing?
+>
+> Thanks!
+>
+> (And sorry sorry if it is not the right place to ask!!)
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200205/aa91b19a/attachment.html>
+
+From r.schimcho at gmail.com  Wed Feb  5 04:16:42 2020
+From: r.schimcho at gmail.com (Raphael Schimchowitsch)
+Date: Wed, 5 Feb 2020 13:16:42 +0100
+Subject: [pdal] e57 writers file can't be imported
+In-Reply-To: <CACJ51z0-N3dgcnJJG1DkVSB1ce2ZzJhv_EP-EMv6oqd0aAg8ng@mail.gmail.com>
+References: <CAFTi2NN+u69AjJoDr4g5SbhSN14n61kw4nSueOzxM3cZd+gTbQ@mail.gmail.com>
+ <CACJ51z0-N3dgcnJJG1DkVSB1ce2ZzJhv_EP-EMv6oqd0aAg8ng@mail.gmail.com>
+Message-ID: <CAFTi2NNKwFYY-6G069C3B_1BDPUZC_nykJYRD3N=2pxxc-gDyg@mail.gmail.com>
+
+They are build. And pdal --drivers show me writers.e57 and readers.e57.
+And the e57 files generated have a size, and there is no errors during
+execution. I think this is not the problem :(
+But thanks!
+
+
+Le mer. 5 févr. 2020 à 13:07, Andrew Bell <andrew.bell.ia at gmail.com> a
+écrit :
+
+> The e57 drivers are built as plugins.  Make sure that you've built them.
+> See item 2 in the FAQ:
+>
+> https://pdal.io/faq.html
+>
+> On Wed, Feb 5, 2020 at 2:58 AM Raphael Schimchowitsch <
+> r.schimcho at gmail.com> wrote:
+>
+>> Hi!
+>> I'm new on PDAL, and hope this is the good mailing list for that!
+>> I followed the tutorial
+>> https://github.com/PDAL/PDAL/blob/master/examples/writing/tutorial.cpp
+>> and wanted to create an e57 file instead of a LAS one.
+>> So I changed
+>> "myfile.las" to "myfile.e57" and "createStage("writers.las")" to
+>> "createStage("writers.e57"), thinking Stagefactory would do the jib.
+>> The file "myfile.e57" is well created but when I try to import it, every
+>> soft I use generate an error saying that he can't import the e57. Is there
+>> a step I'm missing?
+>>
+>> Thanks!
+>>
+>> (And sorry sorry if it is not the right place to ask!!)
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+
+
+-- 
+SCHIMCHOWITSCH Raphaël
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200205/67a44295/attachment.html>
+
+From andrew.bell.ia at gmail.com  Wed Feb  5 05:18:04 2020
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Wed, 5 Feb 2020 08:18:04 -0500
+Subject: [pdal] e57 writers file can't be imported
+In-Reply-To: <CAFTi2NNKwFYY-6G069C3B_1BDPUZC_nykJYRD3N=2pxxc-gDyg@mail.gmail.com>
+References: <CAFTi2NN+u69AjJoDr4g5SbhSN14n61kw4nSueOzxM3cZd+gTbQ@mail.gmail.com>
+ <CACJ51z0-N3dgcnJJG1DkVSB1ce2ZzJhv_EP-EMv6oqd0aAg8ng@mail.gmail.com>
+ <CAFTi2NNKwFYY-6G069C3B_1BDPUZC_nykJYRD3N=2pxxc-gDyg@mail.gmail.com>
+Message-ID: <CACJ51z2woxW_XPZZktuzvBj_0-6nPai5NKdWntwdWZH0EYsbFw@mail.gmail.com>
+
+I'm sorry.  I misread your email.  You're saying that the created E57 file
+is invalid?  If so and you can provide the pipeline/input, I can take a
+look at it.
+
+On Wed, Feb 5, 2020 at 7:17 AM Raphael Schimchowitsch <r.schimcho at gmail.com>
+wrote:
+
+> They are build. And pdal --drivers show me writers.e57 and readers.e57.
+> And the e57 files generated have a size, and there is no errors during
+> execution. I think this is not the problem :(
+> But thanks!
+>
+>
+> Le mer. 5 févr. 2020 à 13:07, Andrew Bell <andrew.bell.ia at gmail.com> a
+> écrit :
+>
+>> The e57 drivers are built as plugins.  Make sure that you've built them.
+>> See item 2 in the FAQ:
+>>
+>> https://pdal.io/faq.html
+>>
+>> On Wed, Feb 5, 2020 at 2:58 AM Raphael Schimchowitsch <
+>> r.schimcho at gmail.com> wrote:
+>>
+>>> Hi!
+>>> I'm new on PDAL, and hope this is the good mailing list for that!
+>>> I followed the tutorial
+>>> https://github.com/PDAL/PDAL/blob/master/examples/writing/tutorial.cpp
+>>> and wanted to create an e57 file instead of a LAS one.
+>>> So I changed
+>>> "myfile.las" to "myfile.e57" and "createStage("writers.las")" to
+>>> "createStage("writers.e57"), thinking Stagefactory would do the jib.
+>>> The file "myfile.e57" is well created but when I try to import it, every
+>>> soft I use generate an error saying that he can't import the e57. Is there
+>>> a step I'm missing?
+>>>
+>>> Thanks!
+>>>
+>>> (And sorry sorry if it is not the right place to ask!!)
+>>>
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>>
+>> --
+>> Andrew Bell
+>> andrew.bell.ia at gmail.com
+>>
+>
+>
+> --
+> SCHIMCHOWITSCH Raphaël
+>
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200205/41b3f275/attachment-0001.html>
+
+From B.Dukai at tudelft.nl  Wed Feb  5 05:27:55 2020
+From: B.Dukai at tudelft.nl (=?UTF-8?Q?Bal=c3=a1zs_Dukai?=)
+Date: Wed, 5 Feb 2020 14:27:55 +0100
+Subject: [pdal] Fwd: EPT points in polygon with the C++ API
+In-Reply-To: <CACJ51z2+GiLZBCQAP888=N1GTB=OVFZqVWsRa-OvPMf5X5MY7g@mail.gmail.com>
+References: <70d98e87-a042-2e7d-6fdc-eff17d506e74@tudelft.nl>
+ <CACJ51z3xGLn3h4C3m2sg_wxdHss3UDSXBWDPJWh_4MxxND5HGg@mail.gmail.com>
+ <CACJ51z2+GiLZBCQAP888=N1GTB=OVFZqVWsRa-OvPMf5X5MY7g@mail.gmail.com>
+Message-ID: <cdc3375b-537c-28b9-9f70-7a06395d870b@tudelft.nl>
+
+Fantastic, thank you for the quick answer!
+
+I implemented what you suggested, initializing the reader, options and 
+filters within the loop and it works.
+
+I haven't mentioned in my original email, but I'm using version 2.0.1. 
+In this version I haven't seen the `polygon` option on the EPT reader 
+and when I try to use PDAL tells me that its not a valid option. So I 
+added a CropFilter with the `polygon` extent, and I also use `bounds` on 
+the reader.
+
+Thank you!
+Balázs
+
+On 04-02-2020 15:59, Andrew Bell wrote:
+>
+>
+> On Tue, Feb 4, 2020 at 6:43 AM Balázs Dukai <B.Dukai at tudelft.nl 
+> <mailto:B.Dukai at tudelft.nl>> wrote:
+>
+>
+>     1. My primary, technical question is how to reset the "bounds"
+>     Option on
+>     a Reader in a loop?
+>
+>
+> You don't.  Just start over every time.  prepare() does processing to 
+> prepare the query from the EPT source.  You need make sure it's 
+> executed for each query.  Probably easiest is just to recreate the 
+> reader/pipeline in some function for each bounding box.
+>
+>     2. A more "meta" question is if the process above is sensible and
+>     efficient in terms of PDAL API use for a retrieving the points
+>     within a
+>     given polygon, for many many polygons :-)?
+>
+>
+> If you're retrieving things from EPT through PDAL, yes.  The EPT spec 
+> is public and you're welcome to write your own implementation that 
+> does exactly what you want.
+>
+>     3. For the time being we have our own point-in-polygon
+>     implementation,
+>     hence I'm only querying the EPT for the bounding boxes of the
+>     polygons.
+>     Once the points in the bbox are retrieved, we do the actual
+>     point-in-polygon test. But I've been looking into the Crop Filter to
+>     eventually completely replace our point-in-polygon implementation. As
+>     far as I understand I would need to feed the Crop Filter with the
+>     WKT of
+>     the polygon, which would have some overhead for casting
+>     back-and-forth
+>     to WKT. Is the Crop Filter a reasonable choice for replacing the
+>     point-in-polygon query in the process above?
+>
+>
+> The PDAL EPT reader will do this for you.  See the `polygon` option.  
+> The PDAL point-in-polygon algorithm seems to be better than most.  
+> It's optimized for checking many points in a polygon.  I believe that 
+> the algorithm source is documented in the code.
+>
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com <mailto:andrew.bell.ia at gmail.com>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://urldefense.proofpoint.com/v2/url?u=https-3A__lists.osgeo.org_mailman_listinfo_pdal&d=DwIGaQ&c=XYzUhXBD2cD-CornpT4QE19xOJBbRy-TBPLK0X9U2o8&r=PgA3UFniLNch3v0S8NNLnwqZxhbJDfo4c3-MU-HmzOI&m=0ZD0HTx2NYT1UxW-E65VvflW2nJhkVfdWDyH1Kmu7z8&s=J3QW1ZZTEHQb9iZGQmBNE_OaI7MzC5duMAiJg1SnI5Y&e=
+
+From B.Dukai at tudelft.nl  Wed Feb  5 05:31:59 2020
+From: B.Dukai at tudelft.nl (=?UTF-8?Q?Bal=c3=a1zs_Dukai?=)
+Date: Wed, 5 Feb 2020 14:31:59 +0100
+Subject: [pdal] EPT points in polygon with the C++ API
+In-Reply-To: <2F127BFB-B6BF-4C19-9C54-85BF00D42AA1@hobu.co>
+References: <70d98e87-a042-2e7d-6fdc-eff17d506e74@tudelft.nl>
+ <CACJ51z3xGLn3h4C3m2sg_wxdHss3UDSXBWDPJWh_4MxxND5HGg@mail.gmail.com>
+ <CACJ51z2+GiLZBCQAP888=N1GTB=OVFZqVWsRa-OvPMf5X5MY7g@mail.gmail.com>
+ <2F127BFB-B6BF-4C19-9C54-85BF00D42AA1@hobu.co>
+Message-ID: <148377c9-1940-2b4c-5860-2c63ba161ccd@tudelft.nl>
+
+Thanks! I tried the master branch and it builds fine. However when I'm 
+initializing the EPT reader in my code, I get a segmentation fault in my 
+code. I'm doing any error handling though, and pdal itself doesn't 
+return an exception in this case.
+The same process works fine when using the 2.0.1 release, so I'm going 
+to stick with that until the new release comes out.
+
+Balázs
+
+On 04-02-2020 16:01, Howard Butler wrote:
+>
+>> On Feb 4, 2020, at 8:59 AM, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>>
+>> The PDAL EPT reader will do this for you.  See the `polygon` option.  The PDAL point-in-polygon algorithm seems to be better than most.  It's optimized for checking many points in a polygon.  I believe that the algorithm source is documented in the code.
+> Note that efficient polygon culling in the PDAL EPT reader is planned for release in PDAL 2.1. You'll need to build master from source if you need it just now.
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://urldefense.proofpoint.com/v2/url?u=https-3A__lists.osgeo.org_mailman_listinfo_pdal&d=DwIGaQ&c=XYzUhXBD2cD-CornpT4QE19xOJBbRy-TBPLK0X9U2o8&r=PgA3UFniLNch3v0S8NNLnwqZxhbJDfo4c3-MU-HmzOI&m=o2AxQymsnhBGL8GDQzGMGvKHPn1a9ewFtej1fHxiaMI&s=Dmudc1lh49CvqAopBHquD4mUbbvO9IgjCJuR9IZaIz4&e=
+
+From RPhillips at linz.govt.nz  Wed Feb 12 13:42:03 2020
+From: RPhillips at linz.govt.nz (Rose Phillips)
+Date: Wed, 12 Feb 2020 21:42:03 +0000
+Subject: [pdal] LAS Files Reclassifying Points with Flags - pdal info query
+ + differences between pdal info / lasinfo classification outputs
+Message-ID: <DB6C9333CF905C418FCA62058C67818904B0CA8E@prdassexch01.ad.linz.govt.nz>
+
+Hi guys,
+
+Hope you're all having a good week.
+When reclassifying points in LAS files where there are also flags (withheld, synthetic, keypoint or overlap), I've noticed a discrepancy between pdal info + lasinfo reports with my output LAS files, and an assortment of classification codes (for pdal info) that I'm not familiar with.
+
+I used pdal pipeline to reclassify points under code 17 to 10 :-
+
+
+{
+  "pipeline" : [
+   {
+        "type" : "readers.las",
+        "filename" : "input.las"
+   },
+    {
+        "type":"filters.assign",
+        "assignment":"Classification[10:10]=17"
+    },
+    {
+        "type" : "writers.las",
+        "minor_version" : 4,
+        "dataformat_id": 1,
+        "a_srs" : "EPSG:2193+7839",
+        "forward" : "all",
+        "filename" : "output.las"
+    }
+  ]
+}
+
+
+Looking at lasinfo reports, for an input and output file, it looks like there are still points assigned as 17? But the pdal info reports show something else, and points with different counts e.g.
+
+Input file (pdal info)
+  "filename": "D:\\ BM34_2018_1000_1637.las",
+  "pdal_version": "2.0.1 (git-version: Release)",
+  "stats":
+  {
+    "statistic":
+    [
+      {
+        "average": 38.90448897,
+        "count": 4048726,
+        "counts":
+        [
+          "1.000000/1",
+          "2.000000/2590331",
+          "3.000000/146834",
+          "4.000000/16873",
+          "5.000000/106701",
+          "6.000000/13937",
+          "7.000000/51",
+          "9.000000/14124",
+          "10.000000/218",
+          "130.000000/993308",
+          "131.000000/102834",
+          "132.000000/6622",
+          "133.000000/40561",
+          "134.000000/9820",
+          "135.000000/5",
+          "137.000000/6215",
+          "138.000000/291"
+        ],
+        "maximum": 138,
+        "minimum": 1,
+        "name": "Classification",
+        "position": 0,
+        "stddev": 57.89674269,
+        "variance": 3352.032814
+      }
+    ]
+  }
+}
+
+Output File (pdal info)
+{
+  "filename": "D:\\palmerston_north_cc\\pdal_reclassification_issue\\reclassified\\CL2_BM34_2018_1000_1637.laz",
+  "pdal_version": "2.0.1 (git-version: Release)",
+  "stats":
+  {
+    "statistic":
+    [
+      {
+        "average": 38.90486588,
+        "count": 4048726,
+        "counts":
+        [
+          "1.000000/1",
+          "2.000000/2590331",
+          "3.000000/146834",
+          "4.000000/16873",
+          "5.000000/106701",
+          "6.000000/13937",
+          "7.000000/51",
+          "9.000000/14124",
+          "17.000000/218",
+          "130.000000/993308",
+          "131.000000/102834",
+          "132.000000/6622",
+          "133.000000/40561",
+          "134.000000/9820",
+          "135.000000/5",
+          "137.000000/6215",
+          "138.000000/291"
+        ],
+        "maximum": 138,
+        "minimum": 1,
+        "name": "Classification",
+        "position": 0,
+        "stddev": 57.8965773,
+        "variance": 3352.013663
+      }
+    ]
+  }
+}
+
+Input file (lasinfo)
+
+histogram of classification of points:
+               1  unclassified (1)
+         3583639  ground (2)
+          249668  low vegetation (3)
+           23495  medium vegetation (4)
+          147262  high vegetation (5)
+           23757  building (6)
+              56  noise (7)
+           20339  water (9)
+             509  rail (10)
++-> flagged as withheld:  1159656
+
+Output file (lasinfo)
+
+histogram of classification of points:
+               1  unclassified (1)
+         3583639  ground (2)
+          249668  low vegetation (3)
+           23495  medium vegetation (4)
+          147262  high vegetation (5)
+           23757  building (6)
+              56  noise (7)
+           20339  water (9)
+             291  rail (10)
+             218  bridge deck (17)
++-> flagged as withheld:  1159656
+
+
+I'm guessing pdal info is the most accurate output as arcgis pro + global mapper outputs are the same as pdal info and lasinfo is the odd one out.
+I wrote a las2las and pdal pipeline workaround to make sure that both lasinfo + pdal info outputs were the same.
+
+I was wondering if you guys knew why the flags were written as numbers and why they are split up in codes, that change for each file?
+
+Many thanks and kind regards,
+Rose Phillips
+
+Location Data Analyst
+Land Information New Zealand
+
+
+________________________________
+
+This message contains information, which may be in confidence and may be subject to legal privilege. If you are not the intended recipient, you must not peruse, use, disseminate, distribute or copy this message. If you have received this message in error, please notify us immediately (Phone 0800 665 463 or info at linz.govt.nz) and destroy the original message. LINZ accepts no responsibility for changes to this email, or for any attachments, after its transmission from LINZ. Thank You.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200212/75449de1/attachment-0001.html>
+
+From connor at hobu.co  Wed Feb 12 14:03:02 2020
+From: connor at hobu.co (Connor Manning)
+Date: Wed, 12 Feb 2020 16:03:02 -0600
+Subject: [pdal] LAS Files Reclassifying Points with Flags - pdal info
+ query + differences between pdal info / lasinfo classification outputs
+In-Reply-To: <DB6C9333CF905C418FCA62058C67818904B0CA8E@prdassexch01.ad.linz.govt.nz>
+References: <DB6C9333CF905C418FCA62058C67818904B0CA8E@prdassexch01.ad.linz.govt.nz>
+Message-ID: <CAO=FyjLhza7MpFyVe=ufTOjU6v+hdtogL43piF5wLB1EEr1Pkw@mail.gmail.com>
+
+Regarding the Classification assignment, I think you've got the filter
+specification backwards.  To "reclassify points under code 17 to 10", you
+would want "assignment":"Classification[17:17]=10".
+
+On Wed, Feb 12, 2020 at 3:48 PM Rose Phillips <RPhillips at linz.govt.nz>
+wrote:
+
+> Hi guys,
+>
+>
+>
+> Hope you’re all having a good week.
+>
+> When reclassifying points in LAS files where there are also flags
+> (withheld, synthetic, keypoint or overlap), I’ve noticed a discrepancy
+> between pdal info + lasinfo reports with my output LAS files, and an
+> assortment of classification codes (for pdal info) that I’m not familiar
+> with.
+>
+>
+>
+> I used pdal pipeline to reclassify points under code 17 to 10 :-
+>
+>
+>
+>
+>
+> {
+>
+>   "pipeline" : [
+>
+>    {
+>
+>         "type" : "readers.las",
+>
+>         "filename" : "input.las"
+>
+>    },
+>
+>     {
+>
+>         "type":"filters.assign",
+>
+>         "assignment":"Classification[10:10]=17"
+>
+>     },
+>
+>     {
+>
+>         "type" : "writers.las",
+>
+>         "minor_version" : 4,
+>
+>         "dataformat_id": 1,
+>
+>         "a_srs" : "EPSG:2193+7839",
+>
+>         "forward" : "all",
+>
+>         "filename" : "output.las"
+>
+>     }
+>
+>   ]
+>
+> }
+>
+>
+>
+>
+>
+> Looking at lasinfo reports, for an input and output file, it looks like
+> there are still points assigned as 17? But the pdal info reports show
+> something else, and points with different counts e.g.
+>
+>
+>
+> *Input file (pdal info)*
+>
+> *  "filename": "D:\\ BM34_2018_1000_1637.las",*
+>
+> *  "pdal_version": "2.0.1 (git-version: Release)",*
+>
+> *  "stats":*
+>
+> *  {*
+>
+> *    "statistic":*
+>
+> *    [*
+>
+> *      {*
+>
+> *        "average": 38.90448897,*
+>
+> *        "count": 4048726,*
+>
+> *        "counts":*
+>
+> *        [*
+>
+> *          "1.000000/1",*
+>
+> *          "2.000000/2590331",*
+>
+> *          "3.000000/146834",*
+>
+> *          "4.000000/16873",*
+>
+> *          "5.000000/106701",*
+>
+> *          "6.000000/13937",*
+>
+> *          "7.000000/51",*
+>
+> *          "9.000000/14124",*
+>
+> *          "10.000000/218",*
+>
+> *          "130.000000/993308",*
+>
+> *          "131.000000/102834",*
+>
+> *          "132.000000/6622",*
+>
+> *          "133.000000/40561",*
+>
+> *          "134.000000/9820",*
+>
+> *          "135.000000/5",*
+>
+> *          "137.000000/6215",*
+>
+> *          "138.000000/291"*
+>
+> *        ],*
+>
+> *        "maximum": 138,*
+>
+> *        "minimum": 1,*
+>
+> *        "name": "Classification",*
+>
+> *        "position": 0,*
+>
+> *        "stddev": 57.89674269,*
+>
+> *        "variance": 3352.032814*
+>
+> *      }*
+>
+> *    ]*
+>
+> *  }*
+>
+> *}*
+>
+>
+>
+> *Output File (pdal info)*
+>
+> *{*
+>
+> *  "filename":
+> "D:\\palmerston_north_cc\\pdal_reclassification_issue\\reclassified\\CL2_BM34_2018_1000_1637.laz",*
+>
+> *  "pdal_version": "2.0.1 (git-version: Release)",*
+>
+> *  "stats":*
+>
+> *  {*
+>
+> *    "statistic":*
+>
+> *    [*
+>
+> *      {*
+>
+> *        "average": 38.90486588,*
+>
+> *        "count": 4048726,*
+>
+> *        "counts":*
+>
+> *        [*
+>
+> *          "1.000000/1",*
+>
+> *          "2.000000/2590331",*
+>
+> *          "3.000000/146834",*
+>
+> *          "4.000000/16873",*
+>
+> *          "5.000000/106701",*
+>
+> *          "6.000000/13937",*
+>
+> *          "7.000000/51",*
+>
+> *          "9.000000/14124",*
+>
+> *          "17.000000/218",*
+>
+> *          "130.000000/993308",*
+>
+> *          "131.000000/102834",*
+>
+> *          "132.000000/6622",*
+>
+> *          "133.000000/40561",*
+>
+> *          "134.000000/9820",*
+>
+> *          "135.000000/5",*
+>
+> *          "137.000000/6215",*
+>
+> *          "138.000000/291"*
+>
+> *        ],*
+>
+> *        "maximum": 138,*
+>
+> *        "minimum": 1,*
+>
+> *        "name": "Classification",*
+>
+> *        "position": 0,*
+>
+> *        "stddev": 57.8965773,*
+>
+> *        "variance": 3352.013663*
+>
+> *      }*
+>
+> *    ]*
+>
+> *  }*
+>
+> *}*
+>
+>
+>
+> *Input file (lasinfo)*
+>
+>
+>
+> histogram of classification of points:
+>
+>                1  unclassified (1)
+>
+>          3583639  ground (2)
+>
+>           249668  low vegetation (3)
+>
+>            23495  medium vegetation (4)
+>
+>           147262  high vegetation (5)
+>
+>            23757  building (6)
+>
+>               56  noise (7)
+>
+>            20339  water (9)
+>
+>              509  rail (10)
+>
+> +-> flagged as withheld:  1159656
+>
+>
+>
+> *Output file (lasinfo)*
+>
+>
+>
+> histogram of classification of points:
+>
+>                1  unclassified (1)
+>
+>          3583639  ground (2)
+>
+>           249668  low vegetation (3)
+>
+>            23495  medium vegetation (4)
+>
+>           147262  high vegetation (5)
+>
+>            23757  building (6)
+>
+>               56  noise (7)
+>
+>            20339  water (9)
+>
+>              291  rail (10)
+>
+>              218  bridge deck (17)
+>
+> +-> flagged as withheld:  1159656
+>
+>
+>
+>
+>
+> I’m guessing pdal info is the most accurate output as arcgis pro + global
+> mapper outputs are the same as pdal info and lasinfo is the odd one out.
+>
+> I wrote a las2las and pdal pipeline workaround to make sure that both
+> lasinfo + pdal info outputs were the same.
+>
+>
+>
+> I was wondering if you guys knew why the flags were written as numbers and
+> why they are split up in codes, that change for each file?
+>
+>
+>
+> Many thanks and kind regards,
+>
+> Rose Phillips
+>
+>
+>
+> Location Data Analyst
+>
+> Land Information New Zealand
+>
+>
+>
+> ------------------------------
+>
+> This message contains information, which may be in confidence and may be
+> subject to legal privilege. If you are not the intended recipient, you must
+> not peruse, use, disseminate, distribute or copy this message. If you have
+> received this message in error, please notify us immediately (Phone 0800
+> 665 463 or info at linz.govt.nz) and destroy the original message. LINZ
+> accepts no responsibility for changes to this email, or for any
+> attachments, after its transmission from LINZ. Thank You.
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200212/004d8b0b/attachment-0001.html>
+
+From RPhillips at linz.govt.nz  Wed Feb 12 14:32:18 2020
+From: RPhillips at linz.govt.nz (Rose Phillips)
+Date: Wed, 12 Feb 2020 22:32:18 +0000
+Subject: [pdal] FW: LAS Files Reclassifying Points with Flags - pdal info
+ query + differences between pdal info / lasinfo classification outputs
+ (fixed typo)
+Message-ID: <DB6C9333CF905C418FCA62058C67818904B0CB0E@prdassexch01.ad.linz.govt.nz>
+
+Hi guys,
+
+Hope you're all having a good week.
+When reclassifying points in LAS files where there are also flags (withheld, synthetic, keypoint or overlap), I've noticed a discrepancy between pdal info + lasinfo reports with my output LAS files, and an assortment of classification codes (for pdal info) that I'm not familiar with.
+
+I used pdal pipeline to reclassify points under code 10 to 17 :-
+
+
+{
+  "pipeline" : [
+   {
+        "type" : "readers.las",
+        "filename" : "input.las"
+   },
+    {
+        "type":"filters.assign",
+        "assignment":"Classification[10:10]=17"
+    },
+    {
+        "type" : "writers.las",
+        "minor_version" : 4,
+        "dataformat_id": 1,
+        "a_srs" : "EPSG:2193+7839",
+        "forward" : "all",
+        "filename" : "output.las"
+    }
+  ]
+}
+
+
+Looking at lasinfo reports, for an input and output file, it looks like there are still points assigned as 17? But the pdal info reports show something else, and points with different counts e.g.
+
+Input file (pdal info)
+  "filename": "D:\\ BM34_2018_1000_1637.las",
+  "pdal_version": "2.0.1 (git-version: Release)",
+  "stats":
+  {
+    "statistic":
+    [
+      {
+        "average": 38.90448897,
+        "count": 4048726,
+        "counts":
+        [
+          "1.000000/1",
+          "2.000000/2590331",
+          "3.000000/146834",
+          "4.000000/16873",
+          "5.000000/106701",
+          "6.000000/13937",
+          "7.000000/51",
+          "9.000000/14124",
+          "10.000000/218",
+          "130.000000/993308",
+          "131.000000/102834",
+          "132.000000/6622",
+          "133.000000/40561",
+          "134.000000/9820",
+          "135.000000/5",
+          "137.000000/6215",
+          "138.000000/291"
+        ],
+        "maximum": 138,
+        "minimum": 1,
+        "name": "Classification",
+        "position": 0,
+        "stddev": 57.89674269,
+        "variance": 3352.032814
+      }
+    ]
+  }
+}
+
+Output File (pdal info)
+{
+  "filename": "D:\\palmerston_north_cc\\pdal_reclassification_issue\\reclassified\\CL2_BM34_2018_1000_1637.laz",
+  "pdal_version": "2.0.1 (git-version: Release)",
+  "stats":
+  {
+    "statistic":
+    [
+      {
+        "average": 38.90486588,
+        "count": 4048726,
+        "counts":
+        [
+          "1.000000/1",
+          "2.000000/2590331",
+          "3.000000/146834",
+          "4.000000/16873",
+          "5.000000/106701",
+          "6.000000/13937",
+          "7.000000/51",
+          "9.000000/14124",
+          "17.000000/218",
+          "130.000000/993308",
+          "131.000000/102834",
+          "132.000000/6622",
+          "133.000000/40561",
+          "134.000000/9820",
+          "135.000000/5",
+          "137.000000/6215",
+          "138.000000/291"
+        ],
+        "maximum": 138,
+        "minimum": 1,
+        "name": "Classification",
+        "position": 0,
+        "stddev": 57.8965773,
+        "variance": 3352.013663
+      }
+    ]
+  }
+}
+
+Input file (lasinfo)
+
+histogram of classification of points:
+               1  unclassified (1)
+         3583639  ground (2)
+          249668  low vegetation (3)
+           23495  medium vegetation (4)
+          147262  high vegetation (5)
+           23757  building (6)
+              56  noise (7)
+           20339  water (9)
+             509  rail (10)
++-> flagged as withheld:  1159656
+
+Output file (lasinfo)
+
+histogram of classification of points:
+               1  unclassified (1)
+         3583639  ground (2)
+          249668  low vegetation (3)
+           23495  medium vegetation (4)
+          147262  high vegetation (5)
+           23757  building (6)
+              56  noise (7)
+           20339  water (9)
+             291  rail (10)
+             218  bridge deck (17)
++-> flagged as withheld:  1159656
+
+
+I'm guessing pdal info is the most accurate output as arcgis pro + global mapper outputs are the same as pdal info and lasinfo is the odd one out.
+I wrote a las2las and pdal pipeline workaround to make sure that both lasinfo + pdal info outputs were the same.
+
+I was wondering if you guys knew why the flags were written as numbers and why they are split up in codes, that change for each file?
+
+Many thanks and kind regards,
+Rose Phillips
+
+Location Data Analyst
+Land Information New Zealand
+
+
+________________________________
+
+This message contains information, which may be in confidence and may be subject to legal privilege. If you are not the intended recipient, you must not peruse, use, disseminate, distribute or copy this message. If you have received this message in error, please notify us immediately (Phone 0800 665 463 or info at linz.govt.nz<mailto:info at linz.govt.nz>) and destroy the original message. LINZ accepts no responsibility for changes to this email, or for any attachments, after its transmission from LINZ. Thank You.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200212/02ea239f/attachment-0001.html>
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: ATT00001.txt
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200212/02ea239f/attachment-0001.txt>
+
+From brad.chambers at gmail.com  Wed Feb 12 14:39:07 2020
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Wed, 12 Feb 2020 17:39:07 -0500
+Subject: [pdal] LAS Files Reclassifying Points with Flags - pdal info
+ query + differences between pdal info / lasinfo classification outputs
+In-Reply-To: <CAO=FyjLhza7MpFyVe=ufTOjU6v+hdtogL43piF5wLB1EEr1Pkw@mail.gmail.com>
+References: <DB6C9333CF905C418FCA62058C67818904B0CA8E@prdassexch01.ad.linz.govt.nz>
+ <CAO=FyjLhza7MpFyVe=ufTOjU6v+hdtogL43piF5wLB1EEr1Pkw@mail.gmail.com>
+Message-ID: <CAJyqqPxEMPrFG_GXe3OwoWdqvRsGyoS0p66pqEoDEj9nR5imWw@mail.gmail.com>
+
+Correct, your pipeline is reclassifying non-withheld rail (10) as
+non-withheld bridge (17). It is leaving the withheld rail (138) untouched.
+This may be confusing in a couple of ways. First, lasinfo shows that you
+have withheld points but it doesn’t provide a breakout in the individual
+point counts. Also, the PDAL output just shows withheld points with their
+bit shifted values, which may not be obvious. I think all reports you are
+running are in fact giving you the correct information for the pipeline you
+provided.
+
+On Wed, Feb 12, 2020 at 17:03 Connor Manning <connor at hobu.co> wrote:
+
+> Regarding the Classification assignment, I think you've got the filter
+> specification backwards.  To "reclassify points under code 17 to 10", you
+> would want "assignment":"Classification[17:17]=10".
+>
+> On Wed, Feb 12, 2020 at 3:48 PM Rose Phillips <RPhillips at linz.govt.nz>
+> wrote:
+>
+>> Hi guys,
+>>
+>>
+>>
+>> Hope you’re all having a good week.
+>>
+>> When reclassifying points in LAS files where there are also flags
+>> (withheld, synthetic, keypoint or overlap), I’ve noticed a discrepancy
+>> between pdal info + lasinfo reports with my output LAS files, and an
+>> assortment of classification codes (for pdal info) that I’m not familiar
+>> with.
+>>
+>>
+>>
+>> I used pdal pipeline to reclassify points under code 17 to 10 :-
+>>
+>>
+>>
+>>
+>>
+>> {
+>>
+>>   "pipeline" : [
+>>
+>>    {
+>>
+>>         "type" : "readers.las",
+>>
+>>         "filename" : "input.las"
+>>
+>>    },
+>>
+>>     {
+>>
+>>         "type":"filters.assign",
+>>
+>>         "assignment":"Classification[10:10]=17"
+>>
+>>     },
+>>
+>>     {
+>>
+>>         "type" : "writers.las",
+>>
+>>         "minor_version" : 4,
+>>
+>>         "dataformat_id": 1,
+>>
+>>         "a_srs" : "EPSG:2193+7839",
+>>
+>>         "forward" : "all",
+>>
+>>         "filename" : "output.las"
+>>
+>>     }
+>>
+>>   ]
+>>
+>> }
+>>
+>>
+>>
+>>
+>>
+>> Looking at lasinfo reports, for an input and output file, it looks like
+>> there are still points assigned as 17? But the pdal info reports show
+>> something else, and points with different counts e.g.
+>>
+>>
+>>
+>> *Input file (pdal info)*
+>>
+>> *  "filename": "D:\\ BM34_2018_1000_1637.las",*
+>>
+>> *  "pdal_version": "2.0.1 (git-version: Release)",*
+>>
+>> *  "stats":*
+>>
+>> *  {*
+>>
+>> *    "statistic":*
+>>
+>> *    [*
+>>
+>> *      {*
+>>
+>> *        "average": 38.90448897,*
+>>
+>> *        "count": 4048726,*
+>>
+>> *        "counts":*
+>>
+>> *        [*
+>>
+>> *          "1.000000/1",*
+>>
+>> *          "2.000000/2590331",*
+>>
+>> *          "3.000000/146834",*
+>>
+>> *          "4.000000/16873",*
+>>
+>> *          "5.000000/106701",*
+>>
+>> *          "6.000000/13937",*
+>>
+>> *          "7.000000/51",*
+>>
+>> *          "9.000000/14124",*
+>>
+>> *          "10.000000/218",*
+>>
+>> *          "130.000000/993308",*
+>>
+>> *          "131.000000/102834",*
+>>
+>> *          "132.000000/6622",*
+>>
+>> *          "133.000000/40561",*
+>>
+>> *          "134.000000/9820",*
+>>
+>> *          "135.000000/5",*
+>>
+>> *          "137.000000/6215",*
+>>
+>> *          "138.000000/291"*
+>>
+>> *        ],*
+>>
+>> *        "maximum": 138,*
+>>
+>> *        "minimum": 1,*
+>>
+>> *        "name": "Classification",*
+>>
+>> *        "position": 0,*
+>>
+>> *        "stddev": 57.89674269,*
+>>
+>> *        "variance": 3352.032814*
+>>
+>> *      }*
+>>
+>> *    ]*
+>>
+>> *  }*
+>>
+>> *}*
+>>
+>>
+>>
+>> *Output File (pdal info)*
+>>
+>> *{*
+>>
+>> *  "filename":
+>> "D:\\palmerston_north_cc\\pdal_reclassification_issue\\reclassified\\CL2_BM34_2018_1000_1637.laz",*
+>>
+>> *  "pdal_version": "2.0.1 (git-version: Release)",*
+>>
+>> *  "stats":*
+>>
+>> *  {*
+>>
+>> *    "statistic":*
+>>
+>> *    [*
+>>
+>> *      {*
+>>
+>> *        "average": 38.90486588,*
+>>
+>> *        "count": 4048726,*
+>>
+>> *        "counts":*
+>>
+>> *        [*
+>>
+>> *          "1.000000/1",*
+>>
+>> *          "2.000000/2590331",*
+>>
+>> *          "3.000000/146834",*
+>>
+>> *          "4.000000/16873",*
+>>
+>> *          "5.000000/106701",*
+>>
+>> *          "6.000000/13937",*
+>>
+>> *          "7.000000/51",*
+>>
+>> *          "9.000000/14124",*
+>>
+>> *          "17.000000/218",*
+>>
+>> *          "130.000000/993308",*
+>>
+>> *          "131.000000/102834",*
+>>
+>> *          "132.000000/6622",*
+>>
+>> *          "133.000000/40561",*
+>>
+>> *          "134.000000/9820",*
+>>
+>> *          "135.000000/5",*
+>>
+>> *          "137.000000/6215",*
+>>
+>> *          "138.000000/291"*
+>>
+>> *        ],*
+>>
+>> *        "maximum": 138,*
+>>
+>> *        "minimum": 1,*
+>>
+>> *        "name": "Classification",*
+>>
+>> *        "position": 0,*
+>>
+>> *        "stddev": 57.8965773,*
+>>
+>> *        "variance": 3352.013663*
+>>
+>> *      }*
+>>
+>> *    ]*
+>>
+>> *  }*
+>>
+>> *}*
+>>
+>>
+>>
+>> *Input file (lasinfo)*
+>>
+>>
+>>
+>> histogram of classification of points:
+>>
+>>                1  unclassified (1)
+>>
+>>          3583639  ground (2)
+>>
+>>           249668  low vegetation (3)
+>>
+>>            23495  medium vegetation (4)
+>>
+>>           147262  high vegetation (5)
+>>
+>>            23757  building (6)
+>>
+>>               56  noise (7)
+>>
+>>            20339  water (9)
+>>
+>>              509  rail (10)
+>>
+>> +-> flagged as withheld:  1159656
+>>
+>>
+>>
+>> *Output file (lasinfo)*
+>>
+>>
+>>
+>> histogram of classification of points:
+>>
+>>                1  unclassified (1)
+>>
+>>          3583639  ground (2)
+>>
+>>           249668  low vegetation (3)
+>>
+>>            23495  medium vegetation (4)
+>>
+>>           147262  high vegetation (5)
+>>
+>>            23757  building (6)
+>>
+>>               56  noise (7)
+>>
+>>            20339  water (9)
+>>
+>>              291  rail (10)
+>>
+>>              218  bridge deck (17)
+>>
+>> +-> flagged as withheld:  1159656
+>>
+>>
+>>
+>>
+>>
+>> I’m guessing pdal info is the most accurate output as arcgis pro + global
+>> mapper outputs are the same as pdal info and lasinfo is the odd one out.
+>>
+>> I wrote a las2las and pdal pipeline workaround to make sure that both
+>> lasinfo + pdal info outputs were the same.
+>>
+>>
+>>
+>> I was wondering if you guys knew why the flags were written as numbers
+>> and why they are split up in codes, that change for each file?
+>>
+>>
+>>
+>> Many thanks and kind regards,
+>>
+>> Rose Phillips
+>>
+>>
+>>
+>> Location Data Analyst
+>>
+>> Land Information New Zealand
+>>
+>>
+>>
+>> ------------------------------
+>>
+>> This message contains information, which may be in confidence and may be
+>> subject to legal privilege. If you are not the intended recipient, you must
+>> not peruse, use, disseminate, distribute or copy this message. If you have
+>> received this message in error, please notify us immediately (Phone 0800
+>> 665 463 or info at linz.govt.nz) and destroy the original message. LINZ
+>> accepts no responsibility for changes to this email, or for any
+>> attachments, after its transmission from LINZ. Thank You.
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200212/8c29f270/attachment-0001.html>
+
+From brad.chambers at gmail.com  Wed Feb 12 14:39:07 2020
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Wed, 12 Feb 2020 17:39:07 -0500
+Subject: [pdal] LAS Files Reclassifying Points with Flags - pdal info
+ query + differences between pdal info / lasinfo classification outputs
+In-Reply-To: <CAO=FyjLhza7MpFyVe=ufTOjU6v+hdtogL43piF5wLB1EEr1Pkw@mail.gmail.com>
+References: <DB6C9333CF905C418FCA62058C67818904B0CA8E@prdassexch01.ad.linz.govt.nz>
+ <CAO=FyjLhza7MpFyVe=ufTOjU6v+hdtogL43piF5wLB1EEr1Pkw@mail.gmail.com>
+Message-ID: <CAJyqqPxEMPrFG_GXe3OwoWdqvRsGyoS0p66pqEoDEj9nR5imWw@mail.gmail.com>
+
+Correct, your pipeline is reclassifying non-withheld rail (10) as
+non-withheld bridge (17). It is leaving the withheld rail (138) untouched.
+This may be confusing in a couple of ways. First, lasinfo shows that you
+have withheld points but it doesn’t provide a breakout in the individual
+point counts. Also, the PDAL output just shows withheld points with their
+bit shifted values, which may not be obvious. I think all reports you are
+running are in fact giving you the correct information for the pipeline you
+provided.
+
+On Wed, Feb 12, 2020 at 17:03 Connor Manning <connor at hobu.co> wrote:
+
+> Regarding the Classification assignment, I think you've got the filter
+> specification backwards.  To "reclassify points under code 17 to 10", you
+> would want "assignment":"Classification[17:17]=10".
+>
+> On Wed, Feb 12, 2020 at 3:48 PM Rose Phillips <RPhillips at linz.govt.nz>
+> wrote:
+>
+>> Hi guys,
+>>
+>>
+>>
+>> Hope you’re all having a good week.
+>>
+>> When reclassifying points in LAS files where there are also flags
+>> (withheld, synthetic, keypoint or overlap), I’ve noticed a discrepancy
+>> between pdal info + lasinfo reports with my output LAS files, and an
+>> assortment of classification codes (for pdal info) that I’m not familiar
+>> with.
+>>
+>>
+>>
+>> I used pdal pipeline to reclassify points under code 17 to 10 :-
+>>
+>>
+>>
+>>
+>>
+>> {
+>>
+>>   "pipeline" : [
+>>
+>>    {
+>>
+>>         "type" : "readers.las",
+>>
+>>         "filename" : "input.las"
+>>
+>>    },
+>>
+>>     {
+>>
+>>         "type":"filters.assign",
+>>
+>>         "assignment":"Classification[10:10]=17"
+>>
+>>     },
+>>
+>>     {
+>>
+>>         "type" : "writers.las",
+>>
+>>         "minor_version" : 4,
+>>
+>>         "dataformat_id": 1,
+>>
+>>         "a_srs" : "EPSG:2193+7839",
+>>
+>>         "forward" : "all",
+>>
+>>         "filename" : "output.las"
+>>
+>>     }
+>>
+>>   ]
+>>
+>> }
+>>
+>>
+>>
+>>
+>>
+>> Looking at lasinfo reports, for an input and output file, it looks like
+>> there are still points assigned as 17? But the pdal info reports show
+>> something else, and points with different counts e.g.
+>>
+>>
+>>
+>> *Input file (pdal info)*
+>>
+>> *  "filename": "D:\\ BM34_2018_1000_1637.las",*
+>>
+>> *  "pdal_version": "2.0.1 (git-version: Release)",*
+>>
+>> *  "stats":*
+>>
+>> *  {*
+>>
+>> *    "statistic":*
+>>
+>> *    [*
+>>
+>> *      {*
+>>
+>> *        "average": 38.90448897,*
+>>
+>> *        "count": 4048726,*
+>>
+>> *        "counts":*
+>>
+>> *        [*
+>>
+>> *          "1.000000/1",*
+>>
+>> *          "2.000000/2590331",*
+>>
+>> *          "3.000000/146834",*
+>>
+>> *          "4.000000/16873",*
+>>
+>> *          "5.000000/106701",*
+>>
+>> *          "6.000000/13937",*
+>>
+>> *          "7.000000/51",*
+>>
+>> *          "9.000000/14124",*
+>>
+>> *          "10.000000/218",*
+>>
+>> *          "130.000000/993308",*
+>>
+>> *          "131.000000/102834",*
+>>
+>> *          "132.000000/6622",*
+>>
+>> *          "133.000000/40561",*
+>>
+>> *          "134.000000/9820",*
+>>
+>> *          "135.000000/5",*
+>>
+>> *          "137.000000/6215",*
+>>
+>> *          "138.000000/291"*
+>>
+>> *        ],*
+>>
+>> *        "maximum": 138,*
+>>
+>> *        "minimum": 1,*
+>>
+>> *        "name": "Classification",*
+>>
+>> *        "position": 0,*
+>>
+>> *        "stddev": 57.89674269,*
+>>
+>> *        "variance": 3352.032814*
+>>
+>> *      }*
+>>
+>> *    ]*
+>>
+>> *  }*
+>>
+>> *}*
+>>
+>>
+>>
+>> *Output File (pdal info)*
+>>
+>> *{*
+>>
+>> *  "filename":
+>> "D:\\palmerston_north_cc\\pdal_reclassification_issue\\reclassified\\CL2_BM34_2018_1000_1637.laz",*
+>>
+>> *  "pdal_version": "2.0.1 (git-version: Release)",*
+>>
+>> *  "stats":*
+>>
+>> *  {*
+>>
+>> *    "statistic":*
+>>
+>> *    [*
+>>
+>> *      {*
+>>
+>> *        "average": 38.90486588,*
+>>
+>> *        "count": 4048726,*
+>>
+>> *        "counts":*
+>>
+>> *        [*
+>>
+>> *          "1.000000/1",*
+>>
+>> *          "2.000000/2590331",*
+>>
+>> *          "3.000000/146834",*
+>>
+>> *          "4.000000/16873",*
+>>
+>> *          "5.000000/106701",*
+>>
+>> *          "6.000000/13937",*
+>>
+>> *          "7.000000/51",*
+>>
+>> *          "9.000000/14124",*
+>>
+>> *          "17.000000/218",*
+>>
+>> *          "130.000000/993308",*
+>>
+>> *          "131.000000/102834",*
+>>
+>> *          "132.000000/6622",*
+>>
+>> *          "133.000000/40561",*
+>>
+>> *          "134.000000/9820",*
+>>
+>> *          "135.000000/5",*
+>>
+>> *          "137.000000/6215",*
+>>
+>> *          "138.000000/291"*
+>>
+>> *        ],*
+>>
+>> *        "maximum": 138,*
+>>
+>> *        "minimum": 1,*
+>>
+>> *        "name": "Classification",*
+>>
+>> *        "position": 0,*
+>>
+>> *        "stddev": 57.8965773,*
+>>
+>> *        "variance": 3352.013663*
+>>
+>> *      }*
+>>
+>> *    ]*
+>>
+>> *  }*
+>>
+>> *}*
+>>
+>>
+>>
+>> *Input file (lasinfo)*
+>>
+>>
+>>
+>> histogram of classification of points:
+>>
+>>                1  unclassified (1)
+>>
+>>          3583639  ground (2)
+>>
+>>           249668  low vegetation (3)
+>>
+>>            23495  medium vegetation (4)
+>>
+>>           147262  high vegetation (5)
+>>
+>>            23757  building (6)
+>>
+>>               56  noise (7)
+>>
+>>            20339  water (9)
+>>
+>>              509  rail (10)
+>>
+>> +-> flagged as withheld:  1159656
+>>
+>>
+>>
+>> *Output file (lasinfo)*
+>>
+>>
+>>
+>> histogram of classification of points:
+>>
+>>                1  unclassified (1)
+>>
+>>          3583639  ground (2)
+>>
+>>           249668  low vegetation (3)
+>>
+>>            23495  medium vegetation (4)
+>>
+>>           147262  high vegetation (5)
+>>
+>>            23757  building (6)
+>>
+>>               56  noise (7)
+>>
+>>            20339  water (9)
+>>
+>>              291  rail (10)
+>>
+>>              218  bridge deck (17)
+>>
+>> +-> flagged as withheld:  1159656
+>>
+>>
+>>
+>>
+>>
+>> I’m guessing pdal info is the most accurate output as arcgis pro + global
+>> mapper outputs are the same as pdal info and lasinfo is the odd one out.
+>>
+>> I wrote a las2las and pdal pipeline workaround to make sure that both
+>> lasinfo + pdal info outputs were the same.
+>>
+>>
+>>
+>> I was wondering if you guys knew why the flags were written as numbers
+>> and why they are split up in codes, that change for each file?
+>>
+>>
+>>
+>> Many thanks and kind regards,
+>>
+>> Rose Phillips
+>>
+>>
+>>
+>> Location Data Analyst
+>>
+>> Land Information New Zealand
+>>
+>>
+>>
+>> ------------------------------
+>>
+>> This message contains information, which may be in confidence and may be
+>> subject to legal privilege. If you are not the intended recipient, you must
+>> not peruse, use, disseminate, distribute or copy this message. If you have
+>> received this message in error, please notify us immediately (Phone 0800
+>> 665 463 or info at linz.govt.nz) and destroy the original message. LINZ
+>> accepts no responsibility for changes to this email, or for any
+>> attachments, after its transmission from LINZ. Thank You.
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200212/8c29f270/attachment-0003.html>
+
+From j.meyer at utah.edu  Tue Feb 18 16:04:43 2020
+From: j.meyer at utah.edu (Joachim Meyer)
+Date: Wed, 19 Feb 2020 00:04:43 +0000
+Subject: [pdal] Default 'tt' value when using filters.icp
+Message-ID: <8F6BC657-2C0A-466E-BF82-67D080C2B2A0@utah.edu>
+
+Hi PDAL-devs,
+
+I have a few questions using `filters.icp` (https://pdal.io/stages/filters.icp.html).
+First off, I am very new to aligning two point clouds using this filter and have a limited understanding of the underlying algorithm or terminology.
+
+The options give a default value of 9e-8 for the translation threshold.
+Looking at the source code, I read that if I wanted to have a different value for that, I should give the square root for a different threshold: https://github.com/PDAL/PDAL/blob/a8b0bfbefb7f8ffc467092f11cedc155f862fa6f/filters/IterativeClosestPoint.cpp#L68
+
+Is that correct?
+
+My use case aligns two larger point clouds (100+ million) to each other and, to improve performance, I reduced the size of those through downsampling in point density, as well as filtering to stable reference ground between the two. I save the output of that alignment and now planning to use the same matrix with `filters.transformation`. There, it says that it should be given in row-major order, and I assume that is what the output of `filters.icp` with the —metadata is giving me?
+
+Let me know if I can contribute your answers back to the docs through a PR.
+
+
+Thank you,
+ Joe
+
+
+From brad.chambers at gmail.com  Tue Feb 18 17:24:44 2020
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Tue, 18 Feb 2020 20:24:44 -0500
+Subject: [pdal] Default 'tt' value when using filters.icp
+In-Reply-To: <8F6BC657-2C0A-466E-BF82-67D080C2B2A0@utah.edu>
+References: <8F6BC657-2C0A-466E-BF82-67D080C2B2A0@utah.edu>
+Message-ID: <CAJyqqPxBWseWgquRA0BGHznzybwgLpD5Zju7NoFeN7B=RqcqcQ@mail.gmail.com>
+
+The options are very heavily borrowed from the PCL library, where this was
+a squared value. Also, keep in mind that the default values may be better
+suited for terrestrial/robotics applications (as opposed to aerial), and
+will very likely need some tweaking.
+
+The reported transformation should also be reported in row major order,
+like the transformation filter. If you find it is not, I’d consider that a
+bug, so feel free to file a ticket.
+
+PRs are always welcome, especially for documentation!
+
+Brad
+
+On Tue, Feb 18, 2020 at 19:11 Joachim Meyer <j.meyer at utah.edu> wrote:
+
+> Hi PDAL-devs,
+>
+> I have a few questions using `filters.icp` (
+> https://pdal.io/stages/filters.icp.html).
+> First off, I am very new to aligning two point clouds using this filter
+> and have a limited understanding of the underlying algorithm or terminology.
+>
+> The options give a default value of 9e-8 for the translation threshold.
+> Looking at the source code, I read that if I wanted to have a different
+> value for that, I should give the square root for a different threshold:
+> https://github.com/PDAL/PDAL/blob/a8b0bfbefb7f8ffc467092f11cedc155f862fa6f/filters/IterativeClosestPoint.cpp#L68
+>
+> Is that correct?
+>
+> My use case aligns two larger point clouds (100+ million) to each other
+> and, to improve performance, I reduced the size of those through
+> downsampling in point density, as well as filtering to stable reference
+> ground between the two. I save the output of that alignment and now
+> planning to use the same matrix with `filters.transformation`. There, it
+> says that it should be given in row-major order, and I assume that is what
+> the output of `filters.icp` with the —metadata is giving me?
+>
+> Let me know if I can contribute your answers back to the docs through a PR.
+>
+>
+> Thank you,
+>  Joe
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200218/7d3a10a5/attachment.html>
+
+From klassen.js at gmail.com  Mon Feb 24 10:10:43 2020
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Mon, 24 Feb 2020 12:10:43 -0600
+Subject: [pdal] entwine crash with large number of duplicate points
+Message-ID: <ec3cbc66-3c69-9b18-ed72-50ae1383d92b@gmail.com>
+
+It looks like entwine crashes if it is presented with a large number of duplicate points.
+
+I was seeing 'entwine build' segfault on one of about 33,000 laz files (all produced by the same pdal pipeline).  Running 'enwtine build' on this file alone and even just on certain subsets of the points in it caused the segfault.  Other subsets of points from the same LAZ ran fine.  I've got it down to a 24 kB LAZ file (70,000 points) that still causes the segfault.
+
+After rebuilding entwine in debug mode it doesn't segfault, but an assert gets tripped instead:
+
+entwine/builder/chunk-cache.cpp:68: void entwine::ChunkCache::insert(entwine::Voxel&, entwine::Key&, const entwine::ChunkKey&, entwine::Clipper&): Assertion `ck.depth() < maxDepth' failed.
+
+I have tried entwine e61e33a (Feb 17 2020) and 878acc8 (Sep 2 2019) and both behave the same.
+
+Using pdal translate to convert the laz to a txt file, I found the reduced file contains 65599 points that are identical across all dimensions.
+
+If I remove the duplicate points from the original LAZ using PDAL's filter.sample.radius=0.0001, the resulting LAZ file works fine with entwine (reduced to 4.5 million points down from 11.2 million points).
+
+
+From connor at hobu.co  Mon Feb 24 10:30:56 2020
+From: connor at hobu.co (Connor Manning)
+Date: Mon, 24 Feb 2020 12:30:56 -0600
+Subject: [pdal] entwine crash with large number of duplicate points
+In-Reply-To: <ec3cbc66-3c69-9b18-ed72-50ae1383d92b@gmail.com>
+References: <ec3cbc66-3c69-9b18-ed72-50ae1383d92b@gmail.com>
+Message-ID: <CAO=FyjLTD8ti_g5vXEU-hMujMi9JNa=qu_zj3hzjcebVQ36nPw@mail.gmail.com>
+
+If you can email me directly with a file that reproduces the issue I can
+take a look.
+
+On Mon, Feb 24, 2020 at 12:10 PM Jim Klassen <klassen.js at gmail.com> wrote:
+
+> It looks like entwine crashes if it is presented with a large number of
+> duplicate points.
+>
+> I was seeing 'entwine build' segfault on one of about 33,000 laz files
+> (all produced by the same pdal pipeline).  Running 'enwtine build' on this
+> file alone and even just on certain subsets of the points in it caused the
+> segfault.  Other subsets of points from the same LAZ ran fine.  I've got it
+> down to a 24 kB LAZ file (70,000 points) that still causes the segfault.
+>
+> After rebuilding entwine in debug mode it doesn't segfault, but an assert
+> gets tripped instead:
+>
+> entwine/builder/chunk-cache.cpp:68: void
+> entwine::ChunkCache::insert(entwine::Voxel&, entwine::Key&, const
+> entwine::ChunkKey&, entwine::Clipper&): Assertion `ck.depth() < maxDepth'
+> failed.
+>
+> I have tried entwine e61e33a (Feb 17 2020) and 878acc8 (Sep 2 2019) and
+> both behave the same.
+>
+> Using pdal translate to convert the laz to a txt file, I found the reduced
+> file contains 65599 points that are identical across all dimensions.
+>
+> If I remove the duplicate points from the original LAZ using PDAL's
+> filter.sample.radius=0.0001, the resulting LAZ file works fine with entwine
+> (reduced to 4.5 million points down from 11.2 million points).
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20200224/95c86431/attachment.html>
+

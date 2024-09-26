@@ -1,0 +1,463 @@
+From pramsey at cleverelephant.ca  Wed Apr 15 14:16:52 2020
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 15 Apr 2020 14:16:52 -0700
+Subject: [geos-devel] Remove ttmath?
+Message-ID: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+
+So, we ran into some issues with GEOS 3.8 on a Power architecture, and based on what tests failed, I suspect the issue is with our use of ttmath.
+
+In particular, this comment says to me (and just eyeballing what's going on) that there is some in-baked assumptions about endianness.
+
+https://github.com/libgeos/geos/blob/master/include/geos/algorithm/ttmath/ttmathbig.h#L2607-L2609
+
+The only reason we're using ttmath is because Mateusz happened to choose it for his initial experiments on supporting the higher precision code in JTS. Turns out there's no reason we cannot use exactly the same routines as JTS does, though, and they have NO ENDIAN assumptions in them, so they'll be portable.
+
+The port of the JTS code is here:
+
+https://github.com/libgeos/geos/pull/303
+
+Amazingly, all the regression tests still pass. 
+
+Also, just based on running the full test suite, the DD code seems 5-10% faster than ttmath. This isn't entirely surprising, since ttmath is an arbitrary precision system, while doubledouble uses nothing but standard double math and the assumption that all double representations and operations are to IEEE spec.
+
+I'm going to port the JTS unit tests so we have a little more foundation under this work, but then I'd like to rip out ttmath in 3.9. 
+
+I'm a little worried that we cannot support big-endian machines in 3.8, so I think we might consider back-porting this work to 3.8 and switch over to it for big-endian architectures. 
+
+Paul
+
+
+From lr at pcorp.us  Wed Apr 15 14:31:20 2020
+From: lr at pcorp.us (Regina Obe)
+Date: Wed, 15 Apr 2020 17:31:20 -0400
+Subject: [geos-devel] Remove ttmath?
+In-Reply-To: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+References: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+Message-ID: <002201d6136d$34f542e0$9edfc8a0$@pcorp.us>
+
++1 to ripping out in 3.9 and eventually backporting to 3.8 after some testing.
+
+> -----Original Message-----
+> From: geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf
+> Of Paul Ramsey
+> Sent: Wednesday, April 15, 2020 5:17 PM
+> To: GEOS Development List <geos-devel at lists.osgeo.org>
+> Subject: [geos-devel] Remove ttmath?
+> 
+> So, we ran into some issues with GEOS 3.8 on a Power architecture, and
+> based on what tests failed, I suspect the issue is with our use of ttmath.
+> 
+> In particular, this comment says to me (and just eyeballing what's going on)
+> that there is some in-baked assumptions about endianness.
+> 
+> https://github.com/libgeos/geos/blob/master/include/geos/algorithm/ttma
+> th/ttmathbig.h#L2607-L2609
+> 
+> The only reason we're using ttmath is because Mateusz happened to choose
+> it for his initial experiments on supporting the higher precision code in JTS.
+> Turns out there's no reason we cannot use exactly the same routines as JTS
+> does, though, and they have NO ENDIAN assumptions in them, so they'll be
+> portable.
+> 
+> The port of the JTS code is here:
+> 
+> https://github.com/libgeos/geos/pull/303
+> 
+> Amazingly, all the regression tests still pass.
+> 
+> Also, just based on running the full test suite, the DD code seems 5-10%
+> faster than ttmath. This isn't entirely surprising, since ttmath is an arbitrary
+> precision system, while doubledouble uses nothing but standard double math
+> and the assumption that all double representations and operations are to
+> IEEE spec.
+> 
+> I'm going to port the JTS unit tests so we have a little more foundation under
+> this work, but then I'd like to rip out ttmath in 3.9.
+> 
+> I'm a little worried that we cannot support big-endian machines in 3.8, so I
+> think we might consider back-porting this work to 3.8 and switch over to it
+> for big-endian architectures.
+> 
+> Paul
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+From strk at kbt.io  Thu Apr 16 04:46:23 2020
+From: strk at kbt.io (Sandro Santilli)
+Date: Thu, 16 Apr 2020 13:46:23 +0200
+Subject: [geos-devel] Remove ttmath?
+In-Reply-To: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+References: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+Message-ID: <20200416114623.GB4720@liz>
+
+On Wed, Apr 15, 2020 at 02:16:52PM -0700, Paul Ramsey wrote:
+
+> The only reason we're using ttmath is because Mateusz happened to
+> choose it for his initial experiments on supporting the higher precision
+> code in JTS. Turns out there's no reason we cannot use exactly the same
+> routines as JTS does, though, and they have NO ENDIAN assumptions in them,
+> so they'll be portable.
+
++1 for that, JTS routines seems best option to me.
+
+--strk;
+
+From pramsey at cleverelephant.ca  Thu Apr 16 12:16:19 2020
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 16 Apr 2020 12:16:19 -0700
+Subject: [geos-devel] Remove ttmath?
+In-Reply-To: <20200416114623.GB4720@liz>
+References: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+ <20200416114623.GB4720@liz>
+Message-ID: <38790D0E-E196-47AF-A865-9AA05C03BA5D@cleverelephant.ca>
+
+Thanks, I'm going to procede to merge to master when I'm green on CI.
+I have added all the JTS tests, so I feel good about the foundation.
+Once I have merge to master, I'm going to experiment with adding one of the new bigendian architectures supported by Travis into the CI (because more CI!)
+
+P.
+
+> On Apr 16, 2020, at 4:46 AM, Sandro Santilli <strk at kbt.io> wrote:
+> 
+> On Wed, Apr 15, 2020 at 02:16:52PM -0700, Paul Ramsey wrote:
+> 
+>> The only reason we're using ttmath is because Mateusz happened to
+>> choose it for his initial experiments on supporting the higher precision
+>> code in JTS. Turns out there's no reason we cannot use exactly the same
+>> routines as JTS does, though, and they have NO ENDIAN assumptions in them,
+>> so they'll be portable.
+> 
+> +1 for that, JTS routines seems best option to me.
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+From dbaston at gmail.com  Thu Apr 16 12:59:48 2020
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 16 Apr 2020 15:59:48 -0400
+Subject: [geos-devel] Remove ttmath?
+In-Reply-To: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+References: <0305FD2C-8774-426F-8BAE-1C90DA3FAABC@cleverelephant.ca>
+Message-ID: <CA+K_q_ptzDu2hJX5V8B2ZMjeE6bBP7i4+itwRphGrv8mEKX_dQ@mail.gmail.com>
+
+I ran some of my performance benchmarks (overlay, PIP) am seeing
+roughly equal or slightly better performance on the DD branch. So, sounds
+like a win to me.
+
+Dan
+
+On Wed, Apr 15, 2020 at 5:17 PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> So, we ran into some issues with GEOS 3.8 on a Power architecture, and
+> based on what tests failed, I suspect the issue is with our use of ttmath.
+>
+> In particular, this comment says to me (and just eyeballing what's going
+> on) that there is some in-baked assumptions about endianness.
+>
+>
+> https://github.com/libgeos/geos/blob/master/include/geos/algorithm/ttmath/ttmathbig.h#L2607-L2609
+>
+> The only reason we're using ttmath is because Mateusz happened to choose
+> it for his initial experiments on supporting the higher precision code in
+> JTS. Turns out there's no reason we cannot use exactly the same routines as
+> JTS does, though, and they have NO ENDIAN assumptions in them, so they'll
+> be portable.
+>
+> The port of the JTS code is here:
+>
+> https://github.com/libgeos/geos/pull/303
+>
+> Amazingly, all the regression tests still pass.
+>
+> Also, just based on running the full test suite, the DD code seems 5-10%
+> faster than ttmath. This isn't entirely surprising, since ttmath is an
+> arbitrary precision system, while doubledouble uses nothing but standard
+> double math and the assumption that all double representations and
+> operations are to IEEE spec.
+>
+> I'm going to port the JTS unit tests so we have a little more foundation
+> under this work, but then I'd like to rip out ttmath in 3.9.
+>
+> I'm a little worried that we cannot support big-endian machines in 3.8, so
+> I think we might consider back-porting this work to 3.8 and switch over to
+> it for big-endian architectures.
+>
+> Paul
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200416/ecaea8ef/attachment.html>
+
+From pramsey at cleverelephant.ca  Fri Apr 17 08:48:55 2020
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 17 Apr 2020 08:48:55 -0700
+Subject: [geos-devel] Add DD math to 3.8
+Message-ID: <238891F2-6A4C-451A-8AEF-7556E76712E9@cleverelephant.ca>
+
+So, the follow-on to the discussion regarding master (which is now merged) is the question for 3.8.
+
+Even though (amazingly) the DD implementation showed no (!!) changes in regression results compared to ttmath, for 3.8 I have brought the DD implementation in as an addition to ttmath, only used in the case of big-endian architectures.
+
+https://github.com/libgeos/geos/pull/304
+
+This should minimize the probability of a behaviour changes for existing installations, while allowing (currently broken) big endian clients to pass regression. 
+
+If anyone has login access to a big-endian machine, I'd love to confirm that my build script changes actually work. I'm pretty sure they do, but not 100%.
+
+P.
+
+From geos-trac at osgeo.org  Mon Apr 20 10:16:59 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 20 Apr 2020 17:16:59 -0000
+Subject: [geos-devel] [GEOS] #1027: WKT output of MULTIPOINT with empty
+	member crashes
+Message-ID: <045.ae4d3ddb2b9c3130bbdd5ed1a74e185f@osgeo.org>
+
+#1027: WKT output of MULTIPOINT with empty member crashes
+------------------------+--------------------------
+ Reporter:  pramsey     |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.8.2
+Component:  Default     |    Version:  3.8.0
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ Construct a multipoint of the form
+ {{{
+ MULTIPOINT(EMPTY, 1 1)
+ }}}
+ And attempt to write it to WKT, a crash will ensue.
+
+ https://github.com/libgeos/geos/issues/305
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1027>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Mon Apr 20 11:18:47 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 20 Apr 2020 18:18:47 -0000
+Subject: [geos-devel] [GEOS] #1027: WKT output of MULTIPOINT with empty
+	member crashes
+In-Reply-To: <045.ae4d3ddb2b9c3130bbdd5ed1a74e185f@osgeo.org>
+References: <045.ae4d3ddb2b9c3130bbdd5ed1a74e185f@osgeo.org>
+Message-ID: <060.b4caf1bb75640bc2c68939e36ba5eaa6@osgeo.org>
+
+#1027: WKT output of MULTIPOINT with empty member crashes
+------------------------+---------------------------
+ Reporter:  pramsey     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:  3.8.2
+Component:  Default     |     Version:  3.8.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by Paul Ramsey <pramsey@…>):
+
+ In [changeset:"03c1615171eae48fa0ef42d6dd6435152d469988/git" 03c1615/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="03c1615171eae48fa0ef42d6dd6435152d469988"
+ Fix crash on WKT write of MULTIPOINT(EMPTY, 1 1)
+ References #1027
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1027#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Mon Apr 20 11:20:25 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 20 Apr 2020 18:20:25 -0000
+Subject: [geos-devel] [GEOS] #1027: WKT output of MULTIPOINT with empty
+	member crashes
+In-Reply-To: <045.ae4d3ddb2b9c3130bbdd5ed1a74e185f@osgeo.org>
+References: <045.ae4d3ddb2b9c3130bbdd5ed1a74e185f@osgeo.org>
+Message-ID: <060.f26b6de54006abaa530639c956972cf3@osgeo.org>
+
+#1027: WKT output of MULTIPOINT with empty member crashes
+------------------------+---------------------------
+ Reporter:  pramsey     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  major       |   Milestone:  3.8.2
+Component:  Default     |     Version:  3.8.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+Changes (by pramsey):
+
+ * status:  new => closed
+ * resolution:   => fixed
+
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1027#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Apr 21 09:22:54 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 21 Apr 2020 16:22:54 -0000
+Subject: [geos-devel] [GEOS] #1022: Buffering a specific closed
+ linestring erroneously produces polygon without hole.
+In-Reply-To: <045.e1150a9b7a733a446cf0fc4a0f1dacf4@osgeo.org>
+References: <045.e1150a9b7a733a446cf0fc4a0f1dacf4@osgeo.org>
+Message-ID: <060.62148f6e819c916306f67373106afc58@osgeo.org>
+
+#1022: Buffering a specific closed linestring erroneously produces polygon without
+hole.
+------------------------+---------------------------
+ Reporter:  uclaros     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  major       |   Milestone:
+Component:  Default     |     Version:  3.8.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by Paul Ramsey <pramsey@…>):
+
+ In [changeset:"061656eab5cf856565a18de0ed7977d3eac7fafe/git" 061656e/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="061656eab5cf856565a18de0ed7977d3eac7fafe"
+ Buffering a specific closed linestring erroneously produces polygon
+ without hole. References #1022
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1022#comment:5>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Apr 21 09:23:42 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 21 Apr 2020 16:23:42 -0000
+Subject: [geos-devel] [GEOS] #1022: Buffering a specific closed
+ linestring erroneously produces polygon without hole.
+In-Reply-To: <045.e1150a9b7a733a446cf0fc4a0f1dacf4@osgeo.org>
+References: <045.e1150a9b7a733a446cf0fc4a0f1dacf4@osgeo.org>
+Message-ID: <060.02d548946237c1379bc55c57096656e5@osgeo.org>
+
+#1022: Buffering a specific closed linestring erroneously produces polygon without
+hole.
+------------------------+---------------------------
+ Reporter:  uclaros     |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  major       |   Milestone:
+Component:  Default     |     Version:  3.8.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+Changes (by Paul Ramsey <pramsey@…>):
+
+ * status:  new => closed
+ * resolution:   => fixed
+
+
+Comment:
+
+ In [changeset:"56b19e08c94a0095ebabaf5b827d59939953d956/git" 56b19e0/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="56b19e08c94a0095ebabaf5b827d59939953d956"
+ Buffering a specific closed linestring erroneously produces polygon
+ without hole. Closes #1022
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1022#comment:6>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Sun Apr 26 19:19:43 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 27 Apr 2020 02:19:43 -0000
+Subject: [geos-devel] [GEOS] #1028: Maximum Inscribed Circle Algorithm
+Message-ID: <045.9f5ac3faa93b97456c6dbe4262380ebf@osgeo.org>
+
+#1028: Maximum Inscribed Circle Algorithm
+-------------------------+--------------------------
+ Reporter:  jdadams      |      Owner:  geos-devel@…
+     Type:  enhancement  |     Status:  new
+ Priority:  minor        |  Milestone:
+Component:  Default      |    Version:
+ Severity:  Unassigned   |   Keywords:
+-------------------------+--------------------------
+ I would like to propose adding a Maximum Inscribed Circle algorithm to
+ GEOS. This algorithm can be thought of as the opposite of the Minimum
+ Bounding Circle, which currently resides in GEOS. My original purpose for
+ this algorithm was label placement optimization, particularly for
+ geometries that do not have a centroid that lies on their interior.
+
+ I implemented an algorithm in JavaScript several years ago and have ported
+ this algorithm to GEOS, basing the structure on the Minimum Bounding
+ Circle implementation. The code can be found in the following merge
+ request: https://github.com/libgeos/geos/pull/311
+
+ Information on the algorithm is available in the user guide that is part
+ of the JavaScript implementation: https://github.com/PieceMaker/max-
+ inscribed-circle/blob/master/doc/guide.md
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1028>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From jorisvandenbossche at gmail.com  Sun Apr 26 23:43:23 2020
+From: jorisvandenbossche at gmail.com (Joris Van den Bossche)
+Date: Mon, 27 Apr 2020 08:43:23 +0200
+Subject: [geos-devel] New Python bindings / RFC proposal for Shapely 2.0
+Message-ID: <CALQtMBbWE0=BJZCB1a-DrG9zu5=gipg7HrWr=1gkOO0GPEdYwA@mail.gmail.com>
+
+Hi all,
+
+This email is not directly related to GEOS development itself, so excuse my
+interruption here. But it is about Python bindings to GEOS, so I assumed
+this would be of interest to some of the people following this list. And if
+not, you can skip the rest of the message ;)
+
+Background: we have been working on a new set of Python bindings to GEOS in
+the PyGEOS package (https://github.com/pygeos/pygeos/). The initial focus
+was to make it easier and more performant to work with arrays of geometries
+(where Shapely is now focused on scalar geometries). In its core, PyGEOS
+provides two things: a Python extension type coded in C that wraps a GEOS
+geometry pointer in a PyObject (which gives us memory management from the
+Python side), and a set of vectorized functions exposing GEOS' spatial
+operations making use of numpy's ufunc API ("universal function",
+element-wise array functions with broadcasting). See
+https://caspervdw.github.io/Introducing-Pygeos/ for some more details.
+
+While this separate package made it easier to experiment (and which we are
+still doing), on the long term, it's not ideal to have two incompatible
+GEOS wrappers in the Python ecosystem. Therefore, there is now a proposal
+to upstream the work being done in PyGEOS to Shapely, along with some API
+changes in Shapely: "RFC 1: Roadmap for Shapely 2.0" (
+https://github.com/shapely/shapely-rfc/pull/1).
+
+Given that this are some profound changes to Shapely, feedback from Shapely
+users would be very much appreciated!
+(feedback on the details how we are wrapping GEOS in PyGEOS is of course
+also welcome)
+
+Best,
+Joris
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200427/90173fa6/attachment.html>
+

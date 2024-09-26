@@ -1,0 +1,701 @@
+From hobu.inc at gmail.com  Sun Jul  3 15:31:52 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Sun Jul  3 18:23:15 2011
+Subject: [pdal] Scheming
+In-Reply-To: <1BF98709-01CC-4E4B-A6D1-EBA178C24848@gmail.com>
+References: <1BF98709-01CC-4E4B-A6D1-EBA178C24848@gmail.com>
+Message-ID: <DE601415-9F10-4070-9753-4830C09F1D54@gmail.com>
+
+
+On Jul 2, 2011, at 7:39 AM, Howard Butler wrote:
+
+> The Schema's dimension management needs to be addressed now. Consider:
+> 
+> - Scaling filter goes ints -> doubles.  This currently adds XYZ dims as doubles and attempts to remove XYZ int dimensions by marking the m_indexTable
+> - Reprojection filter happens
+> - descaling filter goes doubles -> ints.  This adds XYZ dims back as ints.  Again the deletion doesn't quite work though.  
+> 
+> The net effect of this is our schema ends up with three sets of XYZ dims in the m_dimensions vector, but only one Field_X is valid in the m_indexTable.
+> 
+> Ideas? Do we need m_indexTable at all?
+
+
+Moving this to the list...
+
+Some other questions:
+
+- It seems SchemaLayout exists only to calculate the cumulative size of all of the DimensionLayouts, but the order of the DimensionLayouts (to be added to the SchemaLayout) is implicitly determined by the dimension order as they are added to the pdal::Schema's vector.  Can you clarify the intent of separating Schema/SchemaLayout and Dimension/DimensionLayout?  I'm a bit confused as to the advantages of keeping these separate as opposed to information that is updated on-the-fly as Dimensions are created or added to a Schema object.
+
+- Do we want to bake in XML serialization of schema/dimension into those classes or keep them separate as we have them now?
+
+Howard
+ 
+From mpg at flaxen.com  Mon Jul 11 15:22:50 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jul 12 01:07:34 2011
+Subject: [pdal] Scheming
+In-Reply-To: <DE601415-9F10-4070-9753-4830C09F1D54@gmail.com>
+References: <1BF98709-01CC-4E4B-A6D1-EBA178C24848@gmail.com>
+	<DE601415-9F10-4070-9753-4830C09F1D54@gmail.com>
+Message-ID: <023d01cc3fff$edfbe320$c9f3a960$@flaxen.com>
+
+I think the key intent was that during the actual read function I wanted to
+have a fixed structure that did not require lookups of a field at anything
+worse than O(1).
+ 
+The introduction of field-enums-as-ints was intended to accomplish this.
+But I agree, there is a problem with a given field being used more than
+once, or a given field being re-used with a different data type (we did
+consider adding the datatype along with the "name", but that makes the enum
+worse than it is).
+
+(  Another piece of the puzzle to keep in mind is this:  a point, consisting
+of N different fields, is given to a stage.  As far as that stage is
+concerned, it likely will have no idea what the various fields actually are
+-- it will typically only want to touch a few of them, if it can "find" the
+kind of field it knows how to deal with for.  For example, the crop filter
+only understands X,Y,Z and will treat the rest as pass-throughs.  )
+
+One approach might be to do this: before the main read-point loop in a
+stage, find the fields of interest and store them in an object.  This may be
+worse than O(1), but it doesn't matter if it is outside the loop.  Then,
+during the loop, only that new object is used which stores the indexes in a
+way that can be found in O(1).  Look at the variables fieldX,fieldY,fieldZ
+in CropFilter::processBuffer -- I did it there just for notational
+convenience, but that's the idea I'm thinking of, although we would sort of
+provide an infrastructure for it.
+
+-mpg
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org]
+> On Behalf Of Howard Butler
+> Sent: Sunday, July 03, 2011 12:32 PM
+> To: pdal@lists.osgeo.org
+> Subject: [pdal] Scheming
+> 
+> 
+> On Jul 2, 2011, at 7:39 AM, Howard Butler wrote:
+> 
+> > The Schema's dimension management needs to be addressed now.
+> Consider:
+> >
+> > - Scaling filter goes ints -> doubles.  This currently adds XYZ dims as
+doubles
+> and attempts to remove XYZ int dimensions by marking the m_indexTable
+> > - Reprojection filter happens
+> > - descaling filter goes doubles -> ints.  This adds XYZ dims back as
+ints.
+> Again the deletion doesn't quite work though.
+> >
+> > The net effect of this is our schema ends up with three sets of XYZ dims
+in
+> the m_dimensions vector, but only one Field_X is valid in the
+m_indexTable.
+> >
+> > Ideas? Do we need m_indexTable at all?
+> 
+> 
+> Moving this to the list...
+> 
+> Some other questions:
+> 
+> - It seems SchemaLayout exists only to calculate the cumulative size of
+all of
+> the DimensionLayouts, but the order of the DimensionLayouts (to be added
+> to the SchemaLayout) is implicitly determined by the dimension order as
+> they are added to the pdal::Schema's vector.  Can you clarify the intent
+of
+> separating Schema/SchemaLayout and Dimension/DimensionLayout?  I'm a
+> bit confused as to the advantages of keeping these separate as opposed to
+> information that is updated on-the-fly as Dimensions are created or added
+to
+> a Schema object.
+> 
+> - Do we want to bake in XML serialization of schema/dimension into those
+> classes or keep them separate as we have them now?
+> 
+> Howard
+>  _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mpg at flaxen.com  Wed Jul 13 23:12:08 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Jul 14 12:02:21 2011
+Subject: [pdal] Shared ptr madness
+Message-ID: <00ae01cc41d3$d206aee0$76140ca0$@flaxen.com>
+
+We now have a factory that creates stages for us, e.g.
+
+    boost::shared_ptr<Reader> ptr1 =
+factory.createReader("drivers.las.reader", Options::none());
+
+Observe that this returns a shared_ptr, which is probably the Right Thing To
+Do.
+
+Now consider the next line of code, where we create a filter using that
+pointer to a reader we just got:
+
+    boost::shared_ptr<Filter> ptr2 = factory.createFilter("filters.crop",
+*ptr1, Options::none());
+
+Observe that we are passing in to the filter "*ptr1" as the "previous stage"
+parameter, because the ctor for a Filter takes a "const Stage&".  We need to
+deref the shared_ptr to get the real ptr.
+
+
+Question: should the filter stages take shared_ptr<Stage> parameters instead
+of Stage& parameters?  It seems like if we don't pass in a shared ptr, we're
+sort of mixing models -- if you are going to have a shared_ptr to something,
+you should use that shared_ptr semantics everywhere.
+
+
+Possible opposing view: actually the Filters take a const reference (const
+Stage&), not a true pointer, so we need not use or worry about the
+shared_ptr semantics.
+
+
+Possible opposing opposing view: the MultiFilter class takes a N previous
+stages as a parameter, typed as "const std::vector<const Stage*>".  Note
+this is an actual pointer, not a reference, because you can't have a
+std::vector of reference objects.  So now we have three different kinds of
+pointers to a Stage (shared, real * ptr, and &-ref ptr) all being used,
+unless we switch to "std::vector<shared_ptr<Stage>>".
+
+
+-mpg
+
+
+From hobu.inc at gmail.com  Thu Jul 14 08:30:05 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Thu Jul 14 21:51:17 2011
+Subject: [pdal] Shared ptr madness
+In-Reply-To: <00ae01cc41d3$d206aee0$76140ca0$@flaxen.com>
+References: <00ae01cc41d3$d206aee0$76140ca0$@flaxen.com>
+Message-ID: <987363B5-56D2-4157-9CB9-E323C3B1EA10@gmail.com>
+
+I can't discuss this too much as I am on the road, but see libLAS' use of boost::optional for managing the point's liblas::Header.  It would maybe keep the semantics cleaner than the shared_ptr.  
+
+On Jul 13, 2011, at 10:12 PM, "Michael P. Gerlek" <mpg@flaxen.com> wrote:
+
+> We now have a factory that creates stages for us, e.g.
+> 
+>    boost::shared_ptr<Reader> ptr1 =
+> factory.createReader("drivers.las.reader", Options::none());
+> 
+> Observe that this returns a shared_ptr, which is probably the Right Thing To
+> Do.
+> 
+> Now consider the next line of code, where we create a filter using that
+> pointer to a reader we just got:
+> 
+>    boost::shared_ptr<Filter> ptr2 = factory.createFilter("filters.crop",
+> *ptr1, Options::none());
+> 
+> Observe that we are passing in to the filter "*ptr1" as the "previous stage"
+> parameter, because the ctor for a Filter takes a "const Stage&".  We need to
+> deref the shared_ptr to get the real ptr.
+> 
+> 
+> Question: should the filter stages take shared_ptr<Stage> parameters instead
+> of Stage& parameters?  It seems like if we don't pass in a shared ptr, we're
+> sort of mixing models -- if you are going to have a shared_ptr to something,
+> you should use that shared_ptr semantics everywhere.
+> 
+> 
+> Possible opposing view: actually the Filters take a const reference (const
+> Stage&), not a true pointer, so we need not use or worry about the
+> shared_ptr semantics.
+> 
+> 
+> Possible opposing opposing view: the MultiFilter class takes a N previous
+> stages as a parameter, typed as "const std::vector<const Stage*>".  Note
+> this is an actual pointer, not a reference, because you can't have a
+> std::vector of reference objects.  So now we have three different kinds of
+> pointers to a Stage (shared, real * ptr, and &-ref ptr) all being used,
+> unless we switch to "std::vector<shared_ptr<Stage>>".
+> 
+> 
+> -mpg
+> 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+From mpg at flaxen.com  Fri Jul 15 15:48:42 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Sat Jul 16 06:52:52 2011
+Subject: [pdal] PdalXML style
+Message-ID: <01a101cc4328$34a51a50$9def4ef0$@flaxen.com>
+
+Which of these is best for representing the options block of a pipeline
+description:
+
+(A) Options block is a tree of elements
+
+<Writer type="drivers.las.writer">
+        <Options>
+                <filename>out.laz</filename>
+                <compression>true</compression>
+        </Options>
+        <Reader type="drivers.las.reader">
+                <Options>
+                        <filename>in.las</filename>
+                </Options>
+        </Reader>
+</Writer>
+
+
+(B) Options block is an element with attributes
+
+<Writer type="drivers.las.writer">
+        <Options filename="out.laz" compression="true"/>
+        <Reader type="drivers.las.reader">
+                <Options filename="in.las"/>
+                </Options>
+        </Reader>
+</Writer>
+
+
+(C) Options block is just attributes on the stage
+
+<Writer type="drivers.las.writer" filename="out.laz" compression="true">
+        <Reader type="drivers.las.reader" filename="in.las>
+        </Reader>
+</Writer>
+
+
+-mpg
+
+
+From Michael.Smith at usace.army.mil  Fri Jul 15 15:51:13 2011
+From: Michael.Smith at usace.army.mil (Smith, Michael ERDC-CRREL-NH)
+Date: Sat Jul 16 06:55:38 2011
+Subject: [pdal] PdalXML style
+In-Reply-To: <01a101cc4328$34a51a50$9def4ef0$@flaxen.com>
+Message-ID: <CA45E81B.116BA%michael.smith@usace.army.mil>
+
+I like option 1 the best but only for readability reasons.
+
+
+
+On 7/15/11 12:48 PM, "Michael P. Gerlek" <mpg@flaxen.com> wrote:
+
+>Which of these is best for representing the options block of a pipeline
+>description:
+>
+>(A) Options block is a tree of elements
+>
+><Writer type="drivers.las.writer">
+>        <Options>
+>                <filename>out.laz</filename>
+>                <compression>true</compression>
+>        </Options>
+>        <Reader type="drivers.las.reader">
+>                <Options>
+>                        <filename>in.las</filename>
+>                </Options>
+>        </Reader>
+></Writer>
+>
+>
+>(B) Options block is an element with attributes
+>
+><Writer type="drivers.las.writer">
+>        <Options filename="out.laz" compression="true"/>
+>        <Reader type="drivers.las.reader">
+>                <Options filename="in.las"/>
+>                </Options>
+>        </Reader>
+></Writer>
+>
+>
+>(C) Options block is just attributes on the stage
+>
+><Writer type="drivers.las.writer" filename="out.laz" compression="true">
+>        <Reader type="drivers.las.reader" filename="in.las>
+>        </Reader>
+></Writer>
+>
+>
+>-mpg
+>
+>
+>_______________________________________________
+>pdal mailing list
+>pdal@lists.osgeo.org
+>http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mpg at flaxen.com  Mon Jul 18 19:10:34 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jul 19 14:25:34 2011
+Subject: [pdal] PdalXML style
+In-Reply-To: <CA45E81B.116BA%michael.smith@usace.army.mil>
+References: <01a101cc4328$34a51a50$9def4ef0$@flaxen.com>
+	<CA45E81B.116BA%michael.smith@usace.army.mil>
+Message-ID: <022b01cc459f$e7ae53e0$b70afba0$@flaxen.com>
+
+So now I'm leaning towards this:
+
+<Writer type="drivers.las.writer">
+        <Options>
+                <option>
+                        <name>filename</name>
+                        <value>out.laz</value>
+                </option>
+                <compression>true</compression>
+                <option>
+                        <name>filename</name>
+                        <value>out.laz</value>
+                </option>
+        </Options>
+        ...
+
+While thuddingly verbose, it allows the Options block to be read as a native
+property tree (something Howard wanted/expected, but which I didn't fully
+grok until now).
+
+The syntax might evolve further if I can turn the pipeline stages into
+property tree notation as well.
+
+-mpg
+
+> -----Original Message-----
+> From: Smith, Michael ERDC-CRREL-NH
+> [mailto:Michael.Smith@usace.army.mil]
+> Sent: Friday, July 15, 2011 12:51 PM
+> To: mpg@flaxen.com; pdal@lists.osgeo.org
+> Subject: Re: [pdal] PdalXML style
+> 
+> I like option 1 the best but only for readability reasons.
+> 
+> 
+> 
+> On 7/15/11 12:48 PM, "Michael P. Gerlek" <mpg@flaxen.com> wrote:
+> 
+> >Which of these is best for representing the options block of a pipeline
+> >description:
+> >
+> >(A) Options block is a tree of elements
+> >
+> ><Writer type="drivers.las.writer">
+> >        <Options>
+> >                <filename>out.laz</filename>
+> >                <compression>true</compression>
+> >        </Options>
+> >        <Reader type="drivers.las.reader">
+> >                <Options>
+> >                        <filename>in.las</filename>
+> >                </Options>
+> >        </Reader>
+> ></Writer>
+> >
+> >
+> >(B) Options block is an element with attributes
+> >
+> ><Writer type="drivers.las.writer">
+> >        <Options filename="out.laz" compression="true"/>
+> >        <Reader type="drivers.las.reader">
+> >                <Options filename="in.las"/>
+> >                </Options>
+> >        </Reader>
+> ></Writer>
+> >
+> >
+> >(C) Options block is just attributes on the stage
+> >
+> ><Writer type="drivers.las.writer" filename="out.laz" compression="true">
+> >        <Reader type="drivers.las.reader" filename="in.las>
+> >        </Reader>
+> ></Writer>
+> >
+> >
+> >-mpg
+> >
+> >
+> >_______________________________________________
+> >pdal mailing list
+> >pdal@lists.osgeo.org
+> >http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mpg at flaxen.com  Tue Jul 19 15:49:04 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jul 19 16:27:56 2011
+Subject: [pdal] PdalXML style
+In-Reply-To: <022b01cc459f$e7ae53e0$b70afba0$@flaxen.com>
+References: <01a101cc4328$34a51a50$9def4ef0$@flaxen.com>
+	<CA45E81B.116BA%michael.smith@usace.army.mil>
+	<022b01cc459f$e7ae53e0$b70afba0$@flaxen.com>
+Message-ID: <026a01cc464c$eae4be20$c0ae3a60$@flaxen.com>
+
+Here's what is now committed.  It is entirely read using
+boost::property_tree, so no explicit XML programming is needed on our code
+-- and, better still, we can use the ptree serializer to construct pipelines
+using any supported notation, e.g. JSON.
+
+-mpg
+
+
+<?xml version="1.0"?>
+<Pipeline>
+    <Writer>
+        <Type>drivers.las.writer</Type>
+        <Option>
+            <Name>filename</Name>
+            <Value>out.las</Value>
+            <Description>junk junk junk</Description>
+        </Option>
+        <Filter>
+            <Type>filters.crop</Type>
+            <Option>
+                <Name>bounds</Name>
+                <Value>([0,1],[0,1],[0,1])</Value>
+            </Option>
+            <Reader>
+                <Type>drivers.las.reader</Type>
+                <Option>
+                    <Name>filename</Name>
+                    <Value>../../test/data/1.2-with-color.las</Value>
+                </option>
+            </Reader>
+        </Filter>
+    </Writer>
+</Pipeline>
+
+
+
+From mpg at flaxen.com  Wed Jul 27 20:28:37 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Jul 28 02:02:03 2011
+Subject: [pdal] Pipeline XML schema notes
+Message-ID: <013701cc4cbd$4bb69a90$e323cfb0$@flaxen.com>
+
+.. _pipeline_xml:
+
+============
+Pipeline XML
+============
+
+This note describes the XML structure used for describing pipelines.
+
+The pipeline XML syntax mirrors very closely the Stage class hierarchy
+and construction format used by the C++ API.
+
+There are two kinds of pipelines that can be expressed: "writer pipelines"
+have Writer stages as their endpoint, and "reader pipelines" have general
+Stage stages (Reader/Filter/Multifilter) as their endpoint.
+
+We have two use cases specifically in mind:
+
+    * a command-line app that reads an XML file to allow a user to easily
+      construct arbitrary writer pipelines, as opposed to having to build
+apps
+      custom to individual needs with arbitary options, filters, etc
+      
+    * within the Python environment, the user can provide XML for a reader
+      pipeline, construct it via a simple call to the PipelineManager API,
+      and then use native Python to perform the read and do any processing
+      of the emitted points
+
+
+Examples
+========
+
+A writer pipeline::
+
+    <?xml version="1.0" encoding="utf-8"?>
+    <Pipeline>
+        <Writer>
+            <Type>drivers.las.writer</Type>
+            <Option>
+                <Name>filename</Name>
+                <Value>out.las</Value>
+                <Description>junk junk junk</Description>
+            </Option>
+            <Filter>
+                <Type>filters.crop</Type>
+                <Option>
+                    <Name>bounds</Name>
+                    <Value>([0,1000000],[0,1000000],[0,1000000])</Value>
+                </Option>
+                <Reader>
+                    <Type>drivers.las.reader</Type>
+                    <Option>
+                        <Name>filename</Name>
+                        <Value>../../test/data/1.2-with-color.las</Value>
+                    </Option>
+                </Reader>
+            </Filter>
+        </Writer>
+    </Pipeline>
+
+A reader pipeline::
+
+    <?xml version="1.0"?>
+    <Pipeline>
+            <Filter>
+                <Type>filters.crop</Type>
+                <Option>
+                    <Name>bounds</Name>
+                    <Value>([0,1000000],[0,1000000],[0,1000000])</Value>
+                </Option>
+                <Reader>
+                    <Type>drivers.las.reader</Type>
+                    <Option>
+                        <Name>filename</Name>
+                        <Value>../../test/data/1.2-with-color.las</Value>
+                    </Option>
+                </Reader>
+            </Filter>
+    </Pipeline>
+
+
+Syntax Specification
+====================
+
+* <Pipeline>
+
+    * this is the root element for all pipeline xml
+
+    * mandatory
+
+    * child elements:
+
+        * exactly one of the following four:
+
+            * <Writer> element, for writer pipelines
+
+            * <Reader> or <Filter> or <MultiFilter> element, for reader
+pipelines
+
+* <Writer>
+
+    * indicates a writer stage
+
+    * child elements:
+
+        * exactly one <Type> element
+
+        * zero or more <Option> elements
+
+        * exactly one <Reader> or <Filter> or <MultiFilter> element
+
+* <Reader>
+
+    * indicates a reader stage
+
+    * child elements:
+
+        * exactly one <Type> element
+
+        * zero or more <Option> elements
+
+* <Filter>
+
+    * indicates a filter stage
+
+    * child elements:
+
+        * exactly one <Type> element
+
+        * zero or more <Option> elements
+
+        * exactly one <Reader> or <Filter> or <MultiFilter> element
+
+* <MultiFilter>
+
+    * indicates a multifilter stage (filter than takes >1 input stage)
+
+    * child elements:
+
+        * exactly one <Type> element
+
+        * zero or more <Option> elements
+
+        * one or more <Reader> or <Filter> or <MultiFilter> elements
+
+* <Option>
+
+    * indicates an option parameter to the pipeline stage
+
+    * may only be a child of a <Reader>, <Writer>, <Filter>, or
+<MultiFilter> element
+
+    * child elements
+
+        * exactly one <Name> element
+
+        * exactly one <Value> element
+
+        * zero or one <Description> element
+
+ * <Name>
+
+    * indicates the text name of an option
+
+    * may only be a child of an <Option>
+
+    * no child elements
+
+    * body text: the name of the option, e.g. "filename" or "bounds"
+
+* <Value>
+
+    * indicates the (textual) value of an option
+
+    * may only be a child of an <Option>
+
+    * no child elements
+
+    * body text: the text representaion of the option value, e.g.
+"input.las" or "42"
+
+* <Description>
+
+    * indicates the description field of an option (currently ignored)
+
+    * may only be a child of an <Option>
+
+    * no child elements
+
+    * body text: the text representaion of the option description
+
+ * <Type>
+
+    * indicates the type of the stage
+
+    * may only be a child of a <Reader>, <Writer>, <Filter>, or
+<MultiFilter> element
+
+    * no child elements
+
+    * body text: the text name of the stage, e.g. "drivers.las.reader" or
+"filters.crop"
+
+
+
+Notes
+=====
+
+* In the implementation, ptrees are used to read and write the pipelines.
+  This means less parsing hassle for us, but also means we can't produce
+  decent error messages (esp. since we don't have line numbers).
+
+* Attributes are not used anywhere.  This is in part because ptree's don't
+  support them uniformly across all file formats.
+
+* The schema is intended to be something that can be validated via XSD,
+  although we don't do that today.
+
+* No version numbering yet, need to add that.  Would like to be an attr on
+  the <Pipeline> element.
+
+* We might want to change <Pipeline> to <ReaderPipeline> and
+  <WriterPipeline>, to simplify the implementation and API, as well as
+  improve error checking.
+
+

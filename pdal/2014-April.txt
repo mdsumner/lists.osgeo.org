@@ -1,0 +1,266 @@
+From steven at minst.net  Tue Apr  8 04:59:08 2014
+From: steven at minst.net (Steven M. Ottens)
+Date: Tue, 08 Apr 2014 13:59:08 +0200
+Subject: [pdal] how to work around issue 225
+Message-ID: <5343E48C.6010307@minst.net>
+
+Hi List,
+
+I am trying to import the Dutch LIDAR data, a wopping 30104 LAZ files 
+(459GB), into postgresql using PDAL. I'm using the setup as described in 
+https://github.com/PDAL/PDAL/issues/270 and with the help of Howard I've 
+managed to get data into the database at a reasonable pace.
+
+However not all LAZ files have the same schema, so at some point during 
+the import I'm receiving these kind of errors:
+Caught PDAL exception: ERROR:  column pcid (1) and patch pcid (2) are 
+not consistent
+
+I am not reprojecting the data, the source and destination have the same 
+projection. I noticed that the schema's of the LAZ files differ, 
+depending on the actual location on the map. I've picked 3 LAZ files 
+around the country to check the schema and they use the same UUIDs for 
+the axis, but have a different offset. (see below)
+
+Is there a way to make sure that PDAL looks for a compatible PCID in the 
+pointcloud_formats table and if it doesn't exist create a new PCID?
+
+I'm not looking forward to manually check all 30000 files for its schema 
+and couple it with the correct PCID in the pipeline.xml
+
+Kind regards,
+Steven
+
+north east:
+drivers.las.reader.X                        0.01     200000 
+int32_t         4
+drivers.las.reader.Y                        0.01     500000 
+int32_t         4
+drivers.las.reader.Z                        0.01          0 
+int32_t         4
+X: UUID 2ee118d1-119e-4906-99c3-42934203f872
+Y: UUID 87707eee-2f30-4979-9987-8ef747e30275
+Z: UUID e74b5e41-95e6-4cf2-86ad-e3f5a996da5d
+
+north west:
+drivers.las.reader.X                        0.01     100000 
+int32_t         4
+drivers.las.reader.Y                        0.01     500000 
+int32_t         4
+drivers.las.reader.Z                        0.01          0 
+int32_t         4
+X: UUID 2ee118d1-119e-4906-99c3-42934203f872
+Y: UUID 87707eee-2f30-4979-9987-8ef747e30275
+Z: UUID e74b5e41-95e6-4cf2-86ad-e3f5a996da5d
+
+south west:
+drivers.las.reader.X                        0.01     100000 
+int32_t         4
+drivers.las.reader.Y                        0.01     400000 
+int32_t         4
+drivers.las.reader.Z                        0.01          0 
+int32_t         4
+X: UUID 2ee118d1-119e-4906-99c3-42934203f872
+Y: UUID 87707eee-2f30-4979-9987-8ef747e30275
+Z: UUID e74b5e41-95e6-4cf2-86ad-e3f5a996da5d
+
+
+
+From howard at hobu.co  Tue Apr  8 07:02:44 2014
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 8 Apr 2014 09:02:44 -0500
+Subject: [pdal] how to work around issue 225
+In-Reply-To: <5343E48C.6010307@minst.net>
+References: <5343E48C.6010307@minst.net>
+Message-ID: <F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+
+
+On Apr 8, 2014, at 6:59 AM, Steven M. Ottens <steven at minst.net> wrote:
+
+> Hi List,
+> 
+> I am trying to import the Dutch LIDAR data, a wopping 30104 LAZ files (459GB), into postgresql using PDAL. I'm using the setup as described in https://github.com/PDAL/PDAL/issues/270 and with the help of Howard I've managed to get data into the database at a reasonable pace.
+> 
+> However not all LAZ files have the same schema, so at some point during the import I'm receiving these kind of errors:
+> Caught PDAL exception: ERROR:  column pcid (1) and patch pcid (2) are not consistent
+> 
+> I am not reprojecting the data, the source and destination have the same projection. I noticed that the schema's of the LAZ files differ, depending on the actual location on the map. I've picked 3 LAZ files around the country to check the schema and they use the same UUIDs for the axis, but have a different offset. (see below)
+
+UUID in PDAL is really about which driver produced the dimension, not so much the dimension itself. This is kind of confusing and may be removed soon.
+
+You have to normalize your data so the "apparent schema" that's presented to pgpointcloud is always the same. The way to do this is to 
+
+a) use a filters.scaling to re-offset all your data to the same offset. Because your data are 0.01, you should be able to find a scale/offset combo that can work for all the files
+
+b) use a filters.selector to explicitly select the set of dimensions you want to load. This set needs to be the same for every file that is loaded
+
+c) Load the first file 
+
+d) set the pc_id Option to 1 for all of the subsequent files to override the schema
+
+I'll try to dig up some example pipelines I've used to do this when I loaded up Iowa (about the same volume of data, though not at the same density).
+
+> Is there a way to make sure that PDAL looks for a compatible PCID in the pointcloud_formats table and if it doesn't exist create a new PCID?
+> 
+> I'm not looking forward to manually check all 30000 files for its schema and couple it with the correct PCID in the pipeline.xml
+
+You shouldn't have to suffer that in this case. The Iowa data was about 35,000 files with varying scale, offset, and point format. This normalization stuff plus some mechanism to queue things (I used ZeroMQ) and you should have the pieces you need.
+
+Howard
+
+From steven at minst.net  Tue Apr  8 07:57:09 2014
+From: steven at minst.net (Steven M. Ottens)
+Date: Tue, 08 Apr 2014 16:57:09 +0200
+Subject: [pdal] how to work around issue 225
+In-Reply-To: <F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+References: <5343E48C.6010307@minst.net>
+	<F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+Message-ID: <53440E45.5090409@minst.net>
+
+Howard Butler schreef op 4/8/2014 4:02 PM:
+> UUID in PDAL is really about which driver produced the dimension, not so much the dimension itself. This is kind of confusing and may be removed soon.
+>
+> You have to normalize your data so the "apparent schema" that's presented to pgpointcloud is always the same. The way to do this is to
+>
+> a) use a filters.scaling to re-offset all your data to the same offset. Because your data are 0.01, you should be able to find a scale/offset combo that can work for all the files
+>
+> b) use a filters.selector to explicitly select the set of dimensions you want to load. This set needs to be the same for every file that is loaded
+>
+> c) Load the first file
+>
+> d) set the pc_id Option to 1 for all of the subsequent files to override the schema
+>
+Setting the filters.scaling to X: offset:0 scale 0.01 and Y: offset: 
+300000 scale 0.01 seems to do the trick. It is happy crunching again, 
+even through the LAZ files with a different schema as the initial file. 
+Should be done in a couple of days....
+
+Thanks again
+Steven
+
+
+From howard at hobu.co  Tue Apr  8 07:58:49 2014
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 8 Apr 2014 09:58:49 -0500
+Subject: [pdal] how to work around issue 225
+In-Reply-To: <53440E45.5090409@minst.net>
+References: <5343E48C.6010307@minst.net>
+	<F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+	<53440E45.5090409@minst.net>
+Message-ID: <98BECB2C-6CC6-44D5-93F7-22934F681D3C@hobu.co>
+
+
+On Apr 8, 2014, at 9:57 AM, Steven M. Ottens <steven at minst.net> wrote:
+
+> It is happy crunching again, even through the LAZ files with a different schema as the initial file.
+
+Your data is likely to be bunk if you are overriding the schema but loading data of different schemas.
+
+> Should be done in a couple of days....
+
+Did you cook up a queuing system? You should be able to run enough simultaneous pipelines to stomp your available i/o.
+
+From steven at minst.net  Tue Apr  8 08:17:22 2014
+From: steven at minst.net (Steven M. Ottens)
+Date: Tue, 08 Apr 2014 17:17:22 +0200
+Subject: [pdal] how to work around issue 225
+In-Reply-To: <98BECB2C-6CC6-44D5-93F7-22934F681D3C@hobu.co>
+References: <5343E48C.6010307@minst.net>
+	<F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+	<53440E45.5090409@minst.net>
+	<98BECB2C-6CC6-44D5-93F7-22934F681D3C@hobu.co>
+Message-ID: <53441302.9010209@minst.net>
+
+Howard Butler schreef op 4/8/2014 4:58 PM:
+> On Apr 8, 2014, at 9:57 AM, Steven M. Ottens <steven at minst.net> wrote:
+>> It is happy crunching again, even through the LAZ files with a different schema as the initial file.
+> Your data is likely to be bunk if you are overriding the schema but loading data of different schemas.
+I loaded a few LAZ files with different schema's using the scaling 
+filter and a set PCID pipeline and they are at the correct location now 
+(not so at the first attempt). So I assume this works (?)
+>> Should be done in a couple of days....
+>>
+>> Did you cook up a queuing system? You should be able to run enough simultaneous pipelines to stomp your available i/o.
+A very simple one: I divided the data in three folders and I have three 
+simple bash scripts going through all three folders file by file. This 
+way I keep 3 of my four cores busy and have the fourth available for 
+other stuff (like checking if my data is in the correct spot ;)
+Since I need to unzip the LAZ files anyway, I use a static output.xml 
+which always takes /home/geodan/output.las and let the script unzip 
+files to output.las and cleanup after import
+
+script:
+
+declare -i COUNT
+COUNT=$( ls -l part1/*.laz | wc -l )
+i=0
+for file in ./part1/*.laz
+do
+   echo 'Volgende file: '
+   echo $file
+   pc2pc $file /home/geodan/output.las
+   pdal pipeline output.xml
+   rm /home/geodan/output.las
+   mv $file ./gedaan/.
+   let  "COUNT -= 1"
+   let "i += 1"
+   echo '##### ' $i ' bestanden gedaan, nog' $COUNT 'te gaan.... #####'
+done
+
+
+
+From howard at hobu.co  Tue Apr  8 08:24:29 2014
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 8 Apr 2014 10:24:29 -0500
+Subject: [pdal] how to work around issue 225
+In-Reply-To: <53441302.9010209@minst.net>
+References: <5343E48C.6010307@minst.net>
+	<F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+	<53440E45.5090409@minst.net>
+	<98BECB2C-6CC6-44D5-93F7-22934F681D3C@hobu.co>
+	<53441302.9010209@minst.net>
+Message-ID: <0223129F-5673-4BFF-BA82-5AAF3BB839E3@hobu.co>
+
+
+On Apr 8, 2014, at 10:17 AM, Steven M. Ottens <steven at minst.net> wrote:
+
+> Since I need to unzip the LAZ files anyway, I use a static output.xml which always takes /home/geodan/output.las and let the script unzip files to output.las and cleanup after import
+
+Was a LAZ with filters.cache slower than converting to LAS, writing to disk, and then loading the subsequent LAS file? I would think it shouldn't be...
+
+Howard
+
+From steven at minst.net  Tue Apr  8 09:01:53 2014
+From: steven at minst.net (Steven M. Ottens)
+Date: Tue, 08 Apr 2014 18:01:53 +0200
+Subject: [pdal] how to work around issue 225
+In-Reply-To: <0223129F-5673-4BFF-BA82-5AAF3BB839E3@hobu.co>
+References: <5343E48C.6010307@minst.net>
+	<F6E444E5-27DE-41C6-8CF1-37A034216BAE@hobu.co>
+	<53440E45.5090409@minst.net>
+	<98BECB2C-6CC6-44D5-93F7-22934F681D3C@hobu.co>
+	<53441302.9010209@minst.net>
+	<0223129F-5673-4BFF-BA82-5AAF3BB839E3@hobu.co>
+Message-ID: <53441D71.6030301@minst.net>
+
+Howard Butler schreef op 4/8/2014 5:24 PM:
+> On Apr 8, 2014, at 10:17 AM, Steven M. Ottens <steven at minst.net> wrote:
+>
+>> Since I need to unzip the LAZ files anyway, I use a static output.xml which always takes /home/geodan/output.las and let the script unzip files to output.las and cleanup after import
+> Was a LAZ with filters.cache slower than converting to LAS, writing to disk, and then loading the subsequent LAS file? I would think it shouldn't be...
+I ran into problems with the bigger LAZ files, see 
+https://github.com/PDAL/PDAL/issues/270#issuecomment-39711054 so I 
+switched to unzipping them first. Unzipping is rather fast and the 
+crunching was progressing unlike with pure LAZ files.
+
+However I just did a quick check with the new pipelines and there seems 
+to be a slight advantage for direct reading of LAZ now. I have another 
+30000 LAZ files to read later, I'll do that with straight LAZ and we'll 
+see what will be faster in the long run :)
+
+regards,
+Steven
+
+
+
+

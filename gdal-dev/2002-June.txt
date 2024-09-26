@@ -1,0 +1,2023 @@
+From yahoo at p...  Thu Jun  6 23:15:36 2002
+From: yahoo at p... (paulbaker78)
+Date: Wed Nov 21 11:49:16 2007
+Subject: packaging gdal for debian
+Message-ID: <adp8go+4vpb@eGroups.com>
+
+I saw in the 'RPMs for Mandrake 8.2 and cooker' thread that there are
+actually a couple other people trying to package gdal for Debian. I am
+working on packaging it because I am also attempting to package
+MapServer for Debian.
+
+Right now you can check out the packages I've built by adding to your
+/etc/apt/sources.list file:
+
+deb http://paulbaker.net/debian pbaker main
+deb-src http://paulbaker.net/debian pbaker main
+
+Right now gdal is built as a single package called
+gdal_1.1.7-1_i386.deb. This package contains everything that is
+normally built by gdal. The problem with this, is that this package is
+not compliant with Debian Policy and in it's current state could never
+be included in Debian. 
+
+Debian Policy
+(http://www.debian.org/doc/debian-policy/ch-files.html#s11.2) requires
+that all libraries in debian must produce at least 2 packages. There
+must be a 'libpackagename' package (in this case it would be libgdal)
+that contains the SHARED version of the library. The second package is
+'libpackagename-dev' (in this case it would be libgdal-dev) that
+contains the STATIC version of the library along with the .h files
+etc.
+
+The problem is that gdal upstream does not build a shared library. I
+don't really have much experience with building libraries, so I'm not
+really sure quite what to do in order to make this happen. The
+combination of GNUMakefile and GDALMake.opt.in is not quite what I'm
+used to seeing. In GNUMakefile there is commented out near the top
+about using the commented out command instead of the one above in
+order to build a "proper SO files that will work in /usr/lib". This is
+of course what I need, but using that command instead of the upstream
+one doesn't seem to quite pull it off. The suggested command gives
+'-soname,gdal.so.1'. It really should be '-soname,libgdal.so.1' if I'm
+not mistaking. And besides the actual file that is created is
+libgdal.1.1.so which doesn't match either gdal.so.1 or libgdal.so.1.
+
+Before each distribution starts packaging up gdal in different ways
+with different sonames which will then completely break binary
+compatibility with programs trying to work with the shared library
+version from one distribution to another, upstream needs to hurry up
+and spell out just how it's going to be.
+
+Frank, if you are reading this, how open are you to working on getting
+real shared library build targets included in the upstream source? I
+hope you are willing before it is too late.
+
+I'm also curious to hear what anyone else trying to package gdal up
+has done towards this problem or if you are even aware of the
+situation.
+
+
+
+From warmerdam at p...  Fri Jun  7 00:26:24 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:16 2007
+Subject: [gdal-dev] packaging gdal for debian
+References: <adp8go+4vpb@eGroups.com>
+Message-ID: <3D0035F0.7020204@p...>
+
+paulbaker78 wrote:
+> The problem is that gdal upstream does not build a shared library. I
+> don't really have much experience with building libraries, so I'm not
+> really sure quite what to do in order to make this happen. The
+> combination of GNUMakefile and GDALMake.opt.in is not quite what I'm
+> used to seeing. In GNUMakefile there is commented out near the top
+> about using the commented out command instead of the one above in
+> order to build a "proper SO files that will work in /usr/lib". This is
+> of course what I need, but using that command instead of the upstream
+> one doesn't seem to quite pull it off. The suggested command gives
+> '-soname,gdal.so.1'. It really should be '-soname,libgdal.so.1' if I'm
+> not mistaking. And besides the actual file that is created is
+> libgdal.1.1.so which doesn't match either gdal.so.1 or libgdal.so.1.
+> 
+> Before each distribution starts packaging up gdal in different ways
+> with different sonames which will then completely break binary
+> compatibility with programs trying to work with the shared library
+> version from one distribution to another, upstream needs to hurry up
+> and spell out just how it's going to be.
+> 
+> Frank, if you are reading this, how open are you to working on getting
+> real shared library build targets included in the upstream source? I
+> hope you are willing before it is too late.
+
+Paul,
+
+I'm not sure why you say that GDAL doesn't build a shared library. I
+assume you mean it doesn't produce a shared library with the usual
+naming conventions. Is that right?
+
+After soon initial hesitancy, I am now willing to revise how I build the
+shared library to conform when conventions. I won't use libtool for reasons
+I have tried to explain before, but I am willing to modify the configure
+scripts to build with conventional names, and using -soname and so forth
+set things right.
+
+Hopefully we can roll this out as a GDAL 1.1.8 release in the relatively
+near future.
+
+Before I go digging for more details tomorrow, can anyone point me to what
+I should be using as a link command on Linux?
+
+Also, on the issue of having the separate development package. I am also
+willing to separate out an install-slib, install-dev, install-bin and
+install-all targets which would do:
+
+install-slib: Just installs libgdal.so.1.x and support shared data.
+
+install-bin: Installs various programs, and requires install-slib.
+
+install-lib: Installs static library and include files.
+
+install-all: Does all of the above.
+
+I am also willing to review how GDAL installs figure out where to put python.
+Currently I used a bunch of custom configure logic to find where python modules
+belong, and try to install there. Often somewhere like /usr/lib/python2.0/site-packages.
+This gets put in the INST_PYMOD macro in GDALmake.opt, which can be overridden
+on the make commandline if need be. But there have been complaints that I don't
+honour --prefix settings for the python install. The problem is that the python
+modules can't work if they aren't installed where python is, unless people extend
+their PYTHONPATH or something. So what exactly do people want, and how will it
+produce a useful install tree?
+
+PS. I run debian, but generally hesitate to install .debs for stuff like PROJ.4
+and GDAL for fear of confusing my local working configuration. I already have
+problems from having an installed copy of stuff in /usr/local and my local builds
+at times. I suppose I ought to setup an alternate bootable root on my system for
+testing stuff like this.
+
+PPS. I would love to see a centralized package of gis/rs related debs accumulated
+somewhere like remotesensing.org. I can provide system access if this is felt to
+be a good idea. Does it make sense to do the same thing for rpms or should we
+leave this to the freegis guys who are already producing rpms for the freegis CDs
+anyways? Is there a redhat/rpm equilvelent to apt-get and co?
+
+PPPS. I think we should have a mailing list or something for discussions of packaging
+of gis/rs related packages for debian. To avoid duplication, and to ensure that the
+various related technologies (GRASS, MapServer, PROJ.4, GDAL, OpenEV) can work together
+properly.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From tapadmin at s...  Fri Jun  7 00:56:11 2002
+From: tapadmin at s... (Tom Parker)
+Date: Wed Nov 21 11:49:16 2007
+Subject: [gdal-dev] packaging gdal for debian
+In-Reply-To: <3D0035F0.7020204@p...>
+Message-ID: <HKEDLANHCAOMKEHGBFJAIEKCCHAA.tapadmin@s...>
+
+Frank,
+
+First off, your gdal/ogr/proj libraries are peachy-keen and I use them a
+lot, I work as a subcontractor for several USG contractors and my products
+wouldn't be possible without you, cheers! :)
+
+After reading all these posts I wanted to throw in a response/question
+regarding gdal/ogr and integration with VTK. Frank may remember last fall I
+sent him a personal email informing him I had written a gdal/ogr/proj
+wrapper for the AVS/Express visualization system. Since then AVS has tanked
+and my customers have all started migrating to the VTK Visualization Toolkit
+for their visualization apps.
+
+VTK from www.kitware.com or public.kitware.com provides a tool for cross
+platform projects named Cmake (currently 1.4 beta) that it seems would be
+ideal for the gdal/ogr/proj/grass/... projects.
+
+You basically provide a list of *.c, *.cpp, *.cxx files, headers, libraries
+and hit the OK button. Cmake then builds your project files for you. It
+works great on my winders and linux boxes, has anyone else tried it?
+
+Why not use it??, it is released under the MIT license, same as GDAL/OGR
+right?
+
+Enlightment is always appreciated.
+
+tp
+
+-----Original Message-----
+From: Frank Warmerdam [mailto:warmerdam@p...]
+Sent: Thursday, June 06, 2002 11:26 PM
+To: gdal-dev@yahoogroups.com
+Subject: Re: [gdal-dev] packaging gdal for debian
+-------------------------------------~->
+
+paulbaker78 wrote:
+> The problem is that gdal upstream does not build a shared library. I
+> don't really have much experience with building libraries, so I'm not
+> really sure quite what to do in order to make this happen. The
+> combination of GNUMakefile and GDALMake.opt.in is not quite what I'm
+> used to seeing. In GNUMakefile there is commented out near the top
+> about using the commented out command instead of the one above in
+> order to build a "proper SO files that will work in /usr/lib". This is
+> of course what I need, but using that command instead of the upstream
+> one doesn't seem to quite pull it off. The suggested command gives
+> '-soname,gdal.so.1'. It really should be '-soname,libgdal.so.1' if I'm
+> not mistaking. And besides the actual file that is created is
+> libgdal.1.1.so which doesn't match either gdal.so.1 or libgdal.so.1.
+>
+> Before each distribution starts packaging up gdal in different ways
+> with different sonames which will then completely break binary
+> compatibility with programs trying to work with the shared library
+> version from one distribution to another, upstream needs to hurry up
+> and spell out just how it's going to be.
+>
+> Frank, if you are reading this, how open are you to working on getting
+> real shared library build targets included in the upstream source? I
+> hope you are willing before it is too late.
+
+Paul,
+
+I'm not sure why you say that GDAL doesn't build a shared library. I
+assume you mean it doesn't produce a shared library with the usual
+naming conventions. Is that right?
+
+After soon initial hesitancy, I am now willing to revise how I build the
+shared library to conform when conventions. I won't use libtool for reasons
+I have tried to explain before, but I am willing to modify the configure
+scripts to build with conventional names, and using -soname and so forth
+set things right.
+
+Hopefully we can roll this out as a GDAL 1.1.8 release in the relatively
+near future.
+
+Before I go digging for more details tomorrow, can anyone point me to what
+I should be using as a link command on Linux?
+
+Also, on the issue of having the separate development package. I am also
+willing to separate out an install-slib, install-dev, install-bin and
+install-all targets which would do:
+
+install-slib: Just installs libgdal.so.1.x and support shared data.
+
+install-bin: Installs various programs, and requires install-slib.
+
+install-lib: Installs static library and include files.
+
+install-all: Does all of the above.
+
+I am also willing to review how GDAL installs figure out where to put
+python.
+Currently I used a bunch of custom configure logic to find where python
+modules
+belong, and try to install there. Often somewhere like
+/usr/lib/python2.0/site-packages.
+This gets put in the INST_PYMOD macro in GDALmake.opt, which can be
+overridden
+on the make commandline if need be. But there have been complaints that I
+don't
+honour --prefix settings for the python install. The problem is that the
+python
+modules can't work if they aren't installed where python is, unless people
+extend
+their PYTHONPATH or something. So what exactly do people want, and how will
+it
+produce a useful install tree?
+
+PS. I run debian, but generally hesitate to install .debs for stuff like
+PROJ.4
+and GDAL for fear of confusing my local working configuration. I already
+have
+problems from having an installed copy of stuff in /usr/local and my local
+builds
+at times. I suppose I ought to setup an alternate bootable root on my
+system for
+testing stuff like this.
+
+PPS. I would love to see a centralized package of gis/rs related debs
+accumulated
+somewhere like remotesensing.org. I can provide system access if this is
+felt to
+be a good idea. Does it make sense to do the same thing for rpms or should
+we
+leave this to the freegis guys who are already producing rpms for the
+freegis CDs
+anyways? Is there a redhat/rpm equilvelent to apt-get and co?
+
+PPPS. I think we should have a mailing list or something for discussions of
+packaging
+of gis/rs related packages for debian. To avoid duplication, and to ensure
+that the
+various related technologies (GRASS, MapServer, PROJ.4, GDAL, OpenEV) can
+work together
+properly.
+
+Best regards,
+
+--
+---------------------------------------+------------------------------------
+--
+I set the clouds in motion - turn up | Frank Warmerdam,
+warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From tapadmin at s...  Fri Jun  7 01:10:54 2002
+From: tapadmin at s... (Tom Parker)
+Date: Wed Nov 21 11:49:16 2007
+Subject: [gdal-dev] packaging gdal for debian
+In-Reply-To: <HKEDLANHCAOMKEHGBFJAIEKCCHAA.tapadmin@s...>
+Message-ID: <HKEDLANHCAOMKEHGBFJAGEKDCHAA.tapadmin@s...>
+
+And after reading my own email I guess my next question is:
+
+Do any of your customers actually expect debian packages or an RPM? Mine
+freak if I don't deliver an InstallShield setup.exe file packaged project
+for winders. The only one who ever codes to gdal/ogr/proj is me. All I need
+are *.so/*.dll files for distribution.
+
+Regards,
+Tom
+
+-----Original Message-----
+From: Tom Parker [mailto:tapadmin@s...]
+Sent: Thursday, June 06, 2002 11:56 PM
+To: gdal-dev@yahoogroups.com
+Subject: RE: [gdal-dev] packaging gdal for debian
+
+
+Frank,
+
+First off, your gdal/ogr/proj libraries are peachy-keen and I use them a
+lot, I work as a subcontractor for several USG contractors and my products
+wouldn't be possible without you, cheers! :)
+
+After reading all these posts I wanted to throw in a response/question
+regarding gdal/ogr and integration with VTK. Frank may remember last fall I
+sent him a personal email informing him I had written a gdal/ogr/proj
+wrapper for the AVS/Express visualization system. Since then AVS has tanked
+and my customers have all started migrating to the VTK Visualization Toolkit
+for their visualization apps.
+
+VTK from www.kitware.com or public.kitware.com provides a tool for cross
+platform projects named Cmake (currently 1.4 beta) that it seems would be
+ideal for the gdal/ogr/proj/grass/... projects.
+
+You basically provide a list of *.c, *.cpp, *.cxx files, headers, libraries
+and hit the OK button. Cmake then builds your project files for you. It
+works great on my winders and linux boxes, has anyone else tried it?
+
+Why not use it??, it is released under the MIT license, same as GDAL/OGR
+right?
+
+Enlightment is always appreciated.
+
+tp
+
+-----Original Message-----
+From: Frank Warmerdam [mailto:warmerdam@p...]
+Sent: Thursday, June 06, 2002 11:26 PM
+To: gdal-dev@yahoogroups.com
+Subject: Re: [gdal-dev] packaging gdal for debian
+-------------------------------------~->
+
+paulbaker78 wrote:
+> The problem is that gdal upstream does not build a shared library. I
+> don't really have much experience with building libraries, so I'm not
+> really sure quite what to do in order to make this happen. The
+> combination of GNUMakefile and GDALMake.opt.in is not quite what I'm
+> used to seeing. In GNUMakefile there is commented out near the top
+> about using the commented out command instead of the one above in
+> order to build a "proper SO files that will work in /usr/lib". This is
+> of course what I need, but using that command instead of the upstream
+> one doesn't seem to quite pull it off. The suggested command gives
+> '-soname,gdal.so.1'. It really should be '-soname,libgdal.so.1' if I'm
+> not mistaking. And besides the actual file that is created is
+> libgdal.1.1.so which doesn't match either gdal.so.1 or libgdal.so.1.
+>
+> Before each distribution starts packaging up gdal in different ways
+> with different sonames which will then completely break binary
+> compatibility with programs trying to work with the shared library
+> version from one distribution to another, upstream needs to hurry up
+> and spell out just how it's going to be.
+>
+> Frank, if you are reading this, how open are you to working on getting
+> real shared library build targets included in the upstream source? I
+> hope you are willing before it is too late.
+
+Paul,
+
+I'm not sure why you say that GDAL doesn't build a shared library. I
+assume you mean it doesn't produce a shared library with the usual
+naming conventions. Is that right?
+
+After soon initial hesitancy, I am now willing to revise how I build the
+shared library to conform when conventions. I won't use libtool for reasons
+I have tried to explain before, but I am willing to modify the configure
+scripts to build with conventional names, and using -soname and so forth
+set things right.
+
+Hopefully we can roll this out as a GDAL 1.1.8 release in the relatively
+near future.
+
+Before I go digging for more details tomorrow, can anyone point me to what
+I should be using as a link command on Linux?
+
+Also, on the issue of having the separate development package. I am also
+willing to separate out an install-slib, install-dev, install-bin and
+install-all targets which would do:
+
+install-slib: Just installs libgdal.so.1.x and support shared data.
+
+install-bin: Installs various programs, and requires install-slib.
+
+install-lib: Installs static library and include files.
+
+install-all: Does all of the above.
+
+I am also willing to review how GDAL installs figure out where to put
+python.
+Currently I used a bunch of custom configure logic to find where python
+modules
+belong, and try to install there. Often somewhere like
+/usr/lib/python2.0/site-packages.
+This gets put in the INST_PYMOD macro in GDALmake.opt, which can be
+overridden
+on the make commandline if need be. But there have been complaints that I
+don't
+honour --prefix settings for the python install. The problem is that the
+python
+modules can't work if they aren't installed where python is, unless people
+extend
+their PYTHONPATH or something. So what exactly do people want, and how will
+it
+produce a useful install tree?
+
+PS. I run debian, but generally hesitate to install .debs for stuff like
+PROJ.4
+and GDAL for fear of confusing my local working configuration. I already
+have
+problems from having an installed copy of stuff in /usr/local and my local
+builds
+at times. I suppose I ought to setup an alternate bootable root on my
+system for
+testing stuff like this.
+
+PPS. I would love to see a centralized package of gis/rs related debs
+accumulated
+somewhere like remotesensing.org. I can provide system access if this is
+felt to
+be a good idea. Does it make sense to do the same thing for rpms or should
+we
+leave this to the freegis guys who are already producing rpms for the
+freegis CDs
+anyways? Is there a redhat/rpm equilvelent to apt-get and co?
+
+PPPS. I think we should have a mailing list or something for discussions of
+packaging
+of gis/rs related packages for debian. To avoid duplication, and to ensure
+that the
+various related technologies (GRASS, MapServer, PROJ.4, GDAL, OpenEV) can
+work together
+properly.
+
+Best regards,
+
+--
+---------------------------------------+------------------------------------
+--
+I set the clouds in motion - turn up | Frank Warmerdam,
+warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+
+
+
+
+From tklistaddr at k...  Fri Jun  7 08:43:24 2002
+From: tklistaddr at k... (Timothy H. Keitt)
+Date: Wed Nov 21 11:49:16 2007
+Subject: [gdal-dev] packaging gdal for debian
+In-Reply-To: <3D0035F0.7020204@p...>
+References: <adp8go+4vpb@eGroups.com> <3D0035F0.7020204@p...>
+Message-ID: <1023453804.25685.9.camel@peregrine>
+
+In terms of Debian, we should probably be looking at how other packages
+handle python, shared libraries, etc. It would be great to make the
+build process as compatible as possible with dh_make/dpkg-buildpackage
+so that packaging could be largely automated.
+
+I second the idea of having a sourceforge-like packaging project with a
+separate email list. With ftp/http access, we can make a small Debian
+apt-getable archive.
+
+Tim
+
+On Fri, 2002-06-07 at 00:26, Frank Warmerdam wrote:
+> 
+> paulbaker78 wrote:
+> > The problem is that gdal upstream does not build a shared library. I
+> > don't really have much experience with building libraries, so I'm not
+> > really sure quite what to do in order to make this happen. The
+> > combination of GNUMakefile and GDALMake.opt.in is not quite what I'm
+> > used to seeing. In GNUMakefile there is commented out near the top
+> > about using the commented out command instead of the one above in
+> > order to build a "proper SO files that will work in /usr/lib". This is
+> > of course what I need, but using that command instead of the upstream
+> > one doesn't seem to quite pull it off. The suggested command gives
+> > '-soname,gdal.so.1'. It really should be '-soname,libgdal.so.1' if I'm
+> > not mistaking. And besides the actual file that is created is
+> > libgdal.1.1.so which doesn't match either gdal.so.1 or libgdal.so.1.
+> > 
+> > Before each distribution starts packaging up gdal in different ways
+> > with different sonames which will then completely break binary
+> > compatibility with programs trying to work with the shared library
+> > version from one distribution to another, upstream needs to hurry up
+> > and spell out just how it's going to be.
+> > 
+> > Frank, if you are reading this, how open are you to working on getting
+> > real shared library build targets included in the upstream source? I
+> > hope you are willing before it is too late.
+> 
+> Paul,
+> 
+> I'm not sure why you say that GDAL doesn't build a shared library. I
+> assume you mean it doesn't produce a shared library with the usual
+> naming conventions. Is that right?
+> 
+> After soon initial hesitancy, I am now willing to revise how I build the
+> shared library to conform when conventions. I won't use libtool for reasons
+> I have tried to explain before, but I am willing to modify the configure
+> scripts to build with conventional names, and using -soname and so forth
+> set things right.
+> 
+> Hopefully we can roll this out as a GDAL 1.1.8 release in the relatively
+> near future.
+> 
+> Before I go digging for more details tomorrow, can anyone point me to what
+> I should be using as a link command on Linux?
+> 
+> Also, on the issue of having the separate development package. I am also
+> willing to separate out an install-slib, install-dev, install-bin and
+> install-all targets which would do:
+> 
+> install-slib: Just installs libgdal.so.1.x and support shared data.
+> 
+> install-bin: Installs various programs, and requires install-slib.
+> 
+> install-lib: Installs static library and include files.
+> 
+> install-all: Does all of the above.
+> 
+> I am also willing to review how GDAL installs figure out where to put python.
+> Currently I used a bunch of custom configure logic to find where python modules
+> belong, and try to install there. Often somewhere like /usr/lib/python2.0/site-packages.
+> This gets put in the INST_PYMOD macro in GDALmake.opt, which can be overridden
+> on the make commandline if need be. But there have been complaints that I don't
+> honour --prefix settings for the python install. The problem is that the python
+> modules can't work if they aren't installed where python is, unless people extend
+> their PYTHONPATH or something. So what exactly do people want, and how will it
+> produce a useful install tree?
+> 
+> PS. I run debian, but generally hesitate to install .debs for stuff like PROJ.4
+> and GDAL for fear of confusing my local working configuration. I already have
+> problems from having an installed copy of stuff in /usr/local and my local builds
+> at times. I suppose I ought to setup an alternate bootable root on my system for
+> testing stuff like this.
+> 
+> PPS. I would love to see a centralized package of gis/rs related debs accumulated
+> somewhere like remotesensing.org. I can provide system access if this is felt to
+> be a good idea. Does it make sense to do the same thing for rpms or should we
+> leave this to the freegis guys who are already producing rpms for the freegis CDs
+> anyways? Is there a redhat/rpm equilvelent to apt-get and co?
+> 
+> PPPS. I think we should have a mailing list or something for discussions of packaging
+> of gis/rs related packages for debian. To avoid duplication, and to ensure that the
+> various related technologies (GRASS, MapServer, PROJ.4, GDAL, OpenEV) can work together
+> properly.
+> 
+> Best regards,
+> 
+> -- 
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush | Geospatial Programmer for Rent
+> 
+> 
+> 
+> 
+> 
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/ 
+> 
+> 
+
+
+
+From warmerdam at p...  Fri Jun  7 09:30:00 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:16 2007
+Subject: [gdal-dev] packaging gdal for debian
+References: <HKEDLANHCAOMKEHGBFJAIEKCCHAA.tapadmin@s...>
+Message-ID: <3D00B558.8090905@p...>
+
+Tom Parker wrote:
+> VTK from www.kitware.com or public.kitware.com provides a tool for cross
+> platform projects named Cmake (currently 1.4 beta) that it seems would be
+> ideal for the gdal/ogr/proj/grass/... projects.
+> 
+> You basically provide a list of *.c, *.cpp, *.cxx files, headers, libraries
+> and hit the OK button. Cmake then builds your project files for you. It
+> works great on my winders and linux boxes, has anyone else tried it?
+> 
+> Why not use it??, it is released under the MIT license, same as GDAL/OGR
+> right?
+
+Tom,
+
+"Why not use it?" - Ummm, inertia? Fear of being different?
+
+I looked over the documentation and I must admit it is appealing to think of
+having one core build system for MSVC and unix builds. However, I could likely
+accomplish that with GNUmake if I was willing to add this as a dependency for
+windows builds and I would need a pretty compelling reason to rewrite my whole
+build structure.
+
+> And after reading my own email I guess my next question is:
+>
+> Do any of your customers actually expect debian packages or an RPM? Mine
+> freak if I don't deliver an InstallShield setup.exe file packaged project
+> for winders. The only one who ever codes to gdal/ogr/proj is me. All I need
+> are *.so/*.dll files for distribution.
+
+None of my paying customers are looking for .debs or .rpms. For many I
+deliver source trees, sometimes with "simplified" build mechanisms custom
+to the customer. For others I deliver finished executables. I haven't needed
+to deliver pretty installation programs so far luckily.
+
+I see .deb and .rpm support as being primarily in support of those who use
+GDAL as a whole - often with other products like GRASS, MapServer, OpenEV.
+It is more aimed at popularizing use of GDAL than supporting my customers.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From yahoo at p...  Fri Jun  7 12:52:08 2002
+From: yahoo at p... (paulbaker78)
+Date: Wed Nov 21 11:49:16 2007
+Subject: packaging gdal for debian
+In-Reply-To: <1023453804.25685.9.camel@peregrine>
+Message-ID: <adqobp+3a08@eGroups.com>
+
+--- In gdal-dev@y..., "Timothy H. Keitt" <tklistaddr@k...> wrote:
+> In terms of Debian, we should probably be looking at how other
+packages
+> handle python, shared libraries, etc. It would be great to make the
+> build process as compatible as possible with dh_
+make/dpkg-buildpackage
+> so that packaging could be largely automated.
+
+Yes I was planning to look into that very soon as well, as mapserver
+includes the mapscript/python support, so I need to figure out how to
+package that up for debian as part of my mapserver packages. Whatever
+I learn for that will apply to my gdal packages I'm sure.
+
+> I second the idea of having a sourceforge-like packaging project
+with a
+> separate email list. With ftp/http access, we can make a small
+Debian
+> apt-getable archive.
+
+Currently, you can sorta find that my package archive. Just add these
+to /etc/apt/sources.list
+
+deb http://paulbaker.net/debian pbaker main
+deb-src http://paulbaker.net/debian pbaker main
+
+Right now though it only includes my mapserver ang gdal packages. I
+would not call them ready for primetime yet since I'm not sure my
+mapserver build works yet, and my gdal packages break debian policy
+(which is what this whole thread is about as you know). But anyone who
+wants to take a look I'm more than begging you too. ;-)
+
+I'm also currently looking for a debian sponsor to get these included
+officially into debian until I can become a full-fledged official
+developer. Someone on the debian-mentors list pointed me to someone
+who has been packaging GRASS and other GIS related packages. I'll try
+to get in touch with him to see if he wants to work together.
+
+> On Fri, 2002-06-07 at 00:26, Frank Warmerdam wrote:
+> > 
+> > Paul,
+> > 
+> > I'm not sure why you say that GDAL doesn't build a shared
+library. I
+> > assume you mean it doesn't produce a shared library with the usual
+> > naming conventions. Is that right?
+
+Actually after I sent my email and then keep looking at things I came
+to the conclusion that it is building a shared library, just not to
+conventions.
+
+> > After soon initial hesitancy, I am now willing to revise how I
+build the
+> > shared library to conform when conventions. I won't use libtool
+for reasons
+> > I have tried to explain before, but I am willing to modify the
+configure
+> > scripts to build with conventional names, and using -soname and so
+forth
+> > set things right.
+
+I have no personal attachment to libtool, so this sounds good to me.
+
+> > Hopefully we can roll this out as a GDAL 1.1.8 release in the
+relatively
+> > near future.
+
+That would be great.
+
+> > Before I go digging for more details tomorrow, can anyone point me
+to what
+> > I should be using as a link command on Linux?
+
+I will ask around on debian-devel and see if anyone has some advice. I
+don't know if this helps, but this is the link to the unofficial
+library packaging guide for debian:
+http://www.netfort.gr.jp/~dancer/column/libpkg-guide/libpkg-guide.html
+
+> > Also, on the issue of having the separate development package. I
+am also
+> > willing to separate out an install-slib, install-dev, install-bin
+and
+> > install-all targets which would do:
+
+The way the debian packaging system works, this wouldn't really be
+necessary, but if you want to go ahead. :-)
+
+> > I am also willing to review how GDAL installs figure out where to
+put python.
+
+As I said above I'm going to be looking into this today, so I'll let
+you know.
+
+> > PPS. I would love to see a centralized package of gis/rs related
+debs accumulated
+> > somewhere like remotesensing.org. I can provide system access if
+this is felt to
+> > be a good idea. Does it make sense to do the same thing for rpms
+or should we
+> > leave this to the freegis guys who are already producing rpms for
+the freegis CDs
+> > anyways? Is there a redhat/rpm equilvelent to apt-get and co?
+
+This sounds like a great idea, since the webserver I'm currently
+housing paulbaker.net on may be going down by the end of the month, I
+don't know how stable my package repository is going to be. As far as
+RPMs I have no comment on that.
+
+> > PPPS. I think we should have a mailing list or something for
+discussions of packaging
+> > of gis/rs related packages for debian. To avoid duplication, and
+to ensure that the
+> > various related technologies (GRASS, MapServer, PROJ.4, GDAL,
+OpenEV) can work together
+> > properly.
+
+I think I'll ask on debian-devel if they would be willing to set up a
+debian-gis mailing list. They probably would as Debian + GIS seems to
+be picking up more and more steam.
+
+
+
+From tapadmin at s...  Fri Jun  7 12:50:11 2002
+From: tapadmin at s... (Tom Parker)
+Date: Wed Nov 21 11:49:16 2007
+Subject: [gdal-dev] packaging gdal for debian
+In-Reply-To: <3D00B558.8090905@p...>
+Message-ID: <HKEDLANHCAOMKEHGBFJAGEKFCHAA.tapadmin@s...>
+
+That makes sense of course, I really just wanted to bring it to your
+attention not ask you to do any extra work.
+
+At first Cmake seemed redundant, but after adding several of my own classes
+to vtk it is growing on me. All I have to do is copy the code back and forth
+between windows and linux and rerun Cmake to generate the makefiles. Then if
+I want something like tcl/tk, python or java wrappers I just change the
+setting in Cmake and rebuild. I can also easily keep multiple versions of
+the libraries on each machine for different purposes.
+
+Thanks again for all your good work and if my customers don't mind I'll
+share the vtk wrappers for gdal/ogr with the group.
+
+Regards,
+Tom
+
+> -----Original Message-----
+> From: Frank Warmerdam [mailto:warmerdam@p...]
+> Sent: Friday, June 07, 2002 8:30 AM
+> To: gdal-dev@yahoogroups.com
+> Subject: Re: [gdal-dev] packaging gdal for debian
+>
+>
+> Tom Parker wrote:
+> > VTK from www.kitware.com or public.kitware.com provides a tool for cross
+> > platform projects named Cmake (currently 1.4 beta) that it
+> seems would be
+> > ideal for the gdal/ogr/proj/grass/... projects.
+> >
+> > You basically provide a list of *.c, *.cpp, *.cxx files,
+> headers, libraries
+> > and hit the OK button. Cmake then builds your project files for you. It
+> > works great on my winders and linux boxes, has anyone else tried it?
+> >
+> > Why not use it??, it is released under the MIT license, same as GDAL/OGR
+> > right?
+>
+> Tom,
+>
+> "Why not use it?" - Ummm, inertia? Fear of being different?
+>
+> I looked over the documentation and I must admit it is appealing
+> to think of
+> having one core build system for MSVC and unix builds. However,
+> I could likely
+> accomplish that with GNUmake if I was willing to add this as a
+> dependency for
+> windows builds and I would need a pretty compelling reason to
+> rewrite my whole
+> build structure.
+>
+> > And after reading my own email I guess my next question is:
+> >
+> > Do any of your customers actually expect debian packages or an
+> RPM? Mine
+> > freak if I don't deliver an InstallShield setup.exe file
+> packaged project
+> > for winders. The only one who ever codes to gdal/ogr/proj is
+> me. All I need
+> > are *.so/*.dll files for distribution.
+>
+> None of my paying customers are looking for .debs or .rpms. For many I
+> deliver source trees, sometimes with "simplified" build mechanisms custom
+> to the customer. For others I deliver finished executables. I
+> haven't needed
+> to deliver pretty installation programs so far luckily.
+>
+> I see .deb and .rpm support as being primarily in support of those who use
+> GDAL as a whole - often with other products like GRASS, MapServer, OpenEV.
+> It is more aimed at popularizing use of GDAL than supporting my customers.
+>
+> Best regards,
+>
+> --
+> ---------------------------------------+--------------------------
+> ------------
+> I set the clouds in motion - turn up | Frank Warmerdam,
+> warmerdam@p...
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush | Geospatial Programmer for Rent
+>
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From warmerdam at p...  Wed Jun 12 17:20:37 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:16 2007
+Subject: GDAL Driver Changes
+Message-ID: <3D07BB25.2030907@p...>
+
+Folks,
+
+I have made some changes to the way information about GDALDrivers is stored.
+GDALDriver's are derived from GDALMajorObject which automatically supports
+metadata, so I decided to store a bunch of info in the metadata.
+
+The pszShortName is now the descriptions (accessed via the GetDescription()
+and SetDescription() methods). The rest of the values are stored as
+metadata.
+
+I have also added MIMETYPE and EXTENSION metadata. The registration of the
+GeoTIFF driver demonstrates this fairly completely:
+
+poGTiffDriver = poDriver = new GDALDriver();
+
+poDriver->SetDescription( "GTiff" );
+poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "GeoTIFF" );
+poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_gtiff.html" );
+poDriver->SetMetadataItem( GDAL_DMD_MIMETYPE, "image/tiff" );
+poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "tif" );
+poDriver->SetMetadataItem( GDAL_DMD_CREATIONOPTIONLIST, "
+<CreationOptionList>
+<Option name='COMPRESS' type='string-select'>
+<Value>NONE</Value>
+<Value>PACKBITS</Value>
+<Value>JPEG</Value>
+<Value>LZW</Value>
+<Value>DEFLATE</Value>
+</Option>
+<Option name='INTERLEAVE' type='string-select'>
+<Value>BAND</Value>
+<Value>PIXEL</Value>
+</Option>
+<Option name='TILED' type='boolean' description='Switch to tiled format'/>
+<Option name='TFW' type='boolean' description='Write out world filet'/>
+<Option name='BLOCKXSIZE' type='int' description='Tile Width'/>
+<Option name='BLOCKYSIZE' type='int' description='Tile/String Height'/>
+</CreationOptionList>" );
+
+Note that there is also the CREATIONOPTIONLIST metadata which is intended to
+be a description of all the creation options supported by a format. This
+is currently not being used for anything, but it is my intention to write
+a standard parser for the information and to do automatic validation in the
+generate GDALCreate() and GDALCreateCopy() code. This info can also be used
+to populate GUIs if/when that should be necessary.
+
+Note that the work related to mimetype and extension was funded by i-cubed
+(www.i3.com) and will be taken advantage of by MapServer.
+
+Anyone with a private format implementation will need to update their
+driver registration code to set those values (at least Description and longname)
+that are available in the new way. Anyone doing a CVS update should take
+care to do a clean build since various classes changed in size and layout.
+
+PS. gdal_translate will now only list formats supported for output.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From shimitz at u...  Thu Jun 13 11:01:35 2002
+From: shimitz at u... (ashimitz)
+Date: Wed Nov 21 11:49:16 2007
+Subject: GDAL core directory getting removed
+Message-ID: <aeac4f+7p73@eGroups.com>
+
+I have been having a problem with the core directory being removed
+occassionally. It happens when I abort the configure process before it
+completes (forgot to set an option). I tracked the problem down to the
+trap command in the configure script, which is doing an rm with the -r
+option. I'm not sure if the -r is even needed at all, but it's having
+an adverse affect with core being in the list of files to remove,
+resulting in the entire GDAL core directory being removed. If the -r
+is needed, just move the remove of core to a separate statement. I
+have attached the patch for you to add the changes to CVS.
+
+
+
+From shimitz at u...  Thu Jun 13 11:03:28 2002
+From: shimitz at u... (April Shimitz)
+Date: Wed Nov 21 11:49:17 2007
+Subject: patch for configure script
+Message-ID: <OFA58B5507.C3D74923-ON86256BD7.0052A31C@c...>
+
+Oops...forgot to actually attach the patch. Here it is.
+
+(See attached file: configure.patch)
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/octet-stream
+Size: 153 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020613/17512401/attachment.obj
+From warmerdam at p...  Thu Jun 13 11:01:47 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL core directory getting removed
+References: <aeac4f+7p73@eGroups.com>
+Message-ID: <3D08B3DB.3060803@p...>
+
+ashimitz wrote:
+> I have been having a problem with the core directory being removed
+> occassionally. It happens when I abort the configure process before it
+> completes (forgot to set an option). I tracked the problem down to the
+> trap command in the configure script, which is doing an rm with the -r
+> option. I'm not sure if the -r is even needed at all, but it's having
+> an adverse affect with core being in the list of files to remove,
+> resulting in the entire GDAL core directory being removed. If the -r
+> is needed, just move the remove of core to a separate statement. I
+> have attached the patch for you to add the changes to CVS.
+
+April,
+
+I realize this is an annoying problem, but the configure script is
+auto generated from configure.in by autoconf, so changing it won't have
+a persistent effect and I can't figure out how to change autoconf to not
+do this. It has been suggested I just rename the core directory, and I
+may yet do that but if anyone knows how to twist autoconf into not doing
+this please let me know.
+
+Best regards,
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From tklistaddr at k...  Thu Jun 20 14:08:30 2002
+From: tklistaddr at k... (Timothy H. Keitt)
+Date: Wed Nov 21 11:49:17 2007
+Subject: R bindings for GDAL
+Message-ID: <1024596510.21386.21.camel@keittlab-6>
+
+I have an experimental R package that wraps Frank Warmerdam's Geographic
+Data Abstraction Library. GDAL lets you read and write a variety of
+raster image formats. Details are at
+
+http://keittlab.bio.sunysb.edu/R/GDAL/
+
+I haven't yet written bindings for the OGR vector bits. That will likely
+wait until I have a need to read vector shape files.
+
+Cheers,
+Tim
+
+
+
+From s.perkins at l...  Thu Jun 20 19:55:41 2002
+From: s.perkins at l... (Simon Perkins)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL Driver Changes
+References: <3D07BB25.2030907@p...>
+Message-ID: <3D126B7D.4753FB9A@l...>
+
+Frank Warmerdam wrote:
+> I have made some changes to the way information about GDALDrivers is stored.
+> GDALDriver's are derived from GDALMajorObject which automatically supports
+> metadata, so I decided to store a bunch of info in the metadata.
+> 
+> The pszShortName is now the descriptions (accessed via the GetDescription()
+> and SetDescription() methods). The rest of the values are stored as
+> metadata.
+
+Hi Frank,
+
+While I think these changes are good, it does cause the slight
+problem that the C++ API of GDAL, defined in gdal_priv.h has just
+changed. As a result, some software I have that uses GDAL no
+longer works. I can update my code to work with the new API, but
+a more serious problem is how do I tell which version of the
+library users have installed? Or should I not have relied on the
+C++ API remaining constant? Are we supposed to use the C
+interface only? Hopefully these API changes will happen rarely,
+but if they do happen then we should try to retain backwards
+compatibility. In this case that was probably impossible since
+there was no C++ accessor function for the format short name.
+
+Another small issue is that when I wrote the FITS driver for
+GDAL, I wanted to handle reading and writing of arbitrary
+metadata stored in the header. As a result, if you set items in
+the metadata of a FITSDataset, then the driver will attempt to
+write that information to the FITS file when the dataset is
+closed. As it happens, that doesn't mess things up here since the
+FITS driver only writes metadata with a key 8 or less characters
+long, as required by the FITS format, so none of the new metadata
+will get written by mistake (their keys are all longer than 8
+chars). However, this is more through accident than design so I
+should probably do something more sensible. Is this the kind of
+problem that the "domain" field of the metadata was intended to
+solve?
+
+Just a few thoughts,
+
+Sy
+
+
+
+
+> I have also added MIMETYPE and EXTENSION metadata. The registration of the
+> GeoTIFF driver demonstrates this fairly completely:
+> 
+> poGTiffDriver = poDriver = new GDALDriver();
+> 
+> poDriver->SetDescription( "GTiff" );
+> poDriver->SetMetadataItem( GDAL_DMD_LONGNAME, "GeoTIFF" );
+> poDriver->SetMetadataItem( GDAL_DMD_HELPTOPIC, "frmt_gtiff.html" );
+> poDriver->SetMetadataItem( GDAL_DMD_MIMETYPE, "image/tiff" );
+> poDriver->SetMetadataItem( GDAL_DMD_EXTENSION, "tif" );
+> poDriver->SetMetadataItem( GDAL_DMD_CREATIONOPTIONLIST, "
+> <CreationOptionList>
+> <Option name='COMPRESS' type='string-select'>
+> <Value>NONE</Value>
+> <Value>PACKBITS</Value>
+> <Value>JPEG</Value>
+> <Value>LZW</Value>
+> <Value>DEFLATE</Value>
+> </Option>
+> <Option name='INTERLEAVE' type='string-select'>
+> <Value>BAND</Value>
+> <Value>PIXEL</Value>
+> </Option>
+> <Option name='TILED' type='boolean' description='Switch to tiled format'/>
+> <Option name='TFW' type='boolean' description='Write out world filet'/>
+> <Option name='BLOCKXSIZE' type='int' description='Tile Width'/>
+> <Option name='BLOCKYSIZE' type='int' description='Tile/String Height'/>
+> </CreationOptionList>" );
+> 
+> Note that there is also the CREATIONOPTIONLIST metadata which is intended to
+> be a description of all the creation options supported by a format. This
+> is currently not being used for anything, but it is my intention to write
+> a standard parser for the information and to do automatic validation in the
+> generate GDALCreate() and GDALCreateCopy() code. This info can also be used
+> to populate GUIs if/when that should be necessary.
+
+
+-- 
+Simon Perkins
+Los Alamos National Laboratory, USA
+http://nis-www.lanl.gov/~simes
+
+
+From gdal-dev at yahoogroups.com  Thu Jun 20 20:52:11 2002
+From: gdal-dev at yahoogroups.com (gdal-dev@yahoogroups.com)
+Date: Wed Nov 21 11:49:17 2007
+Subject: New file uploaded to gdal-dev 
+Message-ID: <1024620731.9303.47038.w19@yahoogroups.com>
+
+
+Hello,
+
+This email message is a notification to let you know that
+a file has been uploaded to the Files area of the gdal-dev 
+group.
+
+File : /Projection.zip 
+Uploaded by : pegroups <paul@t...> 
+Description : New Proj4 sources with most C-style macros removed to enhance readability and maintainance. 
+
+You can access this file at the URL
+
+http://groups.yahoo.com/group/gdal-dev/files/Projection.zip 
+
+To learn more about file sharing for your group, please visit
+
+http://help.yahoo.com/help/us/groups/files
+
+Regards,
+
+pegroups <paul@t...>
+
+
+
+
+
+
+
+From warmerdam at p...  Thu Jun 20 22:17:14 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL Driver Changes
+References: <3D07BB25.2030907@p...> <3D126B7D.4753FB9A@l...>
+Message-ID: <3D128CAA.4080401@p...>
+
+Simon Perkins wrote:
+> While I think these changes are good, it does cause the slight
+> problem that the C++ API of GDAL, defined in gdal_priv.h has just
+> changed. As a result, some software I have that uses GDAL no
+> longer works. 
+
+Simon,
+
+What specifically in the API has changed that is causing problems?
+
+> I can update my code to work with the new API, but
+> a more serious problem is how do I tell which version of the
+> library users have installed? Or should I not have relied on the
+> C++ API remaining constant? 
+
+I think it is unwise to depend on the C++ API remaining binary
+compatible between versions. It should generally remain compilation
+compatible. Retaining binary compatibility in C++ APIs is very
+difficult, as even adding a new virtual function at a location other
+than the end of a class can cause binary incompatbilities. Fixing
+const correctness issues is another example of a seemingly harmless
+changes that foils C++ binary compatibility (as I realized to my
+horror after changing the OGR API for const correctness issues).
+
+As for determining versions, I have put some effort into defining
+version numbers, release dates and release names in gdal.h for
+determining at compile time the version of GDAL in use:
+
+#ifndef GDAL_VERSION_NUM
+# define GDAL_VERSION_NUM	1170
+#endif
+#ifndef GDAL_RELEASE_DATE
+# define GDAL_RELEASE_DATE 20020416	
+#endif
+#ifndef GDAL_RELEASE_NAME
+# define GDAL_RELEASE_NAME "1.1.7"
+#endif
+
+The C function GDALVersionInfo() can also be used to fetch the
+above values from a GDAL shared library at runtime should that
+prove necessary.
+
+> Are we supposed to use the C
+> interface only? Hopefully these API changes will happen rarely,
+> but if they do happen then we should try to retain backwards
+> compatibility. In this case that was probably impossible since
+> there was no C++ accessor function for the format short name.
+
+Right, though there was the C GDALGetDriverShortName() function
+which continues to work.
+
+Note that part of my rationale in putting so much information into
+metadata was to ensure easier expandability in the future without
+changes to the API.
+
+> Another small issue is that when I wrote the FITS driver for
+> GDAL, I wanted to handle reading and writing of arbitrary
+> metadata stored in the header. As a result, if you set items in
+> the metadata of a FITSDataset, then the driver will attempt to
+> write that information to the FITS file when the dataset is
+> closed. As it happens, that doesn't mess things up here since the
+> FITS driver only writes metadata with a key 8 or less characters
+> long, as required by the FITS format, so none of the new metadata
+> will get written by mistake (their keys are all longer than 8
+> chars). However, this is more through accident than design so I
+> should probably do something more sensible. Is this the kind of
+> problem that the "domain" field of the metadata was intended to
+> solve?
+
+The metadata is specifically set on the GDALDriver object for the
+format, not the GDALDataset. I agree that putting stuff like this
+on the GDALDatasets would have significantly interfered with the
+existing normal use of metadata about datasets.
+
+If I were to want to do something similar on datasets (such as
+have metadata items that could be queried to find out information
+about a dataset like whether it supports some operation) I would
+indeed utilize a specific domain to avoid conflict with existing
+metadata optionations. In the current case though I felt that
+since drivers had not previously used metadata for anything, and
+since it seemed logical that this kind of information be in the
+"primary domain" it would be OK.
+
+To summarize, I am not currently aiming to make the GDAL C++ API binary
+compatible accross versions, though I do intend to make it source compatible
+(at the application level). I will also try to make it source compatible
+at the driver level, but with a lesser degree of certainty than for the
+calling application.
+
+I am concerned about compatibility issues, and I appreciate hearing concerns
+for developers and users of GDAL.
+
+PS. I did update the FITS driver, though I didn't test it.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From yahoo at p...  Fri Jun 21 00:08:55 2002
+From: yahoo at p... (paulbaker78)
+Date: Wed Nov 21 11:49:17 2007
+Subject: GDAL Driver Changes
+In-Reply-To: <3D128CAA.4080401@p...>
+Message-ID: <aeu8sn+an8g@eGroups.com>
+
+--- In gdal-dev@y..., Frank Warmerdam <warmerdam@p...> wrote:
+> I think it is unwise to depend on the C++ API remaining binary
+> compatible between versions. It should generally remain compilation
+> compatible. Retaining binary compatibility in C++ APIs is very
+> difficult, as even adding a new virtual function at a location other
+> than the end of a class can cause binary incompatbilities. Fixing
+> const correctness issues is another example of a seemingly harmless
+> changes that foils C++ binary compatibility (as I realized to my
+> horror after changing the OGR API for const correctness issues).
+
+This is exactly what SONAME is for, which we talked about in the other
+thread I started a week or two back. This is really important that it
+should probably be worked out by the next release (1.1.8? 1.2.0?
+2.0.0?) so that people can start to rely on it. IMUIC, that means gdal
+should install something to the affect of:
+
+libgdal.so.<release_version>
+libgdal.so.<binary compatibility version or SONAME> which is symlinked
+to the libgdal.so.<release_version>.
+
+The above files would be what is required of a program to run an
+already compiled binary.
+
+For building things with gdal, then you also should have a libgdal.so
+file that is symlinked to the libgdal.so.<SONAME> file.
+
+So what would this look like for a 1.2.0 release?
+
+libgdal.so.1.2.0
+libgdal.so.1 -> libgdal.so.1.2.0
+libgdal.so -> libgdal.so.1
+
+Anyway that is my understanding of it, I could be wrong.
+
+Of course if with every release of gdal, it breaks binary
+compatibility, you may be saying, doesn't the SONAME then increase to
+2? does that mean you have to call it gdal 2.something? No. You may
+know that libfreetype is at 6, yet the version number is only at 2.1.1
+IIRC.
+
+
+
+
+
+From danmo at v...  Fri Jun 21 11:05:03 2002
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: GDAL Driver Changes
+References: <aeu8sn+an8g@eGroups.com>
+Message-ID: <3D13409F.72803E2@d...>
+
+paulbaker78 wrote:
+> 
+> This is exactly what SONAME is for, which we talked about in the other
+> thread I started a week or two back. This is really important that it
+> should probably be worked out by the next release (1.1.8? 1.2.0?
+> 2.0.0?) so that people can start to rely on it. IMUIC, that means gdal
+> should install something to the affect of:
+> 
+> libgdal.so.<release_version>
+> libgdal.so.<binary compatibility version or SONAME> which is symlinked
+> to the libgdal.so.<release_version>.
+> 
+> The above files would be what is required of a program to run an
+> already compiled binary.
+> 
+> For building things with gdal, then you also should have a libgdal.so
+> file that is symlinked to the libgdal.so.<SONAME> file.
+> 
+> So what would this look like for a 1.2.0 release?
+> 
+> libgdal.so.1.2.0
+> libgdal.so.1 -> libgdal.so.1.2.0
+> libgdal.so -> libgdal.so.1
+> 
+> Anyway that is my understanding of it, I could be wrong.
+> 
+> Of course if with every release of gdal, it breaks binary
+> compatibility, you may be saying, doesn't the SONAME then increase to
+> 2? does that mean you have to call it gdal 2.something? No. You may
+> know that libfreetype is at 6, yet the version number is only at 2.1.1
+> IIRC.
+> 
+> 
+
+
+Frank, Paul,
+
+I think Paul is right, GDAL should install libraries named this way:
+
+libgdal.so.1.2.0
+libgdal.so.1 -> libgdal.so.1.2.0
+libgdal.so -> libgdal.so.1
+
+I never saw the real use for this until recently when I decided to
+install a new (custom) GD on a system that came preinstalled with its
+own libgd.so ... then I understood how those naming conventions could be
+useful. The nice thing is that with names as suggested above, the linker
+remembers only the reference to the physical file when you use -lgdal
+(libgdal.so.1.2.0 in this case), so when you upgrade your libs later you
+leave the libgdal.so.1.2.0 there and the old executables keep working
+against it, but the libgdal.so logical link is replaced to point to a
+newer file (libgdal.so.1.2.1 or whatever), in sync with the installed
+header files that will be used to build/link new programs in the future.
+
+The way things are right now with the name libgdal.1.1.so, rebuilding
+GDAL often breaks old executables, it would really be nice if the above
+approach could be used, and then I could easily keep older and newer
+versions of MapServer at the same time on the same server. :)
+
+I know how busy you are (same here)... but I just wanted to add my
+0.02$...
+-- 
+------------------------------------------------------------
+Daniel Morissette morissette@d...
+DM Solutions Group http://www.dmsolutions.ca/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+
+
+From warmerdam at p...  Fri Jun 21 13:48:17 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: Shared Library Naming, and the next major release
+References: <aeu8sn+an8g@eGroups.com> <3D13409F.72803E2@d...>
+Message-ID: <3D1366E1.8010601@p...>
+
+Folks,
+
+For the record, it is my intent to implement support for libgdal.so.n.n.n
+type naming for a GDAL/OGR 1.2 release sometime in late summer. I hope to have
+pre-releases available sometime in july for all the packaging folks to try
+out and comment on. It may take a few iterations to get things right.
+
+That said:
+o The maximized backward compatibility will focus on the C interface, but
+the version numbers should make it easier to get get the right shared
+library to match a given C++ interface.
+
+o I am likely to implement at least a partial C API for OGR. Partly this is
+to simplify OGR integration into the core of GRASS, and once done I would
+try to provide similar backward compatibility guarantees for the C OGR
+interface as for the GDAL C interface.
+
+o I *might* even take a whack at integrating GDAL and OGR more closely with
+a common concept of drivers, metadata services, capabilities and so forth.
+The best time to do this would be before committing to a OGR C API. If I
+do so there will be substantial compatibility issues introduced with regard
+to OGRLayer, OGRDataSource and OGRDrivers. OGRFeatures, OGRGeometry and
+OGRSpatialReference should be essentially unaffected.
+
+o I have no intention of using libtool for the shared library building, so
+it is unlikely that I will do all the sophisticated shared library stuff
+on all platforms. However, I will try to ensure it works well on systems
+with a GNU tool chain (gcc and GNU ld).
+
+o I will also try to address at least a similar naming convention for DLLs on
+Windows. However, without soft links and stuff, I am not sure that this
+will help as much with DLL version hell as the naming stuff, and -soname
+stuff on Linux.
+
+I am unlikely to get much work done on this for the next 3-4 weeks, but folks
+are encouraged to poke me again by mid July to check for progress.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From s.perkins at l...  Fri Jun 21 23:10:18 2002
+From: s.perkins at l... (Simon Perkins)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL Driver Changes
+References: <3D07BB25.2030907@p...> <3D126B7D.4753FB9A@l...> <3D128CAA.4080401@p...>
+Message-ID: <3D13EA9A.FB04FF2E@l...>
+
+Frank Warmerdam wrote:
+> Simon Perkins wrote:
+> > While I think these changes are good, it does cause the slight
+> > problem that the C++ API of GDAL, defined in gdal_priv.h has just
+> > changed. As a result, some software I have that uses GDAL no
+> > longer works.
+> 
+> Simon,
+> 
+> What specifically in the API has changed that is causing problems?
+
+The old GDALDriver class had a field pszShortName, which has now gone. I
+never did like acessing this field directly, but it seemed to be the
+only way of getting at the driver name in a C++ way. FWIW, this approach
+seems to be endorsed on the GDAL API tutorial page. Code that used to
+access pszShortName directly now no longer compiles, so this is not just
+an issue of binary compatibility. Anyway, I am changing my code to use
+the C interface since this seems to be a little less sensitive to code
+changes. I never did like including a header file called gdal_priv.h to
+get at the C++ interface!
+
+
+> > long, as required by the FITS format, so none of the new metadata
+> > will get written by mistake (their keys are all longer than 8
+> > chars). However, this is more through accident than design so I
+> > should probably do something more sensible. Is this the kind of
+> > problem that the "domain" field of the metadata was intended to
+> > solve?
+> 
+> The metadata is specifically set on the GDALDriver object for the
+> format, not the GDALDataset. I agree that putting stuff like this
+> on the GDALDatasets would have significantly interfered with the
+> existing normal use of metadata about datasets.
+
+Ah, good point... My mistake.
+
+
+> PS. I did update the FITS driver, though I didn't test it.
+
+Thanks for that!
+
+Cheers,
+
+Sy
+
+
+From warmerdam at p...  Tue Jun 25 12:09:17 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: gdal_translate rewrite and vacation
+Message-ID: <3D1895AD.3060107@p...>
+
+Folks,
+
+As long promised I have finally rewritten gdal_translate to utilize virtual
+datasets. The change is checked into CVS.
+
+The issue is that many file formats (via GDAL) can only be created properly
+when they are "cloning" an existing dataset. This is the "CreateCopy" method
+of writing a new file.
+
+Gdal_translate previously only supported CreateCopy output formats when
+no changes were made to the input (no subwindowing, resampling, partial
+band selection, etc). I have now modified gdal_translate to create a
+"virtual dataset" which can be cloned, but which understand what part of
+the original file it represents. This ensures the CreateCopy formats can
+now be generated while applying other changes like resizing.
+
+One caveat is that virtual datasets don't yet know how to scale pixel values,
+so if you are using the scaling feature of gdal_translate it will fallback
+to the old mechanism that won't work with some output formats.
+
+Also, of course, the virtual dataset based mechanism has not been tested
+carefully, so beware.
+
+PS. I am going to be at a Linux Symposium in Ottawa for the remainder of
+this week (well starting tomorrow), and on vacation all of next week so
+forgive me if I am not very accessable for a while.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From neteler at i...  Thu Jun 27 05:15:17 2002
+From: neteler at i... (Markus Neteler)
+Date: Wed Nov 21 11:49:17 2007
+Subject: GDAL list archive closed
+Message-ID: <20020627111517.D32725@i...>
+
+Hi,
+
+since quite some time the GDAL mailing list archive at
+yahoo is classified as "adult".
+http://www.yahoogroups.com/list/gdal-dev/
+
+"Warning 
+
+This group contains adult content. 
+
+We're sorry, you have reached an age-restricted area of Yahoo! Groups. 
+"
+
+Is there any hope to open the archive again or move it
+to another place?
+
+Or does anyone else have a possibility to clone this archive?
+Unfortunately I have lost recent mails which I would like to
+re-read (about the planned OCR C wrapper etc).
+
+Thanks
+
+Markus Neteler
+
+
+From danmo at v...  Thu Jun 27 10:17:06 2002
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL list archive closed
+References: <20020627111517.D32725@i...>
+Message-ID: <3D1B1E62.5EF56ED2@d...>
+
+If you click on "sign in" then you should be able to access the
+archives... or at least this works for me.
+
+Daniel
+
+
+Markus Neteler wrote:
+> 
+> Hi,
+> 
+> since quite some time the GDAL mailing list archive at
+> yahoo is classified as "adult".
+> http://www.yahoogroups.com/list/gdal-dev/
+> 
+> "Warning
+> 
+> This group contains adult content.
+> 
+> We're sorry, you have reached an age-restricted area of Yahoo! Groups.
+> "
+> 
+> Is there any hope to open the archive again or move it
+> to another place?
+> 
+> Or does anyone else have a possibility to clone this archive?
+> Unfortunately I have lost recent mails which I would like to
+> re-read (about the planned OCR C wrapper etc).
+> 
+> Thanks
+> 
+> Markus Neteler
+> 
+> 
+>
+
+
+From neteler at i...  Thu Jun 27 10:26:06 2002
+From: neteler at i... (Markus Neteler)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL list archive closed
+In-Reply-To: <3D1B1E62.5EF56ED2@d...>; from danmo@v... on Thu, Jun 27, 2002 at 10:17:06AM -0400
+References: <20020627111517.D32725@i...> <3D1B1E62.5EF56ED2@d...>
+Message-ID: <20020627162606.C11370@i...>
+
+On Thu, Jun 27, 2002 at 10:17:06AM -0400, Daniel Morissette wrote:
+> 
+> If you click on "sign in" then you should be able to access the
+> archives... or at least this works for me.
+> Daniel
+
+Mhhh, this needs registration (I want to avoid to receive more spam
+mails...).
+
+Anyway, thanks for the hint.
+
+Markus
+
+
+> 
+> Markus Neteler wrote:
+> > 
+> > Hi,
+> > 
+> > since quite some time the GDAL mailing list archive at
+> > yahoo is classified as "adult".
+> > http://www.yahoogroups.com/list/gdal-dev/
+> > 
+> > "Warning
+> > 
+> > This group contains adult content.
+> > 
+> > We're sorry, you have reached an age-restricted area of Yahoo! Groups.
+> > "
+> > 
+> > Is there any hope to open the archive again or move it
+> > to another place?
+> > 
+> > Or does anyone else have a possibility to clone this archive?
+> > Unfortunately I have lost recent mails which I would like to
+> > re-read (about the planned OCR C wrapper etc).
+> > 
+> > Thanks
+> > 
+> > Markus Neteler
+> > 
+> > 
+> >
+> 
+> 
+> 
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/ 
+> 
+
+-- 
+Markus Neteler
+
+ITC-irst, Istituto per la Ricerca Scientifica e Tecnologica
+Project on Predictive Models for the Environment 
+Via Sommarive, 18 - 38050 Povo (Trento), Italy
+tel +39 0461 314 -520 (fax -591) http://mpa.itc.it
+
+
+From paul at t...  Thu Jun 27 10:39:57 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL list archive closed
+References: <20020627111517.D32725@i...> <3D1B1E62.5EF56ED2@d...>
+Message-ID: <000901c21de8$83d77970$700201c0@nsepaul>
+
+Hello Daniel,
+It works but there is a prompt telling you it is an adult site. The first
+time I tried,
+I had this problem too and mastered the courage to click Yes to the prompt.
+It means the mailing list is created in the categories of adult pages, a bit
+embarrassing.
+
+The moderator should simply edit the group preference.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "Daniel Morissette" <danmo@v...>
+To: <gdal-dev@yahoogroups.com>
+Sent: Thursday, June 27, 2002 11:17 PM
+Subject: Re: [gdal-dev] GDAL list archive closed
+
+
+>
+> If you click on "sign in" then you should be able to access the
+> archives... or at least this works for me.
+>
+> Daniel
+>
+>
+> Markus Neteler wrote:
+> >
+> > Hi,
+> >
+> > since quite some time the GDAL mailing list archive at
+> > yahoo is classified as "adult".
+> > http://www.yahoogroups.com/list/gdal-dev/
+> >
+> > "Warning
+> >
+> > This group contains adult content.
+> >
+> > We're sorry, you have reached an age-restricted area of Yahoo! Groups.
+> > "
+> >
+> > Is there any hope to open the archive again or move it
+> > to another place?
+> >
+> > Or does anyone else have a possibility to clone this archive?
+> > Unfortunately I have lost recent mails which I would like to
+> > re-read (about the planned OCR C wrapper etc).
+> >
+> > Thanks
+> >
+> > Markus Neteler
+> >
+> >
+> >
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From DeepakKa at r...  Thu Jun 27 10:42:59 2002
+From: DeepakKa at r... (DeepakKa@r...)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL list archive closed
+Message-ID: <OF5C41B86E.84D6322E-ON65256BE5.004FE075@r...>
+
+
+Hi
+I'm also a recent one to join the list and braved to click the adult
+content button. God know why its placed so.
+
+I want to use the GDAL binaries in a project to create a translator
+program, on the lines of GDAL_Translate
+Can someone let me know, what all dependencies I need to set for GDAL lib
+for running it in a VC++ project
+
+TIA
+Deepak
+
+
+
+
+
+From danmo at v...  Thu Jun 27 11:14:12 2002
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GDAL list archive closed
+References: <20020627111517.D32725@i...> <3D1B1E62.5EF56ED2@d...> <000901c21de8$83d77970$700201c0@nsepaul>
+Message-ID: <3D1B2BC4.9A4F94AB@d...>
+
+Paul Selormey wrote:
+> 
+> The moderator should simply edit the group preference.
+> 
+
+Agreed. I believe the moderator is Frank and he wrote in a previous
+message that he's away until the end of next week... so I was trying to
+suggest an interim solution.
+
+-- 
+------------------------------------------------------------
+Daniel Morissette morissette@d...
+DM Solutions Group http://www.dmsolutions.ca/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+
+
+From jaybo at n...  Thu Jun 27 21:22:47 2002
+From: jaybo at n... (jaybo_nomad)
+Date: Wed Nov 21 11:49:17 2007
+Subject: BSB Format Version 3.0 
+Message-ID: <afgdp7+p7qq@eGroups.com>
+
+I just started using GDAL, and noticed it parses Maptech BSB files in 
+version 2.x format just fine, but gives up on version 3.0 format. 
+The first hint of failure is at line 265 in bsb_read.c:
+
+(psInfo->nPCTSize == 0) 
+
+but this is probably just a symptome of something much more seriously 
+amis. Before I waste too much time trying to reverse engineer the 
+format changes, I was curious if anyone else has already done the 
+work.
+
+- Jay
+
+
+
+From warmerdam at p...  Fri Jun 28 17:22:59 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] BSB Format Version 3.0
+In-Reply-To: <afgdp7+p7qq@eGroups.com>
+References: <afgdp7+p7qq@eGroups.com>
+Message-ID: <20020628212259.GE16555@g...>
+
+On Fri, Jun 28, 2002 at 01:22:47AM -0000, jaybo_nomad wrote:
+> I just started using GDAL, and noticed it parses Maptech BSB files in 
+> version 2.x format just fine, but gives up on version 3.0 format. 
+> The first hint of failure is at line 265 in bsb_read.c:
+> 
+> (psInfo->nPCTSize == 0) 
+> 
+> but this is probably just a symptome of something much more seriously 
+> amis. Before I waste too much time trying to reverse engineer the 
+> format changes, I was curious if anyone else has already done the 
+> work.
+
+Jaybo, 
+
+I haven't knowingly encountered BSB 3 files so I don't have much to
+say. I will be out of town for about 10 days from now, but I would
+appreciate getting a smallish sample of BSB 3.0 if possible.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+From s.perkins at l...  Fri Jun 28 22:21:50 2002
+From: s.perkins at l... (Simon Perkins)
+Date: Wed Nov 21 11:49:17 2007
+Subject: Proposed change to GDAL FITS driver
+References: <3D1895AD.3060107@p...>
+Message-ID: <3D1D19BE.DC44F49D@l...>
+
+
+Hi,
+
+I'd like to make a tiny but just possibly incompatible change to
+the FITS driver, so I'm writing this first to see if the change
+is likely to affect anyone out there. If you don't use the FITS
+driver in your code then please ignore this message. Even if you
+do use the FITS driver, you can most likely ignore this message
+anyway!
+
+FWIW, the change I'm proposing only involves a single, completely
+undocumented aspect of the driver, so I'm predicting that nobody
+outside of the organization I work in (where the driver was
+written) will be affected.
+
+But if by some thosuand to one chance, what I'm suggesting is
+actually going to affect you, then let me know ASAP!
+
+
+Anyway...
+
+The GDAL FITS driver is built on top of the cfitsio library. One
+feature that this library supports is the ability to
+automatically rescale data values as they are being read and
+written from/to the image, through the use of the BZERO and
+BSCALE keywords. This is most usually used to store floating
+point data as a bytes. One simply sets the BSCALE and BZERO
+keywords in the FITS file appropriately, and then data that is
+written is automatically transformed to a value:
+
+stored_value = (original_value - BZERO) / BSCALE
+
+By choosing BSCALE and BZERO to map the original floating point
+range onto 0 to 255, we can achieve a simple form of (typically)
+4:1 compression. When reading values out of the image, the
+inverse transformation is automatically performed.
+
+Since the beginning, the GDAL FITS driver create() method has had
+a couple of undocumented options: if you specify the options
+BZERO and BSCALE with appropriate values in the creation options,
+then you will end up with a file that looks like a floating point
+file as far as GDAL is concerned, but actually stores the
+underlying data as bytes using the specified scaling. Similarly,
+if you open a byte FITS file that has the BZERO and BSCALE
+keywords set, GDAL will tell you that the file is of floating
+point type, and will silently transform the stored byte values
+back into rescaled floating point values when you read them.
+
+While this approach is convenient for the most common uses of
+BSCALE and BZERO, it has a couple of problems:
+
+- It only allows the user to map floating point types onto bytes.
+In fact though the BSCALE/BZERO mechanism should allow any
+combination of types, e.g. storing doubles as shorts, or ints as
+bytes, using appropriate rescalings.
+
+- It is sometimes convenient to set BSCALE and BZERO, but then to
+do the rescaling yourself, i.e to write raw bytes or read raw
+bytes even though BSCALE / BZERO is set.
+
+
+To address these problems I'm proposing the following:
+
+- Eliminate the sneaky remapping of data types that the FITS
+driver currently performs when BSCALE/BZERO is set. It just
+complicates things and is unnecessary. Worse it restricts the
+functionality of the driver.
+
+- Add a third option to the create() function: NOSCALE=YES. This
+will disable the default scaling of data that is performed if the
+BSCALE and BZERO options are specified, and allow the user to
+write raw bytes if they want. Note that since the GDAL open()
+method doesn't allow options (Frank: is this something that could
+be usefully added to GDAL? A final optional argument to the C++
+GDALOpen() method?), it's not possible to override the default
+behavior of rescaling data read from a FITS file that has BZERO
+and BSCALE set.
+
+
+
+If you've never used the BSCALE/BZERO creation options then
+you'll see almost no change. The only difference will be that if
+you read from a FITS file that has the BSCALE and BZERO keywords
+set, and you call GDALGetRasterDataType(), you will now see the
+true underlying type of the image rather than a fake one. Reading
+FITS data will happen exactly as before, with data being
+automatically scaled using BZERO and BSCALE, if set, as it is
+being read.
+
+
+If you are using the BSCALE and BZERO creation options, and you
+want to, say, store floating point data as scaled bytes, then
+you'll now have to create the GDAL file as a byte file, rather
+than a float file. The BSCALE and BZERO creation options will be
+exactly as before - only the type argument will change.
+
+
+Advantages of the new scheme are:
+
+- You can use BSCALE and BZERO to store images as any type you
+like - you're no longer restricted to bytes.
+
+- The GDALGetRasterDataType() method doesn't lie anymore.
+
+- You can optionally disable the automatic rescaling of data when
+writing files.
+
+
+
+If I don't hear any objections, I'll be submitting changes to CVS
+in the near future, and hopefully the change will eventually
+propagate through to a release version of GDAL, sometime in the
+not too distant future.
+
+
+Cheers,
+
+Sy
+
+-- 
+Simon Perkins
+Los Alamos National Laboratory, USA
+http://nis-www.lanl.gov/~simes
+
+

@@ -1,0 +1,810 @@
+From Michele.L.Maxson at erdc.dren.mil  Thu Jun  2 04:49:04 2016
+From: Michele.L.Maxson at erdc.dren.mil (Maxson, Michele L ERDC-RDE-CRREL-NH CIV)
+Date: Thu, 2 Jun 2016 11:49:04 +0000
+Subject: [pdal] Docker for windows buggy
+Message-ID: <8A88B728678D7B41AF7E1A236CDB779946D0E241@MS-EX1VKS.erdc.dren.mil>
+
+Has anyone noticed if Docker for Windows is buggy?  I'm running on a Windows 7 64 bit machine and have found that I can create an image and work inside of a container for a while and then suddenly Docker won't see any files in the container.  Similarly, I have run multiple pipelines with great success and then after several iterations the pipelines will not run on the files.  I have rebooted several times and even uninstalled and reinstalled Docker and can't pinpoint what I've done to either get Docker working again nor what I've done to break Docker.  Has any else encountered this problem or know of a way to resolve it?  
+
+Michele L. Maxson, GISP
+Research Physical Scientist
+Cold Regions Research and Engineering Lab
+72 Lyme Road
+Hanover, NH 03755
+Office: 603-646-4122
+Mobile: 937-631-1915
+
+
+
+From howard at hobu.co  Fri Jun  3 06:44:27 2016
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 3 Jun 2016 08:44:27 -0500
+Subject: [pdal] Docker for windows buggy
+In-Reply-To: <8A88B728678D7B41AF7E1A236CDB779946D0E241@MS-EX1VKS.erdc.dren.mil>
+References: <8A88B728678D7B41AF7E1A236CDB779946D0E241@MS-EX1VKS.erdc.dren.mil>
+Message-ID: <570E0299-A147-4F1E-B3E2-FBA64F3E5611@hobu.co>
+
+
+> On Jun 2, 2016, at 6:49 AM, Maxson, Michele L ERDC-RDE-CRREL-NH CIV <Michele.L.Maxson at erdc.dren.mil> wrote:
+
+>  Similarly, I have run multiple pipelines with great success and then after several iterations the pipelines will not run on the files.  
+
+>   Has any else encountered this problem or know of a way to resolve it?  
+
+Michele,
+
+I think you are running into a docker-specific issue where you are running out of host resources. There are more sophisticated docker users on the list than myself, but I have found that I sometimes have to "clean" my docker instance by removing old machine images that are no longer in use.
+
+Howard
+
+From howard at hobu.co  Fri Jun  3 08:05:52 2016
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 3 Jun 2016 10:05:52 -0500
+Subject: [pdal] PDAL QGIS Plugin
+In-Reply-To: <CAGtt-46ROyUq6-tf2aV7oBeefAZ+YbwUXiUQ4OPAZuSUx1Oxng@mail.gmail.com>
+References: <CAGtt-46ROyUq6-tf2aV7oBeefAZ+YbwUXiUQ4OPAZuSUx1Oxng@mail.gmail.com>
+Message-ID: <D47A20B4-60E2-41A6-843B-FDBF31C46BC9@hobu.co>
+
+
+> On May 30, 2016, at 5:54 PM, Jim Bellenger <bellengj at gmail.com> wrote:
+> 
+> Is there a QGIS Plugin to build a PDAL pipeline?
+
+Jim,
+
+I know of no such plugin at this time. 
+
+Howard
+
+From joverland at lizardtech.com  Tue Jun  7 15:41:09 2016
+From: joverland at lizardtech.com (Jason Overland)
+Date: Tue, 7 Jun 2016 22:41:09 +0000
+Subject: [pdal] Chunking/streaming support
+In-Reply-To: <6950b834-87e9-4c25-96e8-3efd86204437@gmail.com>
+References: <1E3D347A5FEA2C42A722B8C31D413D6764431C@nixie.extnsis.com>
+ <6950b834-87e9-4c25-96e8-3efd86204437@gmail.com>
+Message-ID: <1E3D347A5FEA2C42A722B8C31D413D67645EFD@nixie.extnsis.com>
+
+Hi Andrew,
+A quick follow up on this.  For now I made 3 methods on BpfReader public - ready, processOne, and done.  This allowed me to read a point at a time by calling processOne multiple times.  I also tried using read() to read a chunk at a time instead of processOne() but that ended up being a little bit slower (I thought it would be faster due to less seeks) and involved a little more trickery with setting up the PointTable.  Of course I'd prefer not willy nilly making private methods public as a long term strategy, but as a quick and dirty solution it seems to get things working for us.  The limitation of this is that we aren't building a full PDAL pipeline with these methods, just one reader, but that's all we're interested in for now anyway.  A good example of usage of our API is actually the MrsidReader plugin in PDAL.  We're open to sending patches if there's any interest in that.  Is making these methods public (or some equivalent) something PDAL is interested in?
+
+Here's the code I'm using to get points :
+
+class PDALPointReader::Iterator : public PointIterator
+{
+   CONCRETE_ITERATOR(Iterator);
+protected:
+   ~Iterator(void)
+   {
+      m_reader.done(m_fixedPointTable);
+
+   }
+   
+public:
+	Iterator(void) :
+		m_fixedPointTable(10)
+	{
+		
+	}
+   void init(const Bounds &bounds,
+             double fraction,
+             const PointInfo &pointInfo,
+             ProgressDelegate *delegate,
+             const char *path)
+   {
+      assert(path != NULL && *path != '\0');
+      PointIterator::init(bounds, fraction, pointInfo, delegate);
+      
+      m_finished = false;
+      pdal::Options options;
+      options.add("filename", path);
+      m_reader.setOptions(options);
+      m_reader.prepare(m_fixedPointTable);
+      m_fixedPointTable.finalize();
+      m_reader.ready(m_fixedPointTable);
+   }
+      
+   size_t getNextPoints(PointData &points)
+   {
+      static const char message[] = "reading PDAL file";
+      if(m_delegate != NULL)
+         m_delegate->updateCompleted(0, message);
+
+      std::vector<pdal::Dimension::Id::Enum> channelsToDimensions;
+      for (int i = 0; i < points.getNumChannels(); i++)
+      {
+         ChannelData& channel = points.getChannel(i);
+
+         pdal::Dimension::Id::Enum dim = m_fixedPointTable.layout()->findDim(channel.getName());
+         channelsToDimensions.push_back(dim);
+      }
+
+      //We thought using read() would be faster as there's less seeking, but at least in debug mode, using processOne() is faster.
+      //Since point mode requires a little less hackery with PointTables, we're going with point mode for now.
+/*#if 0
+      pdal::FixedPointTable fixedPointTable(points.getNumSamples());
+      m_reader.addDimensions(fixedPointTable.layout());
+      fixedPointTable.finalize();
+      pdal::PointViewPtr pointViewPtr(new pdal::PointView(fixedPointTable));
+      
+      int cnt = m_reader.read(pointViewPtr, points.getNumSamples());
+      int used = 0;
+      size_t cancelCount = 0;
+
+      for (int i = 0; i < cnt; i++)
+      {
+         
+         double x = pointViewPtr->getFieldAs<double>(pdal::Dimension::Id::X, i);
+         double y = pointViewPtr->getFieldAs<double>(pdal::Dimension::Id::Y, i);
+         double z = pointViewPtr->getFieldAs<double>(pdal::Dimension::Id::Z, i);
+         if (useSample(x, y, z))
+         {
+            for (int j = 0; j < points.getNumChannels(); j++)
+            {
+               ChannelData& channel = points.getChannel(j);
+               pdal::Dimension::Id::Enum dim = channelsToDimensions[j];
+               switch (dim)
+               {
+               case pdal::Dimension::Id::X:
+                  static_cast<double*>(channel.getData())[i] = x;
+                  break;
+               case pdal::Dimension::Id::Y:
+                  static_cast<double*>(channel.getData())[i] = y;
+                  break;
+               case pdal::Dimension::Id::Z:
+                  static_cast<double*>(channel.getData())[i] = z;
+                  break;
+               default:
+                  {
+                     float value = pointViewPtr->getFieldAs<float>(dim, i);
+                     static_cast<float*>(channel.getData())[i] = value;
+                     break;
+                  }
+               }
+            }
+
+            used++;
+         }
+         cancelCount += 1;
+         if (cancelCount == 4096)
+         {
+            if (m_delegate != NULL)
+            {
+               m_delegate->updateCompleted(static_cast<double>(cancelCount), message);
+
+               if (m_delegate->getCancelled())
+                  THROW_LIBRARY_ERROR(LTL_STATUS_CORE_OPERATION_CANCELLED)
+                  ("operation cancelled.");
+            }
+            cancelCount = 0;
+         }
+      }
+      return used;
+#endif*/
+
+
+      pdal::PointRef point(m_fixedPointTable, 0);
+      int cnt = 0, cancelCount = 0;
+      while (!m_finished && cnt < points.getNumSamples())
+      {
+         m_finished = !m_reader.processOne(point);
+         
+         
+         double x = point.getFieldAs<double>(pdal::Dimension::Id::X);
+         double y = point.getFieldAs<double>(pdal::Dimension::Id::Y);
+         double z = point.getFieldAs<double>(pdal::Dimension::Id::Z);
+         if (useSample(x, y, z))
+         {
+            for (int j = 0; j < points.getNumChannels(); j++)
+            {
+               ChannelData& channel = points.getChannel(j);
+               pdal::Dimension::Id::Enum dim = channelsToDimensions[j];
+               switch (dim)
+               {
+               case pdal::Dimension::Id::X:
+                  static_cast<double*>(channel.getData())[cnt] = x;
+                  break;
+               case pdal::Dimension::Id::Y:
+                  static_cast<double*>(channel.getData())[cnt] = y;
+                  break;
+               case pdal::Dimension::Id::Z:
+                  static_cast<double*>(channel.getData())[cnt] = z;
+                  break;
+               default:
+               {
+                  float value = point.getFieldAs<float>(dim);
+                  static_cast<float*>(channel.getData())[cnt] = value;
+                  break;
+               }
+               }
+            }
+
+            cnt++;
+         }
+         cancelCount += 1;
+         if (cancelCount == 4096)
+         {
+            if (m_delegate != NULL)
+            {
+               m_delegate->updateCompleted(static_cast<double>(cancelCount), message);
+
+               if (m_delegate->getCancelled())
+                  THROW_LIBRARY_ERROR(LTL_STATUS_CORE_OPERATION_CANCELLED)
+                  ("operation cancelled.");
+            }
+            cancelCount = 0;
+         }
+         
+         
+      }
+      return cnt;
+   }
+protected:
+
+   pdal::BpfReader  m_reader;
+   pdal::FixedPointTable m_fixedPointTable;
+   bool m_finished;
+};
+
+Where PointIterator is an abstract base class that requires implementations to implement getNextPoints().
+
+Here's the changes we made in PDAL.  I had to add a bounds check upfront to processOne because of the way we're calling it.  Also found a random typo in Dimension.hpp while poking through the code.
+
+diff -r 85fc82f96ded -r 80f391aa4670 xt_lib_pdal/src/PDAL-1.2.0-src/include/pdal/Dimension.hpp
+--- a/xt_lib_pdal/src/PDAL-1.2.0-src/include/pdal/Dimension.hpp	Wed May 25 14:38:46 2016 -0700
++++ b/xt_lib_pdal/src/PDAL-1.2.0-src/include/pdal/Dimension.hpp	Wed May 25 15:46:26 2016 -0700
+@@ -424,7 +424,7 @@
+         return Id::IsPpsLocked;
+     else if (s == "STARTPULSE")
+         return Id::StartPulse;
+-    else if (s == "RELFECTEDPULSE")
++    else if (s == "REFLECTEDPULSE")
+         return Id::ReflectedPulse;
+     else if (s == "PITCH")
+         return Id::Pitch;
+diff -r 85fc82f96ded -r 80f391aa4670 xt_lib_pdal/src/PDAL-1.2.0-src/io/bpf/BpfReader.cpp
+--- a/xt_lib_pdal/src/PDAL-1.2.0-src/io/bpf/BpfReader.cpp	Wed May 25 14:38:46 2016 -0700
++++ b/xt_lib_pdal/src/PDAL-1.2.0-src/io/bpf/BpfReader.cpp	Wed May 25 15:46:26 2016 -0700
+@@ -256,6 +256,8 @@
+ 
+ bool BpfReader::processOne(PointRef& point)
+ {
++   if (eof() || (m_index >= m_count))
++      return true;
+     switch (m_header.m_pointFormat)
+     {
+     case BpfFormat::PointMajor:
+diff -r 85fc82f96ded -r 80f391aa4670 xt_lib_pdal/src/PDAL-1.2.0-src/io/bpf/BpfReader.hpp
+--- a/xt_lib_pdal/src/PDAL-1.2.0-src/io/bpf/BpfReader.hpp	Wed May 25 14:38:46 2016 -0700
++++ b/xt_lib_pdal/src/PDAL-1.2.0-src/io/bpf/BpfReader.hpp	Wed May 25 15:46:26 2016 -0700
+@@ -64,6 +64,10 @@
+ 
+     virtual point_count_t numPoints() const
+         {  return (point_count_t)m_header.m_numPts; }
++
++    virtual void ready(PointTableRef table);
++    virtual void done(PointTableRef table);
++    virtual bool processOne(PointRef& point);
+ private:
+     ILeStream m_stream;
+     BpfHeader m_header;
+@@ -86,10 +90,8 @@
+     virtual QuickInfo inspect();
+     virtual void initialize();
+     virtual void addDimensions(PointLayoutPtr Layout);
+-    virtual void ready(PointTableRef table);
+-    virtual bool processOne(PointRef& point);
+     virtual point_count_t read(PointViewPtr data, point_count_t num);
+-    virtual void done(PointTableRef table);
+
+
+
+From: Andrew Bell [mailto:andrew.bell.ia at gmail.com] 
+Sent: Monday, May 23, 2016 6:16 PM
+To: Jason Overland
+Cc: pdal at lists.osgeo.org
+Subject: Re: [pdal] Chunking/streaming support
+
+On Mon, May 23, 2016 at 5:02 PM, Jason Overland <joverland at lizardtech.com> wrote:
+Hi,
+I’m trying to use PDAL’s C++ API to read BPF files and integrate it into our existing API.  In our API we expose an iterator called PointIterator which is constructed from a file and a region (bounding box).  Our PointIterator has a getNextPoints() method which walks the specified region of the point cloud until there are no more points to extract.  To work within this existing API we would like to use a chunking/streaming/stripping/iteration mechanism, i.e. read at most n points at a time from the file, stop and return execution to our API user’s code, and then continue where we left off on the next call to getNextPoints(), rinse and repeat until we’ve read all the points we’re interested in.  I’ve been looking at the Streaming support as exemplified in StreamingTest.cpp but haven’t quite been able to wrap my head around whether or not what I’m trying to achieve is currently possible.
+
+The issue is that PDAL's API works in a manner opposite to yours.  PDAL expects to call your code when a point has been read, rather than the other way around.  PDAL handles the point buffering and so on, relieving your code of the burden.  PDAL wants to run an entire pipeline -- it's not intended as a stand-along point-by-point reader.  Without seeing your processing code, I can't provide any advice on how to make it work with the existing API.
+
+That said, I understand that this doesn't meet your model and your model isn't unreasonable.  I don't know where doing something like this might fit in our current priority list, but it's probably not too large a task.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+
+From andrew.bell.ia at gmail.com  Mon Jun 13 14:46:01 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 13 Jun 2016 16:46:01 -0500
+Subject: [pdal] Chunking/streaming support
+In-Reply-To: <1E3D347A5FEA2C42A722B8C31D413D67645EFD@nixie.extnsis.com>
+References: <1E3D347A5FEA2C42A722B8C31D413D6764431C@nixie.extnsis.com>
+ <6950b834-87e9-4c25-96e8-3efd86204437@gmail.com>
+ <1E3D347A5FEA2C42A722B8C31D413D67645EFD@nixie.extnsis.com>
+Message-ID: <CACJ51z3zMwasc=HyNzzHvSuou6r6UgGXNEo3MgjYDmfmhYVqSA@mail.gmail.com>
+
+On Tue, Jun 7, 2016 at 5:41 PM, Jason Overland <joverland at lizardtech.com>
+wrote:
+
+> Hi Andrew,
+> A quick follow up on this.  For now I made 3 methods on BpfReader public -
+> ready, processOne, and done.  This allowed me to read a point at a time by
+> calling processOne multiple times.  I also tried using read() to read a
+> chunk at a time instead of processOne() but that ended up being a little
+> bit slower (I thought it would be faster due to less seeks) and involved a
+> little more trickery with setting up the PointTable.  Of course I'd prefer
+> not willy nilly making private methods public as a long term strategy, but
+> as a quick and dirty solution it seems to get things working for us.
+>
+
+Your solution seems reasonable for now.  Maybe we'll get a chance to
+formalize such an interface at some point in the not-too-distant future.
+
+Thanks for your thoughts,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160613/99fd43dd/attachment.html>
+
+From jfprieur at gmail.com  Wed Jun 15 13:57:26 2016
+From: jfprieur at gmail.com (Jean-Francois Prieur)
+Date: Wed, 15 Jun 2016 20:57:26 +0000
+Subject: [pdal] PointCloud: Transferring database to different server
+Message-ID: <CAEMWU29WnRd-EJPU_evR5aA72f6jKkb9j5UKQFX3khvvCu=3Ew@mail.gmail.com>
+
+Hello,
+
+Was not sure whether to post this here or PostGIS list, apologies if this
+is the wrong list!
+
+We have a PostGIS database using pointcloud objects to store our lidar data.
+
+I am trying to move the database to another server using
+
+pg_dump -C -h localhost -U localuser dbname | psql -h remotehost -U
+remoteuser dbname
+
+The connections work fine remotely and it starts creating the database
+(including the extensions), when it starts to copy the actual pointcloud
+entries, we get an error:
+
+
+2016-06-15 16:33:59 EDT LOG Pointcloud (1.1.0) module loaded at character 53
+2016-06-15 16:33:59 EDT STATEMENT CREATE TABLE crpt (
+   id integer NOT NULL,
+   pa pcpatch(1),
+   tree_id character varying
+);
+2016-06-15 16:34:24 EDT ERROR no entry in "pointcloud_formats" for pcid = 1
+2016-06-15 16:34:24 EDT CONTEXT COPY crpt, line 1, column pa:
+"0101000000020000007403000002E8030000090000006588634786E6FDF6237D42E0B460602D36A0D8B9D80E9DCB5D580D83..."
+
+
+I have the feeling something is not being done in the correct order, a
+missing schema or something.
+
+What is the proper procedure for copying a poincloud enabled database from
+one server to another?
+
+Thanks,
+JF
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160615/d97ad491/attachment.html>
+
+From remi.cura at gmail.com  Thu Jun 16 01:55:14 2016
+From: remi.cura at gmail.com (=?UTF-8?Q?R=C3=A9mi_Cura?=)
+Date: Thu, 16 Jun 2016 10:55:14 +0200
+Subject: [pdal] PointCloud: Transferring database to different server
+In-Reply-To: <CAEMWU29WnRd-EJPU_evR5aA72f6jKkb9j5UKQFX3khvvCu=3Ew@mail.gmail.com>
+References: <CAEMWU29WnRd-EJPU_evR5aA72f6jKkb9j5UKQFX3khvvCu=3Ew@mail.gmail.com>
+Message-ID: <CAJvUf_ue=9KgZWnjmeFgirAKF2o+5MMvogfvD=XPHTAEYfiztQ@mail.gmail.com>
+
+Hey,
+in this case the fix seems obvious :
+you should first copy the content of "pointcloud_formats" before copying
+the points.
+I don't remember if there are options in pgdump to prioritize the tables to
+be dumped and copied.
+
+Indeed,
+pointcloud_formats is like the spatial_ref_sys postgis table, that is it
+defines the referential, therefore you need it to create the type of points
+you want.
+
+Cheers,
+Rémi-C
+
+2016-06-15 22:57 GMT+02:00 Jean-Francois Prieur <jfprieur at gmail.com>:
+
+> Hello,
+>
+> Was not sure whether to post this here or PostGIS list, apologies if this
+> is the wrong list!
+>
+> We have a PostGIS database using pointcloud objects to store our lidar
+> data.
+>
+> I am trying to move the database to another server using
+>
+> pg_dump -C -h localhost -U localuser dbname | psql -h remotehost -U
+> remoteuser dbname
+>
+> The connections work fine remotely and it starts creating the database
+> (including the extensions), when it starts to copy the actual pointcloud
+> entries, we get an error:
+>
+>
+> 2016-06-15 16:33:59 EDT LOG Pointcloud (1.1.0) module loaded at character
+> 53
+> 2016-06-15 16:33:59 EDT STATEMENT CREATE TABLE crpt (
+>    id integer NOT NULL,
+>    pa pcpatch(1),
+>    tree_id character varying
+> );
+> 2016-06-15 16:34:24 EDT ERROR no entry in "pointcloud_formats" for pcid =
+> 1
+> 2016-06-15 16:34:24 EDT CONTEXT COPY crpt, line 1, column pa:
+> "0101000000020000007403000002E8030000090000006588634786E6FDF6237D42E0B460602D36A0D8B9D80E9DCB5D580D83..."
+>
+>
+> I have the feeling something is not being done in the correct order, a
+> missing schema or something.
+>
+> What is the proper procedure for copying a poincloud enabled database from
+> one server to another?
+>
+> Thanks,
+> JF
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160616/e25eca66/attachment.html>
+
+From remi.cura at gmail.com  Thu Jun 16 05:18:19 2016
+From: remi.cura at gmail.com (=?UTF-8?Q?R=C3=A9mi_Cura?=)
+Date: Thu, 16 Jun 2016 14:18:19 +0200
+Subject: [pdal] PointCloud: Transferring database to different server
+In-Reply-To: <CAEMWU2_Cyj8duvZxgBGShORku2B+mUeutdOzwBi7Lpqm=D7zYg@mail.gmail.com>
+References: <CAEMWU29WnRd-EJPU_evR5aA72f6jKkb9j5UKQFX3khvvCu=3Ew@mail.gmail.com>
+ <CAJvUf_ue=9KgZWnjmeFgirAKF2o+5MMvogfvD=XPHTAEYfiztQ@mail.gmail.com>
+ <CAEMWU2_Cyj8duvZxgBGShORku2B+mUeutdOzwBi7Lpqm=D7zYg@mail.gmail.com>
+Message-ID: <CAJvUf_u0DWuA+31ea=Y10t9V0vUAreti+h8+-=9JGAq+3=3Drw@mail.gmail.com>
+
+Maybe a simple mail to postgres list,
+I guess it must be very common to want to change order of pgdump.
+
+Another simple way would be to write a script that calls pgdump on each
+table (excluding extension tables),
+this way you have control.
+
+I'm not an expert, but I think I remember that copying postgres folder is a
+very bad idea.
+
+Cheers,
+Rémi-C
+
+2016-06-16 13:32 GMT+02:00 Jean-Francois Prieur <jfprieur at gmail.com>:
+
+> Thanks again Rémi, no such option in pgdump unfortunately! I finally did
+> it the old school way of shutting down the server and copying the folder
+> containing the database to the new machine.
+>
+> I will keep looking to see if there is a way to prioritize table order and
+> get back to the list if I find something.
+>
+> JF
+>
+>
+> On Thu, Jun 16, 2016, 04:55 Rémi Cura <remi.cura at gmail.com> wrote:
+>
+>> Hey,
+>> in this case the fix seems obvious :
+>> you should first copy the content of "pointcloud_formats" before copying
+>> the points.
+>> I don't remember if there are options in pgdump to prioritize the tables
+>> to be dumped and copied.
+>>
+>> Indeed,
+>> pointcloud_formats is like the spatial_ref_sys postgis table, that is it
+>> defines the referential, therefore you need it to create the type of points
+>> you want.
+>>
+>> Cheers,
+>> Rémi-C
+>>
+>> 2016-06-15 22:57 GMT+02:00 Jean-Francois Prieur <jfprieur at gmail.com>:
+>>
+>>> Hello,
+>>>
+>>> Was not sure whether to post this here or PostGIS list, apologies if
+>>> this is the wrong list!
+>>>
+>>> We have a PostGIS database using pointcloud objects to store our lidar
+>>> data.
+>>>
+>>> I am trying to move the database to another server using
+>>>
+>>> pg_dump -C -h localhost -U localuser dbname | psql -h remotehost -U
+>>> remoteuser dbname
+>>>
+>>> The connections work fine remotely and it starts creating the database
+>>> (including the extensions), when it starts to copy the actual pointcloud
+>>> entries, we get an error:
+>>>
+>>>
+>>> 2016-06-15 16:33:59 EDT LOG Pointcloud (1.1.0) module loaded at
+>>> character 53
+>>> 2016-06-15 16:33:59 EDT STATEMENT CREATE TABLE crpt (
+>>>    id integer NOT NULL,
+>>>    pa pcpatch(1),
+>>>    tree_id character varying
+>>> );
+>>> 2016-06-15 16:34:24 EDT ERROR no entry in "pointcloud_formats" for pcid
+>>> = 1
+>>> 2016-06-15 16:34:24 EDT CONTEXT COPY crpt, line 1, column pa:
+>>> "0101000000020000007403000002E8030000090000006588634786E6FDF6237D42E0B460602D36A0D8B9D80E9DCB5D580D83..."
+>>>
+>>>
+>>> I have the feeling something is not being done in the correct order, a
+>>> missing schema or something.
+>>>
+>>> What is the proper procedure for copying a poincloud enabled database
+>>> from one server to another?
+>>>
+>>> Thanks,
+>>> JF
+>>>
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160616/26a72e55/attachment-0001.html>
+
+From andrew.bell.ia at gmail.com  Mon Jun 20 11:51:37 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 20 Jun 2016 13:51:37 -0500
+Subject: [pdal] Major Breaking Change to Options API
+Message-ID: <CACJ51z36PqN6GyfbZ6X4a2ci+i5zQ=6MBScEr=ABovZaaTghfg@mail.gmail.com>
+
+In order to facilitate better feedback for users of PDAL command-line tools
+and API users, I have made a change to the way that stage options are
+discovered, parsed and handled.  The notable advantage to users is that if
+they misspell an option name, stage name or provide an option value that's
+of the wrong type, they're told about the error at the time the pipeline or
+command line is parsed.  The PDAL 1.2 interface provided no feedback in
+these cases.  It was easy for a user to do something like provide the
+option --readers.las.sale_x=.01 and not get the expected output, but not
+realize that they had misspelled "scale_x" as "sale_x".  Similarly, one
+might have typed "--reader.las.scale_x=.01" (missed the 's' on 'readers')
+and not gotten the expected behavior.
+
+Unfortunately these changes may break code for users of the API.  The
+changes will be present in the next release of PDAL and have been merged
+into the master branch of PDAL on GitHub.  Here's a description of what you
+may need to do if you maintain your own stage outside of the PDAL source
+tree.
+
+Stages must now register their ability to accept options in a new private
+virtual function called addArgs.  The options (arguments) accepted by a
+stage are added to the instance of ProgramArgs that is passed to the
+function.  If you are familiar with ProgramArgs from coding a PDAL kernel,
+the interface is the same.  If not, here's an example:
+
+class FooStage
+{
+...
+private:
+    int m_fine;
+    std::string m_veryFine;
+};
+
+void FooStage::addArgs(ProgramArgs& args)
+{
+    args.add("fine", "My Fine Option", m_fine).setPositional();
+    args.add("veryfine", "My Very Fine Option", m_veryFine, "So, so fine");
+}
+
+The first argument to add() is the name of the option.
+The second argument is a description of the option.
+The third argument is a variable to which the option is mapped (variable
+storing the option's value).
+The optional fourth argument is a default value for the option if not set
+by the user.  If not provided, the argument is default-initialized.  Types
+for the variable and default values must match exactly, though special
+handling allows string constants provided as default arguments to be used
+when the variable type is a std::string.
+
+add() returns a reference to the created Arg, to which a pointer can be
+stored if necessary (usually to check whether the value was set by the
+user).
+Arg::setPositional() makes the option required (the function name comes
+from command-line argument handling).  Previous code that handled these
+options may have looked like:
+
+void FooStage::processOptions(Options& ops)
+{
+    m_fine = ops.getValueOrThrow<int>("fine");
+    m_veryFine = ops.getValueOrDefault<std::string>("veryfine", "So, so
+fine");
+}
+
+Existing processOptions() functions should be removed as they will no
+longer be called as part of stage processing.  Stages may have also
+implemented getDefaultOptions().  This function should also be removed as
+it isn't called and its functionality is incorporated in the new interface.
+
+Once the arguments are added, one need do nothing more unless required by
+specific circumstances.  PDAL's prepare() or preview() functions will fill
+the variables mapped to the options so that they can be used by the stage.
+Any variable can be used as an option/argument as long as it's type has a
+default constructor and provides an input operator from a std::istream that
+sets the stream's fail bit if the input isn't as expected.  This allows
+most conversion that was previously performed locally in processOptions()
+to be encapsulated in the mapped variable's class instead.  Any processing
+other than options-fetching that was done in processOptions() can be safely
+moved to a stage's initialize() function.
+
+If you have trouble or questions, please let me know and I'll be happy to
+answer and/or help you migrate your code to the new interface.
+
+Best,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160620/9c91aa9c/attachment.html>
+
+From j.chatillon at aerodata-surveys.com  Thu Jun 30 02:49:42 2016
+From: j.chatillon at aerodata-surveys.com (=?iso-8859-1?Q?J=E9r=F4me_Chatillon?=)
+Date: Thu, 30 Jun 2016 09:49:42 +0000
+Subject: [pdal] PDAL 1.2 compilation on Windows
+Message-ID: <DBXPR04MB4641EABDFD5F38124BB20D3CE240@DBXPR04MB464.eurprd04.prod.outlook.com>
+
+Hi,
+
+Trying to compile PDAL 1.2 (http://download.osgeo.org/pdal/PDAL-1.2.0-src.tar.gz) on Windows, but I end up with more than 6000 errors (error C2668: 'std::to_string' : ambiguous call to overloaded function C:\Dev\cpp\libs\PDAL-1.2.0-src\include\pdal\util\Utils.hpp, ...).
+My configuration:
+
+-          Windows 10
+
+-          Microsoft Visual Studio Express 2010 64bits (as it's the only one compatible with the)
+
+-          I use CMake and link the libraries of OSGEO4W64 (including gdal, PCL, ...)
+
+Looking at the errors messages, it seems to be a C++11 features support issue...
+I never had the clear information, but it seems that OSGEO4W64 libraries are compiled with MSVC 10.0 (2010) 64 bits. This compiler has a poor c++11 features implementation, that would explain why the PDAL 1.2 is (still) not available on OSGEO4W64.
+
+Any advice (except "use Docker") before I try to migrate to VS2013 or VS2015 ?
+
+
+Jérôme Chatillon
+LiDAR Survey Specialist | Flightplanning | Development
+Mobile : +33 642 905 844 (UTC+1)
+e-mail: j.chatillon at aerodata-surveys.com<mailto:j.chatillon at aerodata-surveys.com>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20160630/0af8ccb7/attachment.html>
+
+From mateusz at loskot.net  Thu Jun 30 03:29:18 2016
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu, 30 Jun 2016 12:29:18 +0200
+Subject: [pdal] PDAL 1.2 compilation on Windows
+In-Reply-To: <DBXPR04MB4641EABDFD5F38124BB20D3CE240@DBXPR04MB464.eurprd04.prod.outlook.com>
+References: <DBXPR04MB4641EABDFD5F38124BB20D3CE240@DBXPR04MB464.eurprd04.prod.outlook.com>
+Message-ID: <CABUeae8Xrs7Fibq0p6ZTFTFYcUAXAi9dCidDa=17tKy+GVqn1g@mail.gmail.com>
+
+On 30 June 2016 at 11:49, Jérôme Chatillon
+<j.chatillon at aerodata-surveys.com> wrote:
+>
+>
+> Trying to compile PDAL 1.2
+> (http://download.osgeo.org/pdal/PDAL-1.2.0-src.tar.gz) on Windows, but I end
+> up with more than 6000 errors (error C2668: 'std::to_string' : ambiguous
+> call to overloaded function
+> C:\Dev\cpp\libs\PDAL-1.2.0-src\include\pdal\util\Utils.hpp, …).
+
+
+For std::to_string specifically, VS2012 is the practical minimum
+(VS2012 implements it for a couple of integers only).
+
+I'm not sure what is the final concensus of the VS2015+ thread [1]
+but I think you nead at least VS2012/VS2013 to build the latest PDAL.
+
+[1] https://lists.osgeo.org/pipermail/pdal/2016-February/000890.html
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+
+From kreve at sdfe.dk  Thu Jun 30 04:10:10 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 30 Jun 2016 11:10:10 +0000
+Subject: [pdal] PDAL 1.2 compilation on Windows
+In-Reply-To: <CABUeae8Xrs7Fibq0p6ZTFTFYcUAXAi9dCidDa=17tKy+GVqn1g@mail.gmail.com>
+References: <DBXPR04MB4641EABDFD5F38124BB20D3CE240@DBXPR04MB464.eurprd04.prod.outlook.com>
+ <CABUeae8Xrs7Fibq0p6ZTFTFYcUAXAi9dCidDa=17tKy+GVqn1g@mail.gmail.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E79E64086@S000014.PROD.SITAD.DK>
+
+Generally the windows build documentation could use a big overhaul. The current description of the build procedure (http://www.pdal.io/development/compilation/windows.html)  dates back to 2012. 
+
+The last time (around new year, I think) I gave it a try I made the following notes. It was my intention to update the docs, but since I never succeeded that never happened. I believe a lot has happened since then. Note that this was an attempt to build with VS2015. The numbers relate to the numbered steps in the build description:
+
+0. No problem
+
+1. Minor details:
+    a. There’s no ’gdal-dev’ package at this time in OSGeo4W64.
+
+2. No problem
+
+3. Some problems:
+    a. mkdir PDAL\build
+    b. Remember to initialize vsvars32.bat
+    c. call ./cmake/examples/hobu-windows.bat 
+    d. No CXX and C compiler: Need to make sure that Visual Studio is compiled with C++ libraries!
+   e. OpenNI missing: PCL plugin needs OpenNI which seems to be needed by PCL. Disable PCL in cmake call.
+   f.  Boost libraries in OSGeo4W64 does not work with VS2015. Most recent boost does not play well with cmake. Boost 1.59 seems to be the best option.
+
+4. Paths missing slashes – e.g. share\proj
+    a. GDAL_DATA should be set to %OSGeo4W%shareepsg_csv 
+    b. PROJ_LIB should be set to %OSGeo4W%shareproj
+
+And that’s as far as I got at the time. It might not be relevant anymore, but I'm sharing it here in case it helps someone. If I recall correctly there has been some changes with regards to boost, and that was one of my problems at the time.
+
+/Kristian
+
+> -----Oprindelig meddelelse-----
+> Fra: pdal [mailto:pdal-bounces at lists.osgeo.org] På vegne af Mateusz Loskot
+> Sendt: 30. juni 2016 12:29
+> Til: Jérôme Chatillon
+> Cc: pdal at lists.osgeo.org
+> Emne: Re: [pdal] PDAL 1.2 compilation on Windows
+> 
+> On 30 June 2016 at 11:49, Jérôme Chatillon
+> <j.chatillon at aerodata-surveys.com> wrote:
+> >
+> >
+> > Trying to compile PDAL 1.2
+> > (http://download.osgeo.org/pdal/PDAL-1.2.0-src.tar.gz) on Windows, but I
+> end
+> > up with more than 6000 errors (error C2668: 'std::to_string' : ambiguous
+> > call to overloaded function
+> > C:\Dev\cpp\libs\PDAL-1.2.0-src\include\pdal\util\Utils.hpp, …).
+> 
+> 
+> For std::to_string specifically, VS2012 is the practical minimum
+> (VS2012 implements it for a couple of integers only).
+> 
+> I'm not sure what is the final concensus of the VS2015+ thread [1]
+> but I think you nead at least VS2012/VS2013 to build the latest PDAL.
+> 
+> [1] https://lists.osgeo.org/pipermail/pdal/2016-February/000890.html
+> 
+> Best regards,
+> --
+> Mateusz Loskot, http://mateusz.loskot.net
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+

@@ -1,0 +1,3038 @@
+From dettling at ucar.edu  Fri Nov  2 15:04:30 2007
+From: dettling at ucar.edu (Sue Dettling)
+Date: Fri, 2 Nov 2007 16:04:30 -0600
+Subject: [Proj] possible memory leak in pj_free ??
+Message-ID: <20071102220430.GB17060@rap.ucar.edu>
+
+Hi, 
+I am using the debian linux (etch) version of proj.
+I instantiate a projection object with the following:
+
+if ( (_inputProj = pj_init(6,inputPrjArgs )) == NULL)
+  {
+    cerr << "ProjInfo::_projectData(): ERROR: Failed to initialize Proj.4 "
+	 << "projection object." << endl;
+    return(1);
+  }
+
+where inputPrjArgs[] = {"proj=laea", "lat_0=38", "lon_0=-98", "x_0=0", "y_0=0", "units=m"}.
+
+It seems to work fine based on output data.
+
+I free the projection with:
+
+if (_inputProj)
+    pj_free(_inputProj); 
+
+In stepping through with a debugger I see that the pj_free call is made
+however when using valgrind to check for memory leaks I get:
+
+=17191== 48 bytes in 2 blocks are definitely lost in loss record 1 of 1
+==17191==    at 0x401D38B: malloc (vg_replace_malloc.c:149)
+==17191==    by 0x41ECB2B: pj_malloc (in /usr/lib/libproj.so.0.5.0)
+==17191==    by 0x41EA5EF: pj_authset (in /usr/lib/libproj.so.0.5.0)
+==17191==    by 0x41CD4A9: pj_laea (in /usr/lib/libproj.so.0.5.0)
+==17191==    by 0x41EC577: pj_init (in /usr/lib/libproj.so.0.5.0)
+==17191==    by 0x805C505: ProjInfo::_initializeProj4() (ProjInfo.cc:453)
+==17191==    by 0x805E51F: ProjInfo::init() (ProjInfo.cc:84)
+==17191==    by 0x8052449: NcfReader::_getGriddedData() (NcfReader.cc:683)
+==17191==    by 0x8052FD0: NcfReader::readFile() (NcfReader.cc:169)
+==17191==    by 0x80504B5: NetCDF2Mdv::_processData(char*) (NetCDF2Mdv.cc:211)
+==17191==    by 0x80509D9: NetCDF2Mdv::Run() (NetCDF2Mdv.cc:173)
+==17191==    by 0x804F51D: main (Main.cc:67)
+
+
+Are there any known or possible leaks with pj_free ?
+
+Thanks for any advice,
+S.
+
+
+
+From warmerdam at pobox.com  Sat Nov  3 13:38:04 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Sat, 03 Nov 2007 16:38:04 -0400
+Subject: [Proj] possible memory leak in pj_free ??
+In-Reply-To: <20071102220430.GB17060@rap.ucar.edu>
+References: <20071102220430.GB17060@rap.ucar.edu>
+Message-ID: <472CDC2C.5070509@pobox.com>
+
+Sue Dettling wrote:
+> Hi, 
+> I am using the debian linux (etch) version of proj.
+> I instantiate a projection object with the following:
+> 
+> if ( (_inputProj = pj_init(6,inputPrjArgs )) == NULL)
+>   {
+>     cerr << "ProjInfo::_projectData(): ERROR: Failed to initialize Proj.4 "
+> 	 << "projection object." << endl;
+>     return(1);
+>   }
+> 
+> where inputPrjArgs[] = {"proj=laea", "lat_0=38", "lon_0=-98", "x_0=0", "y_0=0", "units=m"}.
+> 
+> It seems to work fine based on output data.
+> 
+> I free the projection with:
+> 
+> if (_inputProj)
+>     pj_free(_inputProj); 
+> 
+> In stepping through with a debugger I see that the pj_free call is made
+> however when using valgrind to check for memory leaks I get:
+> 
+> =17191== 48 bytes in 2 blocks are definitely lost in loss record 1 of 1
+> ==17191==    at 0x401D38B: malloc (vg_replace_malloc.c:149)
+> ==17191==    by 0x41ECB2B: pj_malloc (in /usr/lib/libproj.so.0.5.0)
+> ==17191==    by 0x41EA5EF: pj_authset (in /usr/lib/libproj.so.0.5.0)
+> ==17191==    by 0x41CD4A9: pj_laea (in /usr/lib/libproj.so.0.5.0)
+> ==17191==    by 0x41EC577: pj_init (in /usr/lib/libproj.so.0.5.0)
+> ==17191==    by 0x805C505: ProjInfo::_initializeProj4() (ProjInfo.cc:453)
+> ==17191==    by 0x805E51F: ProjInfo::init() (ProjInfo.cc:84)
+> ==17191==    by 0x8052449: NcfReader::_getGriddedData() (NcfReader.cc:683)
+> ==17191==    by 0x8052FD0: NcfReader::readFile() (NcfReader.cc:169)
+> ==17191==    by 0x80504B5: NetCDF2Mdv::_processData(char*) (NetCDF2Mdv.cc:211)
+> ==17191==    by 0x80509D9: NetCDF2Mdv::Run() (NetCDF2Mdv.cc:173)
+> ==17191==    by 0x804F51D: main (Main.cc:67)
+> 
+> 
+> Are there any known or possible leaks with pj_free ?
+
+Sue,
+
+I suspect you are seeing the issue fixed in this changelog entry.
+
+2007-04-04  Frank Warmerdam  <warmerdam at pobox.com>
+
+	* src/PJ_laea.c: Fix memory leak of apa field.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From dettling at ucar.edu  Sat Nov  3 14:43:49 2007
+From: dettling at ucar.edu (dettling at ucar.edu)
+Date: Sat, 3 Nov 2007 15:43:49 -0600 (MDT)
+Subject: [Proj] possible memory leak in pj_free ??
+In-Reply-To: <472CDC2C.5070509@pobox.com>
+References: <20071102220430.GB17060@rap.ucar.edu> <472CDC2C.5070509@pobox.com>
+Message-ID: <1927.4.227.193.255.1194126229.squirrel@mail.rap.ucar.edu>
+
+Hi Frank,
+The systems administrators assure me we have the latest version.
+Do you know if this fix got into the latest debian linux proj package.
+Thanks for your response.
+
+S.
+
+
+> Sue Dettling wrote:
+>> Hi,
+>> I am using the debian linux (etch) version of proj.
+>> I instantiate a projection object with the following:
+>>
+>> if ( (_inputProj = pj_init(6,inputPrjArgs )) == NULL)
+>>   {
+>>     cerr << "ProjInfo::_projectData(): ERROR: Failed to initialize
+>> Proj.4 "
+>> 	 << "projection object." << endl;
+>>     return(1);
+>>   }
+>>
+>> where inputPrjArgs[] = {"proj=laea", "lat_0=38", "lon_0=-98", "x_0=0",
+>> "y_0=0", "units=m"}.
+>>
+>> It seems to work fine based on output data.
+>>
+>> I free the projection with:
+>>
+>> if (_inputProj)
+>>     pj_free(_inputProj);
+>>
+>> In stepping through with a debugger I see that the pj_free call is made
+>> however when using valgrind to check for memory leaks I get:
+>>
+>> =17191== 48 bytes in 2 blocks are definitely lost in loss record 1 of 1
+>> ==17191==    at 0x401D38B: malloc (vg_replace_malloc.c:149)
+>> ==17191==    by 0x41ECB2B: pj_malloc (in /usr/lib/libproj.so.0.5.0)
+>> ==17191==    by 0x41EA5EF: pj_authset (in /usr/lib/libproj.so.0.5.0)
+>> ==17191==    by 0x41CD4A9: pj_laea (in /usr/lib/libproj.so.0.5.0)
+>> ==17191==    by 0x41EC577: pj_init (in /usr/lib/libproj.so.0.5.0)
+>> ==17191==    by 0x805C505: ProjInfo::_initializeProj4()
+>> (ProjInfo.cc:453)
+>> ==17191==    by 0x805E51F: ProjInfo::init() (ProjInfo.cc:84)
+>> ==17191==    by 0x8052449: NcfReader::_getGriddedData()
+>> (NcfReader.cc:683)
+>> ==17191==    by 0x8052FD0: NcfReader::readFile() (NcfReader.cc:169)
+>> ==17191==    by 0x80504B5: NetCDF2Mdv::_processData(char*)
+>> (NetCDF2Mdv.cc:211)
+>> ==17191==    by 0x80509D9: NetCDF2Mdv::Run() (NetCDF2Mdv.cc:173)
+>> ==17191==    by 0x804F51D: main (Main.cc:67)
+>>
+>>
+>> Are there any known or possible leaks with pj_free ?
+>
+> Sue,
+>
+> I suspect you are seeing the issue fixed in this changelog entry.
+>
+> 2007-04-04  Frank Warmerdam  <warmerdam at pobox.com>
+>
+> 	* src/PJ_laea.c: Fix memory leak of apa field.
+>
+> Best regards,
+> --
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+> warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+
+
+From warmerdam at pobox.com  Sat Nov  3 15:21:48 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Sat, 03 Nov 2007 18:21:48 -0400
+Subject: [Proj] possible memory leak in pj_free ??
+In-Reply-To: <1927.4.227.193.255.1194126229.squirrel@mail.rap.ucar.edu>
+References: <20071102220430.GB17060@rap.ucar.edu> <472CDC2C.5070509@pobox.com>
+	<1927.4.227.193.255.1194126229.squirrel@mail.rap.ucar.edu>
+Message-ID: <472CF47C.4020609@pobox.com>
+
+dettling at ucar.edu wrote:
+> Hi Frank,
+> The systems administrators assure me we have the latest version.
+> Do you know if this fix got into the latest debian linux proj package.
+> Thanks for your response.
+
+Sue,
+
+This is the development (CVS) version, and the fix was not in PROJ.4.5.0
+- the last public release.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From mfinn at usgs.gov  Sat Nov  3 17:49:13 2007
+From: mfinn at usgs.gov (Michael P Finn)
+Date: Sat, 3 Nov 2007 20:49:13 -0400
+Subject: [Proj] Michael P Finn of the USGS/ National Geospatial Technical
+ Operations Center is out of the office.
+Message-ID: <OF8D936FCF.5C588E80-ON85257389.000481BE-85257389.000481BE@usgs.gov>
+
+
+I will be out of the office starting  11/03/2007 and will not return until
+11/08/2007.
+
+I will be unable to check e-mail regularly while I am out. If I can't
+respond to your message while I am out, then I will when I return. If you
+have anything that cannot wait, please contact my colleague, Dr. E. Lynn
+Usery, at usery at usgs.gov.     Mike
+
+
+
+From hamish_nospam at yahoo.com  Wed Nov  7 20:52:04 2007
+From: hamish_nospam at yahoo.com (Hamish)
+Date: Thu, 8 Nov 2007 17:52:04 +1300
+Subject: [Proj] Gallery of map projections into a PDF book
+Message-ID: <20071108175204.a2794551.hamish_nospam@yahoo.com>
+
+Hi folks,
+
+for a while I have wanted to see Paul Anderson's Gallery of map projections in a form more easy to browse than PDF pages in a web browser.  ( http://www.galleryofmapprojections.com )
+
+A printed book would be nice.
+
+In an effort to scratch that itch and learn something new about reStructured text to LaTeX processing, I wrote a little shell script to convert the collection into a single PDF book (77mb, 274pp).
+
+It's not perfect- no hotlinks to the page numbers from a central TOC/index, and the title page TOC isn't well centered, but it does the trick for me. It also suffers portrait/landscape issues with a2ps if I try to fit two pages on one. All these things are possible; fixes most welcome.
+
+Bonus: optionally converts individual PDF pages to PNG images, e.g. for a rst2html thumbnail gallery.
+
+
+enjoy,
+Hamish
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: make_proj_book.sh
+Type: text/x-sh
+Size: 4708 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071108/27f70dfd/attachment.sh>
+
+From hb at meteorage.com  Mon Nov 12 06:54:45 2007
+From: hb at meteorage.com (Herve Baille)
+Date: Mon, 12 Nov 2007 15:54:45 +0100
+Subject: [Proj] pj_transform performance issue
+Message-ID: <47386935.5090104@meteorage.com>
+
+Hi
+
+We are new in development using proj4.
+We used to develop our own C libraries and would like to use Proj4, but 
+we experienced a strange performance problem.
+
+We initialize the projections with:
+pj_in = pj_init_plus("+init=epsg:4019");
+pj_out = pj_init_plus("+init=epsg:27572");
+
+Then we loop 100000 times on the function call:
+for (i=0 ; i<nbloop ; i++) {
+pj_transform(pj_in, pj_out, 1, 0, &x, &y, 0);
+}
+We get the (correct) result in about 6 seconds.
+
+Now we just integrate this call into a function
+int trans(projPJ pj_in, projPJ pj_out, double x, double y)
+{
+pj_transform(pj_in, pj_out, 1, 0, &x, &y, 0);
+return(0);
+}
+and call this function in the loop,
+for (i=0 ; i<nbloop ; i++) {
+trans(pj_in, pj_out, x, y);
+}
+then we get the (still correct) result in 30 seconds!
+
+Now, if I pass the coordiantes of my intermediate function, by address 
+instead of by values,
+int trans(projPJ pj_in, projPJ pj_out, double *x, double *y)
+{
+pj_transform(pj_in, pj_out, 1, 0, x, y, 0);
+return(0);
+}
+We get the result in 6 seconds again.
+
+What could be the reason for such a performance ratio?
+What are the rules to optimize pj_transform function?
+
+Off course we need to use a function between the loop and the 
+pj_transform call.
+
+Thanks for any help
+Best regards
+Herve Baille
+
+-- 
+***************************
+
+Hervé BAILLE <herve.baille at meteorage.com>
+Software development manager
+
+Sté Météorage
+2 av Angot
+64053 PAU
+France
+
+CATS support <support at meteorage.com>
+***************************
+
+
+
+From gdt at ir.bbn.com  Mon Nov 12 07:29:43 2007
+From: gdt at ir.bbn.com (Greg Troxel)
+Date: Mon, 12 Nov 2007 10:29:43 -0500
+Subject: [Proj] pj_transform performance issue
+In-Reply-To: <47386935.5090104@meteorage.com> (Herve Baille's message of "Mon, 
+	12 Nov 2007 15:54:45 +0100")
+References: <47386935.5090104@meteorage.com>
+Message-ID: <rmitznrwkgo.fsf@fnord.ir.bbn.com>
+
+  Now, if I pass the coordiantes of my intermediate function, by address
+  instead of by values,
+  int trans(projPJ pj_in, projPJ pj_out, double *x, double *y)
+  {
+  pj_transform(pj_in, pj_out, 1, 0, x, y, 0);
+  return(0);
+  }
+  We get the result in 6 seconds again.
+
+Such a high time difference doesn't make sense.  I think you need to
+read the assembly language that the compiler is generating.  If you are
+using gcc, use -S on the compilation line to have it leave the .s.
+
+
+
+From warmerdam at pobox.com  Mon Nov 12 07:31:41 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 12 Nov 2007 10:31:41 -0500
+Subject: [Proj] pj_transform performance issue
+In-Reply-To: <47386935.5090104@meteorage.com>
+References: <47386935.5090104@meteorage.com>
+Message-ID: <473871DD.30108@pobox.com>
+
+Herve Baille wrote:
+> Hi
+> 
+> We are new in development using proj4.
+> We used to develop our own C libraries and would like to use Proj4, but 
+> we experienced a strange performance problem.
+> 
+> We initialize the projections with:
+> pj_in = pj_init_plus("+init=epsg:4019");
+> pj_out = pj_init_plus("+init=epsg:27572");
+> 
+> Then we loop 100000 times on the function call:
+> for (i=0 ; i<nbloop ; i++) {
+> pj_transform(pj_in, pj_out, 1, 0, &x, &y, 0);
+> }
+> We get the (correct) result in about 6 seconds.
+> 
+> Now we just integrate this call into a function
+> int trans(projPJ pj_in, projPJ pj_out, double x, double y)
+> {
+> pj_transform(pj_in, pj_out, 1, 0, &x, &y, 0);
+> return(0);
+> }
+> and call this function in the loop,
+> for (i=0 ; i<nbloop ; i++) {
+> trans(pj_in, pj_out, x, y);
+> }
+> then we get the (still correct) result in 30 seconds!
+> 
+> Now, if I pass the coordiantes of my intermediate function, by address 
+> instead of by values,
+> int trans(projPJ pj_in, projPJ pj_out, double *x, double *y)
+> {
+> pj_transform(pj_in, pj_out, 1, 0, x, y, 0);
+> return(0);
+> }
+> We get the result in 6 seconds again.
+> 
+> What could be the reason for such a performance ratio?
+
+Herve,
+
+I'm quite surprised, and I don't know why you would see such a performance
+problem.  But I will say that if trans() takes the x,y values by value
+(as shown), then the calling variables will not be changed.  If you want
+the values actually altered outside trans() they need to be passed by
+reference.
+
+> What are the rules to optimize pj_transform function?
+
+I will note that it is highly desirable to pass many points to
+pj_transform() at once.  Transforming points with one per call
+is relatively expensive.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From hb at meteorage.com  Mon Nov 12 08:32:01 2007
+From: hb at meteorage.com (Herve Baille)
+Date: Mon, 12 Nov 2007 17:32:01 +0100
+Subject: [Proj] pj_transform performance issue
+In-Reply-To: <473871DD.30108@pobox.com>
+References: <47386935.5090104@meteorage.com> <473871DD.30108@pobox.com>
+Message-ID: <47388001.2070506@meteorage.com>
+
+Hi Frank and Grek
+
+Thanks for your answers.
+> I'm quite surprised, and I don't know why you would see such a 
+> performance
+> problem.
+Me too and I have also the feeling that it does not make sense.
+But it is like this, as if pj_transform remember the address of the 
+coordinates array, to compute (or not) some projection coefficients to 
+speed up the calculation?
+We can easily update our program to pass coordinates by address.
+
+> But I will say that if trans() takes the x,y values by value
+> (as shown), then the calling variables will not be changed.  If you want
+> the values actually altered outside trans() they need to be passed by
+> reference.
+The example is a reduction of a real case and does not make sens as is.
+It is just for testing.
+> I will note that it is highly desirable to pass many points to
+> pj_transform() at once.  Transforming points with one per call
+> is relatively expensive.
+Effectively, a single call with a 100000 coordiantes array is computed 
+in 2 seconds!
+Unfortunately, we cannot do this in our context, but this is our problem.
+
+Thanks again
+Hervé
+
+
+-- 
+***************************
+
+Hervé BAILLE <herve.baille at meteorage.com>
+Software development manager
+
+Sté Météorage
+2 av Angot
+64053 PAU
+France
+
+CATS support <support at meteorage.com>
+***************************
+
+
+
+From p.hiemstra at geo.uu.nl  Mon Nov 19 03:50:57 2007
+From: p.hiemstra at geo.uu.nl (Paul Hiemstra)
+Date: Mon, 19 Nov 2007 12:50:57 +0100
+Subject: [Proj] Projecting raster image produces wrong output coordinates
+Message-ID: <474178A1.3030006@geo.uu.nl>
+
+Dear proj-list,
+
+I am trying to convert a radar rainfall image from one projection to 
+another. The projection of the input file is:
+
+"+proj=stere +x_0=0 +y_0=0 +lat_0=90 +lon_0=0 +lat_ts=60 +a=6378.388 
++b=6356.906"
+
+and I am trying to project to "EPSG:28992" (Dutch CRS). But when I use 
+gdal to perform the projection the output raster file is no longer on 
+the correct location but has shifted thousands of kilometers. I used 
+both Linux (Debian Etch, proj 4.4.9, GDAL 1.4.0.0) and Windows (Proj 
+4.5.0, GDAL 1.5dev, FWTools 2.0.0) and ran into the same problems. The 
+problems also occurs when the target projection is not "EPSG:28992", 
+e.g. "EPSG:4326" or "EPSG:3035".
+
+Transforming from "EPSG:28992" to the projection of the input file 
+yields good results.
+
+kind regards,
+Paul Hiemstra
+
+Gdal output:
+ > gdalinfo test.tif
+Driver: GTiff/GeoTIFF
+Files: test.tif
+       test.aux
+Size is 256, 256
+Coordinate System is:
+PROJCS["unnamed",
+    GEOGCS["unnamed ellipse",
+        DATUM["unknown",
+            SPHEROID["unnamed",6378.388,296.9177916395094]],
+        PRIMEM["Greenwich",0],
+        UNIT["degree",0.0174532925199433]],
+    PROJECTION["Polar_Stereographic"],
+    PARAMETER["latitude_of_origin",60],
+    PARAMETER["central_meridian",0],
+    PARAMETER["scale_factor",1],
+    PARAMETER["false_easting",0],
+    PARAMETER["false_northing",0],
+    UNIT["metre",1,
+        AUTHORITY["EPSG","9001"]]]
+Origin = (0.000000000000000,-3727.291000000000200)
+Pixel Size = (2.500000000000000,-2.500000000000000)
+Metadata:
+  AREA_OR_POINT=Area
+Corner Coordinates:
+Upper Left  (       0.000,   -3727.291) (  0d 0'0.01"E, 55d28'14.64"N)
+Lower Left  (       0.000,   -4367.291) (  0d 0'0.01"E, 49d58'1.45"N)
+Upper Right (     640.000,   -3727.291) (  9d44'34.97"E, 54d59'42.06"N)
+Lower Right (     640.000,   -4367.291) (  8d20'13.23"E, 49d34'22.17"N)
+Center      (     320.000,   -4047.291) (  4d31'14.52"E, 52d35'19.33"N)
+Band 1 Block=256x8 Type=Float32, ColorInterp=Gray
+ >gdalwarp -t_srs "+init=EPSG:28992" test.tif output.tif
+Creating output file that is 304P x 259L.
+Processing input file test_1800_stere.tif.
+:0...10...20...30...40...50...60...70...80...90...100 - done.
+ >gdalinfo output.tif
+Driver: GTiff/GeoTIFF
+Files: output.tif
+Size is 304, 259
+Coordinate System is:
+PROJCS["unnamed",
+    GEOGCS["Bessel 1841",
+        DATUM["unknown",
+            SPHEROID["unnamed",6377397.155,299.1528128000009]],
+        PRIMEM["Greenwich",0],
+        UNIT["degree",0.0174532925199433]],
+    PROJECTION["Oblique_Stereographic"],
+    PARAMETER["latitude_of_origin",52.15616055555555],
+    PARAMETER["central_meridian",5.38763888888889],
+    PARAMETER["scale_factor",0.999908],
+    PARAMETER["false_easting",155000],
+    PARAMETER["false_northing",463000],
+    UNIT["metre",1,
+        AUTHORITY["EPSG","9001"]]]
+Origin = (98602.580578793495000,4311602.125703314300000)
+Pixel Size = (318.397229988391810,-318.397229988391810)
+Metadata:
+  AREA_OR_POINT=Area
+Image Structure Metadata:
+  INTERLEAVE=BAND
+Corner Coordinates:
+Upper Left  (   98602.581, 4311602.126) (  0d44'48.56"W, 85d39'38.22"N)
+Lower Left  (   98602.581, 4229137.243) (  0d 3'42.14"E, 84d59'6.70"N)
+Upper Right (  195395.338, 4311602.126) (  9d47'21.85"E, 85d40'20.58"N)
+Lower Right (  195395.338, 4229137.243) (  9d12'27.11"E, 84d59'43.47"N)
+Center      (  146998.960, 4270369.684) (  4d34'34.58"E, 85d20'43.24"N)
+Band 1 Block=304x6 Type=Float32, ColorInterp=Gray
+
+-- 
+Drs. Paul Hiemstra
+Department of Physical Geography
+Faculty of Geosciences
+University of Utrecht
+Heidelberglaan 2
+P.O. Box 80.115
+3508 TC Utrecht
+Phone: 	+31302535773
+Fax:	+31302531145
+http://intamap.geo.uu.nl/~paul
+
+
+
+From warmerdam at pobox.com  Mon Nov 19 06:31:01 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 19 Nov 2007 09:31:01 -0500
+Subject: [Proj] Projecting raster image produces wrong output coordinates
+In-Reply-To: <474178A1.3030006@geo.uu.nl>
+References: <474178A1.3030006@geo.uu.nl>
+Message-ID: <47419E25.5010000@pobox.com>
+
+Paul Hiemstra wrote:
+> Dear proj-list,
+> 
+> I am trying to convert a radar rainfall image from one projection to 
+> another. The projection of the input file is:
+> 
+> "+proj=stere +x_0=0 +y_0=0 +lat_0=90 +lon_0=0 +lat_ts=60 +a=6378.388 
+> +b=6356.906"
+> 
+> and I am trying to project to "EPSG:28992" (Dutch CRS). But when I use 
+> gdal to perform the projection the output raster file is no longer on 
+> the correct location but has shifted thousands of kilometers. I used 
+> both Linux (Debian Etch, proj 4.4.9, GDAL 1.4.0.0) and Windows (Proj 
+> 4.5.0, GDAL 1.5dev, FWTools 2.0.0) and ran into the same problems. The 
+> problems also occurs when the target projection is not "EPSG:28992", 
+> e.g. "EPSG:4326" or "EPSG:3035".
+> 
+> Transforming from "EPSG:28992" to the projection of the input file 
+> yields good results.
+
+Paul,
+
+I believe you are seeing PROJ attempt to correct for the change in
+ellipsoid which is a big change between the sphere in your
+stereo projection and the normal world ellipsoids.  Try appending
+" +nadgrids=@null +wktext " to your radar projection when providing
+it to gdalwarp.  The +nadgrids=@null directive tells PROJ.4 to
+use a "no-op" shift between the datums instead of the default
+change of ellipsoid logic.  The +wktext tells GDAL to preserve
+the exist PROJ.4 string, otherwise special options like +nadgrids
+will be lost in internal conversion to WKT and back.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From roger at opq.se  Mon Nov 19 06:50:17 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Mon, 19 Nov 2007 15:50:17 +0100
+Subject: [Proj] WGS84 to ED50
+Message-ID: <1195483817.8911.54.camel@acme.pacific>
+
+Is anyone using proj to convert WGS84 latitudes and longitudes into ED50
+(Spain and Portugal) northings and eastings?
+
+My attempts get me to within a couple of meters of values calculated by
+Trimble and Applanix (which are within a mm of each other). I did ask a
+question about this a while back and got some answers that improved my
+values by some 100 meters. But I never did get the values I need. So I
+am trying again.
+
+As an example, I have (via the C API):
+
+fromProj = pj_init_plus(
+			"+proj=latlong "
+			"+ellps=WGS84 "
+			"+no_defs");
+
+toProj = pj_init_plus(
+			"+proj=utm "
+			"+ellps=intl "
+			"+k=0.999600 "
+			"+x_0=500000.0 "
+			"+y_0=0.0 "
+			"+zone=30 "
+			"+units=m "
+			"+towgs84=-131.0320,-100.2510,-163.3540,-1.2438,-0.0195,-1.1436,9.3900"
+			"+no_defs");
+
+
+When I transform:
+
+lat=42.87645687 lng=-4.88298199 alt=0.00000000
+
+I get Easting=346318.770 Northing=4749022.461
+
+but I need Easting=346319.686 Northing=4749023.634
+
+Granted the difference is 1.489 meters. But at other locations it can be
+a couple of meters away. The +towgs84 parameters cane from an e-mail
+from Karel Cech on this list. Using these did improve the my values. But
+I am not sure the values are correct.
+
+As Applanix and Trimble provide the same values for Spain (the ones I am
+trying to get from proj), they must be using an existing and agreed upon
+method. I would be surprised if proj couldn't do the same, if I could
+just figure out how to tell it to do so!
+
+The Applanix provides this information on their calculations:
+
+ Mapping frame datum: ED50_ESPA�A ; a = 6378388.000000; 1/f =
+297.000000;
+ Coordinate transformation from WGS84 to mapping frame datum
+    dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+0.999991695369;
+    R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+ sequence of the rotations: x,y,z,1
+ Mapping frame projection : TM;
+ central meridian = -3.000000 deg;
+ latitude of the grid origin = 0.000000 deg; grid scale factor =
+0.999600:
+ false easting = 500000.000000 m; false northing = 0.000000 m;
+
+
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Office: Int +46 8-615 60 20
+Mobile: Int +46 70-815 1696
+
+
+
+From lran at unc.edu  Mon Nov 19 06:52:44 2007
+From: lran at unc.edu (Limei Ran)
+Date: Mon, 19 Nov 2007 09:52:44 -0500
+Subject: [Proj] Problem in calling pj_transform with retutn x and y = nan
+Message-ID: <4741A33C.2050805@unc.edu>
+
+Hi:
+
+Could someone help me on solving the problem I have in calling 
+pj_transform?  I am calling pj_transform to do the projection from our 
+GIS software in C.  I obtained PROJ.4 and datum shift grids files.  I 
+installed the software on our linux server and tested the software using 
+cs2cs.  It works fine with the right output. 
+
+I compiled our software with the built PROJ.4 library using the lines in 
+our Makefile:
+==============================
+#set PROJ.4 libary
+PROJDIR=/nas/uncch/depts/cep/emc/lran/soft/proj-4.5.0/exe/lib
+PROJ_H=/nas/uncch/depts/cep/emc/lran/soft/proj-4.5.0/src/projects.h
+
+# Library paths
+LIBPATH=-L. -L$(PROJDIR)
+LIBS = $(LIBPATH) -lspatial -lm -lproj -static
+.......
+allocator.exe: $(ALLOC)
+        $(CC) -o $@ $(ALLOC) $(LIBS)
+........
+=================================
+
+Our program is compiled without errors with PROJ.4 software. 
+In my calling scripts, I set:
+setenv PROJ_LIB /nas/uncch/depts/cep/emc/lran/soft/proj-4.5.0/exe/share/proj
+
+The program gives the right projected x and y when from and to 
+projections are different, but the datum systems are the same (both 
+NAD27, NAD83, ot sphere).  But, if I give different datum for from and 
+to projections, the print out of projected x and y = nan.  Here are the 
+output lines:
+==========================================================================
+Input projection:
+PROJ args=+proj=lcc+datum=NAD27+lat_1=33+lat_2=45+lat_0=40+lon_0=-97
+
+
+Output projection:
+PROJ 
+args=+proj=lcc+datum=NAD83+lat_1=30.000000+lat_2=60.000000+lon_0=-100.000000+lat_0=40.000000+units=m
+
+
+In Projection: x=1100.000 y=-11200.000    Out: x=nan y=nan
+In Projection: x=-25000.000 y=25000.000  Out: x=nan y=nan
+===========================================================================
+
+Basically, the data transformation parts did not give me the right 
+result even though the program ran without any error.  There are many 
+libary files under ./proj/lib directory.  I am wondering whether LIBS in 
+my Makefile is correct.  Or, I need to set PROJ_LIB somewhere else.  I 
+appreciate any help you might have.
+
+Thanks,
+
+LR
+
+
+From geraldi.evenden at gmail.com  Mon Nov 19 07:57:58 2007
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Mon, 19 Nov 2007 10:57:58 -0500
+Subject: [Proj] Re: [PRO] GS84 to ED50
+In-Reply-To: <1195483817.8911.54.camel@acme.pacific>
+References: <1195483817.8911.54.camel@acme.pacific>
+Message-ID: <200711191057.58440.geraldi.evenden@gmail.com>
+
+On Monday 19 November 2007 9:50 am, Roger Oberholtzer wrote:
+	...
+> toProj = pj_init_plus(
+> 			"+proj=utm "
+> 			"+ellps=intl "
+> 			"+k=0.999600 "      <-
+> 			"+x_0=500000.0 "   <-
+> 			"+y_0=0.0 "             <-
+> 			"+zone=30 "
+> 			"+units=m "
+> 			"+towgs84=-131.0320,-100.2510,-163.3540,-1.2438,-0.0195,-1.1436,9.3900"
+> 			"+no_defs");
+
+Just a reminder: when selecting +proj=utm, the options of +k, +x_0, +y+0 are 
+ignored as they are part of the definition of the UTM projection.  For 
+clarity I suggest that they should not be specified as it suggest to the less 
+knowledgeable that they may be indiscriminately changed.
+
+Although +units is not overridden the default in all cases is meters (m).
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+
+
+From EMiller at dfg.ca.gov  Mon Nov 19 09:16:37 2007
+From: EMiller at dfg.ca.gov (Eric Miller)
+Date: Mon, 19 Nov 2007 09:16:37 -0800
+Subject: [Proj] Problem in calling pj_transform with retutn x and y = nan
+In-Reply-To: <4741A33C.2050805@unc.edu>
+References: <4741A33C.2050805@unc.edu>
+Message-ID: <47415475.95FD.00E4.0@dfg.ca.gov>
+
+Check the errors pj_get_errno_ref() && pj_strerrno().  I'm guessing the library couldn't find the CONUS nadgrid file.
+
+You should probably be including "proj_api.h" rather than "projects.h" unless you're extending the library...
+
+>>> On 11/19/2007 at 6:52 AM, Limei Ran <lran at unc.edu> wrote:
+> Hi:
+> 
+> Could someone help me on solving the problem I have in calling 
+> pj_transform?  I am calling pj_transform to do the projection from our 
+> GIS software in C.  I obtained PROJ.4 and datum shift grids files.  I 
+> installed the software on our linux server and tested the software using 
+> cs2cs.  It works fine with the right output. 
+> 
+> I compiled our software with the built PROJ.4 library using the lines in 
+> our Makefile:
+> ==============================
+> #set PROJ.4 libary
+> PROJDIR=/nas/uncch/depts/cep/emc/lran/soft/proj-4.5.0/exe/lib
+> PROJ_H=/nas/uncch/depts/cep/emc/lran/soft/proj-4.5.0/src/projects.h
+> 
+> # Library paths
+> LIBPATH=-L. -L$(PROJDIR)
+> LIBS = $(LIBPATH) -lspatial -lm -lproj -static
+> .......
+> allocator.exe: $(ALLOC)
+>         $(CC) -o $@ $(ALLOC) $(LIBS)
+> ........
+> =================================
+> 
+> Our program is compiled without errors with PROJ.4 software. 
+> In my calling scripts, I set:
+> setenv PROJ_LIB /nas/uncch/depts/cep/emc/lran/soft/proj-4.5.0/exe/share/proj
+> 
+> The program gives the right projected x and y when from and to 
+> projections are different, but the datum systems are the same (both 
+> NAD27, NAD83, ot sphere).  But, if I give different datum for from and 
+> to projections, the print out of projected x and y = nan.  Here are the 
+> output lines:
+> ==========================================================================
+> Input projection:
+> PROJ args=+proj=lcc+datum=NAD27+lat_1=33+lat_2=45+lat_0=40+lon_0=-97
+> 
+> 
+> Output projection:
+> PROJ 
+> args=+proj=lcc+datum=NAD83+lat_1=30.000000+lat_2=60.000000+lon_0=-100.000000+
+> lat_0=40.000000+units=m
+> 
+> 
+> In Projection: x=1100.000 y=-11200.000    Out: x=nan y=nan
+> In Projection: x=-25000.000 y=25000.000  Out: x=nan y=nan
+> ===========================================================================
+> 
+> Basically, the data transformation parts did not give me the right 
+> result even though the program ran without any error.  There are many 
+> libary files under ./proj/lib directory.  I am wondering whether LIBS in 
+> my Makefile is correct.  Or, I need to set PROJ_LIB somewhere else.  I 
+> appreciate any help you might have.
+> 
+> Thanks,
+> 
+> LR
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org 
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+
+From hamish_nospam at yahoo.com  Mon Nov 19 13:57:32 2007
+From: hamish_nospam at yahoo.com (Hamish)
+Date: Mon, 19 Nov 2007 13:57:32 -0800 (PST)
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <1195483817.8911.54.camel@acme.pacific>
+Message-ID: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+
+Roger Oberholtzer wrote:
+> Is anyone using proj to convert WGS84 latitudes and longitudes into ED50
+> (Spain and Portugal) northings and eastings?
+> 
+> My attempts get me to within a couple of meters of values calculated by
+> Trimble and Applanix (which are within a mm of each other). I did ask a
+> question about this a while back and got some answers that improved my
+> values by some 100 meters. But I never did get the values I need. So I
+> am trying again.
+> 
+> As an example, I have (via the C API):
+...
+> "+towgs84=-131.0320,-100.2510,-163.3540,-1.2438,-0.0195,-1.1436,9.3900"
+> 			"+no_defs");
+> 
+> 
+> When I transform:
+> 
+> lat=42.87645687 lng=-4.88298199 alt=0.00000000
+> 
+> I get Easting=346318.770 Northing=4749022.461
+> 
+> but I need Easting=346319.686 Northing=4749023.634
+> 
+> Granted the difference is 1.489 meters. But at other locations it can be
+> a couple of meters away. The +towgs84 parameters cane from an e-mail
+> from Karel Cech on this list. Using these did improve the my values. But
+> I am not sure the values are correct.
+> 
+> As Applanix and Trimble provide the same values for Spain (the ones I am
+> trying to get from proj), they must be using an existing and agreed upon
+> method. I would be surprised if proj couldn't do the same, if I could
+> just figure out how to tell it to do so!
+> 
+> The Applanix provides this information on their calculations:
+...
+>  Coordinate transformation from WGS84 to mapping frame datum
+>     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> 0.999991695369;
+>     R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+
+
+The above R3,f values makes me hesitate a little, but it may be that Applanix
+and Trimble are both preforming a less precise 3-term transform, while PROJ is
+doing a more precise 7-term transform. That would certainly explain a 1-4m
+error.
+
+Rather than trust either software or method implicitly, it would be better to
+judge the results based on published test points from the Spainish and/or
+Portuguese government mapping office, and double check the validity of the
+7-terms params from an official document too. Depending on national convention,
+the +- signs of the terms may or may not be switched.
+
+
+Hamish
+
+
+
+      ____________________________________________________________________________________
+Never miss a thing.  Make Yahoo your home page. 
+http://www.yahoo.com/r/hs
+
+
+From roger at opq.se  Mon Nov 19 14:24:36 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Mon, 19 Nov 2007 23:24:36 +0100
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+Message-ID: <1195511076.8756.10.camel@shark.ramboll.se>
+
+On Mon, 2007-11-19 at 13:57 -0800, Hamish wrote:
+
+> > The Applanix provides this information on their calculations:
+> ...
+> >  Coordinate transformation from WGS84 to mapping frame datum
+> >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> > 0.999991695369;
+> >     R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+> 
+> 
+> The above R3,f values makes me hesitate a little, but it may be that Applanix
+> and Trimble are both preforming a less precise 3-term transform, while PROJ is
+> doing a more precise 7-term transform. That would certainly explain a 1-4m
+> error.
+
+My understanding is that Applanix is doing a 7 parameter transform. What
+I am unsure of is how to get proj to do the same. If it is the default,
+then I am curious how the 7 parameters are specified. Are these the
+values in the +towgs84 option? I have another library for this that is
+using 7 config values for its 7 parameter transform, and I would expect
+to see similar values in proj.
+
+> Rather than trust either software or method implicitly, it would be better to
+> judge the results based on published test points from the Spainish and/or
+> Portuguese government mapping office, and double check the validity of the
+> 7-terms params from an official document too. Depending on national convention,
+> the +- signs of the terms may or may not be switched.
+
+I have been trying to do just that. The person I am doing this for in
+Madrid has provided the test values I am trying to duplicate. Anyone
+know of an official source of test values for Spain?
+
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Tel: Int +46 8-615 60 20
+Fax: Int +46 8-31 42 23
+
+
+
+From cjmce at lsu.edu  Mon Nov 19 14:43:39 2007
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Mon, 19 Nov 2007 16:43:39 -0600
+Subject: [Proj] WGS84 to ED50
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+	<1195511076.8756.10.camel@shark.ramboll.se>
+Message-ID: <B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+
+I have been reading this thread with some amusement, as datum shifts are only a compromise to begin with, and attempting to achieve better than 1-2 meters with even a 7-parameter transformation is a totally unreasonable expectation.  The original data for the classical datum is not that good!
+ 
+Matching another transformation is a reasonable expectation, but it could be (likely), that the "client" is attempting to match actual observations with Trimble/Applanix gear working directly in WGS84 rather than a Trimble/Applanix algorithm!  European Datum 50 (ED50) was "cooked up" in 1950 by Geodesists at the U.S. Army Map Service after WWII using geodetic surveys of Spain and Portugal performed over the prior 50-75 years!  That stuff wasn't that good!
+ 
+Try reading my columns on the Grids and Datums of Spain and Portugal at:  www.ASPRS.org/GRIDS  and you'll get a better appreciation of the complexity of the problem being sought with a mere 7-parameter transformation.  (Spain is July, 2000, and Portugal is April, 2002)
+ 
+Combining Applanix and Trimble gear is cutting-edge geodetic equipment commonly used for Real Time Kinneatic (RTK) Aerial Photography for hair-splitting accuracy.  That stuff is working directly in WGS84 Broadcast Ephemeris and is then re-adjusted in post-processed mode with the Precise Ephemeris a couple weeks later.
+ 
+That's NOT going to "match" data that's 75-100 years old!
+ 
+PROJ4 is a cartographic tool and is not a geodetic panacea.
+ 
+Clifford J. Mugnier, C.P., C.M.S.
+LSU Student ASCE Chapter Faculty Advisor
+and
+National Director (2006-2008),
+Photogrammetric Applications Division
+American Society for Photogrammetry and Remote Sensing 
+and 
+Chief of Geodesy,
+CENTER FOR GEOINFORMATICS 
+Department of Civil Engineering 
+CEBA 3223A
+LOUISIANA STATE UNIVERSITY 
+Baton Rouge, LA  70803
+                         Home:  (225) 819-0939
+                            Cell:   (225) 236-2327
+Voice and Facsimile:  (225) 578-8536 [Academic] 
+Voice and Facsimile:  (225) 578-4474 [Research] 
+Honorary Life Member of the 
+Louisiana Society of Professional Surveyors 
+Member Emeritus of the ASPRS 
+Member of the Americas Petroleum Survey Group
+======================================================
+http://www.asprs.org/resources/GRIDS/ <https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=http://www.asprs.org/resources/GRIDS/> 
+======================================================
+
+________________________________
+
+From: proj-bounces at lists.maptools.org on behalf of Roger Oberholtzer
+Sent: Mon 19-Nov-07 16:24
+To: PROJ.4 and general Projections Discussions
+Subject: Re: [Proj] WGS84 to ED50
+
+
+
+On Mon, 2007-11-19 at 13:57 -0800, Hamish wrote:
+
+> > The Applanix provides this information on their calculations:
+> ...
+> >  Coordinate transformation from WGS84 to mapping frame datum
+> >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> > 0.999991695369;
+> >     R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+>
+>
+> The above R3,f values makes me hesitate a little, but it may be that Applanix
+> and Trimble are both preforming a less precise 3-term transform, while PROJ is
+> doing a more precise 7-term transform. That would certainly explain a 1-4m
+> error.
+
+My understanding is that Applanix is doing a 7 parameter transform. What
+I am unsure of is how to get proj to do the same. If it is the default,
+then I am curious how the 7 parameters are specified. Are these the
+values in the +towgs84 option? I have another library for this that is
+using 7 config values for its 7 parameter transform, and I would expect
+to see similar values in proj.
+
+> Rather than trust either software or method implicitly, it would be better to
+> judge the results based on published test points from the Spainish and/or
+> Portuguese government mapping office, and double check the validity of the
+> 7-terms params from an official document too. Depending on national convention,
+> the +- signs of the terms may or may not be switched.
+
+I have been trying to do just that. The person I am doing this for in
+Madrid has provided the test values I am trying to duplicate. Anyone
+know of an official source of test values for Spain?
+
+--
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Tel: Int +46 8-615 60 20
+Fax: Int +46 8-31 42 23
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071119/6114d206/attachment.html>
+
+From dcmikkelsen at terraetl.com  Mon Nov 19 16:26:28 2007
+From: dcmikkelsen at terraetl.com (Dean C.Mikkelsen)
+Date: Mon, 19 Nov 2007 16:26:28 -0800
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+	<1195511076.8756.10.camel@shark.ramboll.se>
+	<B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+Message-ID: <web-35443115@redback.webnames.ca>
+
+Hi everyone,
+
+Clifford is right....this is an interesting thread.
+
+Let me provide some documentation and some web-sites that 
+may be able to aid in what you are trying to do.
+
+ED50, and especially in Spain, parts of France, etc. is 
+not fully defined in transformations between ED50 and 
+WGS80 or ETRS.
+
+The Spanish Gov't has various methods depending on regions 
+(such as Catalin, Valencia, etc.) - so you can not apply 
+one method of transformation over a region.
+
+The Gov't worked on REGENTE to be able to transform 
+between ED50 and ETRS. Which from my reading (it is in 
+Spanish) is based on the NTv2 grid type files. This method 
+will provide a higher accuracy in your transformation - 
+but there will still be errors.
+
+To compare co-ordinates using REGENTE between ED50 and 
+ETRS, please see the following link:
+
+http://www.ign.es/ign/es/IGN/calculadora_geodesica.jsp
+
+You want to use option: ED50-ETRS89
+
+For the reverse, use option ETRS89-ED50
+
+For information on REGENTE the following are two good 
+documents:
+
+http://www.gfy.ku.dk/~iag/Spain_Sapporo_2003.pdf
+
+The above was presented at the IUGG in Sapporo Japan in 
+2003.
+
+The following is a summary of methods used in transforming 
+between ED50 and ETRS.
+
+http://www.euref-iag.net/symposia/book2003/4-6.pdf
+
+It is an interesting read.
+
+Datum transformations are not simple. In many cases, the 
+old networks were a series of triangulation networks tied 
+together, yet each of these surveys were done at different 
+accuracies and different times. Often over many years over 
+a large area - take the Indian subcontinent for example.
+
+I will do some more research and see what tools, both 
+provided by the Spanish Gov't (often it is just a simple 
+request for files in a specific format - such as in South 
+Africa - for files in NTv2), or by contacting local 
+agencies and companies.
+
+I hope the above information clears up some questions 
+about the problems of assuming something as simple as 
+7-parameter transformation for such a large area.
+
+If you have any questions, feel free to contact me.
+
+Kind regards,
+Dean
+
+
+
+
+
+On Mon, 19 Nov 2007 16:43:39 -0600
+  "Clifford J Mugnier" <cjmce at lsu.edu> wrote:
+> I have been reading this thread with some amusement, as 
+>datum shifts are only a compromise to begin with, and 
+>attempting to achieve better than 1-2 meters with even a 
+>7-parameter transformation is a totally unreasonable 
+>expectation.  The original data for the classical datum 
+>is not that good!
+> 
+> Matching another transformation is a reasonable 
+>expectation, but it could be (likely), that the "client" 
+>is attempting to match actual observations with 
+>Trimble/Applanix gear working directly in WGS84 rather 
+>than a Trimble/Applanix algorithm!  European Datum 50 
+>(ED50) was "cooked up" in 1950 by Geodesists at the U.S. 
+>Army Map Service after WWII using geodetic surveys of 
+>Spain and Portugal performed over the prior 50-75 years! 
+> That stuff wasn't that good!
+> 
+> Try reading my columns on the Grids and Datums of Spain 
+>and Portugal at:  www.ASPRS.org/GRIDS  and you'll get a 
+>better appreciation of the complexity of the problem 
+>being sought with a mere 7-parameter transformation. 
+> (Spain is July, 2000, and Portugal is April, 2002)
+> 
+> Combining Applanix and Trimble gear is cutting-edge 
+>geodetic equipment commonly used for Real Time Kinneatic 
+>(RTK) Aerial Photography for hair-splitting accuracy. 
+> That stuff is working directly in WGS84 Broadcast 
+>Ephemeris and is then re-adjusted in post-processed mode 
+>with the Precise Ephemeris a couple weeks later.
+> 
+> That's NOT going to "match" data that's 75-100 years 
+>old!
+> 
+> PROJ4 is a cartographic tool and is not a geodetic 
+>panacea.
+> 
+> Clifford J. Mugnier, C.P., C.M.S.
+> LSU Student ASCE Chapter Faculty Advisor
+> and
+> National Director (2006-2008),
+> Photogrammetric Applications Division
+> American Society for Photogrammetry and Remote Sensing 
+> and 
+> Chief of Geodesy,
+> CENTER FOR GEOINFORMATICS 
+> Department of Civil Engineering 
+> CEBA 3223A
+> LOUISIANA STATE UNIVERSITY 
+> Baton Rouge, LA  70803
+>                         Home:  (225) 819-0939
+>                            Cell:   (225) 236-2327
+> Voice and Facsimile:  (225) 578-8536 [Academic] 
+> Voice and Facsimile:  (225) 578-4474 [Research] 
+> Honorary Life Member of the 
+> Louisiana Society of Professional Surveyors 
+> Member Emeritus of the ASPRS 
+> Member of the Americas Petroleum Survey Group
+> ======================================================
+> http://www.asprs.org/resources/GRIDS/ 
+><https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=https://email.lsu.edu/exchweb/bin/redir.asp?URL=http://www.asprs.org/resources/GRIDS/> 
+> ======================================================
+> 
+> ________________________________
+> 
+>From: proj-bounces at lists.maptools.org on behalf of Roger 
+>Oberholtzer
+> Sent: Mon 19-Nov-07 16:24
+> To: PROJ.4 and general Projections Discussions
+> Subject: Re: [Proj] WGS84 to ED50
+> 
+> 
+> 
+> On Mon, 2007-11-19 at 13:57 -0800, Hamish wrote:
+> 
+>> > The Applanix provides this information on their 
+>>calculations:
+>> ...
+>> >  Coordinate transformation from WGS84 to mapping frame 
+>>datum
+>> >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; 
+>>f =
+>> > 0.999991695369;
+>> >     R1 = 0.000000000000; R2 = 0.000000000000; R3 = 
+>>-0.000005473550;
+>>
+>>
+>> The above R3,f values makes me hesitate a little, but it 
+>>may be that Applanix
+>> and Trimble are both preforming a less precise 3-term 
+>>transform, while PROJ is
+>> doing a more precise 7-term transform. That would 
+>>certainly explain a 1-4m
+>> error.
+> 
+> My understanding is that Applanix is doing a 7 parameter 
+>transform. What
+> I am unsure of is how to get proj to do the same. If it 
+>is the default,
+> then I am curious how the 7 parameters are specified. 
+>Are these the
+> values in the +towgs84 option? I have another library 
+>for this that is
+> using 7 config values for its 7 parameter transform, and 
+>I would expect
+> to see similar values in proj.
+> 
+>> Rather than trust either software or method implicitly, 
+>>it would be better to
+>> judge the results based on published test points from 
+>>the Spainish and/or
+>> Portuguese government mapping office, and double check 
+>>the validity of the
+>> 7-terms params from an official document too. Depending 
+>>on national convention,
+>> the +- signs of the terms may or may not be switched.
+> 
+> I have been trying to do just that. The person I am 
+>doing this for in
+> Madrid has provided the test values I am trying to 
+>duplicate. Anyone
+> know of an official source of test values for Spain?
+> 
+> --
+> Roger Oberholtzer
+> 
+> OPQ Systems / Ramböll RST
+> Ramböll Sverige AB
+> Kapellgränd 7
+> P.O. Box 4205
+> SE-102 65 Stockholm, Sweden
+> 
+> Tel: Int +46 8-615 60 20
+>Fax: Int +46 8-31 42 23
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+> 
+
+Dean C. Mikkelsen, B.Sc., P.Eng.
+Terra ETL Ltd.
+Victoria, BC, Canada
+
+Phone/Mobile: +1 (250) 88TERRA (83772)
+E-mail: dcmikkelsen at terraetl.com
+
+http://www.terraetl.com
+
+
+
+From hamish_nospam at yahoo.com  Mon Nov 19 22:12:50 2007
+From: hamish_nospam at yahoo.com (Hamish)
+Date: Mon, 19 Nov 2007 22:12:50 -0800 (PST)
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <1195511076.8756.10.camel@shark.ramboll.se>
+Message-ID: <208775.17458.qm@web52708.mail.re2.yahoo.com>
+
+Roger Oberholtzer wrote:
+> > > The Applanix provides this information on their calculations:
+> > ...
+> > >  Coordinate transformation from WGS84 to mapping frame datum
+> > >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> > > 0.999991695369;
+> > >     R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+
+Hamish wrote:
+> > The above R3,f values makes me hesitate a little, but it may be that
+> > Applanix and Trimble are both preforming a less precise 3-term transform,
+> > while PROJ is doing a more precise 7-term transform. That would certainly
+> > explain a 1-4m error.
+
+WRT Cliff's comments, I should have written "that would explain the 1-4m
+difference", not "error", and gone to more trouble to point out that by writing
+"more precise" I did not mean to imply "more accurate".
+
+Regardless of the correctness of it, there is some value in being able to
+exactly replicate someone else's approach.
+
+
+Roger:
+> My understanding is that Applanix is doing a 7 parameter transform.
+
+But if in that 7-term transform all three rotational terms are all very near 0
+and the scaling term is very near to 1, you are just left with dx,dy,dz, which
+is in effect a 3-term transform. If your desire is to get the same exact answer
+as Applanix outputs, then feed PROJ the exact coefficients they specified, not
+something different (perhaps better?) from another source.
+
+> What I am unsure of is how to get proj to do the same. If it is the default,
+> then I am curious how the 7 parameters are specified. Are these the
+> values in the +towgs84 option?
+
+Yes, 7 term is given with +towgs84=,,,,,, and 3 term is given with +towgs84=,,.
+
+
+but if there's a NTv2 grid kicking around..... all the better to use that.
+
+
+further (remarkably clear) reading on 3,7,NTv2 transforms:
+ (see both html+PDFs)
+http://www.linz.govt.nz/core/surveysystem/geodeticinfo/geodeticdatums/nzgd49tonzgd2000/index.html
+
+
+always glad to provide amusement,
+Hamish
+
+
+
+      ____________________________________________________________________________________
+Be a better pen pal. 
+Text or chat with friends inside Yahoo! Mail. See how.  http://overview.mail.yahoo.com/
+
+
+From roger at opq.se  Tue Nov 20 05:21:16 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Tue, 20 Nov 2007 14:21:16 +0100
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+	<1195511076.8756.10.camel@shark.ramboll.se>
+	<B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+Message-ID: <1195564876.26007.56.camel@acme.pacific>
+
+On Mon, 2007-11-19 at 16:43 -0600, Clifford J Mugnier wrote:
+> I have been reading this thread with some amusement, as datum shifts
+> are only a compromise to begin with, and attempting to achieve better
+> than 1-2 meters with even a 7-parameter transformation is a totally
+> unreasonable expectation.  The original data for the classical datum
+> is not that good!
+
+The conversion is fully in software. So I am trying to get, if possible,
+one piece of software to do what another one does. I do not think there
+is anything odd or unreasonable in attempting that. My assumption in
+going in to this is the I am doing something wrong (based on previous
+experiences...). I have or have not specified something, or I have
+specified something incorrectly. Should I be able to correct this, proj
+may very well provide the results I seek. I would be a fool NOT to try
+to correct any errors I have made. Thus, my question.
+
+> Matching another transformation is a reasonable expectation, but it
+> could be (likely), that the "client" is attempting to match actual
+> observations with Trimble/Applanix gear working directly in WGS84
+> rather than a Trimble/Applanix algorithm!  European Datum 50 (ED50)
+> was "cooked up" in 1950 by Geodesists at the U.S. Army Map Service
+> after WWII using geodetic surveys of Spain and Portugal performed over
+> the prior 50-75 years!  That stuff wasn't that good!
+
+The conversion I am trying to match is using a text file with WGS84
+lat/long values from a GPS receiver. The absolute accuracy of these is
+irrelevant for this test. They are simply a set of numbers. Trimble and
+Applanix PC software convert these lats/longs into northings and
+eastings, claiming that these Northings and Eastings are in ED50 for
+Spain and Portugal. They only have available for this purpose the
+lats/longs as provided, and whatever ED50 code is in their respective
+libraries.
+
+> Try reading my columns on the Grids and Datums of Spain and Portugal
+> at:  www.ASPRS.org/GRIDS  and you'll get a better appreciation of the
+> complexity of the problem being sought with a mere 7-parameter
+> transformation.  (Spain is July, 2000, and Portugal is April, 2002)
+
+I will make a bee line for this.
+ 
+> Combining Applanix and Trimble gear is cutting-edge geodetic equipment
+> commonly used for Real Time Kinneatic (RTK) Aerial Photography for
+> hair-splitting accuracy.  That stuff is working directly in WGS84
+> Broadcast Ephemeris and is then re-adjusted in post-processed mode
+> with the Precise Ephemeris a couple weeks later.
+>  
+> That's NOT going to "match" data that's 75-100 years old!
+
+That is not what I am trying to do. The WGS84 values are what they are.
+The Applanix, as you correctly state, provides lats/longs that are very
+accurate. But when it comes to converting these lats /longs to Northings
+and Eastings, it is down to math of the type proj does. 
+
+BTW, we measure the location of a road measurement vehicle, where
+customers are unfortunately demanding absolute accuracy of < 1 meter
+(our northings/eastings compared to theirs) in a vehicle traveling 90
+km/h. Unreasonable, I think. But marketers from Applanix and Trimble, to
+name a few, have glossed over their own fine print and convinced
+engineers that this is what they provide. They can when the can, and
+they can't when they can't. Our clients demand that we will, all the
+time. But this is not what I am trying to achieve here. I am only trying
+to decrease the error added by the WGS84 LAT/LONG -> ED50
+Northing/Easting conversion. I fully understand that there is inherent
+error in this process. But companies like Applanix and Trimble are
+defining what will be the 'correct' method, whether one likes it or
+not. 
+
+>  
+> PROJ4 is a cartographic tool and is not a geodetic panacea.
+>  
+> Clifford J. Mugnier, C.P., C.M.S.
+> LSU Student ASCE Chapter Faculty Advisor
+> and
+> National Director (2006-2008),
+> Photogrammetric Applications Division
+> American Society for Photogrammetry and Remote Sensing 
+> and 
+> Chief of Geodesy,
+> CENTER FOR GEOINFORMATICS 
+> Department of Civil Engineering 
+> CEBA 3223A
+> LOUISIANA STATE UNIVERSITY 
+> Baton Rouge, LA  70803
+>                          Home:  (225) 819-0939
+>                             Cell:   (225) 236-2327
+> Voice and Facsimile:  (225) 578-8536 [Academic] 
+> Voice and Facsimile:  (225) 578-4474 [Research] 
+> Honorary Life Member of the 
+> Louisiana Society of Professional Surveyors 
+> Member Emeritus of the ASPRS 
+> Member of the Americas Petroleum Survey Group
+> ======================================================
+> http://www.asprs.org/resources/GRIDS/
+> ======================================================
+> 
+> 
+> ______________________________________________________________________
+> From: proj-bounces at lists.maptools.org on behalf of Roger Oberholtzer
+> Sent: Mon 19-Nov-07 16:24
+> To: PROJ.4 and general Projections Discussions
+> Subject: Re: [Proj] WGS84 to ED50
+> 
+> 
+> On Mon, 2007-11-19 at 13:57 -0800, Hamish wrote:
+> 
+> > > The Applanix provides this information on their calculations:
+> > ...
+> > >  Coordinate transformation from WGS84 to mapping frame datum
+> > >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> > > 0.999991695369;
+> > >     R1 = 0.000000000000; R2 = 0.000000000000; R3 =
+> -0.000005473550;
+> >
+> >
+> > The above R3,f values makes me hesitate a little, but it may be that
+> Applanix
+> > and Trimble are both preforming a less precise 3-term transform,
+> while PROJ is
+> > doing a more precise 7-term transform. That would certainly explain
+> a 1-4m
+> > error.
+> 
+> My understanding is that Applanix is doing a 7 parameter transform.
+> What
+> I am unsure of is how to get proj to do the same. If it is the
+> default,
+> then I am curious how the 7 parameters are specified. Are these the
+> values in the +towgs84 option? I have another library for this that is
+> using 7 config values for its 7 parameter transform, and I would
+> expect
+> to see similar values in proj.
+> 
+> > Rather than trust either software or method implicitly, it would be
+> better to
+> > judge the results based on published test points from the Spainish
+> and/or
+> > Portuguese government mapping office, and double check the validity
+> of the
+> > 7-terms params from an official document too. Depending on national
+> convention,
+> > the +- signs of the terms may or may not be switched.
+> 
+> I have been trying to do just that. The person I am doing this for in
+> Madrid has provided the test values I am trying to duplicate. Anyone
+> know of an official source of test values for Spain?
+> 
+> --
+> Roger Oberholtzer
+> 
+> OPQ Systems / Ramböll RST
+> Ramböll Sverige AB
+> Kapellgränd 7
+> P.O. Box 4205
+> SE-102 65 Stockholm, Sweden
+> 
+> Tel: Int +46 8-615 60 20
+> Fax: Int +46 8-31 42 23
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+> 
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Office: Int +46 8-615 60 20
+Mobile: Int +46 70-815 1696
+
+
+
+From cjmce at lsu.edu  Tue Nov 20 07:28:10 2007
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Tue, 20 Nov 2007 09:28:10 -0600
+Subject: [Proj] WGS84 to ED50
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com><1195511076.8756.10.camel@shark.ramboll.se><B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+	<1195564876.26007.56.camel@acme.pacific>
+Message-ID: <B597ADFC46B67741B18EA6AA13613FF7768594@email002.lsu.edu>
+
+TR8350.2 I believe ALSO publishes the coefficients for several regional Multiple Regression Equations (MRE) for ED50 transformations.  That may be what Applanix is doing ...
+ 
+See:   http://earth-info.nga.mil/GandG/publications/tr8350.2/tr8350_2.html
+ 
+C. Mugnier
+
+________________________________
+
+From: proj-bounces at lists.maptools.org on behalf of Roger Oberholtzer
+Sent: Tue 20-Nov-07 07:21
+To: proj at lists.maptools.org
+Subject: RE: [Proj] WGS84 to ED50
+
+
+
+On Mon, 2007-11-19 at 16:43 -0600, Clifford J Mugnier wrote:
+> I have been reading this thread with some amusement, as datum shifts
+> are only a compromise to begin with, and attempting to achieve better
+> than 1-2 meters with even a 7-parameter transformation is a totally
+> unreasonable expectation.  The original data for the classical datum
+> is not that good!
+
+The conversion is fully in software. So I am trying to get, if possible,
+one piece of software to do what another one does. I do not think there
+is anything odd or unreasonable in attempting that. My assumption in
+going in to this is the I am doing something wrong (based on previous
+experiences...). I have or have not specified something, or I have
+specified something incorrectly. Should I be able to correct this, proj
+may very well provide the results I seek. I would be a fool NOT to try
+to correct any errors I have made. Thus, my question.
+
+> Matching another transformation is a reasonable expectation, but it
+> could be (likely), that the "client" is attempting to match actual
+> observations with Trimble/Applanix gear working directly in WGS84
+> rather than a Trimble/Applanix algorithm!  European Datum 50 (ED50)
+> was "cooked up" in 1950 by Geodesists at the U.S. Army Map Service
+> after WWII using geodetic surveys of Spain and Portugal performed over
+> the prior 50-75 years!  That stuff wasn't that good!
+
+The conversion I am trying to match is using a text file with WGS84
+lat/long values from a GPS receiver. The absolute accuracy of these is
+irrelevant for this test. They are simply a set of numbers. Trimble and
+Applanix PC software convert these lats/longs into northings and
+eastings, claiming that these Northings and Eastings are in ED50 for
+Spain and Portugal. They only have available for this purpose the
+lats/longs as provided, and whatever ED50 code is in their respective
+libraries.
+
+> Try reading my columns on the Grids and Datums of Spain and Portugal
+> at:  www.ASPRS.org/GRIDS  and you'll get a better appreciation of the
+> complexity of the problem being sought with a mere 7-parameter
+> transformation.  (Spain is July, 2000, and Portugal is April, 2002)
+
+I will make a bee line for this.
+
+> Combining Applanix and Trimble gear is cutting-edge geodetic equipment
+> commonly used for Real Time Kinneatic (RTK) Aerial Photography for
+> hair-splitting accuracy.  That stuff is working directly in WGS84
+> Broadcast Ephemeris and is then re-adjusted in post-processed mode
+> with the Precise Ephemeris a couple weeks later.
+> 
+> That's NOT going to "match" data that's 75-100 years old!
+
+That is not what I am trying to do. The WGS84 values are what they are.
+The Applanix, as you correctly state, provides lats/longs that are very
+accurate. But when it comes to converting these lats /longs to Northings
+and Eastings, it is down to math of the type proj does.
+
+BTW, we measure the location of a road measurement vehicle, where
+customers are unfortunately demanding absolute accuracy of < 1 meter
+(our northings/eastings compared to theirs) in a vehicle traveling 90
+km/h. Unreasonable, I think. But marketers from Applanix and Trimble, to
+name a few, have glossed over their own fine print and convinced
+engineers that this is what they provide. They can when the can, and
+they can't when they can't. Our clients demand that we will, all the
+time. But this is not what I am trying to achieve here. I am only trying
+to decrease the error added by the WGS84 LAT/LONG -> ED50
+Northing/Easting conversion. I fully understand that there is inherent
+error in this process. But companies like Applanix and Trimble are
+defining what will be the 'correct' method, whether one likes it or
+not.
+
+> 
+> PROJ4 is a cartographic tool and is not a geodetic panacea.
+> 
+> Clifford J. Mugnier, C.P., C.M.S.
+> LSU Student ASCE Chapter Faculty Advisor
+> and
+> National Director (2006-2008),
+> Photogrammetric Applications Division
+> American Society for Photogrammetry and Remote Sensing
+> and
+> Chief of Geodesy,
+> CENTER FOR GEOINFORMATICS
+> Department of Civil Engineering
+> CEBA 3223A
+> LOUISIANA STATE UNIVERSITY
+> Baton Rouge, LA  70803
+>                          Home:  (225) 819-0939
+>                             Cell:   (225) 236-2327
+> Voice and Facsimile:  (225) 578-8536 [Academic]
+> Voice and Facsimile:  (225) 578-4474 [Research]
+> Honorary Life Member of the
+> Louisiana Society of Professional Surveyors
+> Member Emeritus of the ASPRS
+> Member of the Americas Petroleum Survey Group
+> ======================================================
+> http://www.asprs.org/resources/GRIDS/
+> ======================================================
+>
+>
+> ______________________________________________________________________
+> From: proj-bounces at lists.maptools.org on behalf of Roger Oberholtzer
+> Sent: Mon 19-Nov-07 16:24
+> To: PROJ.4 and general Projections Discussions
+> Subject: Re: [Proj] WGS84 to ED50
+>
+>
+> On Mon, 2007-11-19 at 13:57 -0800, Hamish wrote:
+>
+> > > The Applanix provides this information on their calculations:
+> > ...
+> > >  Coordinate transformation from WGS84 to mapping frame datum
+> > >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f =
+> > > 0.999991695369;
+> > >     R1 = 0.000000000000; R2 = 0.000000000000; R3 =
+> -0.000005473550;
+> >
+> >
+> > The above R3,f values makes me hesitate a little, but it may be that
+> Applanix
+> > and Trimble are both preforming a less precise 3-term transform,
+> while PROJ is
+> > doing a more precise 7-term transform. That would certainly explain
+> a 1-4m
+> > error.
+>
+> My understanding is that Applanix is doing a 7 parameter transform.
+> What
+> I am unsure of is how to get proj to do the same. If it is the
+> default,
+> then I am curious how the 7 parameters are specified. Are these the
+> values in the +towgs84 option? I have another library for this that is
+> using 7 config values for its 7 parameter transform, and I would
+> expect
+> to see similar values in proj.
+>
+> > Rather than trust either software or method implicitly, it would be
+> better to
+> > judge the results based on published test points from the Spainish
+> and/or
+> > Portuguese government mapping office, and double check the validity
+> of the
+> > 7-terms params from an official document too. Depending on national
+> convention,
+> > the +- signs of the terms may or may not be switched.
+>
+> I have been trying to do just that. The person I am doing this for in
+> Madrid has provided the test values I am trying to duplicate. Anyone
+> know of an official source of test values for Spain?
+>
+> --
+> Roger Oberholtzer
+>
+> OPQ Systems / Ramböll RST
+> Ramböll Sverige AB
+> Kapellgränd 7
+> P.O. Box 4205
+> SE-102 65 Stockholm, Sweden
+>
+> Tel: Int +46 8-615 60 20
+> Fax: Int +46 8-31 42 23
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+>
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+--
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Office: Int +46 8-615 60 20
+Mobile: Int +46 70-815 1696
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071120/2f9660f9/attachment.html>
+
+From roger at opq.se  Thu Nov 29 05:55:17 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Thu, 29 Nov 2007 14:55:17 +0100
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <B597ADFC46B67741B18EA6AA13613FF7768594@email002.lsu.edu>
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+	<1195511076.8756.10.camel@shark.ramboll.se>
+	<B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+	<1195564876.26007.56.camel@acme.pacific>
+	<B597ADFC46B67741B18EA6AA13613FF7768594@email002.lsu.edu>
+Message-ID: <1196344518.25474.84.camel@acme.pacific>
+
+I have a bit more information on the problem with WGS84 lat/longs ->
+ED50(Spain) northings and eastings.
+
+The software that is being used does not have a 'Spanish' setting. So
+they have defined an ED50 7 parameter transform, with these
+coefficients:
+
+
+> International Ellipsoid 1924 definition
+> Mayor semiaxle: 6378388
+> Minor semiaxle:6356911,9461
+> 1/f:297
+> Excentricity: 0.0819910890032286
+> 
+> About the 7 parameters transformation 
+> Translation X (m): 125.098545
+> Translation Y (m): 76.000054
+> Translation Z (m): 156.198703
+> X Rotation(seconds): 0
+> Y Rotation(seconds): 0
+> Z Rotation(seconds): -1.129
+> Scale factor (ppm): -8.30463103
+> 
+> This correspond with applanix header file saying 
+> Mapping frame datum: ED50_ESPAÑA ; a = 6378388.000000; 1/f = 297.000000;
+>  Coordinate transformation from WGS84 to mapping frame datum 
+>     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f = 0.999991695369; 
+>     R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+>  sequence of the rotations: x,y,z,1 
+>  Mapping frame projection : TM;
+>  central meridian = -3.000000 deg;
+>  latitude of the grid origin = 0.000000 deg; grid scale factor = 0.999600: 
+>  false easting = 500000.000000 m; false northing = 0.000000 m; 
+> 
+>  
+> Where Rotations are in radians 
+
+I have tried setting proj to use this, as reported earlier in this thread, with no luck. I tried using the 7 parameters as 
++towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103, but that made things worse.
+
+fromProj = pj_init_plus(
+                        "+proj=latlong "
+                        "+ellps=WGS84 "
+                        "+no_defs");
+
+toProj = pj_init_plus(
+                        "+proj=utm "
+                        "+ellps=intl "
+                        "+k=0.999600 "
+                        "+x_0=500000.0 "
+                        "+y_0=0.0 "
+                        "+zone=30 "
+                        "+units=m"
+
+"+towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103"
+                        "+no_defs");
+
+So I am guessing I cannot simply use the 7 parameters as given. Correct?
+
+
+
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Office: Int +46 8-615 60 20
+Mobile: Int +46 70-815 1696
+
+
+
+From warmerdam at pobox.com  Thu Nov 29 13:44:06 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 29 Nov 2007 16:44:06 -0500
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+Message-ID: <474F32A6.3040301@pobox.com>
+
+Folks,
+
+There have been many complaints from folks about pj_datum_transform()
+doing "ellipse to ellipse" datum shifts when no datum shift information
+is available.  I have come to the, belated, conclusion that the idea will
+ill conceived on my part, and I have reversed my approach.
+
+Now, if pj_datum_transform() (called pj_transform()) is called, and
+either of the coordinate system lacks datum information it will apply no
+datum shift at all.  The lat/long coordinates will be taken from one
+and applied on the other with alteration.
+
+Datum shift information can be specified two ways, a +towgs84 parameter,
+or a +nadgrids parameter.  The +datum parameter is basically for named
+aliases that expand to +ellps and either +nadgrids or +towgs84 parameters.
+
+This is a major behavior change, and I'd appreciate folks giving some feedback
+on the change.  I have prepared a first beta release with this change,
+designated 4.6.0 beta1.
+
+This release also includes an upgrade to EPSG 6.14 and a few other relatively
+minor bug fixes.
+
+   http://download.osgeo.org/proj/proj-4.6.0b1.tar.gz
+   http://download.osgeo.org/proj/proj-4.6.0b1.zip
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From bfraser at geoanalytic.com  Thu Nov 29 13:59:52 2007
+From: bfraser at geoanalytic.com (Brent Fraser)
+Date: Thu, 29 Nov 2007 14:59:52 -0700
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+References: <474F32A6.3040301@pobox.com>
+Message-ID: <030101c832d3$2b21e8f0$140002c0@shark>
+
+Frank,
+
+  Sounds like a good idea, but will the API return a code,
+or through some other mechanism, indicate that a datum
+transformation has not occured?  The application could then
+alert the user...
+
+Brent Fraser
+GeoAnalytic Inc.
+Calgary, Alberta
+----- Original Message ----- 
+From: "Frank Warmerdam" <warmerdam at pobox.com>
+To: "PROJ.4 and general Projections Discussions"
+<proj at lists.maptools.org>
+Sent: Thursday, November 29, 2007 2:44 PM
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+
+
+> Folks,
+>
+> There have been many complaints from folks about
+pj_datum_transform()
+> doing "ellipse to ellipse" datum shifts when no datum
+shift information
+> is available.  I have come to the, belated, conclusion
+that the idea will
+> ill conceived on my part, and I have reversed my approach.
+>
+> Now, if pj_datum_transform() (called pj_transform()) is
+called, and
+> either of the coordinate system lacks datum information it
+will apply no
+> datum shift at all.  The lat/long coordinates will be
+taken from one
+> and applied on the other with alteration.
+>
+> Datum shift information can be specified two ways, a
++towgs84 parameter,
+> or a +nadgrids parameter.  The +datum parameter is
+basically for named
+> aliases that expand to +ellps and either +nadgrids or
++towgs84 parameters.
+>
+> This is a major behavior change, and I'd appreciate folks
+giving some feedback
+> on the change.  I have prepared a first beta release with
+this change,
+> designated 4.6.0 beta1.
+>
+> This release also includes an upgrade to EPSG 6.14 and a
+few other relatively
+> minor bug fixes.
+>
+>    http://download.osgeo.org/proj/proj-4.6.0b1.tar.gz
+>    http://download.osgeo.org/proj/proj-4.6.0b1.zip
+>
+> Best regards,
+> -- 
+> ---------------------------------------+------------------
+--------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+> light and sound - activate the windows |
+http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | President OSGeo,
+http://osgeo.org
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+From pedro1_72 at yahoo.com  Thu Nov 29 14:24:00 2007
+From: pedro1_72 at yahoo.com (Nahum Castro)
+Date: Thu, 29 Nov 2007 16:24:00 -0600 (CST)
+Subject: [Proj] Solaris 10 compilation error
+Message-ID: <545224.75794.qm@web44811.mail.sp1.yahoo.com>
+
+Hello all
+
+I have problems getting installed proj 4.5 on solaris
+10.
+
+Get the error
+
+make[2]: *** [libproj.la] Error 1
+make[2]: se sale del directorio
+`/home/nahum/Documents/proj-4.5.0/src'
+make[1]: *** [all] Error 2
+make[1]: se sale del directorio
+`/home/nahum/Documents/proj-4.5.0/src'
+make: *** [all-recursive] Error 1
+
+I don't know where to search for solaris 10 sparc
+compilation problems. Google only shows one result but
+is not related to my problem.
+
+build
+gcc4
+gmake
+
+Thanks. 
+
+--
+Nahum Castro
+Leon, Guanajuato, Mexico
+http://www.leon-linux.com
+e-mail: pedro1_72 [en] yahoo [punto] com
+
+
+      ____________________________________________________________________________________
+¡Capacidad ilimitada de almacenamiento en tu correo!
+No te preocupes más por el espacio de tu cuenta con Correo Yahoo!:                      
+http://correo.yahoo.com.mx/
+
+
+
+From warmerdam at pobox.com  Thu Nov 29 14:48:04 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 29 Nov 2007 17:48:04 -0500
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <030101c832d3$2b21e8f0$140002c0@shark>
+References: <474F32A6.3040301@pobox.com> <030101c832d3$2b21e8f0$140002c0@shark>
+Message-ID: <474F41A4.3010301@pobox.com>
+
+Brent Fraser wrote:
+> Frank,
+> 
+>   Sounds like a good idea, but will the API return a code,
+> or through some other mechanism, indicate that a datum
+> transformation has not occured?  The application could then
+> alert the user...
+
+Brent,
+
+No, there is no error code of any sort returned.  The intent is
+treat the behavior as intentional, not a failure.
+
+There are other failure modes for pj_transform() which will result
+in appropriate error information being returned.
+
+It does sometimes disturb me that the transformation sequence is quite
+opaque to the application.  There is no real way for it to know what is
+happening.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From paul-grass at stjohnspoint.co.uk  Thu Nov 29 17:41:34 2007
+From: paul-grass at stjohnspoint.co.uk (Paul Kelly)
+Date: Fri, 30 Nov 2007 01:41:34 +0000 (GMT)
+Subject: [Proj] WGS84 to ED50
+In-Reply-To: <1196344518.25474.84.camel@acme.pacific>
+References: <924401.75908.qm@web52712.mail.re2.yahoo.com>
+	<1195511076.8756.10.camel@shark.ramboll.se>
+	<B597ADFC46B67741B18EA6AA13613FF7768592@email002.lsu.edu>
+	<1195564876.26007.56.camel@acme.pacific>
+	<B597ADFC46B67741B18EA6AA13613FF7768594@email002.lsu.edu>
+	<1196344518.25474.84.camel@acme.pacific>
+Message-ID: <Pine.LNX.4.62.0711300134050.12990@vortex.ukshells.co.uk>
+
+On Thu, 29 Nov 2007, Roger Oberholtzer wrote:
+
+[...]
+> I have tried setting proj to use this, as reported earlier in this thread, with no luck. I tried using the 7 parameters as
+> +towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103, but that made things worse.
+>
+> fromProj = pj_init_plus(
+>                        "+proj=latlong "
+>                        "+ellps=WGS84 "
+>                        "+no_defs");
+>
+> toProj = pj_init_plus(
+>                        "+proj=utm "
+>                        "+ellps=intl "
+>                        "+k=0.999600 "
+>                        "+x_0=500000.0 "
+>                        "+y_0=0.0 "
+>                        "+zone=30 "
+>                        "+units=m"
+>
+> "+towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103"
+>                        "+no_defs");
+>
+> So I am guessing I cannot simply use the 7 parameters as given. Correct?
+
+You haven't set datum parameters for the first co-ordinate system. You 
+should try adding "+towgs84=0,0,0" to its definition.
+
+Paul
+
+
+From gdt at ir.bbn.com  Thu Nov 29 17:59:35 2007
+From: gdt at ir.bbn.com (Greg Troxel)
+Date: Thu, 29 Nov 2007 20:59:35 -0500
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <474F32A6.3040301@pobox.com> (Frank Warmerdam's message of "Thu, 
+	29 Nov 2007 16:44:06 -0500")
+References: <474F32A6.3040301@pobox.com>
+Message-ID: <rmi1wa8v6go.fsf@fnord.ir.bbn.com>
+
+  http://download.osgeo.org/proj/proj-4.6.0b1.tar.gz
+
+I built this on NetBSD within the pkgsrc framework (I am the maintainer)
+without any issues, and "gmake check" succeeded.
+
+Does this herald a shift in offical distribution site and homepage, or
+was this just a convenient place to put the beta tarball?
+
+  Now, if pj_datum_transform() (called pj_transform()) is called, and
+  either of the coordinate system lacks datum information it will apply no
+  datum shift at all.  The lat/long coordinates will be taken from one
+  and applied on the other with alteration.
+
+I think this is a sensible change, although I certainly can see that it
+might surprise someone.
+
+
+From warmerdam at pobox.com  Thu Nov 29 18:40:36 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 29 Nov 2007 21:40:36 -0500
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <rmi1wa8v6go.fsf@fnord.ir.bbn.com>
+References: <474F32A6.3040301@pobox.com> <rmi1wa8v6go.fsf@fnord.ir.bbn.com>
+Message-ID: <474F7824.1090801@pobox.com>
+
+Greg Troxel wrote:
+>   http://download.osgeo.org/proj/proj-4.6.0b1.tar.gz
+> 
+> I built this on NetBSD within the pkgsrc framework (I am the maintainer)
+> without any issues, and "gmake check" succeeded.
+> 
+> Does this herald a shift in offical distribution site and homepage, or
+> was this just a convenient place to put the beta tarball?
+
+Greg,
+
+This is actually the same as ftp://ftp.remotesensing.org/proj.  They
+are both served from the same tree.  I just quoted the http "osgeo"
+address since the ftp.remotesensing.org address is mostly preserved
+for backward compatability.
+
+>   Now, if pj_datum_transform() (called pj_transform()) is called, and
+>   either of the coordinate system lacks datum information it will apply no
+>   datum shift at all.  The lat/long coordinates will be taken from one
+>   and applied on the other with alteration.
+> 
+> I think this is a sensible change, although I certainly can see that it
+> might surprise someone.
+
+Right.  I think it is important to highlight the change in behavior to
+the extent practical so people won't be completely blindsided.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From jordi at geoquadtree.org  Fri Nov 30 02:47:59 2007
+From: jordi at geoquadtree.org (Jordi Gilabert Vall)
+Date: Fri, 30 Nov 2007 11:47:59 +0100
+Subject: [Proj] Re: Proj Digest, Vol 42, Issue 8
+In-Reply-To: <200711291704.lATH4bEf018926@duke.maptools.org>
+References: <200711291704.lATH4bEf018926@duke.maptools.org>
+Message-ID: <6d26117e0711300247s69a56f07sb5729b5618f723eb@mail.gmail.com>
+
+I use these 7 coefficients with cartography in Catalonia (Spain), with right
+results:
+
+cs2cs +proj=latlong +datum=WGS84 +ellps=WGS84 +to +init=epsg:23031 +proj=utm
++ellps=intl +zone=31 +units=m +towgs84=- 131.0320,-100.2510,-163.3540,1.2438
+,0.0195,1.1436,9.3900
+
+More information:
+
+http://www.euref-iag.net/symposia/book2003/4-6.pdf<http://www.fomento.es/NR/rdonlyres/8B4D8323-5706-4F8F-84F7-C89774DCC2A1/29826/hercam.pdf>
+http://www.fomento.es/NR/rdonlyres/8B4D8323-5706-4F8F-84F7-C89774DCC2A1/29826/hercam.pdf
+
+
+Jordi Gilabert Vall
+
+----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Thu, 29 Nov 2007 14:55:17 +0100
+> From: Roger Oberholtzer <roger at opq.se>
+> Subject: RE: [Proj] WGS84 to ED50
+> To: "PROJ.4 and general Projections Discussions"
+>         <proj at lists.maptools.org>
+> Message-ID: <1196344518.25474.84.camel at acme.pacific>
+> Content-Type: text/plain; charset=UTF-8
+>
+> I have a bit more information on the problem with WGS84 lat/longs ->
+> ED50(Spain) northings and eastings.
+>
+> The software that is being used does not have a 'Spanish' setting. So
+> they have defined an ED50 7 parameter transform, with these
+> coefficients:
+>
+>
+> > International Ellipsoid 1924 definition
+> > Mayor semiaxle: 6378388
+> > Minor semiaxle:6356911,9461
+> > 1/f:297
+> > Excentricity: 0.0819910890032286
+> >
+> > About the 7 parameters transformation
+> > Translation X (m): 125.098545
+> > Translation Y (m): 76.000054
+> > Translation Z (m): 156.198703
+> > X Rotation(seconds): 0
+> > Y Rotation(seconds): 0
+> > Z Rotation(seconds): -1.129
+> > Scale factor (ppm): -8.30463103
+> >
+> > This correspond with applanix header file saying
+> > Mapping frame datum: ED50_ESPAÑA ; a = 6378388.000000; 1/f = 297.000000;
+> >  Coordinate transformation from WGS84 to mapping frame datum
+> >     dX = 125.098545; dY = 76.000054; dZ = 156.198703; f = 0.999991695369
+> ;
+> >     R1 = 0.000000000000; R2 = 0.000000000000; R3 = -0.000005473550;
+> >  sequence of the rotations: x,y,z,1
+> >  Mapping frame projection : TM;
+> >  central meridian = -3.000000 deg;
+> >  latitude of the grid origin = 0.000000 deg; grid scale factor =
+> 0.999600:
+> >  false easting = 500000.000000 m; false northing = 0.000000 m;
+> >
+> >
+> > Where Rotations are in radians
+>
+> I have tried setting proj to use this, as reported earlier in this thread,
+> with no luck. I tried using the 7 parameters as
+> +towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103, but
+> that made things worse.
+>
+> fromProj = pj_init_plus(
+>                         "+proj=latlong "
+>                         "+ellps=WGS84 "
+>                         "+no_defs");
+>
+> toProj = pj_init_plus(
+>                         "+proj=utm "
+>                         "+ellps=intl "
+>                         "+k=0.999600 "
+>                         "+x_0=500000.0 "
+>                         "+y_0=0.0 "
+>                         "+zone=30 "
+>                         "+units=m"
+>
+> "+towgs84=125.098545,76.000054,156.198703,0.0,0.0,-1.129,-8.30463103"
+>                         "+no_defs");
+>
+> So I am guessing I cannot simply use the 7 parameters as given. Correct?
+>
+>
+>
+> --
+> Roger Oberholtzer
+>
+> OPQ Systems / Ramböll RST
+>
+> Ramböll Sverige AB
+> Kapellgränd 7
+> P.O. Box 4205
+> SE-102 65 Stockholm, Sweden
+>
+> Office: Int +46 8-615 60 20
+> Mobile: Int +46 70-815 1696
+>
+>
+>
+> ------------------------------
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071130/36170f53/attachment.html>
+
+From support.mn at elisanet.fi  Fri Nov 30 05:37:24 2007
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Fri, 30 Nov 2007 15:37:24 +0200 (EET)
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+Message-ID: <31947837.97701196429844322.JavaMail.support.mn@elisanet.fi>
+
+> Now, if pj_datum_transform() (called pj_transform()) is called, and
+> either of the coordinate system lacks datum information it will apply no
+> datum shift at all.  The lat/long coordinates will be taken from one
+> and applied on the other with alteration.
+
+Do I now interprete this correctly so, that if there is now datum given, the
+datum will be floating? Taking the datum of any other datum that it is
+compared to?
+
+What happens with the spherical projections? Robinson and similar?
+
+If I take coordinates from Robinson projection and apply them to "tmerc"
+and the "tmerc" has datum defined, but the "robin" not. This should then
+yield zero shift?
+
+How about if they have both defined datums and ellipses and they are
+exactly the same? Will there be a shift or not?
+
+Regards Janne.
+
+
+
+From uwe.schmitz at lverma.nrw.de  Fri Nov 30 06:28:40 2007
+From: uwe.schmitz at lverma.nrw.de (uwe.schmitz at lverma.nrw.de)
+Date: Fri, 30 Nov 2007 15:28:40 +0100
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+Message-ID: <C900396522B3C142AA9A7F5AFEE11CB3013803CF@slva01lvnt23.lverma.nrw.de>
+
+Frank,
+
+I tested the new version and it seems to me that 
+grid shifts are ignored now.
+
+E.g. the example from ticket 1531 "Grid shifts give wrong results" 
+brings now back exactly the input coordinate without
+doing any shift.
+
+Regards
+Uwe
+---------------------------------------------------------
+... Uwe Schmitz  Landesvermessungsamt Nordrhein-Westfalen
+... Muffendorfer Str. 19 - 21              D - 53177 Bonn
+... E-mail:       uwe.schmitzNO at SPAMlverma.nrw.de
+... Internet:     http://www.lverma.nrw.de
+
+
+
+From warmerdam at pobox.com  Fri Nov 30 06:40:47 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 30 Nov 2007 09:40:47 -0500
+Subject: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <31947837.97701196429844322.JavaMail.support.mn@elisanet.fi>
+References: <31947837.97701196429844322.JavaMail.support.mn@elisanet.fi>
+Message-ID: <475020EF.20804@pobox.com>
+
+support.mn at elisanet.fi wrote:
+>> Now, if pj_datum_transform() (called pj_transform()) is called, and
+>> either of the coordinate system lacks datum information it will apply no
+>> datum shift at all.  The lat/long coordinates will be taken from one
+>> and applied on the other with alteration.
+> 
+> Do I now interprete this correctly so, that if there is now datum given, 
+> the datum will be floating? Taking the datum of any other datum that it 
+ > is compared to?
+
+Janne,
+
+Loosely speaking, yes, you are interpreting it correctly.
+
+If either coordinate system passed to pj_transform() lacks a datum
+definition then it will be assumed that it's datum effectively
+matches the other.
+
+> What happens with the spherical projections? Robinson and similar?
+
+The same.
+
+Though the other aspect that I did was to decouple the the datum/ellipsoid
+logic for datum shifting from the ellipsoid parameters used for internal
+projection calculations.
+
+In the past "cs2cs +proj=robin +datum=WGS84 +to +proj=latlong +datum=WGS84"
+would result in the robinson's ellipsoid getting changed from WGS84 to
+a sphere because robinson is a spherical only projection.  And then
+pj_datum_transform() would try to convert from the sphere to the ellipsoid.
+
+Now, the code distinguishes between the ellipsoid that was declared by the
+user for a coordinate system (ie. WGS84 above) and the ellipsoid that gets
+used internally for projection calculation purposes.  The datum logic only
+looks at the declared ellipsoid now, not the internal one used for
+calculations.  This is accomplished by stashing the original "a" and "es"
+parameters in the new fields "a_orig" and "es_orig" and using these values
+strategically.
+
+So, you could now do something like:
+
+   cs2cs +proj=robin +datum=WGS84 +to +proj=utm +zone=11 +datum=NAD27
+
+and internally PROJ would reproject the robinson coordinates using a sphere,
+but then it would do the WGS84 to NAD27 datum shift before projecting into
+UTM 11.  That is, if you do declare a non-spherical ellipsoid (via a
++datum declaration) for a projection it won't be "messed up" by the internal
+use of a sphere.
+
+Actually, a better demonstration of the above would be:
+
+   cs2cs +proj=robin +datum=GGRS87 +to +proj=latlong +datum=WGS84
+
+The important distinction is that GGRS87 expands to
+"+towgs84=-199.87,74.79,246.62 +ellps=GRS80".  The towgs84
+shift is applied in geocentric space, but it is very important
+which ellipsoid is used to get to geocentric space.  In the "old"
+approach the sphere used for robinson would have been used for
+the conversion to geocentric.  Now, GRS80 would be used for the
+calculation avoiding a huge unexpected sphere related shift in latitude.
+
+> If I take coordinates from Robinson projection and apply them to "tmerc"
+> and the "tmerc" has datum defined, but the "robin" not. This should then
+> yield zero shift?
+
+There would be no datum shift, right.  So now:
+
+  cs2cs +proj=robin +ellps=sphere +to +proj=utm +zone=11 +datum=WGS84
+
+would be equivelent to:
+
+  invproj +proj=robin +ellps=sphere | proj +proj=utm +zone=11 +ellps=WGS84
+
+> How about if they have both defined datums and ellipses and they are
+> exactly the same? Will there be a shift or not?
+
+There will be no datum shift applied, even if one of the projections
+is spherical and than converts the ellipse internally to a sphere.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From warmerdam at pobox.com  Fri Nov 30 08:06:53 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 30 Nov 2007 11:06:53 -0500
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <C900396522B3C142AA9A7F5AFEE11CB3013803CF@slva01lvnt23.lverma.nrw.de>
+References: <C900396522B3C142AA9A7F5AFEE11CB3013803CF@slva01lvnt23.lverma.nrw.de>
+Message-ID: <4750351D.6050603@pobox.com>
+
+uwe.schmitz at lverma.nrw.de wrote:
+> Frank,
+> 
+> I tested the new version and it seems to me that 
+> grid shifts are ignored now.
+> 
+> E.g. the example from ticket 1531 "Grid shifts give wrong results" 
+> brings now back exactly the input coordinate without
+> doing any shift.
+
+Uwe,
+
+I just tried a NAD27 -> NAD83 grid shift like this and it seemed to
+be doing something:
+
+warmerda at amd64[73]% cs2cs +proj=utm +zone=11 +datum=NAD27 +to +proj=utm 
++zone=11 +datum=NAD83
+300000 4000000
+300004.77       4000200.77 0.00
+
+Could you be more specific about what you did, and also verify you have
+the correct grids findable?  Setting the PROJ_DEBUG environment variable
+set to a non-empty value can help determine if grid shift files are
+successfully found.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From warmerdam at pobox.com  Fri Nov 30 08:12:15 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 30 Nov 2007 11:12:15 -0500
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <4750351D.6050603@pobox.com>
+References: <C900396522B3C142AA9A7F5AFEE11CB3013803CF@slva01lvnt23.lverma.nrw.de>
+	<4750351D.6050603@pobox.com>
+Message-ID: <4750365F.5010100@pobox.com>
+
+Frank Warmerdam wrote:
+> uwe.schmitz at lverma.nrw.de wrote:
+>> Frank,
+>>
+>> I tested the new version and it seems to me that grid shifts are 
+>> ignored now.
+>>
+>> E.g. the example from ticket 1531 "Grid shifts give wrong results" 
+>> brings now back exactly the input coordinate without
+>> doing any shift.
+> 
+> Uwe,
+> 
+> I just tried a NAD27 -> NAD83 grid shift like this and it seemed to
+> be doing something:
+> 
+> warmerda at amd64[73]% cs2cs +proj=utm +zone=11 +datum=NAD27 +to +proj=utm 
+> +zone=11 +datum=NAD83
+> 300000 4000000
+> 300004.77       4000200.77 0.00
+> 
+> Could you be more specific about what you did, and also verify you have
+> the correct grids findable?  Setting the PROJ_DEBUG environment variable
+> set to a non-empty value can help determine if grid shift files are
+> successfully found.
+
+Uwe,
+
+Following up on my own message. When I set PROJ_DEBUG I discovered it wasn't
+actually finding a grid file, and for that matter I was running the version
+the older version of PROJ that I had installed, not my build version!
+
+However, after pointing PROJ_LIB at my actual grid shift files things do
+seem to be working:
+
+cs2cs +proj=utm +zone=11 +datum=NAD27 +to +proj=utm +zone=11 +datum=NAD83
+
+pj_open_lib(proj_def.dat): call 
+fopen(/home/warmerda/bld/share/proj/proj_def.dat) - succeeded
+pj_open_lib(proj_def.dat): call 
+fopen(/home/warmerda/bld/share/proj/proj_def.dat) - succeeded
+300000 4000000
+pj_open_lib(conus): call fopen(/home/warmerda/bld/share/proj/conus) - succeeded
+Ctable Conterminous United States 273x121: LL=(-131,20) UR=(-63,50)
+pj_open_lib(alaska): call fopen(/home/warmerda/bld/share/proj/alaska) - succeeded
+Ctable Alaska 529x249: LL=(-194,46) UR=(-128,77)
+pj_open_lib(ntv2_0.gsb): call fopen(/home/warmerda/bld/share/proj/ntv2_0.gsb) - 
+failed
+pj_open_lib(ntv1_can.dat): call 
+fopen(/home/warmerda/bld/share/proj/ntv1_can.dat) - succeeded
+NTv1 393x177: LL=(-142,40) UR=(-44,84)
+pj_open_lib(conus): call fopen(/home/warmerda/bld/share/proj/conus) - succeeded
+pj_apply_gridshift(): used Conterminous United States
+299919.76       4000197.43 0.00
+
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From uwe.schmitz at lverma.nrw.de  Fri Nov 30 08:33:42 2007
+From: uwe.schmitz at lverma.nrw.de (uwe.schmitz at lverma.nrw.de)
+Date: Fri, 30 Nov 2007 17:33:42 +0100
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+Message-ID: <C900396522B3C142AA9A7F5AFEE11CB3013803D2@slva01lvnt23.lverma.nrw.de>
+
+Frank,
+
+I am using the example from ticket 1531 with a local
+(may be this is the problem?) grid file (attached
+to the ticket).
+
+The shell script:
+export PROJ_DEBUG=1
+cs2cs \
+      -f "%.12f" \
+      +proj=latlong \
+      +ellps=bessel \
+      +nadgrids=./tstgrid.gsb \
+   +to \
+      +proj=latlong \
+      +ellps=GRS80 \
+      <<EOF
+7.483333333333E 53.500000000000N
+EOF
+
+Output with old version 4.5.0:
+pj_open_lib(proj_def.dat): call fopen(/usegiap/schmitz/ent/giapinst/share/proj/proj_def.dat) - succeeded
+pj_open_lib(proj_def.dat): call fopen(/usegiap/schmitz/ent/giapinst/share/proj/proj_def.dat) - succeeded
+pj_open_lib(./tstgrid.gsb): call fopen(./tstgrid.gsb) - succeeded
+NTv2 DHDN90   2x3: LL=(7.33333333,53.4) UR=(7.5,53.6)
+NTv2 - loading grid DHDN90  
+pj_open_lib(./tstgrid.gsb): call fopen(./tstgrid.gsb) - succeeded
+pj_apply_gridshift(): used DHDN90  
+7.482506019176	53.498461144236 0.000067942776
+
+And with 4.6.0b1 installed in the same place:
+pj_open_lib(proj_def.dat): call fopen(/usegiap/schmitz/ent/giapinst/share/proj/proj_def.dat) - succeeded
+pj_open_lib(proj_def.dat): call fopen(/usegiap/schmitz/ent/giapinst/share/proj/proj_def.dat) - succeeded
+7.483333333333	53.500000000000 0.000000000000
+
+It seems, that the grid file is ignored.
+May be this isn't related directly to your changes?
+
+Regards,
+Uwe
+---------------------------------------------------------
+... Uwe Schmitz  Landesvermessungsamt Nordrhein-Westfalen
+... Muffendorfer Str. 19 - 21              D - 53177 Bonn
+... E-mail:       uwe.schmitzNO at SPAMlverma.nrw.de
+... Internet:     http://www.lverma.nrw.de
+
+
+
+
+From antonini at lamma.rete.toscana.it  Fri Nov 30 08:36:04 2007
+From: antonini at lamma.rete.toscana.it (Andrea Antonini)
+Date: Fri, 30 Nov 2007 17:36:04 +0100
+Subject: [Proj] PROJ INFO
+Message-ID: <47503BF4.1070502@lamma.rete.toscana.it>
+
+Dear all,
+I'm a new proj user. I'm studying the proj API to use the proj libraries 
+in a C program. I have some problems also in basics operation. For 
+example I cannot execute this very simple program:
+----------------------------------------------------------------------------------------------------------------------
+/*
+ To compile:
+ 
+ gcc -o utm_to_lat_lon utm_to_lat_lon.c -L /usr/local/lib/libproj.so.0 
+-lproj
+*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+
+#include <proj_api.h>
+
+int main (int argc, char *argv[]){
+    projPJ llpj;
+    projPJ utmpj;
+    char *llargs[] = {"proj=latlon", "ellps=WGS84"};
+    char *utmargs[] = { "proj=utm", "ellps=WGS84", "lat_ts=32" };
+    double x,y,z;   
+
+   
+    if (!(llpj = pj_init(2, llargs))){
+        printf("Error1\n");
+        exit(1);
+    }
+       
+    if (!(utmpj = pj_init(3, utmargs))){
+        printf("Error2\n");       
+        exit(1);
+    }
+       
+    y = 4842939.0;
+    x = 672393.0;
+    z = 401.0;
+   
+    if (pj_transform(utmpj, llpj, 1, 1, &x, &y, &z)!=0) {
+        printf ("Error3\n");
+        exit (-1);
+    }
+    printf("Lat = %f; Lon = %f; H=%f\n",x,y,z);
+   
+    pj_free(llpj);
+    pj_free(utmpj);
+   
+   
+    return(0);
+}
+----------------------------------------------------------------------------------------------------------------------
+
+The compilation is ok, but when I execute the command the result is 
+always Error1
+
+Could someone give me an help, please?
+
+Thanks!
+
+Andrea
+
+
+
+From support.mn at elisanet.fi  Fri Nov 30 09:20:16 2007
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Fri, 30 Nov 2007 19:20:16 +0200 (EET)
+Subject: [Proj] PROJ INFO
+Message-ID: <14091833.116271196443216891.JavaMail.support.mn@elisanet.fi>
+
+Check the documentation. There are some examples how to use
+the library.
+
+Regards: Janne
+
+-----------------
+
+
+Andrea Antonini <antonini at lamma.rete.toscana.it> kirjoitti: 
+> Dear all,
+> I'm a new proj user. I'm studying the proj API to use the proj libraries 
+> in a C program. I have some problems also in basics operation. For 
+> example I cannot execute this very simple program:
+> ----------------------------------------------------------------------------------------------------------------------
+> /*
+>  To compile:
+>  
+>  gcc -o utm_to_lat_lon utm_to_lat_lon.c -L /usr/local/lib/libproj.so.0 
+> -lproj
+> */
+> 
+> #include <stdio.h>
+> #include <stdlib.h>
+> #include <string.h>
+> 
+> 
+> #include <proj_api.h>
+> 
+> int main (int argc, char *argv[]){
+>     projPJ llpj;
+>     projPJ utmpj;
+>     char *llargs[] = {"proj=latlon", "ellps=WGS84"};
+>     char *utmargs[] = { "proj=utm", "ellps=WGS84", "lat_ts=32" };
+>     double x,y,z;   
+> 
+>    
+>     if (!(llpj = pj_init(2, llargs))){
+>         printf("Error1\n");
+>         exit(1);
+>     }
+>        
+>     if (!(utmpj = pj_init(3, utmargs))){
+>         printf("Error2\n");       
+>         exit(1);
+>     }
+>        
+>     y = 4842939.0;
+>     x = 672393.0;
+>     z = 401.0;
+>    
+>     if (pj_transform(utmpj, llpj, 1, 1, &x, &y, &z)!=0) {
+>         printf ("Error3\n");
+>         exit (-1);
+>     }
+>     printf("Lat = %f; Lon = %f; H=%f\n",x,y,z);
+>    
+>     pj_free(llpj);
+>     pj_free(utmpj);
+>    
+>    
+>     return(0);
+> }
+> ----------------------------------------------------------------------------------------------------------------------
+> 
+> The compilation is ok, but when I execute the command the result is 
+> always Error1
+> 
+> Could someone give me an help, please?
+> 
+> Thanks!
+> 
+> Andrea
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+
+
+
+From warmerdam at pobox.com  Fri Nov 30 09:30:13 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 30 Nov 2007 12:30:13 -0500
+Subject: AW: [Proj] PROJ 4.6.0 beta1 Release
+In-Reply-To: <C900396522B3C142AA9A7F5AFEE11CB3013803D2@slva01lvnt23.lverma.nrw.de>
+References: <C900396522B3C142AA9A7F5AFEE11CB3013803D2@slva01lvnt23.lverma.nrw.de>
+Message-ID: <475048A5.9080003@pobox.com>
+
+uwe.schmitz at lverma.nrw.de wrote:
+> Frank,
+> 
+> I am using the example from ticket 1531 with a local
+> (may be this is the problem?) grid file (attached
+> to the ticket).
+> 
+> The shell script:
+> export PROJ_DEBUG=1
+> cs2cs \
+>       -f "%.12f" \
+>       +proj=latlong \
+>       +ellps=bessel \
+>       +nadgrids=./tstgrid.gsb \
+>    +to \
+>       +proj=latlong \
+>       +ellps=GRS80 \
+>       <<EOF
+> 7.483333333333E 53.500000000000N
+> EOF
+
+Uwe,
+
+But in this case the output coordinate system only has an ellipse, and
+no datum definition, so pj_transform() deliberately makes no attempt to
+do a datum shift.  This is exactly the sort of case in which the behavior
+is intended to change.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From warmerdam at pobox.com  Fri Nov 30 10:32:23 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 30 Nov 2007 13:32:23 -0500
+Subject: [Proj] PROJ INFO
+In-Reply-To: <47503BF4.1070502@lamma.rete.toscana.it>
+References: <47503BF4.1070502@lamma.rete.toscana.it>
+Message-ID: <47505737.5000209@pobox.com>
+
+Andrea Antonini wrote:
+> Dear all,
+> I'm a new proj user. I'm studying the proj API to use the proj libraries 
+> in a C program. I have some problems also in basics operation. For 
+> example I cannot execute this very simple program:
+> ---------------------------------------------------------------------------------------------------------------------- 
+> 
+> /*
+> To compile:
+> 
+> gcc -o utm_to_lat_lon utm_to_lat_lon.c -L /usr/local/lib/libproj.so.0 
+> -lproj
+> */
+> 
+> #include <stdio.h>
+> #include <stdlib.h>
+> #include <string.h>
+> 
+> 
+> #include <proj_api.h>
+> 
+> int main (int argc, char *argv[]){
+>    projPJ llpj;
+>    projPJ utmpj;
+>    char *llargs[] = {"proj=latlon", "ellps=WGS84"};
+
+Andrea,
+
+In addition to Janne's useful advice, you also need to change
+"proj=latlon" to "proj=latlong".
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From geraldi.evenden at gmail.com  Fri Nov 30 11:02:33 2007
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Fri, 30 Nov 2007 14:02:33 -0500
+Subject: [Proj] PROJ INFO
+In-Reply-To: <47505737.5000209@pobox.com>
+References: <47503BF4.1070502@lamma.rete.toscana.it>
+	<47505737.5000209@pobox.com>
+Message-ID: <200711301402.33321.geraldi.evenden@gmail.com>
+
+On Friday 30 November 2007 1:32 pm, Frank Warmerdam wrote:
+	---
+> In addition to Janne's useful advice, you also need to change
+> "proj=latlon" to "proj=latlong".
+
+Interesting.
+
+Did you change other longitude items like lon_0 to long_0 also?
+
+I had heard of dialects that use the pronunciation emphasising the 'g' in 
+longitude but that usage seemed to me to be pretty rare.  'long' seems to 
+encourage pronunciation rhyming with long---like "its a long way to 
+Tipperary."
+
+;-)
+
+It seems like you may have created a source for a common error by using 
+the "long" form if "lon" (homonym with 'lawn') is used elsewhere.
+
+Alas.
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939)  British psychologist
+
+
+From warmerdam at pobox.com  Fri Nov 30 12:10:42 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 30 Nov 2007 15:10:42 -0500
+Subject: [Proj] PROJ INFO
+In-Reply-To: <200711301402.33321.geraldi.evenden@gmail.com>
+References: <47503BF4.1070502@lamma.rete.toscana.it>
+	<47505737.5000209@pobox.com>
+	<200711301402.33321.geraldi.evenden@gmail.com>
+Message-ID: <47506E42.4080801@pobox.com>
+
+Gerald I. Evenden wrote:
+> On Friday 30 November 2007 1:32 pm, Frank Warmerdam wrote:
+> 	---
+>> In addition to Janne's useful advice, you also need to change
+>> "proj=latlon" to "proj=latlong".
+> 
+> Interesting.
+> 
+> Did you change other longitude items like lon_0 to long_0 also?
+
+Gerald,
+
+No, I did not change any existing use of lon.
+
+> I had heard of dialects that use the pronunciation emphasising the 'g' in 
+> longitude but that usage seemed to me to be pretty rare.  'long' seems to 
+> encourage pronunciation rhyming with long---like "its a long way to 
+> Tipperary."
+> 
+> ;-)
+> 
+> It seems like you may have created a source for a common error by using 
+> the "long" form if "lon" (homonym with 'lawn') is used elsewhere.
+> 
+> Alas.
+
+Indeed, I believe you are correct.  I just carried over naming I used when
+I was at PCI.
+
+I have added "latlon" and "lonlat" as also acceptable aliases for the
+same non-projection.  "longlat" and "latlong" were already both accepted.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+

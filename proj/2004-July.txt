@@ -1,0 +1,3619 @@
+From projgis at mchaggis.org.uk  Thu Jul  1 04:09:56 2004
+From: projgis at mchaggis.org.uk (Al McCaig)
+Date: Thu, 01 Jul 2004 12:09:56 +0100
+Subject: [Proj] Lat/Long to lcc
+Message-ID: <1088680196.4042.14.camel@waldo.orcades.osi-development.net>
+
+Hi,
+
+I am trying to convert Lat/Long coords to Lamberts using proj and am
+having a few problems, ie it doesn't seem to give the correct results.
+
+I have the following information but am slightly unsure how to use it in
+proj:
+
+Projection:
+	Geodetic Datum (Speriod): WGS84
+	Units: meters
+	Central meridian: 5deg east
+	Central Parallel: 49.08516574deg north
+	1st Standard Parallel: 44deg north
+	2nd Standard Parallel: 54deg north
+	False Easting (X): 1507373
+	False Northing (Y): 1607866
+
+I also have a set of data which contain Lat/Long and the Lamberts coords
+as the above projection data, two of these are:
+
+53.333889, -1.968552	=>	1044152, 2100526
+53.334186, -1.968341	=>	1044169, 2100558
+
+
+Any help would be grateful.
+
+Al,
+
+
+
+-- 
+
+Yes, maybe life sucks, but at least I don't have to use Windows!
+
+
+
+From bsupnik at xsquawkbox.net  Thu Jul  1 12:05:49 2004
+From: bsupnik at xsquawkbox.net (bsupnik)
+Date: Thu, 01 Jul 2004 12:05:49 -0700
+Subject: [Proj] Stupid Newbie Question - Projecting out of NAD27
+Message-ID: <40E4608D.7070902@xsquawkbox.net>
+
+Hi Y'all,
+
+I'm working with data that appears to be UTM referenced against the 
+NAD27 datum.  I'm using a line like this to init proj for conversion to 
+lat/lon:
+
++units=m +proj=utm +zone=%d +ellps=WGS84
+
+As might be clear, WGS84 isn't the right ellipse for this...I want my 
+data to end up lat/lon for a WGS84 ellipsoid...what set of proj 
+arguments will cause pj_inv to go from NAD27 to WGS84?
+
+(Please forgive my misuse of terminology...I'm still getting used to 
+this whole projection/datum thing...if it weren't for Proj's existence 
+I'd really be screwed!)
+
+*cheers*
+Ben
+
+
+
+From paul-grass at stjohnspoint.co.uk  Mon Jul  5 02:55:15 2004
+From: paul-grass at stjohnspoint.co.uk (Paul Kelly)
+Date: Mon, 5 Jul 2004 10:55:15 +0100 (BST)
+Subject: [Proj] Re: What proj library version is best?
+In-Reply-To: <20040426152346.A1503@polynum.org>
+References: <20040426152346.A1503@polynum.org>
+Message-ID: <Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+
+Hello Thierry,
+(cc to Kergis, GRASS and PROJ lists and Maciek who was also interested in 
+this)
+
+First of all a summary of how I understand projections and co-ordinate systems 
+and the C language structures used in the various PROJ derivatives to represent 
+these.
+
+'Pure' PROJ performs forward and inverse projections from latitude/longitude 
+angles to co-ordinates in the projected system described by the 'PJ' structure. 
+A PJ struct (created using the pj_init() function) includes a name (e.g. 
+proj=tmerc), ellipsoid parameters (a, es or b etc.) and other 
+projection-specific parameters such as latitude of origin, false easting and 
+northing etc. Something like (from the original projects.h in GRASS CVS):
+         /* base projection data structure */
+typedef struct PJconsts {
+         XY  (*fwd)(LP, struct PJconsts *);
+         LP  (*inv)(XY, struct PJconsts *);
+         void (*spc)(LP, struct PJconsts *, struct FACTORS *);
+         void (*pfree)(struct PJconsts *);
+         const char *descr;
+         paralist *params;   /* parameter list */
+         int over;   /* over-range flag */
+         int geoc;   /* geocentric latitude flag */
+         double
+                 a,  /* major axis or radius if es==0 */
+                 e,  /* eccentricity */
+                 es, /* e ^ 2 */
+                 ra, /* 1/A */
+                 one_es, /* 1 - e^2 */
+                 rone_es, /* 1/one_es */
+                 lam0, phi0, /* central longitude, latitude */
+                 x0, y0, /* easting and northing */
+                 k0,     /* general scaling factor */
+                 to_meter, fr_meter; /* cartesian scaling */
+#ifdef PROJ_PARMS__
+PROJ_PARMS__
+#endif /* end of optional extensions */
+} PJ;
+
+Forward and inverse projection are two specific mathematical operations that 
+form part of a co-ordinate system conversion but do not do this in themselves.
+
+On Mon, 26 Apr 2004, Thierry Laronde wrote:
+> 
+> Hello Paul,
+> 
+> The original CERL sources included a version of the PROJ.4 library being
+> provided supplementary to another derived version used for SCS mapgen
+> (mapgen has not been updated to use the more recent (as of 1995) PROJ.4
+> and Dave Gerdes decided to provide the last PROJ.4 as an add-on).
+
+This is interesting to me as I had thought the extensions to the PROJ version 
+in GRASS (two extra files, get_proj.c and do_proj.c and some additions to 
+projects.h) were GRASS-specific but it makes more sense that they were part of 
+Mapgen and got integrated into GRASS along with other Soil Conservation Service 
+enhancements. It is also consistent with an e-mail I remember reading from 
+Gerald Evenden in the PROJ mailing list archive asking was Mapgen still part of 
+GRASS... that suggested to me he was interested in Mapgen because it included 
+some kind of extension to (some old USGS version of) PROJ.
+
+This extension was to add an API (functions pj_get_kv() and pj_do_proj() 
+primarily) for performing proper co-ordinate system conversions rather than 
+just forward and inverse projections. A general co-ordinate system conversion 
+might involve peforming an inverse projection into latitude/longitude and then 
+a forward projection into a different system, at the same time accounting for 
+perhaps different units used in the two projected systems. A co-ordinate 
+system is described by the pj_info struct, which was added to projects.h:
+struct pj_info {
+       PJ     *pj;
+       double meters;
+       int    zone;
+       char   proj[100];
+};
+
+The string pj_info->proj is used to hold the PROJ name for the projection (e.g. 
+tmerc) if it is a projected co-ordinate system, or proj=ll for 
+latitude/longitude. This addition is needed because of course 
+latitude/longitude can be a co-ordinate system in itself as well as an 
+intermediate stage between two projected systems.
+
+pj_info->meters holds a conversion factor for the projected units to meters 
+(set by unfact=x in the parameter pairs passed to the initialising function 
+pj_get_(string|kv)).
+
+I'm really not sure what the zone is for and haven't seen it used anywhere. 
+Finally pj_info->pj is a pointer to a PJ struct (as described above) for the 
+projected co-ordinate system. If it is lat/long then this is uninitialised; 
+zone and meters are set to 0 and 1.0 respectively. The pj_info struct is 
+usually created by pj_get_kv(), pj_get_string() or pj_zero_proj(), but there 
+were many examples in the GRASS source code where it was created manually for 
+a simple lat/long co-ordinate system.
+
+> The author of PROJ.4 has, in 2003, extract the core libraries and made
+> some improvements and fixes in what he calls libproj4.
+
+I am fairly sure if you take an old version of GRASS (before 5.0.0pre4) you 
+could simply drop the files from Gerald's libproj4 in alongside the get_proj.c 
+and do_proj.c and everything will work fine. I don't think the Mapgen version 
+modified anything in PROJ, only added those two files and function prototypes 
+and struct definition to projects.h.
+
+The problem with that of course is that it won't do datum transformation, 
+which as far as I can make out from discussions on the GRASS mailing lists is 
+a requirement for most of the uses people want to put the re-projection 
+modules to (i.e. [rsv].proj). There are also other modules in GRASS that use 
+PROJ but don't need datum transformation, just conversions to/from latitude 
+and longitude angles, e.g. r.sun etc.
+
+> 
+> Remotesensing.org has taken (old) PROJ.4 maintainance.
+
+Not just maintenance but the extremely useful addition of general co-ordinate 
+system conversions incorporating datum transformation. The interesting thing 
+is comparing the approach Frank Warmerdam took in extending PROJ to handle 
+general co-ordinate system conversions to that chosen by the authors in the 
+SCS. I feel Mapgen kept more to the spirit of the PJ struct by retaining it 
+as description of only a projected system, and adding their own 'wrapper' 
+struct for incorporating details of the units etc. In remotesensing.org proj 
+the PJ struct itself was extended from describing purely a projection, to
+describing a complete co-ordinate system. proj=longlat or latlong is used in
+place of the Mapgen ll, and to_meter in place of unfact for describing the
+unit conversion factor. In fact I think this to_meter may have been in place
+in later versions of USGS PROJ than the one GRASS/Mapgen was based on.
+
+The datum transformation parameters are considered an attribute of the
+co-ordinate system and if the datum transformation parameters are different
+then two co-ordinate systems are considered different, even if the
+projection parameters and ellipsoid settings are the same. This can
+sometimes result in projecting a point between two identical co-ordinate
+systems resulting in an (erroneous) change because they have different
+datum parameters. This is now confirmed as a feature of the remotesensing.org
+PROJ.4 implementation (see PROJ bug no. 368
+http://bugzilla.remotesensing.org/show_bug.cgi?id=368 )
+
+> 
+> I tend to want to put libproj4 in place of old PROJ.4, but since this is
+> a field you know far better than me I'd like to have your advice.
+> libproj4 is the library minus the programs. But I'm not fear anymore of
+> writing new things or updating old ones...
+
+Yes well as I said above, I think libproj4 should slot in easily enough to
+any version of GRASS prior to 5.0.0pre4, so that certainly applies to the 4.x
+version KerGIS is based on. Then in the future perhaps datum transformation
+could be implemented with the datum information as attributes of the pj_info
+(i.e. co-ordinate system) struct rather than the PJ (i.e. projection) struct.
+
+You (or me or whoever ends up making the change) could possibly even re-use
+Frank's datum transformation code from remotesensing.org PROJ, in a
+re-arranged format.
+
+> 
+> TIA.
+
+Yes, that was well in advance :) Sorry for taking so long to reply but I wanted
+to try and make my answer clear and useful to other people and a lot of work
+intervened.
+
+> 
+> PS: I have read your page about datum conversions for France. If you
+> need to read documentations in french and find parts you are
+> uncomfortable with, tell me I will translate them for you/answer your
+> questions (about the meaning of the french writing of course! Not about
+> what the text is talking about ;)
+
+I still have not had any feedback on how useful this file is so I will give
+the web address here in case anyone from France is interested:
+http://www.stjohnspoint.co.uk/gis/france.htm
+
+Good luck in the continuing efforts with KerGIS. I know there is a lot of
+background work in tidying up the code structure and preparing it all for
+one day when it will be used by many other developers in diverse GIS projects;
+hopefully this will not be too far away.
+
+Paul
+
+
+
+From tlaronde at polynum.com  Mon Jul  5 11:31:35 2004
+From: tlaronde at polynum.com (Thierry Laronde)
+Date: Mon, 5 Jul 2004 20:31:35 +0200
+Subject: [Proj] Re: [kergis_bugs] Re: What proj library version is best?
+In-Reply-To: <Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>;
+	from paul-grass@stjohnspoint.co.uk on Mon, Jul 05, 2004 at
+	10:55:15AM +0100
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+Message-ID: <20040705203135.A2207@polynum.org>
+
+Hello Paul,
+
+On Mon, Jul 05, 2004 at 10:55:15AM +0100, Paul Kelly wrote:
+> Hello Thierry,
+> (cc to Kergis, GRASS and PROJ lists and Maciek who was also interested in 
+> this)
+>
+[snipped]
+
+While the documentation is still under construction, if you agree I will
+put a copy of your message under the "documentation" part of the KerGIS
+site, so that people can have access to your explanations (and,
+hopefully, so that french people at least can read your page about
+projection studies about french systems [1]).
+.
+This is meant to be a temporary solution since I do believe that I (and
+others) need to provide an up-to-date and summarizing documentation
+pointing to more in-depth discussion of important points [and once 1.0
+is obtained I will focus on the documentation].
+
+And indeed projection management is an essential part of a GIS software
+so that is why the proj library has to be provided by KerGIS (and not
+put as an external dependency). So from your explanations and my
+feelings :
+> > 
+> > I tend to want to put libproj4 in place of old PROJ.4, but since this is
+> > a field you know far better than me I'd like to have your advice.
+> > libproj4 is the library minus the programs. But I'm not fear anymore of
+> > writing new things or updating old ones...
+> 
+> Yes well as I said above, I think libproj4 should slot in easily enough to
+> any version of GRASS prior to 5.0.0pre4, so that certainly applies to the 4.x
+> version KerGIS is based on. Then in the future perhaps datum transformation
+> could be implemented with the datum information as attributes of the pj_info
+> (i.e. co-ordinate system) struct rather than the PJ (i.e. projection) struct.
+> 
+> You (or me or whoever ends up making the change) could possibly even re-use
+> Frank's datum transformation code from remotesensing.org PROJ, in a
+> re-arranged format.
+
+I do prefer this solution of handling datum through attributes via
+pj_info since it will allow:
+
+1) a more fine grained handling of conversions without the side-effect
+of the PJ integration in the present PROJ.4
+
+2) an extension that will be compatible enough so it can be scheduled
+for the 1.x serie of KerGIS.
+
+Since I have already discovered that some of my initial feelings about
+future implementations (for example of the textual attributes
+management) have to be revised with the understanding I have gained of
+the logic of the historical GRASS code, the goal is to experiment,
+use intensively and extend to the limits _inside its present logic_ the
+4.0 kernel in order to obtain clear indications about what are the
+bottlenecks and the impossibilities and how some changes will impact the
+whole.
+
+Handling of the datum will be a neat progress, but will not impose a
+complete revolution ;) so I'm for it. And there is a lot of good stuff
+that can fit easily in the actual base of the code.
+
+> 
+> Good luck in the continuing efforts with KerGIS. I know there is a lot of
+> background work in tidying up the code structure and preparing it all for
+> one day when it will be used by many other developers in diverse GIS projects;
+> hopefully this will not be too far away.
+
+Thanks! We are at a couple of months from the whole sources fixed
+(alpha-5) but I want to be more conservative with the 1.0 since the
+directory tree, the function naming scheme and the organization of the
+libraries shall be stable for the 1.x serie and I will try to minimize
+the mistakes (the dramatic changes, not in the logic but in the
+organization must be done now so that people can rely on stable features
+while improvements continue to come in).
+
+Thanks for taking time to answer thoroughly.
+
+Cheers,
+
+1: The projection stuff should be study carefully by all people dealing
+with georeferencing, and the comparison and distorsions studies for
+example in France with different projection systems ---as is illustrated
+by your paper--- should convince people to use libre GIS software to
+visualize them, simply because these have practical consequences. 
+I once have seen people puzzled because the
+establishment on the ground of a building more than 400 meters long was
+giving, when verifying the coordinates of the corners, "wrong" results.
+The explanation was that the coordinates were in Lambert II, so with a
+conformal conic projection i.e. with a projection that keeps the angles
+but not the distances. And the establishment on the ground by the
+construction industry was using true distance (local coordinates system)
+while the surveyor was putting everything in Lambert II. With 400 meters
+or more there were several cm of difference...
+And going form Lambert II étendu to Lambert-93 should make clear that
+great care has to be taken...
+-- 
+Thierry Laronde (Alceste)  <tlaronde at polynum.com>
+http://www.kergis.org/  |  http://www.kergis.com/
+Key fingerprint = 0FF7 E906 FBAF FE95 FD89  250D 52B1 AE95 6006 F40C
+
+
+From gerald.evenden at verizon.net  Mon Jul  5 17:00:11 2004
+From: gerald.evenden at verizon.net (Gerald Evenden)
+Date: Mon, 5 Jul 2004 20:00:11 -0400
+Subject: [Proj] Re: [kergis_bugs] Re: What proj library version is best?
+In-Reply-To: <20040705203135.A2207@polynum.org>
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+Message-ID: <735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+
+This discussion reminds me of the email interaction Frank Warmerdam and 
+I
+had about what should be included in a projection library.  My position 
+was,
+and still is, that *only* the projection (conversion between geographic 
+and
+cartesian space) is the domain of the library.  All non-projection 
+elements like
+datum shifts and  x-y-z transformations are separate and unrelated 
+problems
+and belong in their own library systems.
+
+The reason for this is twofold: 1) projections have uses that do not 
+involve
+datums and their is no reason to burden these uses with elements that 
+are
+not involved and 2) developers often only have expertise in only one of 
+the
+areas and should not have to burden themselves with library maintenance
+involving unfamiliar elements.
+
+I may be partly to blame for the tendency to combine projection and 
+datum
+manipulation software by including the 'nad2nad' program with the 
+initial
+PROJ.4 distributions.  But this was included as an example of how to use
+the projection library and used by our local shop for datum operations.
+
+I believe Frank and I did reach a consensus but he has not had time to
+redo Remotesensing software to conform to the more recent libproj4
+that I support.  The last I checked, libproj4 has several more 
+projections
+(~135 total)  than the Remotesensing version including some newly 
+supported
+grid systems.
+
+I believe a great deal of the apparent current chaos could have been
+avoided by maintaining pristine PROJ.4 libraries and not indulging in
+parochial additions that diminish the ease of the importing of later 
+versions.
+
+_____________________________________
+Jerry and the low riders: Daisy Mae and Joshua
+
+
+
+From tlaronde at polynum.com  Tue Jul  6 03:53:36 2004
+From: tlaronde at polynum.com (Thierry Laronde)
+Date: Tue, 6 Jul 2004 12:53:36 +0200
+Subject: [Proj] Re: What proj library version is best?
+In-Reply-To: <735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>;
+	from gerald.evenden@verizon.net on Mon, Jul 05, 2004 at
+	08:00:11PM -0400
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+	<735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+Message-ID: <20040706125336.B282@polynum.org>
+
+Hello Gerald,
+
+On Mon, Jul 05, 2004 at 08:00:11PM -0400, Gerald Evenden wrote:
+> This discussion reminds me of the email interaction Frank Warmerdam and 
+> I
+> had about what should be included in a projection library.  My position 
+> was,
+> and still is, that *only* the projection (conversion between geographic 
+> and
+> cartesian space) is the domain of the library.  All non-projection 
+> elements like
+> datum shifts and  x-y-z transformations are separate and unrelated 
+> problems
+> and belong in their own library systems.
+> 
+> The reason for this is twofold: 1) projections have uses that do not 
+> involve
+> datums and their is no reason to burden these uses with elements that 
+> are
+> not involved and 2) developers often only have expertise in only one of 
+> the
+> areas and should not have to burden themselves with library maintenance
+> involving unfamiliar elements.
+
+I do agree with your points. More generally ---and that is the goal of
+the KerGIS project [restarted from last CERL sources of GRASS]--- I'm
+fanatic about size of the code (no duplication), orthogonality and Unix
+spirit: small programs doing one thing but well.
+
+So your libproj4 will be shipped with KerGIS (due credit, licence notes
+being specified on the web site and in the sources as for every portion
+of code) and no modifications will be done to libproj4 to "customize" it.
+The datum handling, as suggested by Paul and you, will be handled
+supplementary to this.
+libproj4 will be shipped with KerGIS just in order for people retrieving
+it to have a standalone GIS (no need to access external ressources not
+included in the tarball). But since it will be used as is, it should not
+be difficult for us to keep in sync.
+
+I will send you a message once the library is "officially" included in
+the KerGIS sources (should be done in october 2004, perhaps sooner since
+this does not represent at the moment huge modifications of the
+surrounding KerGIS code).
+
+Best regards,
+-- 
+Thierry Laronde (Alceste)  <tlaronde at polynum.com>
+http://www.kergis.org/  |  http://www.kergis.com/
+Key fingerprint = 0FF7 E906 FBAF FE95 FD89  250D 52B1 AE95 6006 F40C
+
+
+From csbruce at cubewerx.com  Tue Jul  6 09:18:25 2004
+From: csbruce at cubewerx.com (Craig Bruce)
+Date: Tue, 6 Jul 2004 12:18:25 -0400
+Subject: [Proj] What proj library version is best?
+Message-ID: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+
+Gerald Evenden <gerald.evenden at verizon.net> wrote:
+
+> This discussion reminds me of the email interaction Frank Warmerdam
+> and I had about what should be included in a projection library.
+> My position was, and still is, that *only* the projection (conversion
+> between geographic and cartesian space) is the domain of the library.
+> All non-projection elements like datum shifts and x-y-z transformations
+> are separate and unrelated problems and belong in their own library
+> systems.
+
+As an end-user of the system, what I want is a single interface that takes
+care of everything to do with coordinate/datum transformations for me.
+I don't really care about all of the sub-levels of stuff that needs to
+be done.
+
+However, there appears to be a significant practical issue here in that
+Gerald continues to add new projections to his own 'pure' copy of the
+PROJ library while Frank continues to develop the higher-level operations.
+It looks like decoupling the efforts would be the best practical solution.
+The "PROJ" library could remain 'pure' and Frank could reorganize his
+work into a "COORDSYS" (or some similar name) library that is built on top
+of PROJ and provides a complete interface for coorindate transformations
+so that end users don't need to know that a 'pure' PROJ library is even
+present.
+
+--------------------------+----------------------+--------------------------
+Dr. Craig S. Bruce        | Ph 819-771-8303 x205 |             CubeWerx Inc.
+Senior Software Developer |   Fax 819-771-8388   |  Gatineau, Québec, Canada
+csbruce at cubewerx.com      |  http://csbruce.com/ |  http://www.cubewerx.com/
+--------------------------+----------------------+--------------------------
+"Those who beat their swords into plowshares will plow for those who don't."
+
+
+From warmerdam at pobox.com  Tue Jul  6 10:46:57 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 06 Jul 2004 13:46:57 -0400
+Subject: [Proj] What proj library version is best?
+In-Reply-To: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+Message-ID: <40EAE591.8010801@pobox.com>
+
+Craig Bruce wrote:
+> As an end-user of the system, what I want is a single interface that takes
+> care of everything to do with coordinate/datum transformations for me.
+> I don't really care about all of the sub-levels of stuff that needs to
+> be done.
+> 
+> However, there appears to be a significant practical issue here in that
+> Gerald continues to add new projections to his own 'pure' copy of the
+> PROJ library while Frank continues to develop the higher-level operations.
+> It looks like decoupling the efforts would be the best practical solution.
+> The "PROJ" library could remain 'pure' and Frank could reorganize his
+> work into a "COORDSYS" (or some similar name) library that is built on top
+> of PROJ and provides a complete interface for coorindate transformations
+> so that end users don't need to know that a 'pure' PROJ library is even
+> present.
+
+Craig, et al,
+
+It is my intention at some point to rip out all of the PROJ.4 core that
+I am using and use Gerald's work instead.  However, this is a substantial
+job, and I'm not exactly sure when I will get to it.  There are also
+questions about what degree of backward compatibility with older
+versions of PROJ.4 (4.4.x) will be achieved in this move.  Whether I
+move to a whole new API or what.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From csbruce at cubewerx.com  Tue Jul  6 11:16:44 2004
+From: csbruce at cubewerx.com (Craig Bruce)
+Date: Tue, 6 Jul 2004 14:16:44 -0400
+Subject: [Proj] What proj library version is best?
+Message-ID: <200407061816.i66IGiVp009902@tux.cubewerx.com>
+
+Frank Warmerdam <warmerdam at pobox.com> wrote:
+
+> It is my intention at some point to rip out all of the PROJ.4 core
+> that I am using and use Gerald's work instead.  However, this is a
+> substantial job, and I'm not exactly sure when I will get to it.
+
+But having other people volunteer you for all sorts of new work is what
+open-source software is all about! :-)
+
+> There are also questions about what degree of backward compatibility
+> with older versions of PROJ.4 (4.4.x) will be achieved in this move.
+> Whether I move to a whole new API or what.
+
+You can create a new and independent interface and let the old extended-
+PROJ library wither on the vine.  People can upgrade to the new interface
+at the time they wish.
+
+--------------------------+----------------------+--------------------------
+Dr. Craig S. Bruce        | Ph 819-771-8303 x205 |             CubeWerx Inc.
+Senior Software Developer |   Fax 819-771-8388   |  Gatineau, Québec, Canada
+csbruce at cubewerx.com      |  http://csbruce.com/ |  http://www.cubewerx.com/
+--------------------------+----------------------+--------------------------
+        "Never forget that the primary purpose of the news media is
+         to sell advertising." -- unknown
+
+
+From bsupnik at xsquawkbox.net  Tue Jul  6 11:46:25 2004
+From: bsupnik at xsquawkbox.net (bsupnik)
+Date: Tue, 06 Jul 2004 11:46:25 -0700
+Subject: [Proj] What proj library version is best?
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+	<40EAE591.8010801@pobox.com>
+Message-ID: <40EAF381.1040808@xsquawkbox.net>
+
+Hi Y'all,
+
+I just wanted to echo Dr. Bruce's opinion on the desire for a single 
+high-level point of entry for all datum/geoid/projection/coord-system 
+related 'stuff'.  I can see the desire for distinct components; a 
+central integrated API that provides access to all of these things would 
+be great for developers like myself...y'all are a lot smarter when it 
+comes to these issues than I am;
+
+For me the huge value of Proj is that it lets me work with all sorts of 
+data without becoming an expert in the math behind the transforms, so 
+the more insulation Proj provides the better.  GeoTiff's capability 
+(where with Proj installed I can get geographic registration points for 
+an image no matter how they're encoded) is perfect...flexibility of 
+format but simplicity of API.
+
+If there is a new API I would like to see a more structured/functional 
+approach (perhaps similar to what libGeoTiff does) to building up 
+descriptions of coordinate systems, grid systems, projections, etc. 
+rather than the pseudo-command-line system we have now.
+
+*cheers*
+Ben
+
+
+
+
+From paul at toolscenter.org  Wed Jul  7 00:40:24 2004
+From: paul at toolscenter.org (Paul Selormey)
+Date: Wed, 7 Jul 2004 16:40:24 +0900
+Subject: [Proj] What proj library version is best?
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+	<40EAE591.8010801@pobox.com>
+Message-ID: <004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+
+Hello,
+This is a bit off topic...
+I have never being able to reach Gerald from here, Japan.
+I have tried both my home and work connections. Can someone
+post his latest codes to me and if possible the documentations.
+
+Best regards,
+Paul.
+
+> Craig Bruce wrote:
+> > As an end-user of the system, what I want is a single interface that
+takes
+> > care of everything to do with coordinate/datum transformations for me.
+> > I don't really care about all of the sub-levels of stuff that needs to
+> > be done.
+> >
+> > However, there appears to be a significant practical issue here in that
+> > Gerald continues to add new projections to his own 'pure' copy of the
+> > PROJ library while Frank continues to develop the higher-level
+operations.
+> > It looks like decoupling the efforts would be the best practical
+solution.
+> > The "PROJ" library could remain 'pure' and Frank could reorganize his
+> > work into a "COORDSYS" (or some similar name) library that is built on
+top
+> > of PROJ and provides a complete interface for coorindate transformations
+> > so that end users don't need to know that a 'pure' PROJ library is even
+> > present.
+>
+> Craig, et al,
+>
+> It is my intention at some point to rip out all of the PROJ.4 core that
+> I am using and use Gerald's work instead.  However, this is a substantial
+> job, and I'm not exactly sure when I will get to it.  There are also
+> questions about what degree of backward compatibility with older
+> versions of PROJ.4 (4.4.x) will be achieved in this move.  Whether I
+> move to a whole new API or what.
+>
+> Best regards,
+> -- 
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at xserve.flids.com
+> http://xserve.flids.com/mailman/listinfo/proj
+>
+>
+
+
+
+From frank at spacetec.no  Wed Jul  7 02:35:06 2004
+From: frank at spacetec.no (Frank J. OEynes)
+Date: Wed, 07 Jul 2004 11:35:06 +0200
+Subject: [Proj] Where is the current CVS repository?
+Message-ID: <40EBC3CA.4030306@spacetec.no>
+
+according to
+http://www.remotesensing.org:16080/proj/
+it should be
+cvs -d :pserver:anonymous at cvs.remotesensing.org:/cvsroot co proj
+
+But I have no success finding it.
+(cvs [checkout aborted]: there is no repository /cvsroot/proj)
+
+Regards,
+Frank
+
+
+
+
+From carl at dgi.com  Wed Jul  7 06:38:40 2004
+From: carl at dgi.com (Carl Godkin)
+Date: Wed, 07 Jul 2004 06:38:40 -0700
+Subject: [Proj] What proj library version is best?
+In-Reply-To: <004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>	<40EAE591.8010801@pobox.com>
+	<004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+Message-ID: <40EBFCE0.3070702@dgi.com>
+
+Paul Selormey wrote:
+
+> Hello,
+> This is a bit off topic...
+> I have never being able to reach Gerald from here, Japan.
+> I have tried both my home and work connections. Can someone
+> post his latest codes to me and if possible the documentations.
+>
+
+Gerald's code is here:
+
+http://members.bellatlantic.net/~vze2hc4d/proj4/
+
+I noticed that you wrote to the old list, proj at remotesensing.org,
+instead of the old list, proj at xserve.flids.com.
+
+There was an announcement a few weeks ago about the
+change.
+
+
+
+From paul at toolscenter.org  Wed Jul  7 07:02:27 2004
+From: paul at toolscenter.org (Paul Selormey)
+Date: Wed, 7 Jul 2004 23:02:27 +0900
+Subject: [Proj] What proj library version is best?
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>	<40EAE591.8010801@pobox.com>
+	<004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+	<40EBFCE0.3070702@dgi.com>
+Message-ID: <001201c4642b$0af2eb80$030ba8c0@SWEETJESUS>
+
+Hello Carl,
+Thanks for the response.
+
+> Gerald's code is here:
+>
+> http://members.bellatlantic.net/~vze2hc4d/proj4/
+
+Yes, this link is also available on the Proj4 site. This is the very
+link I have being trying without success - tried both IE and Firebird on
+Windows.
+
+The IE error message is:
+
+The page you are looking for is currently unavailable.
+The Web site might be experiencing technical difficulties,
+or you may need to adjust your browser settings
+
+It there any special browser setting required?
+
+> I noticed that you wrote to the old list, proj at remotesensing.org,
+> instead of the old list, proj at xserve.flids.com.
+
+Thanks, I simply forgot.
+
+Best regards,
+Paul.
+
+
+
+
+From gerald.evenden at verizon.net  Wed Jul  7 07:18:35 2004
+From: gerald.evenden at verizon.net (Gerald Evenden)
+Date: Wed, 7 Jul 2004 10:18:35 -0400
+Subject: [Proj] What proj library version is best?
+In-Reply-To: <004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+	<40EAE591.8010801@pobox.com>
+	<004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+Message-ID: <889688BA-D020-11D8-8166-000A958A3346@verizon.net>
+
+For direct contact my email is
+
+gerald.evenden at verizon.net
+
+and by personal website (as far as libproj4 is concernced) is:
+
+http://members.bellatlantic.net/~vze2hc4d/proj4/
+
+The website is pretty primative html and I can't imagine what the 
+problems
+with access may be.  I have not received other complaints.
+
+On Jul 7, 2004, at 3:40 AM, Paul Selormey wrote:
+
+> Hello,
+> This is a bit off topic...
+> I have never being able to reach Gerald from here, Japan.
+> I have tried both my home and work connections. Can someone
+> post his latest codes to me and if possible the documentations.
+>
+> Best regards,
+> Paul.
+>
+_____________________________________
+Jerry and the low riders: Daisy Mae and Joshua
+
+
+
+From warmerdam at pobox.com  Wed Jul  7 07:31:25 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 07 Jul 2004 10:31:25 -0400
+Subject: [Proj] What proj library version is best?
+In-Reply-To: <001201c4642b$0af2eb80$030ba8c0@SWEETJESUS>
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>	<40EAE591.8010801@pobox.com>	<004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>	<40EBFCE0.3070702@dgi.com>
+	<001201c4642b$0af2eb80$030ba8c0@SWEETJESUS>
+Message-ID: <40EC093D.4040005@pobox.com>
+
+
+>>I noticed that you wrote to the old list, proj at remotesensing.org,
+>>instead of the old list, proj at xserve.flids.com.
+
+Folks,
+
+Note, I would encourage you to use proj at remotesensing.org still.  We just
+haven't figured out how to avoid this xserve.flids.com stuff coming through
+in some places.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Wed Jul  7 07:57:48 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 07 Jul 2004 10:57:48 -0400
+Subject: [Proj] Where is the current CVS repository?
+In-Reply-To: <40EBC3CA.4030306@spacetec.no>
+References: <40EBC3CA.4030306@spacetec.no>
+Message-ID: <40EC0F6C.7070101@pobox.com>
+
+Frank J. OEynes wrote:
+> according to
+> http://www.remotesensing.org:16080/proj/
+> it should be
+> cvs -d :pserver:anonymous at cvs.remotesensing.org:/cvsroot co proj
+> 
+> But I have no success finding it.
+> (cvs [checkout aborted]: there is no repository /cvsroot/proj)
+
+Folks,
+
+Sorry ... now to do an anonymous CVS checkout you need to do:
+
+   cvs -d :pserver:anonymous at cvs.remotesensing.org:/cvs co proj
+
+I will correct the web page.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From mjwurtz at wanadoo.fr  Wed Jul  7 15:03:28 2004
+From: mjwurtz at wanadoo.fr (Michel Wurtz)
+Date: Thu, 08 Jul 2004 00:03:28 +0200
+Subject: [GRASS5] Re: [Proj] Re: [kergis_bugs] Re: What proj library
+	version is best?
+In-Reply-To: <735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+	<735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+Message-ID: <40EC7330.70600@wanadoo.fr>
+
+Gerald Evenden wrote:
+> This discussion reminds me of the email interaction Frank Warmerdam and I
+> had about what should be included in a projection library.  My position was,
+> and still is, that *only* the projection (conversion between geographic and
+> cartesian space) is the domain of the library.  All non-projection elements like
+> datum shifts and  x-y-z transformations are separate and unrelated problems
+> and belong in their own library systems.
+> 
+> The reason for this is twofold: 1) projections have uses that do not involve
+> datums and their is no reason to burden these uses with elements that are
+> not involved and 2) developers often only have expertise in only one of the
+> areas and should not have to burden themselves with library maintenance
+> involving unfamiliar elements.
+[...]
+
+I don't know how to interpret this : Datum is an important part of coordinate's
+transformation.  The same projection on two diferent datums can lead to errors
+of 500 m (at least in France, between the NTF and WGS84 Datum).  Projection
+and Datum transformation are two different steps (and hence may be done in
+different functions), but you cannot forget Datum transformation.  For exemple,
+the correct way to tranform UTM/WGS84 to NTF/Lambert coordinate is :
+
+(E,N) UTM -> lat/long WGS84 -> X,Y,Z (tridimentional) -> Datum shift, rotation
+and scale from WGS84 to NTF -> lat/long NTF -> (E,N) Lambert.
+
+Even with this formula you have an accuracy of 5 m in some places : You have to
+use a correction matrix to improve the precision to a geodetic one (5 cm).
+
+You can only forget datum when you work at very small scale (1:2,000,000 and under)
+
+-- 
+Michel Wurtz - Auzeville-Tolosane
+
+
+
+From cjmce at lsu.edu  Wed Jul  7 14:41:07 2004
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Wed, 7 Jul 2004 16:41:07 -0500
+Subject: [Proj] Re: What proj library	version is best?
+Message-ID: <OF1F46ED06.894115D2-ON86256ECA.00771E42-86256ECA.00771F0B@lsu.edu>
+
+
+
+
+
+
+Gerald Evenden wrote:
+> This discussion reminds me of the email interaction Frank Warmerdam and I
+> had about what should be included in a projection library.  My position
+was,
+> and still is, that *only* the projection (conversion between geographic
+and
+> cartesian space) is the domain of the library.  All non-projection
+elements like
+> datum shifts and  x-y-z transformations are separate and unrelated
+problems
+> and belong in their own library systems.
+>
+> The reason for this is twofold: 1) projections have uses that do not
+involve
+> datums and their is no reason to burden these uses with elements that are
+> not involved and 2) developers often only have expertise in only one of
+the
+> areas and should not have to burden themselves with library maintenance
+> involving unfamiliar elements.
+[...]
+
+I don't know how to interpret this : Datum is an important part of
+coordinate's
+transformation.  The same projection on two diferent datums can lead to
+errors
+of 500 m (at least in France, between the NTF and WGS84 Datum).  Projection
+and Datum transformation are two different steps (and hence may be done in
+different functions), but you cannot forget Datum transformation.  For
+exemple,
+the correct way to tranform UTM/WGS84 to NTF/Lambert coordinate is :
+
+(E,N) UTM -> lat/long WGS84 -> X,Y,Z (tridimentional) -> Datum shift,
+rotation
+and scale from WGS84 to NTF -> lat/long NTF -> (E,N) Lambert.
+
+Even with this formula you have an accuracy of 5 m in some places : You
+have to
+use a correction matrix to improve the precision to a geodetic one (5 cm).
+
+You can only forget datum when you work at very small scale (1:2,000,000
+and under)
+
+--
+Michel Wurtz - Auzeville-Tolosane
+
+------------------------------------
+
+I believe the major feature that separates the philosophies is spherical
+vs. ellipsoidal.  Datums are immaterial with spherical applications.
+However, if ellipsoids are important, than so are classical/inertial datums
+important.
+
+As to whether ellipsoidal projections and concomitant grids should be
+separated from datum shift techniques - that's like listening to cowboys
+argue about the best manufacturer of pickup trucks!
+
+The new 5th edition of the "Manual of Photogrammetry" is being introduced
+at the International Society for Photogrammetry and Remote Sensing meeting
+in Istanbul later this month.  I cover much of the above subject matter in
+Chapter 3 under "Object Space Coordinate Systems."
+
+Cliff Mugnier
+LOUISIANA STATE UNIVERSITY
+
+
+
+From Strebe at aol.com  Wed Jul  7 16:17:45 2004
+From: Strebe at aol.com (Strebe at aol.com)
+Date: Wed, 07 Jul 2004 19:17:45 -0400
+Subject: [Proj] Re: What proj libraryversion is best?
+Message-ID: <1D4EA700.75C4F821.00055439@aol.com>
+
+mjwurtz at wanadoo.fr (Michel Wurtz) wrote:
+
+>Projection
+>and Datum transformation are two different steps (and hence may be done in
+>different functions), but you cannot forget Datum transformation.  For exemple,
+>the correct way to tranform UTM/WGS84 to NTF/Lambert coordinate is :
+>
+>(E,N) UTM -> lat/long WGS84 -> X,Y,Z (tridimentional) -> Datum shift, rotation
+>and scale from WGS84 to NTF -> lat/long NTF -> (E,N) Lambert.
+
+I don't think Mr. Evenden (or anyone else) is forgetting anything here. Mr. Evenden's philosophy, which is sound, is that the first and last steps of your list fall under the purview of the proj library, and the rest do not. That says nothing about the importance or frivolity of the other steps; it only states that the steps are separable and that they can be handled by separate means.
+
+Regards,
+daan Strebe
+
+
+
+In a message dated 7/7/2004 6:03:28 PM Eastern Daylight Time, Michel Wurtz <mjwurtz at wanadoo.fr> writes:
+
+>Gerald Evenden wrote:
+>> This discussion reminds me of the email interaction Frank Warmerdam and I
+>> had about what should be included in a projection library.  My position was,
+>> and still is, that *only* the projection (conversion between geographic and
+>> cartesian space) is the domain of the library.  All non-projection elements like
+>> datum shifts and  x-y-z transformations are separate and unrelated problems
+>> and belong in their own library systems.
+>> 
+>> The reason for this is twofold: 1) projections have uses that do not involve
+>> datums and their is no reason to burden these uses with elements that are
+>> not involved and 2) developers often only have expertise in only one of the
+>> areas and should not have to burden themselves with library maintenance
+>> involving unfamiliar elements.
+>[...]
+>
+>I don't know how to interpret this : Datum is an important part of coordinate's
+>transformation.  The same projection on two diferent datums can lead to errors
+>of 500 m (at least in France, between the NTF and WGS84 Datum).  Projection
+>and Datum transformation are two different steps (and hence may be done in
+>different functions), but you cannot forget Datum transformation.  For exemple,
+>the correct way to tranform UTM/WGS84 to NTF/Lambert coordinate is :
+>
+>(E,N) UTM -> lat/long WGS84 -> X,Y,Z (tridimentional) -> Datum shift, rotation
+>and scale from WGS84 to NTF -> lat/long NTF -> (E,N) Lambert.
+>
+>Even with this formula you have an accuracy of 5 m in some places : You have to
+>use a correction matrix to improve the precision to a geodetic one (5 cm).
+>
+>You can only forget datum when you work at very small scale (1:2,000,000 and under)
+>
+>-- 
+>Michel Wurtz - Auzeville-Tolosane
+>
+>_______________________________________________
+>Proj mailing list
+>Proj at xserve.flids.com
+>http://xserve.flids.com/mailman/listinfo/proj
+>
+
+
+From paul at toolscenter.org  Wed Jul  7 17:27:25 2004
+From: paul at toolscenter.org (Paul Selormey)
+Date: Thu, 8 Jul 2004 09:27:25 +0900
+Subject: [Proj] What proj library version is best?
+References: <200407061618.i66GIP1E008702@tux.cubewerx.com>
+	<40EAE591.8010801@pobox.com>
+	<004c01c463f5$ac84faf0$700201c0@MAPQUEST.local>
+	<889688BA-D020-11D8-8166-000A958A3346@verizon.net>
+Message-ID: <000901c46482$5a0660b0$700201c0@MAPQUEST.local>
+
+> For direct contact my email is
+>
+> gerald.evenden at verizon.net
+
+That makes it easy :)
+
+> and by personal website (as far as libproj4 is concernced) is:
+>
+> http://members.bellatlantic.net/~vze2hc4d/proj4/
+
+I remember, I accessed that site - but do not know what happened
+after.
+
+> The website is pretty primative html and I can't imagine what the
+> problems
+> with access may be.  I have not received other complaints.
+
+ Initially, I assumed it was because of a change in my work place
+internet connection and at a time that was my only access to the internet.
+Now, I have a complete internet access in my new apartment and could not see
+the reason for this.
+
+Best regards,
+Paul.
+
+> On Jul 7, 2004, at 3:40 AM, Paul Selormey wrote:
+>
+> > Hello,
+> > This is a bit off topic...
+> > I have never being able to reach Gerald from here, Japan.
+> > I have tried both my home and work connections. Can someone
+> > post his latest codes to me and if possible the documentations.
+> >
+> > Best regards,
+> > Paul.
+> >
+> _____________________________________
+> Jerry and the low riders: Daisy Mae and Joshua
+>
+>
+>
+
+
+
+From gerald.evenden at verizon.net  Wed Jul  7 17:37:22 2004
+From: gerald.evenden at verizon.net (Gerald Evenden)
+Date: Wed, 7 Jul 2004 20:37:22 -0400
+Subject: [GRASS5] Re: [Proj] Continuing confusion of datums vs. projections
+In-Reply-To: <40EC7330.70600@wanadoo.fr>
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+	<735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+	<40EC7330.70600@wanadoo.fr>
+Message-ID: <F9F026B8-D076-11D8-8166-000A958A3346@verizon.net>
+
+Sorry, but I have been through this issue several times but I see it is 
+still
+necessary to reiterate my position: cartographic projections are a 
+subject
+area unto themselves and have *no* relationship to datums nor other
+aspects of common cadastral and geodetic activities.  One can spend
+their entire life studying and developing cartographic projections and
+not have one whit of knowledge of datums nor how to manipulate them.
+
+I take John Snyder as an excellent example: he wrote many articles and
+books related to cartographic projections.  He created new projections.
+He was recognized as a world class expert on cartographic projections.
+However, you do not need to take your shoes off to count the number
+of paragraphs he wrote on datum operations.  In fact, I cannot think
+of one case other than his listing of the projection parameters for
+both NAD27 and NAD83.  Surely, Snyder may have been aware of
+datum shifting and how to do it but he did not seem to include it in
+his research activities.
+
+Surely, projections are required in the practical world of cadastral and
+geodetic activities, but so are sine and cosine and a bunch of other
+transcendental functions.  The software development business
+normally compartmentalizes solutions by individuals specializing
+in solving different parts of a larger problem with the result of a
+collection of libraries that are linked together to produce a more
+general application program that utilizes a wide area of disciplines.
+
+Lastly, the argument that because the major axis and eccentricity are
+major details of a datum and that they are required by a projection, 
+then the
+projection should be included as part of a datum library just obfuscates
+the issue.  This whole subject area uses the sine function in many
+places---does that mean that we have to include the sine function in a
+cadastral library?  I think not.
+
+I am sorry to bore y'all but I think this is an important issue and 
+needs
+to be understood.
+_____________________________________
+Jerry and the low riders: Daisy Mae and Joshua
+
+
+
+From mjwurtz at wanadoo.fr  Thu Jul  8 01:16:31 2004
+From: mjwurtz at wanadoo.fr (Michel Wurtz)
+Date: Thu, 08 Jul 2004 10:16:31 +0200
+Subject: [GRASS5] Re: [Proj] Continuing confusion of datums vs. projections
+In-Reply-To: <F9F026B8-D076-11D8-8166-000A958A3346@verizon.net>
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+	<735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+	<40EC7330.70600@wanadoo.fr>
+	<F9F026B8-D076-11D8-8166-000A958A3346@verizon.net>
+Message-ID: <40ED02DF.5050808@wanadoo.fr>
+
+I just wanted to say that you cannot propose a GIS without offering a
+*correct* function to transform a map from one coordinate system to
+another one, even if the Datum involved is not the same.  The problem
+is not "should we develop this as internal or external library" : that
+doesn't matter.  The problem is "I have many sources of data, with an
+accuracy of a few meters.  I want to display/compare/mix/analyse them
+together.  My GIS should manage that".
+
+So the coordinate transformation functions must take care of datums.
+
+If Grass can't do that, Gras is unusable for a vast majority of application,
+and we will not have any usable open-source GIS that can stand in front of
+ArcView, MapInfo, GeoConcept and other commercial GIS softwares...
+
+Gerald Evenden wrote:
+> Sorry, but I have been through this issue several times but I see it is still
+> necessary to reiterate my position: cartographic projections are a subject
+> area unto themselves and have *no* relationship to datums nor other
+> aspects of common cadastral and geodetic activities.  One can spend
+> their entire life studying and developing cartographic projections and
+> not have one whit of knowledge of datums nor how to manipulate them.
+> 
+> I take John Snyder as an excellent example: he wrote many articles and
+> books related to cartographic projections.  He created new projections.
+> He was recognized as a world class expert on cartographic projections.
+> However, you do not need to take your shoes off to count the number
+> of paragraphs he wrote on datum operations.  In fact, I cannot think
+> of one case other than his listing of the projection parameters for
+> both NAD27 and NAD83.  Surely, Snyder may have been aware of
+> datum shifting and how to do it but he did not seem to include it in
+> his research activities.
+> 
+> Surely, projections are required in the practical world of cadastral and
+> geodetic activities, but so are sine and cosine and a bunch of other
+> transcendental functions.  The software development business
+> normally compartmentalizes solutions by individuals specializing
+> in solving different parts of a larger problem with the result of a
+> collection of libraries that are linked together to produce a more
+> general application program that utilizes a wide area of disciplines.
+> 
+> Lastly, the argument that because the major axis and eccentricity are
+> major details of a datum and that they are required by a projection, 
+> then the 
+> projection should be included as part of a datum library just obfuscates
+> the issue.  This whole subject area uses the sine function in many
+> places---does that mean that we have to include the sine function in a
+> cadastral library?  I think not.
+> 
+> I am sorry to bore y'all but I think this is an important issue and needs
+> to be understood.
+> _____________________________________
+> Jerry and the low riders: Daisy Mae and Joshua
+> 
+> 
+
+
+-- 
+Michel Wurtz - Auzeville-Tolosane
+
+
+
+From paul-grass at stjohnspoint.co.uk  Thu Jul  8 00:49:21 2004
+From: paul-grass at stjohnspoint.co.uk (Paul Kelly)
+Date: Thu, 8 Jul 2004 08:49:21 +0100 (BST)
+Subject: [GRASS5] Re: [Proj] Continuing confusion of datums vs. projections
+In-Reply-To: <40ED02DF.5050808@wanadoo.fr>
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+	<735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+	<40EC7330.70600@wanadoo.fr>
+	<F9F026B8-D076-11D8-8166-000A958A3346@verizon.net>
+	<40ED02DF.5050808@wanadoo.fr>
+Message-ID: <Pine.LNX.4.60.0407080841320.14572@agrippa.ukshells.co.uk>
+
+Hello Michel
+
+On Thu, 8 Jul 2004, Michel Wurtz wrote:
+
+> I just wanted to say that you cannot propose a GIS without offering a
+> *correct* function to transform a map from one coordinate system to
+> another one, even if the Datum involved is not the same.  The problem
+> is not "should we develop this as internal or external library" : that
+> doesn't matter.  The problem is "I have many sources of data, with an
+> accuracy of a few meters.  I want to display/compare/mix/analyse them
+> together.  My GIS should manage that".
+
+Gerald is talking about a projection library (PROJ), not a GIS (GRASS). Of 
+course GRASS can do datum transformations but it is perfectly feasible to 
+only use the PROJ library for projection calculations and to implement 
+datum shifting separately. This is what Thierry is doing with KerGIS (another
+GIS, based on GRASS).
+
+I would also add that within GRASS there are examples of the utility of 
+projection software that do not involve datums, e.g. in calculating the 
+latitude and longitude angles of a position on the earth for use in sun 
+angle calculations (r.sun etc.).
+
+> So the coordinate transformation functions must take care of datums.
+>
+> If Grass can't do that, Gras is unusable for a vast majority of application,
+> and we will not have any usable open-source GIS that can stand in front of
+> ArcView, MapInfo, GeoConcept and other commercial GIS softwares...
+
+Just to clarify for other people reading, GRASS *can* do that. The point 
+of this discussion was more a low-level technical one about how this 
+support is organised and programmed within the GIS and not a discussion of 
+the high-level functionality visible to the user.
+
+Paul
+
+
+From tlaronde at polynum.com  Thu Jul  8 04:23:49 2004
+From: tlaronde at polynum.com (Thierry Laronde)
+Date: Thu, 8 Jul 2004 13:23:49 +0200
+Subject: [Proj] Re: What proj library version is best?
+In-Reply-To: <40EC7330.70600@wanadoo.fr>;
+	from mjwurtz@wanadoo.fr on Thu, Jul 08, 2004 at 12:03:28AM +0200
+References: <20040426152346.A1503@polynum.org>
+	<Pine.LNX.4.60.0407051042310.3781@agrippa.ukshells.co.uk>
+	<20040705203135.A2207@polynum.org>
+	<735D8EFB-CEDF-11D8-8E04-000A958A3346@verizon.net>
+	<40EC7330.70600@wanadoo.fr>
+Message-ID: <20040708132349.E790@polynum.org>
+
+Hello,
+
+On Thu, Jul 08, 2004 at 12:03:28AM +0200, Michel Wurtz wrote:
+[..]
+> the correct way to tranform UTM/WGS84 to NTF/Lambert coordinate is :
+> 
+> (E,N) UTM -> lat/long WGS84 -> X,Y,Z (tridimentional) -> Datum shift, rotation
+> and scale from WGS84 to NTF -> lat/long NTF -> (E,N) Lambert.
+> 
+
+As already explained by Gerald Evenden and Paul Kelly, your
+"transformation formula" is a typical pipe i.e. a combination of
+different tools. Since the beginning and end
+are reverse functions, they belong to the very same library: Gerald
+Evenden's PROJ.4 or libproj4 (the new version).
+
+The datum handling deserves its proper tools (library). The discussion
+was not about user visible result, but how the code shall be organized.
+
+GPL GRASS is already providing such tools (minus some problems in some
+cases linked precisely to the fact that proj and datum are merged in a
+library).
+Since KerGIS is new I have the possibility (and the duty) to choose what
+I think is the best way to implement features. This best is for me to
+separate clearly pieces that are logically distinct, allowing to rectify
+the curve of needs (approaching almost exactly a "spline" via the
+smallest segments (programs)) and to insulate problems.
+-- 
+Thierry Laronde (Alceste)  <tlaronde at polynum.com>
+http://www.kergis.org/  |  http://www.kergis.com/
+Key fingerprint = 0FF7 E906 FBAF FE95 FD89  250D 52B1 AE95 6006 F40C
+
+
+From A.Weipert at Gematronik.com  Thu Jul  8 04:28:11 2004
+From: A.Weipert at Gematronik.com (A.Weipert)
+Date: Thu, 8 Jul 2004 13:28:11 +0200
+Subject: [Proj] (no subject)
+Message-ID: <01d701c464de$a6c481f0$890b1bc0@neu>
+
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040708/b2a4e97f/attachment.html>
+
+From Silke.Reimer at intevation.de  Thu Jul  8 08:03:45 2004
+From: Silke.Reimer at intevation.de (Silke Reimer)
+Date: Thu, 8 Jul 2004 17:03:45 +0200
+Subject: [Proj] (no subject)
+Message-ID: <20040708150345.GF21864@intevation.de>
+
+proj at xserve.flids.com 
+Cc: 
+Bcc: 
+Subject: Fedora package for grass and a few libraries
+Reply-To: 
+
+
+Hallo!
+
+I created a grass 5.7 package for fedora version 2 and a few library
+packages (gdal, proj and shapelib) which are normally necessary when
+you want use free GIS software ;-)
+
+You can download the Spec-files with the patches as well as srpms
+and rpms from
+	http://ftp.intevation.de/users/silke/packages/fedora/
+They are located in SPECS, SOURCES, RPMS and SRPMS respectivly.
+
+Please feel free to test the packages and make comments on them.
+
+Many greetings,
+
+	Silke
+
+P.S.: Sorry for cross posting. I am aware that most of you will be
+on more than one of those lists.
+
+-- 
+Silke Reimer
+
+Intevation GmbH                      http://intevation.de/
+FreeGIS                                http://freegis.org/
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 189 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040708/149403f6/attachment.sig>
+
+From paul-grass at stjohnspoint.co.uk  Sun Jul 11 06:06:00 2004
+From: paul-grass at stjohnspoint.co.uk (Paul Kelly)
+Date: Sun, 11 Jul 2004 14:06:00 +0100
+Subject: [Proj] Re:  Help me program proj
+References: <82.50.86.57+QVHIIx5tCRh2FxYnlSIK@all-1.inet.it>
+Message-ID: <40F13B38.E45F4C22@stjohnspoint.co.uk>
+
+
+
+"albeba01 at katamail.com" wrote:
+> 
+> Blank
+> I am one student of the polytechnic of Milan.  Recently I have unloaded on
+> situated www.remotesensing.org\proj the program "proj446 win32 bin.zip" that
+> it allows me to pass from a DATUM NAD27 to a DATUM NAD83.  In this program
+> they are contained of file.lla (the example:  conus.lla, FL.lla etc.); I
+> wanted to know that type of rows is, like I have been produced and structured
+> and the meant one of the numbers to the Distinguished inside of file.lla Sure
+> of one the ready answer
+
+You don't say why you want to do this. If you want to produce your own
+datum shifting tables I would recommend the relatively well-documented
+NTv2 format (readable by PROJ.4.4.7 and above) rather than the format
+used in the .lla files. See http://www.stjohnspoint.co.uk/gis/france.htm
+for some hints, especially the University of Melbourne GDAit links.
+
+I am not saying that the format in the .lla files is not well
+documented, just that I am not aware of it.
+
+
+From mazulauf at met.utah.edu  Thu Jul 15 09:49:00 2004
+From: mazulauf at met.utah.edu (Mike Zulauf)
+Date: Thu, 15 Jul 2004 09:49:00 -0700
+Subject: [Proj] please help C++ idiot with datum conversion
+Message-ID: <mazulauf-5C055B.09490015072004@sea.gmane.org>
+
+Hi all,
+
+I have what I believe to be a simple question.  I've got a very simple 
+bit of code C++ that converts a vector containing NAD27 long-lat to 
+NAD27 State Plane coordinates.  It's written so that I can call it from 
+Fortran.  It appears to be working, and giving correct results.
+
+I need to modify it, however, so that it will also do a datum 
+conversion, from WGS84 lat-lon to NAD27 State Plane coordinates.  I'm 
+sure this is simple, but I'm a newbie with PROJ.  To make matters worse, 
+I'm not a C++ programmer.  I generally work with Fortran.
+
+Below is the code as it stands now.  What's the best way to modify the 
+code to include the datum conversion?  It's ok to just have it 
+hard-wired - I don't need it to be flexible (ie, it doesn't need to be 
+able to handle NAD27 _or_ WGS84, just WGS84).  But I still need the 
+output to be NAD27.
+
+Even though it works as it is now (without datum conversion), it's 
+entirely likely I have some stupid error or nonstandard code, since I'm 
+not a C++ programmer.  If there's anything of that sort which might 
+cause problems down the line, I wouldn't mind hearing about that either.
+
+Thanks,
+Mike
+
+
+
+/*--------------------------------------------------------------------*/
+#include <stdio.h>
+#include <projects.h>
+
+void conv_coords(double coord_1[], double coord_2[], int *ni,
+                 int *conv_stat)
+  {
+    static char *parms[] = {
+      "proj=lcc",
+      "init=nad27:3601"
+  }; 
+
+    PJ *ref;
+    projUV data;
+    int i;
+   
+    *conv_stat = 1;
+
+    if ( ! (ref = pj_init(sizeof(parms)/sizeof(char *), parms)) )
+         {
+           printf("pj_init error\n");
+           *conv_stat = 0;
+         }
+
+   for (i = 0; i <= *ni-1; i++)
+     {
+         data.u = coord_1[i];
+         data.v = coord_2[i];
+         
+         data.u *= DEG_TO_RAD;
+         data.v *= DEG_TO_RAD;
+         
+         data = pj_fwd(data, ref);
+         if (data.u != HUGE_VAL)
+           {
+             coord_1[i] = data.u;
+             coord_2[i] = data.v;
+           }
+         else
+           {
+             printf("pj_fwd error\n");
+             *conv_stat = 0;
+           }
+
+      }
+
+      pj_free(ref);
+      
+  }
+/*--------------------------------------------------------------------*/
+
+
+-- 
+Mike Zulauf
+mazulauf at met.utah.edu
+
+
+
+From warmerdam at pobox.com  Thu Jul 15 10:49:56 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 15 Jul 2004 13:49:56 -0400
+Subject: [Proj] please help C++ idiot with datum conversion
+In-Reply-To: <mazulauf-5C055B.09490015072004@sea.gmane.org>
+References: <mazulauf-5C055B.09490015072004@sea.gmane.org>
+Message-ID: <40F6C3C4.1020902@pobox.com>
+
+Mike Zulauf wrote:
+> Hi all,
+> 
+> I have what I believe to be a simple question.  I've got a very simple 
+> bit of code C++ that converts a vector containing NAD27 long-lat to 
+> NAD27 State Plane coordinates.  It's written so that I can call it from 
+> Fortran.  It appears to be working, and giving correct results.
+> 
+> I need to modify it, however, so that it will also do a datum 
+> conversion, from WGS84 lat-lon to NAD27 State Plane coordinates.  I'm 
+> sure this is simple, but I'm a newbie with PROJ.  To make matters worse, 
+> I'm not a C++ programmer.  I generally work with Fortran.
+> 
+> Below is the code as it stands now.  What's the best way to modify the 
+> code to include the datum conversion?  It's ok to just have it 
+> hard-wired - I don't need it to be flexible (ie, it doesn't need to be 
+> able to handle NAD27 _or_ WGS84, just WGS84).  But I still need the 
+> output to be NAD27.
+> 
+> Even though it works as it is now (without datum conversion), it's 
+> entirely likely I have some stupid error or nonstandard code, since I'm 
+> not a C++ programmer.  If there's anything of that sort which might 
+> cause problems down the line, I wouldn't mind hearing about that either.
+
+Mike,
+
+I have included an alternate implementation using pj_transform().  The
+code compiled but I haven't tested it.  Note:
+
+  o I use proj_api.h, the public include file instead of projects.h which is
+    really only for internal use (or backward compatibility).
+
+  o I use pj_transform() instead of pj_fwd() as it includes support for two
+    arbitrary coordinate systems and extra stuff like datum conversion.
+
+#include <stdio.h>
+#include <proj_api.h>
+
+void conv_coords(double coord_1[], double coord_2[], int *ni,
+                  int *conv_stat)
+{
+     static const char *src_crs = "+proj=latlong +datum=WGS84";
+     static const char *dst_crs = "+init=nad27:3601 +datum=NAD27";
+
+     projPJ src_PJ, dst_PJ;
+     projUV data;
+     int i;
+
+     src_PJ = pj_init_plus( src_crs );
+     dst_PJ = pj_init_plus( dst_crs );
+
+     *conv_stat = 1;
+
+     if ( src_PJ == NULL || dst_PJ == NULL )
+     {
+         printf("pj_init error\n");
+         *conv_stat = 0;
+     }
+
+     for (i = 0; i <= *ni-1; i++)
+     {
+         double dummyz = 0.0;
+
+         if( pj_transform( src_PJ, dst_PJ,  1, 0,
+                           coord_1 + i, coord_2 + i, &dummyz ) != 0 )
+         {
+             printf("pj_fwd error\n");
+             *conv_stat = 0;
+         }
+
+         if (coord_1[i] != HUGE_VAL)
+         {
+             coord_1[i] = data.u;
+             coord_2[i] = data.v;
+         }
+         else
+         {
+             printf("pj_fwd error\n");
+             *conv_stat = 0;
+         }
+     }
+
+     pj_free(src_PJ);
+     pj_free(dst_PJ);
+}
+
+
+Good luck,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From mazulauf at met.utah.edu  Thu Jul 15 12:49:17 2004
+From: mazulauf at met.utah.edu (Mike Zulauf)
+Date: Thu, 15 Jul 2004 12:49:17 -0700
+Subject: [Proj] please help C++ idiot with datum conversion
+In-Reply-To: <40F6C3C4.1020902@pobox.com>
+References: <mazulauf-5C055B.09490015072004@sea.gmane.org>
+	<40F6C3C4.1020902@pobox.com>
+Message-ID: <0E6CCD38-D698-11D8-A69C-000A95D0091A@met.utah.edu>
+
+Thank you very much to all who responded (Frank, Duncan, and Sam).
+
+With a few minor changes, Frank's code does the trick.  I also found  
+that my local version of proj had originally been built without the  
+datum conversion files, so I had to rebuild them with those included.   
+That was quick and easy.  The test points that I give it now return  
+with the correct values.
+
+Y'all saved me a lot of time.  Now I can leave behind the confusing  
+world of C++, and get back to my more typical Fortran neighborhood.
+
+Thanks again,
+Mike
+
+
+On Jul 15, 2004, at 10:49 AM, Frank Warmerdam wrote:
+
+> Mike Zulauf wrote:
+>> Hi all,
+>> I have what I believe to be a simple question.  I've got a very  
+>> simple bit of code C++ that converts a vector containing NAD27  
+>> long-lat to NAD27 State Plane coordinates.  It's written so that I  
+>> can call it from Fortran.  It appears to be working, and giving  
+>> correct results.
+>> I need to modify it, however, so that it will also do a datum  
+>> conversion, from WGS84 lat-lon to NAD27 State Plane coordinates.  I'm  
+>> sure this is simple, but I'm a newbie with PROJ.  To make matters  
+>> worse, I'm not a C++ programmer.  I generally work with Fortran.
+>> Below is the code as it stands now.  What's the best way to modify  
+>> the code to include the datum conversion?  It's ok to just have it  
+>> hard-wired - I don't need it to be flexible (ie, it doesn't need to  
+>> be able to handle NAD27 _or_ WGS84, just WGS84).  But I still need  
+>> the output to be NAD27.
+>> Even though it works as it is now (without datum conversion), it's  
+>> entirely likely I have some stupid error or nonstandard code, since  
+>> I'm not a C++ programmer.  If there's anything of that sort which  
+>> might cause problems down the line, I wouldn't mind hearing about  
+>> that either.
+>
+> Mike,
+>
+> I have included an alternate implementation using pj_transform().  The
+> code compiled but I haven't tested it.  Note:
+>
+>  o I use proj_api.h, the public include file instead of projects.h  
+> which is
+>    really only for internal use (or backward compatibility).
+>
+>  o I use pj_transform() instead of pj_fwd() as it includes support for  
+> two
+>    arbitrary coordinate systems and extra stuff like datum conversion.
+>
+> #include <stdio.h>
+> #include <proj_api.h>
+>
+> void conv_coords(double coord_1[], double coord_2[], int *ni,
+>                  int *conv_stat)
+> {
+>     static const char *src_crs = "+proj=latlong +datum=WGS84";
+>     static const char *dst_crs = "+init=nad27:3601 +datum=NAD27";
+>
+>     projPJ src_PJ, dst_PJ;
+>     projUV data;
+>     int i;
+>
+>     src_PJ = pj_init_plus( src_crs );
+>     dst_PJ = pj_init_plus( dst_crs );
+>
+>     *conv_stat = 1;
+>
+>     if ( src_PJ == NULL || dst_PJ == NULL )
+>     {
+>         printf("pj_init error\n");
+>         *conv_stat = 0;
+>     }
+>
+>     for (i = 0; i <= *ni-1; i++)
+>     {
+>         double dummyz = 0.0;
+>
+>         if( pj_transform( src_PJ, dst_PJ,  1, 0,
+>                           coord_1 + i, coord_2 + i, &dummyz ) != 0 )
+>         {
+>             printf("pj_fwd error\n");
+>             *conv_stat = 0;
+>         }
+>
+>         if (coord_1[i] != HUGE_VAL)
+>         {
+>             coord_1[i] = data.u;
+>             coord_2[i] = data.v;
+>         }
+>         else
+>         {
+>             printf("pj_fwd error\n");
+>             *conv_stat = 0;
+>         }
+>     }
+>
+>     pj_free(src_PJ);
+>     pj_free(dst_PJ);
+> }
+>
+>
+> Good luck,
+>
+> --  
+> --------------------------------------- 
+> +--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam,  
+> warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+>
+
+-- 
+Mike Zulauf
+mazulauf at met.utah.edu
+
+
+
+From bsupnik at xsquawkbox.net  Thu Jul 15 14:59:53 2004
+From: bsupnik at xsquawkbox.net (bsupnik)
+Date: Thu, 15 Jul 2004 14:59:53 -0700
+Subject: [Proj] please help C++ idiot with datum conversion
+References: <mazulauf-5C055B.09490015072004@sea.gmane.org>
+	<40F6C3C4.1020902@pobox.com>
+Message-ID: <40F6FE59.5090409@xsquawkbox.net>
+
+Hi Frank,
+
+Stupid question about your code snippet: does it require that the datum 
+files are installed in the right places and converted from ASCII to 
+binary format in order to work?
+
+*Cheers*
+ben
+
+
+
+From warmerdam at pobox.com  Thu Jul 15 15:14:13 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 15 Jul 2004 18:14:13 -0400
+Subject: [Proj] please help C++ idiot with datum conversion
+In-Reply-To: <40F6FE59.5090409@xsquawkbox.net>
+References: <mazulauf-5C055B.09490015072004@sea.gmane.org>	<40F6C3C4.1020902@pobox.com>
+	<40F6FE59.5090409@xsquawkbox.net>
+Message-ID: <40F701B5.6060908@pobox.com>
+
+bsupnik wrote:
+> Hi Frank,
+> 
+> Stupid question about your code snippet: does it require that the datum 
+> files are installed in the right places and converted from ASCII to 
+> binary format in order to work?
+
+Ben,
+
+Yes, it does.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From mazulauf at met.utah.edu  Thu Jul 15 15:26:38 2004
+From: mazulauf at met.utah.edu (Mike Zulauf)
+Date: Thu, 15 Jul 2004 15:26:38 -0700
+Subject: [Proj] please help C++ idiot with datum conversion
+In-Reply-To: <40F6FE59.5090409@xsquawkbox.net>
+References: <mazulauf-5C055B.09490015072004@sea.gmane.org>
+	<40F6C3C4.1020902@pobox.com> <40F6FE59.5090409@xsquawkbox.net>
+Message-ID: <09F05D4C-D6AE-11D8-A69C-000A95D0091A@met.utah.edu>
+
+Frank already answered this, but I thought I'd add my points.
+
+I suppose it might depend on your platform (?), but on the two 
+unix-like OSs I built the libraries on (Mac OS X and Linux), I only had 
+to extract the contents of proj-nad27-1.1.tar into the proj/nad 
+directory, and then reconfigure and rebuild the library.
+
+Before that point, the code would run, but without the datum shift.  
+Afterwards, the datum shift occurs as it should.
+
+And if anybody is interested, at the bottom of this message is the 
+final version of the code snippet that I'm using now.  I had to correct 
+a couple minor issues of Frank's code (after all, he didn't have the 
+rest of my code to test with).
+
+Thanks again to all!
+
+Mike
+
+On Jul 15, 2004, at 2:59 PM, bsupnik wrote:
+
+> Hi Frank,
+>
+> Stupid question about your code snippet: does it require that the 
+> datum files are installed in the right places and converted from ASCII 
+> to binary format in order to work?
+>
+> *Cheers*
+> ben
+>
+
+
+/*--------------------------------------------------------------------*/
+#include <stdio.h>
+#include <proj_api.h>
+
+void ll2xy_(double coord_1[], double coord_2[], int *ni,
+             int *conv_stat)
+{
+     static const char *src_crs = "+proj=latlong +datum=WGS84";
+     static const char *dst_crs = "+init=nad27:3601 +datum=NAD27";
+
+     projPJ src_PJ, dst_PJ;
+     int i;
+
+     src_PJ = pj_init_plus( src_crs );
+     dst_PJ = pj_init_plus( dst_crs );
+
+     *conv_stat = 1;
+
+     if ( src_PJ == NULL || dst_PJ == NULL )
+     {
+         printf("pj_init_plus error\n");
+         *conv_stat = 0;
+     }
+
+     for (i = 0; i <= *ni-1; i++)
+     {
+         double dummyz = 0.0;
+
+         coord_1[i] *= DEG_TO_RAD;
+         coord_2[i] *= DEG_TO_RAD;
+
+         if( pj_transform( src_PJ, dst_PJ,  1, 0,
+                           &coord_1[i], &coord_2[i], &dummyz ) != 0 )
+         {
+             printf("pj_transform error\n");
+             *conv_stat = 0;
+         }
+
+         if (coord_1[i] == HUGE_VAL)
+         {
+             printf("pj_transform returned HUGE_VAL\n");
+             *conv_stat = 0;
+         }
+     }
+
+     pj_free(src_PJ);
+     pj_free(dst_PJ);
+}
+/*--------------------------------------------------------------------*/
+
+
+-- 
+Mike Zulauf
+mazulauf at met.utah.edu
+
+
+
+From psg at debian.org  Fri Jul 16 10:54:02 2004
+From: psg at debian.org (Peter S Galbraith)
+Date: Fri, 16 Jul 2004 13:54:02 -0400
+Subject: [Proj] library name not libproj.so.0 anymore?
+Message-ID: <20040716175403.C186ED9DA9@mixing.qc.dfo.ca>
+
+Hi all,
+
+Building proj creates:
+
+/usr/lib/libproj.0
+/usr/lib/libproj.0.4.2
+
+instead of libproj.so.0 and libproj.so.0.4.2 as it used to.
+Is this intentional?
+
+(Unfortunately, I uploaded a package to Debian like this without
+noticing it.)
+
+Thanks,
+-- 
+Peter S. Galbraith, Debian Developer          <psg at debian.org>
+                                 http://people.debian.org/~psg
+GPG key 1024/D2A913A1 - 97CE 866F F579 96EE  6E68 8170 35FF 799E
+
+
+From warmerdam at pobox.com  Fri Jul 16 11:24:38 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 16 Jul 2004 14:24:38 -0400
+Subject: [Proj] library name not libproj.so.0 anymore?
+In-Reply-To: <20040716175403.C186ED9DA9@mixing.qc.dfo.ca>
+References: <20040716175403.C186ED9DA9@mixing.qc.dfo.ca>
+Message-ID: <40F81D66.2010005@pobox.com>
+
+Peter S Galbraith wrote:
+> Hi all,
+> 
+> Building proj creates:
+> 
+> /usr/lib/libproj.0
+> /usr/lib/libproj.0.4.2
+> 
+> instead of libproj.so.0 and libproj.so.0.4.2 as it used to.
+> Is this intentional?
+> 
+> (Unfortunately, I uploaded a package to Debian like this without
+> noticing it.)
+
+Peter,
+
+I have not encountered this problem doing a default build and install.
+Are the files in your src/.libs directory named the same way?  I wonder
+what is going on.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From psg at debian.org  Fri Jul 16 11:57:56 2004
+From: psg at debian.org (Peter S Galbraith)
+Date: Fri, 16 Jul 2004 14:57:56 -0400
+Subject: [Proj] library name not libproj.so.0 anymore? 
+In-Reply-To: Message from Peter S Galbraith <psg@debian.org> of "Fri,
+	16 Jul 2004 13:54:02 EDT." <20040716175403.C186ED9DA9@mixing.qc.dfo.ca>
+References: <20040716175403.C186ED9DA9@mixing.qc.dfo.ca> 
+Message-ID: <20040716185756.52889DA17C@mixing.qc.dfo.ca>
+
+I wrote:
+
+> Building proj creates:
+> 
+> /usr/lib/libproj.0
+> /usr/lib/libproj.0.4.2
+> 
+> instead of libproj.so.0 and libproj.so.0.4.2 as it used to.
+> Is this intentional?
+
+Frank Warmerdam replied:
+
+> Peter,
+> 
+> I have not encountered this problem doing a default build and install.
+> Are the files in your src/.libs directory named the same way?  I wonder
+> what is going on.
+
+Thanks Frank.  I'm at work right now, away from my build environment at
+home, and this was just now pointed out to me by another Debian
+developer.  I'll see at home whether my Debian build scripts are causng
+this, now that I know it's not normal.  I'll try to track it down before
+posting again.
+
+Thanks!
+ 
+Peter
+
+
+From werchowyna at pf.pl  Mon Jul 19 13:58:43 2004
+From: werchowyna at pf.pl (Maciek Sieczka)
+Date: Mon, 19 Jul 2004 22:58:43 +0200
+Subject: [Proj] old german topo
+Message-ID: <006b01c46dd3$646febc0$9ee163d9@podyadeck>
+
+Hello Everyone!
+
+I've got few sheets of an old (before The Second World War) German topo map
+which I want to register in it's coordinate system and reproject into a
+system being used know in Poland. Unfortunately I don't know the projection
+definition of this German topo in detail. I'm writing the proj list hoping
+here I will find someone able to help me with this.
+
+Here go some details I managed to find out about these maps:
+- 1:25000
+- were called Messtischblättermap
+- the prime meridian intialy was Ferro, next Greenwich (since 1885)
+- Bessel ellipsoid
+- Gauss-Kruger projection (I don't speak German but that's what I understood
+from the map's label (as in the proj.png)
+
+A small piece of the map, top-left corner, sheet called "4955 Ostritz", is
+attached - only 7 KB (mostly erased to be preserve space). 10 KB both
+pictures together, I hope that's not too much.
+
+I would very apreciate any information and suggestions where to look for it.
+
+Maciek Sieczka
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: proj.png
+Type: image/png
+Size: 2260 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040719/4ded518c/attachment.png>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: top-left_empty.png
+Type: image/png
+Size: 7857 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040719/4ded518c/attachment-0001.png>
+
+From john.smart at caris.com  Mon Jul 19 16:01:46 2004
+From: john.smart at caris.com (John Smart)
+Date: Mon, 19 Jul 2004 20:01:46 -0300
+Subject: [Proj] old german topo
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck>
+Message-ID: <003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+
+Maciek
+
+Here are the results of a couple of test runs of the proj program, using
+Gauss-Krueger projection and Bessel ellipsoid, zone 5:
+
+C:\proj\bin>proj -I +proj=tmerc +ellps=bessel +lat_0=0 +lon_0=15 +k=1
++x_0=5500000 +y_0=0
+5489000 5662000
+14d50'34.664"E  51d5'39.257"N
+
+C:\proj\bin>proj +proj=tmerc +ellps=bessel +lat_0=0 +lon_0=15 +k=1
++x_0=5500000 +y_0=0
+14d50' 51d6'
+5488326.98      5662642.43
+
+Looks like pretty reasonable correspondence to what's on your map.
+Gauss-Krueger zone 5, central meridian 15 east, false easting 5500000, scale
+factor = 1.
+
+The longitudes are östlich von Greenwich (öL v Greenwich).
+
+The Nadelabweichung note isn't relevant; it's just a note about magnetic
+declination (difference between grid north and magnetic north, as of 1936!)
+
+See if that works for you.
+John
+
+
+----- Original Message -----
+From: "Maciek Sieczka" <werchowyna at pf.pl>
+To: <proj at xserve.flids.com>
+Sent: Monday, July 19, 2004 5:58 PM
+Subject: [Proj] old german topo
+
+
+> Hello Everyone!
+>
+> I've got few sheets of an old (before The Second World War) German topo
+map
+> which I want to register in it's coordinate system and reproject into a
+> system being used know in Poland. Unfortunately I don't know the
+projection
+> definition of this German topo in detail. I'm writing the proj list hoping
+> here I will find someone able to help me with this.
+>
+> Here go some details I managed to find out about these maps:
+> - 1:25000
+> - were called Messtischblättermap
+> - the prime meridian intialy was Ferro, next Greenwich (since 1885)
+> - Bessel ellipsoid
+> - Gauss-Kruger projection (I don't speak German but that's what I
+understood
+> from the map's label (as in the proj.png)
+>
+> A small piece of the map, top-left corner, sheet called "4955 Ostritz", is
+> attached - only 7 KB (mostly erased to be preserve space). 10 KB both
+> pictures together, I hope that's not too much.
+>
+> I would very apreciate any information and suggestions where to look for
+it.
+>
+> Maciek Sieczka
+>
+
+
+----------------------------------------------------------------------------
+----
+
+
+> _______________________________________________
+> Proj mailing list
+> Proj at xserve.flids.com
+> http://xserve.flids.com/mailman/listinfo/proj
+>
+
+
+
+From cjmce at lsu.edu  Mon Jul 19 16:11:39 2004
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Mon, 19 Jul 2004 18:11:39 -0500
+Subject: [Proj] old german topo
+Message-ID: <OFAE1D9BBE.613D8159-ON86256ED6.007F6786-86256ED6.007F68DE@lsu.edu>
+
+
+
+
+
+
+Dear Maciek,
+
+It appears that you have a simple Transverse Mercator (TM).  The
+Gauss-Kruger formulae are the exact same formulae used nowadays for the UTM
+and many (not all) Transverse Mercator projections used world-wide.  Prof.
+Carl Friederich Gauss developed it in the early 1800s and Col. Kruger (with
+an umlaut) re-cast the equations into a form well-suited for tabular hand
+computation.  Some pre-WWII large-scale topographic maps, such as yours,
+were on the Deutches Herresgitter (Germany Army Grid) which was identical
+to the UTM except that the scale factor at origin was unity (1.0).
+According to the WWII-era Planhefts compiled by the Wehrmach (Army), some
+of those were referenced to Ferro.  The DHG system was the "secret" system
+that greased the skids for the highly effective Blitzkriegs that were
+utilized to assault and capture the Sudenland, etc.
+
+In addition to reprojecting that old TM to a Polish Grid, you will have to
+contend with a change in geodetic datums.  The old German Topos were
+referenced to Pottsdam Datum on the Bessel 1841 ellipsoid.  Poland
+currently uses the "System 42" Datum on the Krassovsky 1940 ellipsoid.  If
+that has changed, I'd appreciate receiving information on the new system,
+such as EUREF(XX) and the geocentric transformation parameters from the old
+to the new.
+
+The best way to figure the datum shift parameters is to get coordinate
+pairs of churches (from the topo map and from the Polish system you wish to
+act as control), rather than road intersections.  Road alignments have a
+tendency to wander a bit over the decades as additional lanes are added
+while churches of course, will not move.
+
+Also see my column on the Grids and Datums of Poland (PE&RS, September
+2000) available from the "ASPRS" web site listed in my signature block.
+
+Write to me directly if you have further questions.
+
+Regards,
+
+Clifford J. Mugnier
+Chief of Geodesy and
+Associate Director,
+CENTER FOR GEOINFORMATICS
+Department of Civil Engineering
+LOUISIANA STATE UNIVERSITY
+Baton Rouge, LA  70803
+Voice and Facsimile:  (225) 578-8536
+======================================================
+http://www.ASPRS.org/resources.html
+http://www.cee.lsu.edu/facultyStaff/mugnier/index.html
+======================================================
+
+
+
+Hello Everyone!
+
+I've got few sheets of an old (before The Second World War) German topo map
+which I want to register in it's coordinate system and reproject into a
+system being used know in Poland. Unfortunately I don't know the projection
+definition of this German topo in detail. I'm writing the proj list hoping
+here I will find someone able to help me with this.
+
+Here go some details I managed to find out about these maps:
+- 1:25000
+- were called Messtischblättermap
+- the prime meridian intialy was Ferro, next Greenwich (since 1885)
+- Bessel ellipsoid
+- Gauss-Kruger projection (I don't speak German but that's what I
+understood
+from the map's label (as in the proj.png)
+
+A small piece of the map, top-left corner, sheet called "4955 Ostritz", is
+attached - only 7 KB (mostly erased to be preserve space). 10 KB both
+pictures together, I hope that's not too much.
+
+I would very apreciate any information and suggestions where to look for
+it.
+
+Maciek Sieczka
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: top-left_empty.png
+Type: image/png
+Size: 7857 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040719/7a4afe0d/attachment.png>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: proj.png
+Type: image/png
+Size: 2260 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040719/7a4afe0d/attachment-0001.png>
+
+From psg at debian.org  Tue Jul 20 10:55:42 2004
+From: psg at debian.org (Peter S Galbraith)
+Date: Tue, 20 Jul 2004 13:55:42 -0400
+Subject: [Proj] Proj may give erroneous results depending on locale
+Message-ID: <20040720175542.46A4CD9E3E@mixing.qc.dfo.ca>
+
+Hi, a Debian user (Radoslaw Grzanka <radekg2 at poczta.onet.pl>) reported
+the following bug when his locale is set to pl_PL :
+
+: Hello,
+:   I have encountered bug which resulted in proj giving different results
+: depending on locale set.
+:   As you can see in the signature my locale is pl_PL and when used with
+: gettext (or gtk+) gives wrong coordinates after transformation.
+:   I'm attaching simple testcase that shows the problem.
+:   The bug is also occures in testing vesion of package (4.4.7) and was
+: really hard to trace.
+: 
+: Best Regards,
+:   Radoslaw Grzanka
+
+When compiling the following C++ code and linking with either 4.4.7 or
+4.4.8 versions of proj, the bug appears when running the executable (on
+Debian systems).  I'm unfortunately not an expert in proj so cannot
+track this down.  I don't think this is Debian-specific (but I could be
+wrong).
+
+--------cut-------------------------
+//// Simple testcase
+#include <locale.h>
+#include <string>
+#include <iostream>
+#include <projects.h>
+
+const std::string projparams("+x_0=115073.415747 +y_0=-6288530.367751"
+        " +proj=lcc +lat_1=37.000000 +lat_2=65.000000 +lon_0=8.199763"
+        " +ellps=WGS84 +to_meter=63.506519 +no_defs");
+
+projUV proj_input;              // Input Values
+projUV proj_output;             // Output Values
+projPJ pj;
+
+int main()
+{
+//////////////////////////////////
+//// TEST 1 - without locales set.
+        pj = pj_init_plus(projparams.c_str());
+
+        proj_input.v = 53.5736;         // Lattitude
+        proj_input.u = 7.42731;         // Longitude
+        proj_input.v *= DEG_TO_RAD;     // To Rads
+        proj_input.u *= DEG_TO_RAD;     // To Rads
+
+        proj_output = pj_fwd(proj_input, pj);
+
+        std::cout << "Lattitude: " << proj_output.v
+                << " Longitude: " << proj_output.u << std::endl;
+
+        pj_free(pj);
+//// RESULT - Lattitude: 3197.17 Longitude: 1029.99 - GOOD.
+///////////////////////////////////
+////     TEST 2 - with locales set!
+        setlocale (LC_ALL, "");                 // SETTING LOCALES!
+
+        pj = pj_init_plus(projparams.c_str());
+
+        proj_input.v = 53.5736;         // Lattitude
+        proj_input.u = 7.42731;         // Longitude
+        proj_input.v *= DEG_TO_RAD;     // To Rads
+        proj_input.u *= DEG_TO_RAD;     // To Rads
+
+        proj_output = pj_fwd(proj_input, pj);
+
+        std::cout << "Lattitude: " << proj_output.v
+                << " Longitude: " << proj_output.u << std::endl;
+
+        pj_free(pj);
+//// RESULT - Lattitude: 3220.56 Longitude: 1242.12 - BAD.
+}
+--------cut-------------------------
+
+I had to add pl_PL as a possible locale on my system and generate the
+proper locale files, then set pl_PL as my locale, then I could reproduce
+the bug.
+
+Thanks,
+-- 
+Peter S. Galbraith, Debian Developer          <psg at debian.org>
+                                 http://people.debian.org/~psg
+GPG key 1024/D2A913A1 - 97CE 866F F579 96EE  6E68 8170 35FF 799E
+
+
+From warmerdam at pobox.com  Tue Jul 20 11:10:31 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 20 Jul 2004 14:10:31 -0400
+Subject: [Proj] Proj may give erroneous results depending on locale
+In-Reply-To: <20040720175542.46A4CD9E3E@mixing.qc.dfo.ca>
+References: <20040720175542.46A4CD9E3E@mixing.qc.dfo.ca>
+Message-ID: <40FD6017.3030509@pobox.com>
+
+Peter S Galbraith wrote:
+> Hi, a Debian user (Radoslaw Grzanka <radekg2 at poczta.onet.pl>) reported
+> the following bug when his locale is set to pl_PL :
+> 
+> : Hello,
+> :   I have encountered bug which resulted in proj giving different results
+> : depending on locale set.
+> :   As you can see in the signature my locale is pl_PL and when used with
+> : gettext (or gtk+) gives wrong coordinates after transformation.
+> :   I'm attaching simple testcase that shows the problem.
+> :   The bug is also occures in testing vesion of package (4.4.7) and was
+> : really hard to trace.
+> : 
+> : Best Regards,
+> :   Radoslaw Grzanka
+> 
+> When compiling the following C++ code and linking with either 4.4.7 or
+> 4.4.8 versions of proj, the bug appears when running the executable (on
+> Debian systems).  I'm unfortunately not an expert in proj so cannot
+> track this down.  I don't think this is Debian-specific (but I could be
+> wrong).
+
+Peter,
+
+In my experience, most locale() problems relate to the number conventions for
+the locale changing (ie. using comma instead of a period for the decimal mark
+for instance).  The atof() and sprintf() function then honour the new format
+and any atof() on existing floating point numbers from an init file for instance
+are wrong.
+
+In the past, my clumsy approach to handling such issues was to just
+do a setlocale() back to the C locale inside programs.
+
+In general I think it is a travesty that atof() and sprintf() have been thus
+adversely affected by locale standards and I'm not too excited about having to
+work around this in all sorts of hacky ways.
+
+However, if you can give a suggestion on clean ways of dealing with such
+problems, I would be interested.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From mariner at otenet.gr  Tue Jul 20 11:53:41 2004
+From: mariner at otenet.gr (Marinos Charalampakis)
+Date: Tue, 20 Jul 2004 21:53:41 +0300
+Subject: [Proj] -f arguments
+Message-ID: <008701c46e8a$e03a5d00$52b68c96@pcx>
+
+Hi,
+
+I would like to convert some UTM coordinates to decimal degrees. I used proj and worked, but the results are in DMS. I can't make the -f format work, under windows. Any suggestions?
+
+Thanks
+
+Marinos
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040720/8cb20e1c/attachment.html>
+
+From warmerdam at pobox.com  Tue Jul 20 13:06:30 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 20 Jul 2004 16:06:30 -0400
+Subject: [Proj] -f arguments
+In-Reply-To: <008701c46e8a$e03a5d00$52b68c96@pcx>
+References: <008701c46e8a$e03a5d00$52b68c96@pcx>
+Message-ID: <40FD7B46.1000407@pobox.com>
+
+Marinos Charalampakis wrote:
+> Hi,
+>  
+> I would like to convert some UTM coordinates to decimal degrees. I used 
+> proj and worked, but the results are in DMS. I can't make the -f format 
+> work, under windows. Any suggestions?
+
+Marinos,
+
+It seems to work ok for me.  I tried something like this:
+
+warmerda at gdal2200[138]% proj -f "%g" -I +proj=utm +zone=11 +datum=WGS84 << EOF
+? 45000 1100000
+? EOF
+-121.147        9.92534
+
+Make sure you use a valid format string.  Something like "%.12f" might be
+appropriate if you want alot of precision.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From glynn.clements at virgin.net  Tue Jul 20 19:50:12 2004
+From: glynn.clements at virgin.net (Glynn Clements)
+Date: Wed, 21 Jul 2004 03:50:12 +0100
+Subject: [Proj] Proj may give erroneous results depending on locale
+In-Reply-To: <20040720175542.46A4CD9E3E@mixing.qc.dfo.ca>
+References: <20040720175542.46A4CD9E3E@mixing.qc.dfo.ca>
+Message-ID: <16637.55780.213803.195822@cerise.nosuchdomain.co.uk>
+
+
+Peter S Galbraith wrote:
+
+> Hi, a Debian user (Radoslaw Grzanka <radekg2 at poczta.onet.pl>) reported
+> the following bug when his locale is set to pl_PL :
+
+>         setlocale (LC_ALL, "");                 // SETTING LOCALES!
+
+As the old joke goes:
+
+	Patient: Doctor, when I do this ... it hurts.
+	Doctor:  Don't do it, then!
+
+Simple fix: don't call setlocale().
+
+Writing internationalised software is non-trivial. In particular, it's
+not a matter of simply calling setlocale() at the beginning of the
+program then forgetting about it.
+
+If you want to read/write numbers using printf/scanf etc (or if you
+want to use libraries which do so), you have to keep switching locales
+between the user's locale (defined by the LC_* and LANG environment
+variables) and the C (aka POSIX) locale, as most textual file formats
+and communication protocols require that decimal fractions use the
+period (aka dot, full-stop) as the decimal separator, regardless of
+the user's locale.
+
+And many (most?) libraries require that the current locale is the C
+locale. So, if you want to set the LC_NUMERIC category to something
+other than the C locale, you have to set it back again before calling
+any library functions.
+
+IOW, the bug is in the application code, not in PROJ.
+
+-- 
+Glynn Clements <glynn.clements at virgin.net>
+
+
+From mariner at otenet.gr  Wed Jul 21 00:37:56 2004
+From: mariner at otenet.gr (Marinos Charalampakis)
+Date: Wed, 21 Jul 2004 10:37:56 +0300
+Subject: [Proj] -f arguments
+References: <008701c46e8a$e03a5d00$52b68c96@pcx> <40FD7B46.1000407@pobox.com>
+Message-ID: <001901c46ef5$a4080b50$52b68c96@pcx>
+
+Unfortunately it doesn't work for me. I am using that :
+
+proj.exe -f "%.12f" -I +proj=utm +north +zone=34 +ellps=WGS84
+<pointsUTM.dat> pointsWGS84.dat
+
+and this is what i get:
+
+.12f .12f   -73.485
+.12f .12f   -73.443
+
+I also check without specifing any file but it is stil the same. I also use
+exactly your code and your numbers and I always get back what is in the ""
+after -f. Funny ah?
+
+Thanks anyway
+
+M.
+
+
+
+
+From mariner at otenet.gr  Wed Jul 21 02:07:31 2004
+From: mariner at otenet.gr (Marinos Charalampakis)
+Date: Wed, 21 Jul 2004 12:07:31 +0300
+Subject: [Proj] -f arguments
+References: <008701c46e8a$e03a5d00$52b68c96@pcx> <40FD7B46.1000407@pobox.com>
+Message-ID: <004301c46f02$27a41920$52b68c96@pcx>
+
+I would also like to remind you that i run PROJ 4.4.6 for WIN32. I don't
+know if this causes the problem...
+
+M.
+
+----- Original Message ----- 
+From: "Frank Warmerdam" <warmerdam at pobox.com>
+To: "Marinos Charalampakis" <mariner at otenet.gr>
+Cc: <>
+Sent: Tuesday, July 20, 2004 11:06 PM
+Subject: Re: [Proj] -f arguments
+
+
+> Marinos Charalampakis wrote:
+> > Hi,
+> >
+> > I would like to convert some UTM coordinates to decimal degrees. I used
+> > proj and worked, but the results are in DMS. I can't make the -f format
+> > work, under windows. Any suggestions?
+>
+> Marinos,
+>
+> It seems to work ok for me.  I tried something like this:
+>
+> warmerda at gdal2200[138]% proj -f "%g" -I +proj=utm +zone=11 +datum=WGS84 <<
+EOF
+> ? 45000 1100000
+> ? EOF
+> -121.147        9.92534
+>
+> Make sure you use a valid format string.  Something like "%.12f" might be
+> appropriate if you want alot of precision.
+>
+> Best regards,
+>
+> -- 
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+>
+>
+>
+
+
+
+
+From warmerdam at pobox.com  Wed Jul 21 06:38:07 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 21 Jul 2004 09:38:07 -0400
+Subject: [Proj] -f arguments
+In-Reply-To: <001901c46ef5$a4080b50$52b68c96@pcx>
+References: <008701c46e8a$e03a5d00$52b68c96@pcx> <40FD7B46.1000407@pobox.com>
+	<001901c46ef5$a4080b50$52b68c96@pcx>
+Message-ID: <40FE71BF.6010908@pobox.com>
+
+Marinos Charalampakis wrote:
+> Unfortunately it doesn't work for me. I am using that :
+> 
+> proj.exe -f "%.12f" -I +proj=utm +north +zone=34 +ellps=WGS84
+> <pointsUTM.dat> pointsWGS84.dat
+> 
+> and this is what i get:
+> 
+> .12f .12f   -73.485
+> .12f .12f   -73.443
+> 
+> I also check without specifing any file but it is stil the same. I also use
+> exactly your code and your numbers and I always get back what is in the ""
+> after -f. Funny ah?
+
+Marinos Charalampakis wrote:
+ > I would also like to remind you that i run PROJ 4.4.6 for WIN32. I don't
+ > know if this causes the problem...
+
+Marinos,
+
+My first thought was that the problem is that the DOS shell is interpreting the
+'%' character to imply environment variable substitution.  However, I tried
+it on windows, and it seemed to work fine for me.
+
+D:\warmerda>proj.exe  -f "%.12f" -I +proj=utm +zone=34 +north +ellps=WGS84
+100 300
+16.512152010534 0.002705816086
+^Z
+
+This was with proj 4.4.8, but I looked through the cvs logs on the proj
+mainline and I don't see any notes about changes that would seem to be
+related.  So at this point I just don't know.  Perhaps try upgrading to
+the latest.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From psg at debian.org  Wed Jul 21 06:58:29 2004
+From: psg at debian.org (Peter S Galbraith)
+Date: Wed, 21 Jul 2004 09:58:29 -0400
+Subject: [Proj] Proj may give erroneous results depending on locale 
+In-Reply-To: Message from Glynn Clements <glynn.clements@virgin.net> of "Wed,
+	21 Jul 2004 03:50:12 BST."
+	<16637.55780.213803.195822@cerise.nosuchdomain.co.uk> 
+References: <20040720175542.46A4CD9E3E@mixing.qc.dfo.ca>
+	<16637.55780.213803.195822@cerise.nosuchdomain.co.uk> 
+Message-ID: <20040721135829.4B578D9DA9@mixing.qc.dfo.ca>
+
+Glynn Clements <glynn.clements at virgin.net> wrote:
+
+> As the old joke goes:
+> 
+> 	Patient: Doctor, when I do this ... it hurts.
+> 	Doctor:  Don't do it, then!
+> 
+> Simple fix: don't call setlocale().
+
+Many thanks to Frank and yourself for providing this answer.
+I'm happy with it.  Hopefully Radoslaw Grzanka (the bug submitter) will
+accept it as well.
+
+Peter
+
+
+From p.galbraith at globetrotter.net  Sat Jul 17 10:20:25 2004
+From: p.galbraith at globetrotter.net (Peter S Galbraith)
+Date: Sat, 17 Jul 2004 13:20:25 -0400
+Subject: [Proj] library name not libproj.so.0 anymore?
+In-Reply-To: Message from Frank Warmerdam <warmerdam@pobox.com>
+	"of Fri, 16 Jul 2004 14:24:38 EDT." <40F81D66.2010005@pobox.com>
+References: <20040716175403.C186ED9DA9@mixing.qc.dfo.ca>
+	<40F81D66.2010005@pobox.com>
+Message-ID: <12574.1090084825@mixed>
+
+Frank Warmerdam <warmerdam at pobox.com> wrote:
+
+> Peter S Galbraith wrote:
+> > Hi all,
+> > Building proj creates:
+> > /usr/lib/libproj.0
+> > /usr/lib/libproj.0.4.2
+> > instead of libproj.so.0 and libproj.so.0.4.2 as it used to.
+> > Is this intentional?
+> > (Unfortunately, I uploaded a package to Debian like this without
+> > noticing it.)
+> 
+> Peter,
+> 
+> I have not encountered this problem doing a default build and install.
+> Are the files in your src/.libs directory named the same way?  I wonder
+> what is going on.
+
+It happenned after I ran autoreconf.  Instead, I now simply used recent
+config.guess and config.sub files.  All is okay now.  Sorry about that.
+
+Peter
+
+
+From werchowyna at pf.pl  Fri Jul 23 16:20:13 2004
+From: werchowyna at pf.pl (Maciek Sieczka)
+Date: Sat, 24 Jul 2004 01:20:13 +0200
+Subject: [Proj] old german topo
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck>
+	<003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+Message-ID: <00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+
+From: "John Smart" <john.smart at caris.com>
+
+> Here are the results of a couple of test runs of the proj program, using
+> Gauss-Krueger projection and Bessel ellipsoid, zone 5:
+> (...)
+> Looks like pretty reasonable correspondence to what's on your map.
+> Gauss-Krueger zone 5, central meridian 15 east, false easting 5500000,
+> scale factor = 1.
+
+Thanks! I tried it and appears allright. I registered the Mestichblatter map
+using Grass 5.3 into the projection above with all the grid crossings (121
+points), exported into tiff/tfw, reprojected into the Polish "System 92"
+(tmerc on GRS80) using gdalwarp and imported it into Grass mapset with a
+"System 92" 1:10000 topo.When the Mestichblatter is displayed over the
+"System 92" map it looks quite in sync but there are differences of about
+3-15m in the location of even churches and few other buildings which I
+don't suppose to have moved. I can't see a clear tendency in these
+differences,
+they are in different directions. Do you think the projection used may not
+be the proper one? Or maybe I expect too much? I mean the map was prepared
+in '30s and it's only 1:25000 so it can't be any more accurate propably (?).
+
+As to the datums I tried 3 different ones and I'm not sure which one is
+really suitable here. I believe I had a best result with the first of the
+mentioned below. Though the reprojection result was very similar in each
+case (max 1-2 m difference) I would like to know which one is right if
+somebody can tell me.
+
+1. +towgs84=584.8,67.0,400.3,0.105,0.013,-2.378,10.29
+taken from the
+http://crs.bkg.bund.de/crseu/crs/descr/eu-countrysel.php?country=DE ->
+DE_DHDN / GK_3 -> Transf. -> DE_DHDN (Middle) to ETRS89
+
+2. +towgs84: 597.1,71.4,412.1,0.894,0.068,-1.563,7.58
+GRASS 5.3, datum: potsdam
+
+3. +towgs84=606.0,23.0,413.0
+GDAL 1.2.0, potsdam bessel, Potsdam Rauenberg 1950 DHDN
+
+Maciek
+
+
+
+From thomaschesky at yahoo.com  Fri Jul 23 20:52:52 2004
+From: thomaschesky at yahoo.com (Thomas Chesky)
+Date: Fri, 23 Jul 2004 20:52:52 -0700 (PDT)
+Subject: [Proj] epsg:2855 projection problem
+Message-ID: <20040724035252.22733.qmail@web90104.mail.scd.yahoo.com>
+
+Hello,
+ 
+I have a King County, WA dataset (shapefile) which I am trying to use with Mapserver.
+It is in " NAD83(HARN) / Washington North (ftUS) " projection (epsg:2855)
+but is translated to an invalid lat/lon extent:
+
+minx="-111.388" miny="46.3886" maxx="-106.113" maxy="49.1724" 
+
+without being a GIS expert (or anything even close) I can only imagine that the PROJ.4 library used by the Mapserver causes it. Is there any known issue with the epsg:2855 definition of PROJ.4 ? 
+
+Can somebody provide me the Mapserver PROJECTION definition for the same but not in the "init=epsg:2855" format. Maybe the problem is with the epsg lookup table and if defined by the full projection syntax, I got the right extent, but I am not sure how to define the proper PROJECTION syntax (other than the epsg one)
+
+Thanks
+
+ 
+
+
+		
+---------------------------------
+Do you Yahoo!?
+New and Improved Yahoo! Mail - Send 10MB messages!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20040723/afe6a8d1/attachment.html>
+
+From paul-grass at stjohnspoint.co.uk  Sat Jul 24 02:56:07 2004
+From: paul-grass at stjohnspoint.co.uk (Paul Kelly)
+Date: Sat, 24 Jul 2004 10:56:07 +0100 (BST)
+Subject: [Proj] old german topo
+In-Reply-To: <00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck>
+	<003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+	<00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+Message-ID: <Pine.LNX.4.60.0407241051090.9855@agrippa.ukshells.co.uk>
+
+On Sat, 24 Jul 2004, Maciek Sieczka wrote:
+
+[...]
+> As to the datums I tried 3 different ones and I'm not sure which one is
+> really suitable here. I believe I had a best result with the first of the
+> mentioned below. Though the reprojection result was very similar in each
+> case (max 1-2 m difference) I would like to know which one is right if
+> somebody can tell me.
+
+None of them are "right"; they are all only approximations to the shift 
+between the two datums. Number 1 is for central West Germany, number 2 for 
+southern west Germany, and number 3 seems to be general for the whole area 
+the potsdam datum is used in. However there is also a more accurate 
+7-parameter transformation for all of Germany on the CRS website (and also 
+in GRASS).
+So it all depends on which part of Germany your map covers, and e.g. if it 
+is not in an area that any of the widely available transformations covers 
+(e.g. former part of Germany that is now in Poland?) then for maximum 
+accuracy you would have to derive your own transformation using locations 
+of churches as was suggested. But I wouldn't know how to do that...
+
+>
+> 1. +towgs84=584.8,67.0,400.3,0.105,0.013,-2.378,10.29
+> taken from the
+> http://crs.bkg.bund.de/crseu/crs/descr/eu-countrysel.php?country=DE ->
+> DE_DHDN / GK_3 -> Transf. -> DE_DHDN (Middle) to ETRS89
+>
+> 2. +towgs84: 597.1,71.4,412.1,0.894,0.068,-1.563,7.58
+> GRASS 5.3, datum: potsdam
+>
+> 3. +towgs84=606.0,23.0,413.0
+> GDAL 1.2.0, potsdam bessel, Potsdam Rauenberg 1950 DHDN
+>
+> Maciek
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at xserve.flids.com
+> http://xserve.flids.com/mailman/listinfo/proj
+>
+
+
+From werchowyna at pf.pl  Sat Jul 24 07:57:25 2004
+From: werchowyna at pf.pl (Maciek Sieczka)
+Date: Sat, 24 Jul 2004 16:57:25 +0200
+Subject: [Proj] old german topo
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck><003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+	<00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+Message-ID: <00a401c4718f$34941b00$88e063d9@podyadeck>
+
+"Paul Kelly" <paul-grass at stjohnspoint.co.uk> wrote:
+
+> On Sat, 24 Jul 2004, Maciek Sieczka wrote:
+>
+> [...]
+> > As to the datums I tried 3 different ones and I'm not sure which one is
+> > really suitable here. I believe I had a best result with the first of
+> > the mentioned below. Though the reprojection result was very similar
+> > in each case (max 1-2 m difference) I would like to know which one
+> > is right if somebody can tell me.
+>
+> None of them are "right"; they are all only approximations to the shift
+> between the two datums. Number 1 is for central West Germany, number 2 for
+> southern west Germany, and number 3 seems to be general for the whole area
+> the potsdam datum is used in. However there is also a more accurate
+> 7-parameter transformation for all of Germany on the CRS website (and also
+> in GRASS).
+
+First I'd like to explain myself. Before I got to understand that there are
+different datum transformation parameters available for Potsdam datum I have
+had propably accidently selected the "2." mentioned below when setting up
+the mapset in Grass. After that I got to the
+http://crs.bkg.bund.de/crseu/crs/descr/eu-countrysel.php?country=DE,
+understood a bit more and came to conclussion that "1." would be better (not
+"right" :), ok) in my case - my maps are within 50°20'N - 52°20'N. And after
+your message I finally noticed different Potsdam datum paramteres available
+in Grass. Briefly that's why I was, in error, reffering to the "2." as to
+the "GRASS 5.3, datum: potsdam". Sorry for that.
+
+> > 1. +towgs84=584.8,67.0,400.3,0.105,0.013,-2.378,10.29
+> > taken from the
+> > http://crs.bkg.bund.de/crseu/crs/descr/eu-countrysel.php?country=DE ->
+> > DE_DHDN / GK_3 -> Transf. -> DE_DHDN (Middle) to ETRS89
+> >
+> > 2. +towgs84: 597.1,71.4,412.1,0.894,0.068,-1.563,7.58
+> > GRASS 5.3, datum: potsdam
+> >
+> > 3. +towgs84=606.0,23.0,413.0
+> > GDAL 1.2.0, potsdam bessel, Potsdam Rauenberg 1950 DHDN
+
+> So it all depends on which part of Germany your map covers, and e.g. if it
+> is not in an area that any of the widely available transformations covers
+> (e.g. former part of Germany that is now in Poland?)
+
+Yes, former part of Germany, now in Poland, circa 50°45'N, 15°30' - 15°50'E.
+
+> then for maximum
+> accuracy you would have to derive your own transformation using locations
+> of churches as was suggested. But I wouldn't know how to do that...
+
+Then me neither for sure.
+
+I've noticed that all the German/Bessel 1841 systems on the CRS site
+mention slightly different ellipsoid inverse flattening than Grass:
+
+Grass 5.3: 299.1528128
+CRS:        299.15281285
+
+Propably not a big difference but how big anyway?
+
+One thing more about the projection I've remembered that the guy I got the
+map from mentioned the name "von Müffling". He seemed to know about
+the cartography even less than me (would you believe it?) but according to
+him the projection was "multilateral projection elaborated by general major
+von Müffling" (my own translation from Polish). I treid a brief search about
+this general but nothing. Is it telling anything to anybody?
+
+Maciek
+
+
+
+From cjmce at lsu.edu  Sat Jul 24 11:04:10 2004
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Sat, 24 Jul 2004 13:04:10 -0500
+Subject: [Proj] old german topo
+Message-ID: <OF1804574E.F9F86431-ON86256EDB.0063411C-86256EDB.0063425F@lsu.edu>
+
+
+
+
+
+Maciek,
+
+I was surprised to hear of a Transverse Mercator projection on such an old
+topo map of German territory since it was so difficult to compute by hand.
+Remember now, that Gauss was the first to use it in the early 1800s (for
+the survey of Hannover), and he had a staff of several Ph.D. students to do
+the "grunt" work for him.  Its main purpose (the Gauss-Conform TM), for
+Gauss was to facilitate the survey computations rather than to be used for
+a cartographic projection.  The subsequent plane-table mapping for
+cadastral surveying (tax mapping) probably was on the Müffling projection
+because it was so "easy" to cast under field survey conditions.
+
+The most common projections found in old German applications were the
+"Solnder" (nowadays called the Cassini-Soldner) and the "Müffling."  Both
+are aphylactic projections, although the Cassini-Soldner is slightly closer
+mathematically to the Transverse Mercator than the Müffling.  The more
+common name for that projection is the Polyhedric or the "Polyeder."
+
+The ellipsoidal Müffling uses the identical mathematics as the
+two-dimentionsional version of the 3D "Local Space Rectangular" (LSR)
+coordinate system used in 3D computational photogrammetry.  It is (almost)
+the ellipsoidal equivalent of the gnomonic projection.  ALL aphylactic
+projections (Müffling/Polyeder, Cassini-Soldner, Bonne, and Polyconic) were
+developed to facilitate drafting in the field for plane table and alidade
+compilation.  For survey computations, they are awful.  (See my comments in
+my ASPRS column on Hong Kong.)
+
+The EXACT ellipsoid parameters and the EXACT number of significant digits
+published is critical to high-precision applications of geodetic
+transformations.  Variations abound that are correct for certain places for
+certain eras.  Exactly when a certain set of defining parameters is correct
+has to be discerned from government survey notes and publications.  It is
+an EXACT science, but it is also remarkably obscure and esoteric.
+
+Major General von Müffling was one of the first officers in command of the
+Topographic Engineer Corps of the Austro-Hungarian Empire.  (See my columns
+in PE&RS on Austria, Hungary, Poland, etc. for more details.)
+
+Clifford J. Mugnier
+Chief of Geodesy and
+Associate Director,
+CENTER FOR GEOINFORMATICS
+Department of Civil Engineering
+LOUISIANA STATE UNIVERSITY
+Baton Rouge, LA  70803
+Voice and Facsimile:  (225) 578-8536
+======================================================
+http://www.ASPRS.org/resources.html
+http://www.cee.lsu.edu/facultyStaff/mugnier/index.html
+======================================================
+
+
+"Paul Kelly" <paul-grass at stjohnspoint.co.uk> wrote:
+
+> On Sat, 24 Jul 2004, Maciek Sieczka wrote:
+>
+> [...]
+> > As to the datums I tried 3 different ones and I'm not sure which one is
+> > really suitable here. I believe I had a best result with the first of
+> > the mentioned below. Though the reprojection result was very similar
+> > in each case (max 1-2 m difference) I would like to know which one
+> > is right if somebody can tell me.
+>
+> None of them are "right"; they are all only approximations to the shift
+> between the two datums. Number 1 is for central West Germany, number 2
+for
+> southern west Germany, and number 3 seems to be general for the whole
+area
+> the potsdam datum is used in. However there is also a more accurate
+> 7-parameter transformation for all of Germany on the CRS website (and
+also
+> in GRASS).
+
+First I'd like to explain myself. Before I got to understand that there are
+different datum transformation parameters available for Potsdam datum I
+have
+had propably accidently selected the "2." mentioned below when setting up
+the mapset in Grass. After that I got to the
+http://crs.bkg.bund.de/crseu/crs/descr/eu-countrysel.php?country=DE,
+understood a bit more and came to conclussion that "1." would be better
+(not
+"right" :), ok) in my case - my maps are within 50°20'N - 52°20'N. And
+after
+your message I finally noticed different Potsdam datum paramteres available
+in Grass. Briefly that's why I was, in error, reffering to the "2." as to
+the "GRASS 5.3, datum: potsdam". Sorry for that.
+
+> > 1. +towgs84=584.8,67.0,400.3,0.105,0.013,-2.378,10.29
+> > taken from the
+> > http://crs.bkg.bund.de/crseu/crs/descr/eu-countrysel.php?country=DE ->
+> > DE_DHDN / GK_3 -> Transf. -> DE_DHDN (Middle) to ETRS89
+> >
+> > 2. +towgs84: 597.1,71.4,412.1,0.894,0.068,-1.563,7.58
+> > GRASS 5.3, datum: potsdam
+> >
+> > 3. +towgs84=606.0,23.0,413.0
+> > GDAL 1.2.0, potsdam bessel, Potsdam Rauenberg 1950 DHDN
+
+> So it all depends on which part of Germany your map covers, and e.g. if
+it
+> is not in an area that any of the widely available transformations covers
+> (e.g. former part of Germany that is now in Poland?)
+
+Yes, former part of Germany, now in Poland, circa 50°45'N, 15°30' - 15°
+50'E.
+
+> then for maximum
+> accuracy you would have to derive your own transformation using locations
+> of churches as was suggested. But I wouldn't know how to do that...
+
+Then me neither for sure.
+
+I've noticed that all the German/Bessel 1841 systems on the CRS site
+mention slightly different ellipsoid inverse flattening than Grass:
+
+Grass 5.3: 299.1528128
+CRS:        299.15281285
+
+Propably not a big difference but how big anyway?
+
+One thing more about the projection I've remembered that the guy I got the
+map from mentioned the name "von Müffling". He seemed to know about
+the cartography even less than me (would you believe it?) but according to
+him the projection was "multilateral projection elaborated by general major
+von Müffling" (my own translation from Polish). I treid a brief search
+about
+this general but nothing. Is it telling anything to anybody?
+
+Maciek
+
+
+
+From john.smart at caris.com  Sun Jul 25 14:51:29 2004
+From: john.smart at caris.com (John Smart)
+Date: Sun, 25 Jul 2004 18:51:29 -0300
+Subject: [Proj] old german topo
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck><003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+	<00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+Message-ID: <005c01c47291$8c665e80$5ac8a8c0@caris.priv>
+
+Maciek
+
+Please see below...
+
+> Thanks! I tried it and appears allright. I registered the Mestichblatter
+map
+> using Grass 5.3 into the projection above with all the grid crossings (121
+> points), exported into tiff/tfw, reprojected into the Polish "System 92"
+> (tmerc on GRS80) using gdalwarp and imported it into Grass mapset with a
+> "System 92" 1:10000 topo.When the Mestichblatter is displayed over the
+> "System 92" map it looks quite in sync but there are differences of about
+> 3-15m in the location of even churches and few other buildings which I
+> don't suppose to have moved. I can't see a clear tendency in these
+> differences,
+> they are in different directions. Do you think the projection used may not
+> be the proper one? Or maybe I expect too much? I mean the map was prepared
+> in '30s and it's only 1:25000 so it can't be any more accurate propably
+(?).
+
+I think you have to check the results step by step. The projection I
+suggested may or may not be the right one!
+
+First, I am curious as to how you did the registration. 121 points you say,
+but how was the image transformed? Although I'm not familiar with Grass, one
+typical approach would be to have a best-fit to those control points, in
+which case you don't expect the image of any grid intersection to match
+exactly to its nominal position (since error is distributed). A second
+approach would be to use a rubber-sheeting transformation, where the images
+of your grid intersections will be mapped exactly to the nominal positions,
+the areas between grid intersections being stretched or shrunk. Usually, I
+prefer the first approach, with an affine transformation, especially if I
+think I know the projection.
+
+Having done this registration, how good is it? You need to ask at this
+point, because if you are getting significant differences at this stage,
+then clearly you won't get any better after you reproject and do the datum
+transformation.
+
+Suggestions: point (in Grass or whatever) to a grid intersection that's
+shown on the map; now what is the typical size of difference that you get
+between the image of the intersection, and the nominal position? Do the
+errors tend to be in any particular direction (i.e. systematic error), or
+are the errors random? Also do the same test on some of your map's edge
+ticks which show the nominal geographic positions. (If you are getting
+different results between the grid intersections and the geographic values
+then that suggests the projection is not what we are assuming).
+
+For the registration quality, my guess is that you would be doing well to
+have most errors within 0.2mm at map scale, i.e. within 5m on the ground for
+your map. With the map-drawing process, printing and material aging, results
+can't be expected to be too much better than that. The scan resolution may
+also plays a part: I take it your scanned map has finer resolution than the
+.png you sent out the other day?
+
+John
+
+
+
+From werchowyna at pf.pl  Mon Jul 26 04:54:49 2004
+From: werchowyna at pf.pl (Maciek Sieczka)
+Date: Mon, 26 Jul 2004 13:54:49 +0200
+Subject: [Proj] old german topo
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck><003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+	<00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+	<005c01c47291$8c665e80$5ac8a8c0@caris.priv>
+Message-ID: <002e01c47307$e745e7a0$5d5d4cd5@podyadeck>
+
+From: "John Smart" <john.smart at caris.com>
+
+> Maciek
+> Please see below...
+
+> > I tried it and appears allright. I registered the Mestichblatter map
+> > using Grass 5.3 into the projection above with all the grid crossings
+> > (121 points), exported into tiff/tfw, reprojected into the Polish
+> > "System 92" (tmerc on GRS80) using gdalwarp and imported it into
+> > Grass mapset with a "System 92" 1:10000 topo.When the
+> > Mestichblatter is displayed over the "System 92" map it looks quite
+> > in sync but there are differences of about 3-15m in the location of even
+> > churches and few other buildings which I don't suppose to have
+> > moved. I can't see a clear tendency in these differences, they are in
+> > different directions. Do you think the projection used may not be the
+> > proper one? Or maybe I expect too much? I mean the map was
+> > prepared in '30s and it's only 1:25000 so it can't be any more
+> > accurate propably (?).
+
+> I think you have to check the results step by step. The projection I
+> suggested may or may not be the right one!
+
+> First, I am curious as to how you did the registration. 121 points you
+> say, but how was the image transformed? Although I'm not familiar with
+> Grass, one typical approach would be to have a best-fit to those control
+> points, in which case you don't expect the image of any grid intersection
+> to match exactly to its nominal position (since error is distributed). A
+> second approach would be to use a rubber-sheeting transformation,
+> where the images of your grid intersections will be mapped exactly to
+> the nominal positions, the areas between grid intersections being
+> stretched or shrunk. Usually, I prefer the first approach, with an affine
+> transformation, especially if I think I know the projection.
+
+I think I used the best method available in Grass - i.rectify with "3d order
+polynomial transformation matrix". With those 121 points the RMS was 6.24.
+Is there any better way? Or maybe some other software? There is no such
+thing like rubber-sheeting in Grass AFAIK.
+
+> Having done this registration, how good is it? You need to ask at this
+> point, because if you are getting significant differences at this stage,
+> then clearly you won't get any better after you reproject and do the datum
+> transformation.
+
+> Suggestions: point (in Grass or whatever) to a grid intersection that's
+> shown on the map; now what is the typical size of difference that you get
+> between the image of the intersection, and the nominal position? Do the
+> errors tend to be in any particular direction (i.e. systematic error), or
+> are the errors random? Also do the same test on some of your map's edge
+> ticks which show the nominal geographic positions. (If you are getting
+> different results between the grid intersections and the geographic values
+> then that suggests the projection is not what we are assuming).
+
+So I did.
+
+Top left corner on the Mestichblatter was labeled 15:40N 50:48E. After
+registration into the following:
+
+DHDN, Gauss Krueger, Bessel 1841, Potsdam datum (Federal States middle part,
+50°20' N ... 52°20'), Zone 5
+(+proj=tmerc +ellps=bessel +lat_0=0 +lon_0=15 +k=1 +x_0=5500000 +y_0=0
++towgs84=584.8,67.0,400.3,0.105,0.013,-2.378,10.29)
+
+for this point I got:
+
+EAST:             NORTH:               LON:               LAT:
+5546998.675       5629470.325     15:40:00.268758E     50:47:59.986324N
+
+Top right corner: 15:50N 50:48E.
+EAST:             NORTH:               LON:               LAT:
+5558739.475       5629589.15   15:49:59.890461E   50:47:59.977131N
+
+Looks quite allright...
+
+Few grid crosses within the registered map:
+expected:  5548000E 5629000N
+measured: 5548002.64166667 5628998.49375
+
+5550000E 5627000N
+5549999.3 5626998.76875
+
+5555000E 5623000N
+5554998.753125 5622998.6765625
+
+5558000E 5620000N
+5557999.97916667 5620000.875
+
+> For the registration quality, my guess is that you would be doing well to
+> have most errors within 0.2mm at map scale, i.e. within 5m  on the ground
+> for your map.
+
+The difference stays within +/-2m in general on the registered
+Mestichblatter as to the grid crossings. But please take a look at the
+pictures which I sent directly to your email as they are a bit to big for
+sending them here. There is the registered Mestichblatter reprojected to
+(with "gdalwarp -order 3 -rcs") and overlayed (violet or blue) on a pretty
+new, GRS80 1:10000 Polish topo, with pixel size set to 1m. I'm 100% sure the
+backdrop map is not disturbed anyway because it was scanned and registered
+by a proffesional geodetic company. And also I have verified it's accuracy
+on my own. So, when I compare the location of churches or other buildings
+the error is bigger than for the grid crosses after the registration only -
+about 15m. And it's not a simple shift in one direction - the error is
+distributed in many directions. On the opposite some features are projected
+a little better - like the unchanged fragments of the borderline (former
+Czech/Germany, now Czech/Poland). Reasumming it seems the registration
+cannot be done any better and this is a result of the quality of the German
+1:25000 topo itself, not of the registration and reprojection process,
+right? I've forgotten to say that the area is very mountainous wich is
+propably a factor influencing the Mestichblatter's accuracy. Though I had
+a doubt once I'd anyway say now that the projection you suggested would be
+ok here. How do you think?
+
+> With the map-drawing process, printing and material aging, results
+> can't be expected to be too much better than that. The scan resolution may
+> also plays a part: I take it your scanned map has finer resolution than
+> the .png you sent out the other day?
+
+Yes, that was about 3x reduced.
+
+Maciek
+
+
+
+From warmerdam at pobox.com  Mon Jul 26 07:50:48 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 26 Jul 2004 10:50:48 -0400
+Subject: [Proj] epsg:2855 projection problem
+In-Reply-To: <20040724035252.22733.qmail@web90104.mail.scd.yahoo.com>
+References: <20040724035252.22733.qmail@web90104.mail.scd.yahoo.com>
+Message-ID: <41051A48.7080004@pobox.com>
+
+Thomas Chesky wrote:
+> Hello,
+>  
+> I have a King County, WA dataset (shapefile) which I am trying to use 
+> with Mapserver.
+> It is in " NAD83(HARN) / Washington North (ftUS) " projection (epsg:2855)
+> but is translated to an invalid lat/lon extent:
+> 
+> minx="-111.388" miny="46.3886" maxx="-106.113" maxy="49.1724"
+> 
+> without being a GIS expert (or anything even close) I can only imagine 
+> that the PROJ.4 library used by the Mapserver causes it. Is there any 
+> known issue with the epsg:2855 definition of PROJ.4 ?
+> 
+> Can somebody provide me the Mapserver PROJECTION definition for the same 
+> but not in the "init=epsg:2855" format. Maybe the problem is with the 
+> epsg lookup table and if defined by the full projection syntax, I got 
+> the right extent, but I am not sure how to define the proper PROJECTION 
+> syntax (other than the epsg one)
+
+Thomas,
+
+First, note that epsg:2855 is a meter based projection, not feet based as you
+seem to assume.  When I inspect the definition it looks like this:
+
+  +proj=lcc +lat_1=48.73333333333333 +lat_2=47.5 +lat_0=47 +lon_0=-120.8333333333333
+            +x_0=500000 +y_0=0 +ellps=GRS80 +units=m +no_defs
+
+I tried converting one of your sample points (-111.388,46.3886) to WA north
+meters and got 1224988.70,-23436.36. I don't know if that is correct though it
+seems plausible to me.
+
+If you want to work in feet yo might want to use a definition:
+
+  +proj=lcc +lat_1=48.73333333333333 +lat_2=47.5 +lat_0=47 +lon_0=-120.8333333333333
+            +x_0=500000 +y_0=0 +ellps=GRS80 +units=us-ft +no_defs
+
+Finally, PROJ.4 is ignoring the HARN/datum aspect as we don't have any
+definition files for HARN (nor I have thought about it carefully).  This is
+fine for converting between lat/long GRS80 and epsg:3855 on GRS80 but if you
+need to change datums or ellipsoids the datum shifting issue will become
+significant.
+
+You mention "but is translated to an invalid lat/lon extent".  Do you mean that
+your data region is being reprojected to the named lat/long bounds, but you
+believe it is incorrect?  If so, the most likely reason is the ft/m issue.
+If not, please provide more details (the projected coordinates) and why you
+think the result is wrong.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From psg at debian.org  Mon Jul 26 08:14:55 2004
+From: psg at debian.org (Peter S Galbraith)
+Date: Mon, 26 Jul 2004 11:14:55 -0400
+Subject: [Proj] library name not libproj.so.0 anymore? 
+In-Reply-To: Message from Peter S Galbraith <p.galbraith@globetrotter.net> 
+	of "Sat, 17 Jul 2004 13:20:25 EDT." <12574.1090084825@mixed> 
+References: <20040716175403.C186ED9DA9@mixing.qc.dfo.ca>
+	<40F81D66.2010005@pobox.com> <12574.1090084825@mixed> 
+Message-ID: <20040726151455.457BED9DA9@mixing.qc.dfo.ca>
+
+I wrote:
+
+> Frank Warmerdam <warmerdam at pobox.com> wrote:
+> 
+> > Peter S Galbraith wrote:
+> > > Hi all,
+> > > Building proj creates:
+> > > /usr/lib/libproj.0
+> > > /usr/lib/libproj.0.4.2
+> > > instead of libproj.so.0 and libproj.so.0.4.2 as it used to.
+> > > Is this intentional?
+> > > (Unfortunately, I uploaded a package to Debian like this without
+> > > noticing it.)
+> > 
+> > Peter,
+> > 
+> > I have not encountered this problem doing a default build and install.
+> > Are the files in your src/.libs directory named the same way?  I wonder
+> > what is going on.
+> 
+> It happenned after I ran autoreconf. 
+
+For future reference, this happened when I ran autoreconf with libtool
+verion 1.5 against your 1.4 version files.  Installing version 1.4 on my
+build system fixed the problem.
+
+>                                       Instead, I now simply used recent
+> config.guess and config.sub files. 
+
+And I still needed to do that for mipsel support.  You may consider
+updating your config.guess and config.sub files too.
+
+Thanks,
+Peter
+
+
+From hamish_nospam at yahoo.com  Tue Jul 27 17:16:17 2004
+From: hamish_nospam at yahoo.com (Hamish)
+Date: Wed, 28 Jul 2004 12:16:17 +1200
+Subject: [Proj] old german topo
+In-Reply-To: <002e01c47307$e745e7a0$5d5d4cd5@podyadeck>
+References: <006b01c46dd3$646febc0$9ee163d9@podyadeck>
+	<003901c46de4$5e254b50$5ac8a8c0@caris.priv>
+	<00aa01c4710b$c2e84f40$a15d4cd5@podyadeck>
+	<005c01c47291$8c665e80$5ac8a8c0@caris.priv>
+	<002e01c47307$e745e7a0$5d5d4cd5@podyadeck>
+Message-ID: <20040728121617.58f960bd.hamish_nospam@yahoo.com>
+
+> > > I tried it and appears allright. I registered the Mestichblatter
+> > > map using Grass 5.3 into the projection above with all the grid
+> > > crossings(121 points), exported into tiff/tfw, reprojected into
+> > > the Polish"System 92" (tmerc on GRS80) using gdalwarp and imported
+> > > it into Grass mapset with a "System 92" 1:10000 topo.When the
+> > > Mestichblatter is displayed over the "System 92" map it looks
+> > > quite in sync but there are differences of about 3-15m in the
+> > > location of even churches and few other buildings which I don't
+> > > suppose to have moved. I can't see a clear tendency in these
+> > > differences, they are in different directions. Do you think the
+> > > projection used may not be the proper one? Or maybe I expect too
+> > > much? I mean the map was prepared in '30s and it's only 1:25000 so
+> > > it can't be any more accurate propably (?).
+> 
+> > I think you have to check the results step by step. The projection I
+> > suggested may or may not be the right one!
+> 
+> > First, I am curious as to how you did the registration. 121 points
+> > you say, but how was the image transformed? Although I'm not
+> > familiar with Grass, one typical approach would be to have a
+> > best-fit to those control points, in which case you don't expect the
+> > image of any grid intersection to match exactly to its nominal
+> > position (since error is distributed). A second approach would be to
+> > use a rubber-sheeting transformation, where the images of your grid
+> > intersections will be mapped exactly to the nominal positions, the
+> > areas between grid intersections being stretched or shrunk. Usually,
+> > I prefer the first approach, with an affine transformation,
+> > especially if I think I know the projection.
+> 
+> I think I used the best method available in Grass - i.rectify with "3d
+> order polynomial transformation matrix". With those 121 points the RMS
+> was 6.24. Is there any better way? Or maybe some other software? There
+> is no such thing like rubber-sheeting in Grass AFAIK.
+
+fyi,
+
+from the GRASS i.points help page:
+http://grass.ibiblio.org/gdp/html_grass5/html/i.points.html
+
+"A good rule of thumb is to mark at least 12 to 15 points which are
+evenly distributed over the entire imagery group file in order to obtain
+an accurate transformation equation for the rectification process. The
+RMS error may increase with more points added, but the transformation
+equation will be more accurate.
+
+An RMS error of less than or equal to approximately one resolution unit
+(pixel or cell) for the image being rectified is generally considered
+acceptable."
+
+
+
+from the GRASS i.rectify help page:
+http://grass.ibiblio.org/gdp/html_grass5/html/i.rectify.html
+
+"The polynomial equations are performed using a modified Gaussian
+elimination method."
+
+
+
+also note the i.points3 module:
+"i.points3 allows the user to select either a polynomial, orthographic,
+or LANDSAT-Thematic Mapper transformation."
+
+
+
+
+Hamish
+
+
+From bkerin at asf.alaska.edu  Wed Jul 28 15:40:47 2004
+From: bkerin at asf.alaska.edu (Britton Kerin)
+Date: Wed, 28 Jul 2004 14:40:47 -0800 (AKDT)
+Subject: [Proj] minor proj bugs
+Message-ID: <Pine.LNX.4.44.0407281427550.7927-100000@mail1.asf.alaska.edu>
+
+
+Hello,
+
+Not sure this list is alive (the archive link on the web page doesn't 
+work).  The web interface to bugzilla isn't working either though, so here 
+goes:
+
+1. There is a discrepency between the pj_geocentric_to_geodetic 
+   and pj_geodetic_to_geocentric prototypes in proj_api.h and the 
+   corresponding definitions in pj_transform.c.  The second argument in 
+   the signatures in the definitions is 'es', which I assume stands for 
+   eccentricity squared.  The first thing the functions do is compute 'b'
+   (I assuem the minor axis treating es as eccentricity squared, so I 
+   guess eccentricity squared s what it is.  The prototypes in proj_api.h
+   have a second argument called 'ra' however, which is confusing.  It
+   looks to me like the names in proj_api.h should be changed from 'ra' to
+   'es'.
+
+2. The description of the -format option in the cs2cs man page contains an 
+   unecesary sentence:
+
+              Format is a printf format string to  con-
+              trol  the form of the output values.  For
+              inverse projections, the output  will  be
+              in  degrees when this option is employed.
+              If a format is specified for inverse pro-
+              jection  the output data will be in deci-
+              mal  degrees.   The  default  format   is
+              "%.2f" for forward projection and DMS for
+              inverse.
+
+3. Advertise the new general transformation capabilities (cs2cs and 
+   corresponding capabilities of 'projPJ' type in library) better!  They 
+   are really cool and I almost missed them entirely.
+
+4. Some of the API routines look redundant with each other now.  For 
+   example, if I understand correctly: pj_datum_transform is now subsumed 
+   into pj_transform?  And pj_fwd and pj_inv are also simple versions of 
+   pj_transform?  This redundance should probably be discussed somewhere 
+   to prevent confusion.  Or, if they are different, the differences 
+   should be described.
+
+proj is excellent in general though, definately worth keeping it up to 
+speed and polishing up the docs.
+
+Britton
+
+
+
+
+From warmerdam at pobox.com  Wed Jul 28 16:31:46 2004
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 28 Jul 2004 19:31:46 -0400
+Subject: [Proj] minor proj bugs
+In-Reply-To: <Pine.LNX.4.44.0407281427550.7927-100000@mail1.asf.alaska.edu>
+References: <Pine.LNX.4.44.0407281427550.7927-100000@mail1.asf.alaska.edu>
+Message-ID: <41083762.3050403@pobox.com>
+
+Britton Kerin wrote:
+> Hello,
+> 
+> Not sure this list is alive (the archive link on the web page doesn't 
+> work).  The web interface to bugzilla isn't working either though, so here 
+> goes:
+
+Britton,
+
+Have have removed the old archive link and noted that the subscribe/unsub
+link also leads to archives.
+
+> 1. There is a discrepency between the pj_geocentric_to_geodetic 
+>    and pj_geodetic_to_geocentric prototypes in proj_api.h and the 
+>    corresponding definitions in pj_transform.c.  The second argument in 
+>    the signatures in the definitions is 'es', which I assume stands for 
+>    eccentricity squared.  The first thing the functions do is compute 'b'
+>    (I assuem the minor axis treating es as eccentricity squared, so I 
+>    guess eccentricity squared s what it is.  The prototypes in proj_api.h
+>    have a second argument called 'ra' however, which is confusing.  It
+>    looks to me like the names in proj_api.h should be changed from 'ra' to
+>    'es'.
+
+Agreed.  I have fixed this in CVS.
+
+> 2. The description of the -format option in the cs2cs man page contains an 
+>    unecesary sentence:
+> 
+>               Format is a printf format string to  con-
+>               trol  the form of the output values.  For
+>               inverse projections, the output  will  be
+>               in  degrees when this option is employed.
+>               If a format is specified for inverse pro-
+>               jection  the output data will be in deci-
+>               mal  degrees.   The  default  format   is
+>               "%.2f" for forward projection and DMS for
+>               inverse.
+
+Fixed in CVS.
+
+> 3. Advertise the new general transformation capabilities (cs2cs and 
+>    corresponding capabilities of 'projPJ' type in library) better!  They 
+>    are really cool and I almost missed them entirely.
+
+Advertise where?  I can't update the postscript/pdf manuals as they are "readonly"
+at this point.  But the new stuff is listed in the pj_init man page and cs2cs
+has a SEE ALSO'ed man page.
+
+> 4. Some of the API routines look redundant with each other now.  For 
+>    example, if I understand correctly: pj_datum_transform is now subsumed 
+>    into pj_transform?  And pj_fwd and pj_inv are also simple versions of 
+>    pj_transform?  This redundance should probably be discussed somewhere 
+>    to prevent confusion.  Or, if they are different, the differences 
+>    should be described.
+
+pj_transform() is built by using the various component transformations.  The
+pj_datum_transform() isn't really intended to be too public, and I don't
+think I have documented it anywhere.
+
+> proj is excellent in general though, definately worth keeping it up to 
+> speed and polishing up the docs.
+
+Thanks,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From neteler at itc.it  Fri Jul 30 00:57:25 2004
+From: neteler at itc.it (Markus Neteler)
+Date: Fri, 30 Jul 2004 09:57:25 +0200
+Subject: PROJ archive - Re: [Proj] minor proj bugs
+In-Reply-To: <41083762.3050403@pobox.com>
+References: <Pine.LNX.4.44.0407281427550.7927-100000@mail1.asf.alaska.edu>
+	<41083762.3050403@pobox.com>
+Message-ID: <20040730075725.GB8246@thuille.itc.it>
+
+On Wed, Jul 28, 2004 at 07:31:46PM -0400, Frank Warmerdam wrote:
+> Britton Kerin wrote:
+> >Hello,
+> >
+> >Not sure this list is alive (the archive link on the web page doesn't 
+> >work).  The web interface to bugzilla isn't working either though, so here 
+> >goes:
+> 
+> Britton,
+> 
+> Have have removed the old archive link and noted that the subscribe/unsub
+> link also leads to archives.
+
+Frank,
+
+eee a chance to reconstruct the old PROJ4 archive? It's an 
+important source of information. The reconstruction can be done easily
+in two steps:
+
+  cat projarchive.mbox >> mailman/archives/private/proj.mbox/proj.mbox
+  mailman/bin/arch proj
+
+I (the community?) hope that the PROJ4 archive can be completed 
+as it was done for the GDAL project.
+
+Thanks in advance
+
+ Markus
+
+
+

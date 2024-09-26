@@ -1,0 +1,1269 @@
+From aurelien.albert at alyotech.fr  Tue Jun  9 13:47:37 2015
+From: aurelien.albert at alyotech.fr (=?iso-8859-1?Q?ALBERT_Aur=E9lien?=)
+Date: Tue, 9 Jun 2015 22:47:37 +0200
+Subject: [Proj] pj_transform in multithread application
+In-Reply-To: <mailman.0.1433882691.4655.proj@lists.maptools.org>
+References: <mailman.0.1433882691.4655.proj@lists.maptools.org>
+Message-ID: <06A7AD4E92172446ADDEB44F8A5D5C10374ED1C6C6@ARE01.alyotech.fr>
+
+Hi,
+
+Is there any requirement on Proj4 context when using "pj_transform" in a multi-threaded application ?
+
+Does the context of "srcdefn" and "destdefn" have to be the same ?
+
+Thanks.
+
+From l.e.veen at uva.nl  Wed Jun 10 06:23:58 2015
+From: l.e.veen at uva.nl (Lourens Veen)
+Date: Wed, 10 Jun 2015 15:23:58 +0200
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+Message-ID: <55783A6E.2000004@uva.nl>
+
+Dear all,
+
+I have a GeoTIFF file that uses a custom Lambert azimuthal equal area 
+projection with proj.4 string
+
++proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84 +units=m 
++no_defs +ellps=WGS84 +towgs84=0,0,0
+
+The pixels are sized 10000x10000m, and so in the projected system have a 
+surface area of 100km^2.
+
+I am now using the invproj tool (from proj 4.8.0) to un-project four 
+corners of a pixel to WGS84 coordinates:
+
+$ invproj +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84 
++units=m +no_defs +ellps=WGS84 +towgs84=0,0,0 -S
+-4600000 6190000
+164d11'36.762"W	54d52'47.599"N	<1.25548 0.798216 1 26.0103 1.25729 0.795362>
+-4600000 6180000
+164d1'53.146"W	54d50'37.423"N	<1.25483 0.798516 1 25.943 1.25653 0.795842>
+-4590000 6180000
+163d55'19.442"W	54d54'20.055"N	<1.25437 0.798719 1 25.8934 1.25597 0.796196>
+-4590000 6190000
+164d5'3.703"W	54d56'30.694"N	<1.25502 0.798414 1 25.9607 1.25673 0.795716>
+
+Next, I'm calculating the distance-along-the-ellipsoid between these 
+points using invgeod:
+
+$ invgeod +ellps=WGS84 +units=m
+
+164d11'36.762"W	54d52'47.599"N 164d1'53.146"W	54d50'37.423"N
+12d6'11.586"	-167d53'12.778"	18457.232
+164d1'53.146"W	54d50'37.423"N 163d55'19.442"W	54d54'20.055"N
+-28d30'57.832"	151d28'0.716"	13856.109
+163d55'19.442"W	54d54'20.055"N 164d5'3.703"W	54d56'30.694"N
+-167d51'52.105"	12d7'31.893"	18479.179
+164d1'53.146"W	54d50'37.423"N 164d5'3.703"W	54d56'30.694"N
+-119d16'41.52"	60d41'41.449"	12043.634
+164d5'3.703"W	54d56'30.694"N 164d11'36.762"W	54d52'47.599"N
+151d21'28.799"	-28d37'30.228"	13847.743
+164d1'53.146"W	54d50'37.423"N 164d5'3.703"W	54d56'30.694"N
+-119d16'41.52"	60d41'41.449"	12043.634
+163d55'19.442"W	54d54'20.055"N 164d11'36.762"W	54d52'47.599"N
+174d47'56.288"	-5d11'38.318"	30345.538
+
+The LAEA projection doesn't preserve angles or distances, so it's no 
+surprise that my square pixel is warped. From the above lengths of the 
+sides and diagonals, it's approximately a parallelogram, with top and 
+bottom sides of 13.8 km, left and right sides 18.4 km, and the top-right 
+corner almost directly above the bottom-left corner (i.e. it's leaning 
+left about 45 degrees).
+
+What is surprising, at least to me, is that this parallelogram has a 
+surface area of about 165 km^2! Of course in reality the parallelogram 
+is embedded in the ellipsoid, and therefore not flat, but surely over a 
+distance of 30 km the curvature can't be enough to give such a 
+deviation? Besides, that should result in a surface area less than the 
+actual 100 km^2 I think.
+
+Is there something fundamentally wrong with this calculation? Am I using 
+invproj and invgeod incorrectly? What am I missing?
+
+Thanks in advance,
+
+Lourens
+
+
+
+From charles.karney at sri.com  Wed Jun 10 06:42:43 2015
+From: charles.karney at sri.com (Charles Karney)
+Date: Wed, 10 Jun 2015 09:42:43 -0400
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <55783A6E.2000004@uva.nl>
+References: <55783A6E.2000004@uva.nl>
+Message-ID: <55783ED3.3080701@sri.com>
+
+I can confirm that the area of your pixel is close to 100 km^2.  You can
+too.  Visit
+
+http://geographiclib.sourceforge.net/cgi-bin/Planimeter
+
+Paste the coordinates of the corners of your pixel
+
+164d11'36.762"W	54d52'47.599"N
+164d1'53.146"W	54d50'37.423"N
+163d55'19.442"W	54d54'20.055"N
+164d5'3.703"W	54d56'30.694"N
+
+into the text box.  Hit "submit" and the area comes back as
+
+   99999985.2 m^2
+
+This is the true area of the geodesic quadrilateral on the ellipsoid.
+
+On 06/10/15 09:23, Lourens Veen wrote:
+> Dear all,
+>
+> I have a GeoTIFF file that uses a custom Lambert azimuthal equal area
+> projection with proj.4 string
+>
+> +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84 +units=m
+> +no_defs +ellps=WGS84 +towgs84=0,0,0
+>
+> The pixels are sized 10000x10000m, and so in the projected system have a
+> surface area of 100km^2.
+>
+> I am now using the invproj tool (from proj 4.8.0) to un-project four
+> corners of a pixel to WGS84 coordinates:
+>
+> $ invproj +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84
+> +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0 -S
+> -4600000 6190000
+> 164d11'36.762"W	54d52'47.599"N	<1.25548 0.798216 1 26.0103 1.25729 0.795362>
+> -4600000 6180000
+> 164d1'53.146"W	54d50'37.423"N	<1.25483 0.798516 1 25.943 1.25653 0.795842>
+> -4590000 6180000
+> 163d55'19.442"W	54d54'20.055"N	<1.25437 0.798719 1 25.8934 1.25597 0.796196>
+> -4590000 6190000
+> 164d5'3.703"W	54d56'30.694"N	<1.25502 0.798414 1 25.9607 1.25673 0.795716>
+>
+> Next, I'm calculating the distance-along-the-ellipsoid between these
+> points using invgeod:
+>
+> $ invgeod +ellps=WGS84 +units=m
+>
+> 164d11'36.762"W	54d52'47.599"N 164d1'53.146"W	54d50'37.423"N
+> 12d6'11.586"	-167d53'12.778"	18457.232
+> 164d1'53.146"W	54d50'37.423"N 163d55'19.442"W	54d54'20.055"N
+> -28d30'57.832"	151d28'0.716"	13856.109
+> 163d55'19.442"W	54d54'20.055"N 164d5'3.703"W	54d56'30.694"N
+> -167d51'52.105"	12d7'31.893"	18479.179
+> 164d1'53.146"W	54d50'37.423"N 164d5'3.703"W	54d56'30.694"N
+> -119d16'41.52"	60d41'41.449"	12043.634
+> 164d5'3.703"W	54d56'30.694"N 164d11'36.762"W	54d52'47.599"N
+> 151d21'28.799"	-28d37'30.228"	13847.743
+> 164d1'53.146"W	54d50'37.423"N 164d5'3.703"W	54d56'30.694"N
+> -119d16'41.52"	60d41'41.449"	12043.634
+> 163d55'19.442"W	54d54'20.055"N 164d11'36.762"W	54d52'47.599"N
+> 174d47'56.288"	-5d11'38.318"	30345.538
+>
+> The LAEA projection doesn't preserve angles or distances, so it's no
+> surprise that my square pixel is warped. From the above lengths of the
+> sides and diagonals, it's approximately a parallelogram, with top and
+> bottom sides of 13.8 km, left and right sides 18.4 km, and the top-right
+> corner almost directly above the bottom-left corner (i.e. it's leaning
+> left about 45 degrees).
+>
+> What is surprising, at least to me, is that this parallelogram has a
+> surface area of about 165 km^2! Of course in reality the parallelogram
+> is embedded in the ellipsoid, and therefore not flat, but surely over a
+> distance of 30 km the curvature can't be enough to give such a
+> deviation? Besides, that should result in a surface area less than the
+> actual 100 km^2 I think.
+>
+> Is there something fundamentally wrong with this calculation? Am I using
+> invproj and invgeod incorrectly? What am I missing?
+>
+> Thanks in advance,
+>
+> Lourens
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+
+
+From charles.karney at sri.com  Wed Jun 10 07:03:29 2015
+From: charles.karney at sri.com (Charles Karney)
+Date: Wed, 10 Jun 2015 10:03:29 -0400
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <55783ED3.3080701@sri.com>
+References: <55783A6E.2000004@uva.nl> <55783ED3.3080701@sri.com>
+Message-ID: <557843B1.4000700@sri.com>
+
+Bletch...  It seems that geod expects latitude before longitude ignoring
+the strong hint you gave it with the W and N.  At least with proj 4.9.0
+(which incorporates a new backend), you get nan's in this case to
+give you a hint that's something is amiss.  The GeographicLib utility
+for geodesic calculations, GeodSolve, does pay attention to the
+hemisphere designators.  This would have told you that your pixel is
+approximately a rectangle 11km x 9km.  geod/invgeod should be fixed!
+
+   --Charles
+
+On 06/10/15 09:42, Charles Karney wrote:
+> I can confirm that the area of your pixel is close to 100 km^2.  You can
+> too.  Visit
+>
+> http://geographiclib.sourceforge.net/cgi-bin/Planimeter
+>
+> Paste the coordinates of the corners of your pixel
+>
+> 164d11'36.762"W    54d52'47.599"N
+> 164d1'53.146"W    54d50'37.423"N
+> 163d55'19.442"W    54d54'20.055"N
+> 164d5'3.703"W    54d56'30.694"N
+>
+> into the text box.  Hit "submit" and the area comes back as
+>
+>    99999985.2 m^2
+>
+> This is the true area of the geodesic quadrilateral on the ellipsoid.
+>
+> On 06/10/15 09:23, Lourens Veen wrote:
+>> Dear all,
+>>
+>> I have a GeoTIFF file that uses a custom Lambert azimuthal equal area
+>> projection with proj.4 string
+>>
+>> +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84 +units=m
+>> +no_defs +ellps=WGS84 +towgs84=0,0,0
+>>
+>> The pixels are sized 10000x10000m, and so in the projected system have a
+>> surface area of 100km^2.
+>>
+>> I am now using the invproj tool (from proj 4.8.0) to un-project four
+>> corners of a pixel to WGS84 coordinates:
+>>
+>> $ invproj +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84
+>> +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0 -S
+>> -4600000 6190000
+>> 164d11'36.762"W    54d52'47.599"N    <1.25548 0.798216 1 26.0103
+>> 1.25729 0.795362>
+>> -4600000 6180000
+>> 164d1'53.146"W    54d50'37.423"N    <1.25483 0.798516 1 25.943 1.25653
+>> 0.795842>
+>> -4590000 6180000
+>> 163d55'19.442"W    54d54'20.055"N    <1.25437 0.798719 1 25.8934
+>> 1.25597 0.796196>
+>> -4590000 6190000
+>> 164d5'3.703"W    54d56'30.694"N    <1.25502 0.798414 1 25.9607 1.25673
+>> 0.795716>
+>>
+>> Next, I'm calculating the distance-along-the-ellipsoid between these
+>> points using invgeod:
+>>
+>> $ invgeod +ellps=WGS84 +units=m
+>>
+>> 164d11'36.762"W    54d52'47.599"N 164d1'53.146"W    54d50'37.423"N
+>> 12d6'11.586"    -167d53'12.778"    18457.232
+>> 164d1'53.146"W    54d50'37.423"N 163d55'19.442"W    54d54'20.055"N
+>> -28d30'57.832"    151d28'0.716"    13856.109
+>> 163d55'19.442"W    54d54'20.055"N 164d5'3.703"W    54d56'30.694"N
+>> -167d51'52.105"    12d7'31.893"    18479.179
+>> 164d1'53.146"W    54d50'37.423"N 164d5'3.703"W    54d56'30.694"N
+>> -119d16'41.52"    60d41'41.449"    12043.634
+>> 164d5'3.703"W    54d56'30.694"N 164d11'36.762"W    54d52'47.599"N
+>> 151d21'28.799"    -28d37'30.228"    13847.743
+>> 164d1'53.146"W    54d50'37.423"N 164d5'3.703"W    54d56'30.694"N
+>> -119d16'41.52"    60d41'41.449"    12043.634
+>> 163d55'19.442"W    54d54'20.055"N 164d11'36.762"W    54d52'47.599"N
+>> 174d47'56.288"    -5d11'38.318"    30345.538
+>>
+>> The LAEA projection doesn't preserve angles or distances, so it's no
+>> surprise that my square pixel is warped. From the above lengths of the
+>> sides and diagonals, it's approximately a parallelogram, with top and
+>> bottom sides of 13.8 km, left and right sides 18.4 km, and the top-right
+>> corner almost directly above the bottom-left corner (i.e. it's leaning
+>> left about 45 degrees).
+>>
+>> What is surprising, at least to me, is that this parallelogram has a
+>> surface area of about 165 km^2! Of course in reality the parallelogram
+>> is embedded in the ellipsoid, and therefore not flat, but surely over a
+>> distance of 30 km the curvature can't be enough to give such a
+>> deviation? Besides, that should result in a surface area less than the
+>> actual 100 km^2 I think.
+>>
+>> Is there something fundamentally wrong with this calculation? Am I using
+>> invproj and invgeod incorrectly? What am I missing?
+>>
+>> Thanks in advance,
+>>
+>> Lourens
+>>
+>> _______________________________________________
+>> Proj mailing list
+>> Proj at lists.maptools.org
+>> http://lists.maptools.org/mailman/listinfo/proj
+>>
+
+
+From l.e.veen at uva.nl  Wed Jun 10 08:41:54 2015
+From: l.e.veen at uva.nl (Lourens Veen)
+Date: Wed, 10 Jun 2015 17:41:54 +0200
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <557843B1.4000700@sri.com>
+References: <55783A6E.2000004@uva.nl> <55783ED3.3080701@sri.com>
+	<557843B1.4000700@sri.com>
+Message-ID: <55785AC2.9080806@uva.nl>
+
+Thanks for you help, and incidentally also for GeographicLib! I'm using 
+it to calculate the pixel side lengths from a C++ program, and found it 
+nicely designed and easy to use. But then I went on to check the output 
+against that of invgeod to make sure I hadn't made any mistakes...
+
+I'll check everything again tomorrow, this time with lon and lat in the 
+right order for invgeod to understand it correctly. I agree that geod 
+should be fixed, both geod and proj are libproj utilities, they should 
+correctly interpret each other's default output format.
+
+Thanks again,
+
+Lourens
+
+
+On 10/06/15 16:03, Charles Karney wrote:
+> Bletch...  It seems that geod expects latitude before longitude ignoring
+> the strong hint you gave it with the W and N.  At least with proj 4.9.0
+> (which incorporates a new backend), you get nan's in this case to
+> give you a hint that's something is amiss.  The GeographicLib utility
+> for geodesic calculations, GeodSolve, does pay attention to the
+> hemisphere designators.  This would have told you that your pixel is
+> approximately a rectangle 11km x 9km.  geod/invgeod should be fixed!
+>
+>    --Charles
+>
+> On 06/10/15 09:42, Charles Karney wrote:
+>> I can confirm that the area of your pixel is close to 100 km^2.  You can
+>> too.  Visit
+>>
+>> http://geographiclib.sourceforge.net/cgi-bin/Planimeter
+>>
+>> Paste the coordinates of the corners of your pixel
+>>
+>> 164d11'36.762"W    54d52'47.599"N
+>> 164d1'53.146"W    54d50'37.423"N
+>> 163d55'19.442"W    54d54'20.055"N
+>> 164d5'3.703"W    54d56'30.694"N
+>>
+>> into the text box.  Hit "submit" and the area comes back as
+>>
+>>    99999985.2 m^2
+>>
+>> This is the true area of the geodesic quadrilateral on the ellipsoid.
+>>
+>> On 06/10/15 09:23, Lourens Veen wrote:
+>>> Dear all,
+>>>
+>>> I have a GeoTIFF file that uses a custom Lambert azimuthal equal area
+>>> projection with proj.4 string
+>>>
+>>> +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84 +units=m
+>>> +no_defs +ellps=WGS84 +towgs84=0,0,0
+>>>
+>>> The pixels are sized 10000x10000m, and so in the projected system have a
+>>> surface area of 100km^2.
+>>>
+>>> I am now using the invproj tool (from proj 4.8.0) to un-project four
+>>> corners of a pixel to WGS84 coordinates:
+>>>
+>>> $ invproj +proj=laea +lat_0=15 +lon_0=-80 +x_0=0 +y_0=0 +datum=WGS84
+>>> +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0 -S
+>>> -4600000 6190000
+>>> 164d11'36.762"W    54d52'47.599"N    <1.25548 0.798216 1 26.0103
+>>> 1.25729 0.795362>
+>>> -4600000 6180000
+>>> 164d1'53.146"W    54d50'37.423"N    <1.25483 0.798516 1 25.943 1.25653
+>>> 0.795842>
+>>> -4590000 6180000
+>>> 163d55'19.442"W    54d54'20.055"N    <1.25437 0.798719 1 25.8934
+>>> 1.25597 0.796196>
+>>> -4590000 6190000
+>>> 164d5'3.703"W    54d56'30.694"N    <1.25502 0.798414 1 25.9607 1.25673
+>>> 0.795716>
+>>>
+>>> Next, I'm calculating the distance-along-the-ellipsoid between these
+>>> points using invgeod:
+>>>
+>>> $ invgeod +ellps=WGS84 +units=m
+>>>
+>>> 164d11'36.762"W    54d52'47.599"N 164d1'53.146"W    54d50'37.423"N
+>>> 12d6'11.586"    -167d53'12.778"    18457.232
+>>> 164d1'53.146"W    54d50'37.423"N 163d55'19.442"W    54d54'20.055"N
+>>> -28d30'57.832"    151d28'0.716"    13856.109
+>>> 163d55'19.442"W    54d54'20.055"N 164d5'3.703"W    54d56'30.694"N
+>>> -167d51'52.105"    12d7'31.893"    18479.179
+>>> 164d1'53.146"W    54d50'37.423"N 164d5'3.703"W    54d56'30.694"N
+>>> -119d16'41.52"    60d41'41.449"    12043.634
+>>> 164d5'3.703"W    54d56'30.694"N 164d11'36.762"W    54d52'47.599"N
+>>> 151d21'28.799"    -28d37'30.228"    13847.743
+>>> 164d1'53.146"W    54d50'37.423"N 164d5'3.703"W    54d56'30.694"N
+>>> -119d16'41.52"    60d41'41.449"    12043.634
+>>> 163d55'19.442"W    54d54'20.055"N 164d11'36.762"W    54d52'47.599"N
+>>> 174d47'56.288"    -5d11'38.318"    30345.538
+>>>
+>>> The LAEA projection doesn't preserve angles or distances, so it's no
+>>> surprise that my square pixel is warped. From the above lengths of the
+>>> sides and diagonals, it's approximately a parallelogram, with top and
+>>> bottom sides of 13.8 km, left and right sides 18.4 km, and the top-right
+>>> corner almost directly above the bottom-left corner (i.e. it's leaning
+>>> left about 45 degrees).
+>>>
+>>> What is surprising, at least to me, is that this parallelogram has a
+>>> surface area of about 165 km^2! Of course in reality the parallelogram
+>>> is embedded in the ellipsoid, and therefore not flat, but surely over a
+>>> distance of 30 km the curvature can't be enough to give such a
+>>> deviation? Besides, that should result in a surface area less than the
+>>> actual 100 km^2 I think.
+>>>
+>>> Is there something fundamentally wrong with this calculation? Am I using
+>>> invproj and invgeod incorrectly? What am I missing?
+>>>
+>>> Thanks in advance,
+>>>
+>>> Lourens
+>>>
+>>> _______________________________________________
+>>> Proj mailing list
+>>> Proj at lists.maptools.org
+>>> http://lists.maptools.org/mailman/listinfo/proj
+>>>
+
+
+-- 
+ir. Lourens Veen - PhD Student - UvA-IBED-CGE
+    m: P.O. Box 94248, NL-1090 GE  Amsterdam
+              t: +31 (0)20-5258293
+
+
+From l.e.veen at uva.nl  Wed Jun 10 12:01:15 2015
+From: l.e.veen at uva.nl (Lourens Veen)
+Date: Wed, 10 Jun 2015 21:01:15 +0200
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <55785AC2.9080806@uva.nl>
+References: <55783A6E.2000004@uva.nl>
+	<55783ED3.3080701@sri.com>	<557843B1.4000700@sri.com>
+	<55785AC2.9080806@uva.nl>
+Message-ID: <5578897B.1090301@uva.nl>
+
+On 10/06/15 17:41, Lourens Veen wrote:
+> I'll check everything again tomorrow, this time with lon and lat in the
+> right order for invgeod to understand it correctly. I agree that geod
+> should be fixed, both geod and proj are libproj utilities, they should
+> correctly interpret each other's default output format.
+
+And on that note, would the proj maintainers accept a patch that adds a 
+third parameter to dmstor(), an int* that when set to a non-NULL value 
+will be an out parameter that is set to 0, 1 or 2 if the value read has 
+no axis hint, is a longitude (eEwW postfix sign), or is a latitude (nNsS 
+postfix sign) respectively?
+
+What would be your preferred behaviour for the geod tool? I don't think 
+changing the default order to match proj's output would be good, because 
+it would break existing software that puts latitude before longitude. So 
+I would only add a check to see if the postfix sign indicators suggest 
+that the first argument is a longitude, and just silently swap them so 
+that you get the correct result.
+
+Alternatively, an error or warning could be generated instead of 
+silently giving the correct answer, but I don't see the added value in that.
+
+Finally, do I send a patch to the mailing list or do you prefer a git 
+pull request?
+
+Thanks,
+
+Lourens
+
+
+
+From charles.karney at sri.com  Wed Jun 10 15:27:28 2015
+From: charles.karney at sri.com (Charles Karney)
+Date: Wed, 10 Jun 2015 18:27:28 -0400
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <5578897B.1090301@uva.nl>
+References: <55783A6E.2000004@uva.nl>	<55783ED3.3080701@sri.com>	<557843B1.4000700@sri.com>	<55785AC2.9080806@uva.nl>
+	<5578897B.1090301@uva.nl>
+Message-ID: <5578B9D0.2030100@sri.com>
+
+I will record here the conventions for specifying latitude and longitude
+used by GeographicLib.
+
+When reading a geographic position, two strings are read together.  The
+presence of a hemisphere designator (EWNS) on either string is enough to
+determine which is latitude and which is longitude.  If designators
+appear in both strings, then one must denote longitude and the other
+latitude.  If designators appear in neither string, the first string is
+treated as latitude.  One utility (and, with the next release, all the
+utilities) accepts a -w flag to switch this last convention.  And this
+same flag is used to specify the order of coordinates on output.
+
+(proj and cs2cs have -r and -s flags.  These separately control the
+input and output conventions.  Unlike GeographicLib, these conventions
+also apply to projected, x-y, coordinates.)
+
+Other things to note with GeographicLib (this is all implemented in the
+DMS class):
+
+* The hemisphere designators can appear at the beginning or end.
+   (proj.4 allows them only at the end.)
+
+* They can be combined with a sign; thus -10S and 10N are the same.
+   (With cs2cs, -10S and 10S are the same.)
+
+* Colons can be used as DMS separators, thus 10:20:5 is the same as
+   10d20'5".  (This avoids dealing this the special behavior of ' and "
+   in scripts.)
+
+* Various unicode characters are accepted for degrees, minutes, and
+   seconds.
+
+
+On 06/10/15 15:01, Lourens Veen wrote:
+> On 10/06/15 17:41, Lourens Veen wrote:
+>> I'll check everything again tomorrow, this time with lon and lat in the
+>> right order for invgeod to understand it correctly. I agree that geod
+>> should be fixed, both geod and proj are libproj utilities, they should
+>> correctly interpret each other's default output format.
+>
+> And on that note, would the proj maintainers accept a patch that adds a
+> third parameter to dmstor(), an int* that when set to a non-NULL value
+> will be an out parameter that is set to 0, 1 or 2 if the value read has
+> no axis hint, is a longitude (eEwW postfix sign), or is a latitude (nNsS
+> postfix sign) respectively?
+>
+> What would be your preferred behaviour for the geod tool? I don't think
+> changing the default order to match proj's output would be good, because
+> it would break existing software that puts latitude before longitude. So
+> I would only add a check to see if the postfix sign indicators suggest
+> that the first argument is a longitude, and just silently swap them so
+> that you get the correct result.
+>
+> Alternatively, an error or warning could be generated instead of
+> silently giving the correct answer, but I don't see the added value in that.
+>
+> Finally, do I send a patch to the mailing list or do you prefer a git
+> pull request?
+>
+> Thanks,
+>
+> Lourens
+>
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+>
+
+
+From l.e.veen at uva.nl  Thu Jun 11 07:22:28 2015
+From: l.e.veen at uva.nl (Lourens Veen)
+Date: Thu, 11 Jun 2015 16:22:28 +0200
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <55785AC2.9080806@uva.nl>
+References: <55783A6E.2000004@uva.nl>
+	<55783ED3.3080701@sri.com>	<557843B1.4000700@sri.com>
+	<55785AC2.9080806@uva.nl>
+Message-ID: <557999A4.6080602@uva.nl>
+
+On 10/06/15 17:41, Lourens Veen wrote:
+> I'll check everything again tomorrow, this time with lon and lat in the
+> right order for invgeod to understand it correctly. I agree that geod
+> should be fixed, both geod and proj are libproj utilities, they should
+> correctly interpret each other's default output format.
+
+Well, I reversed lat and lon, and I'm getting much more reasonable 
+results now. I'm still getting a discrepancy between GeographicLib and 
+proj though:
+
+proj 4.8.0:	(Ubuntu package)
+
+$ invgeod +ellps=WGS84 +units=m
+43.948780899203733 -153.87240094587023 44.036369120054417 
+-153.93214592316059
+-26d7'4.466"	153d50'26.145"	10861.026
+
+GeographicLib-1.42	(from source)
+$ GeodSolve -i
+43.948780899203733 -153.87240094587023 44.036369120054417 
+-153.93214592316059
+-26.19689664 -26.23839343 10848.141
+
+For my purposes, a 15m difference is not such a problem, but I'd like to 
+be sure that this is a precision issue, rather than a mistake on my part 
+somewhere. Perhaps this is why there's a new backend in 4.9.0?
+
+Thanks,
+
+Lourens
+
+-- 
+ir. Lourens Veen - PhD Student - UvA-IBED-CGE
+    m: P.O. Box 94248, NL-1090 GE  Amsterdam
+              t: +31 (0)20-5258293
+
+
+From charles.karney at sri.com  Thu Jun 11 07:34:48 2015
+From: charles.karney at sri.com (Charles Karney)
+Date: Thu, 11 Jun 2015 10:34:48 -0400
+Subject: [Proj] Lambert Azimuthal Equal Area scale
+In-Reply-To: <557999A4.6080602@uva.nl>
+References: <55783A6E.2000004@uva.nl>	<55783ED3.3080701@sri.com>	<557843B1.4000700@sri.com>	<55785AC2.9080806@uva.nl>
+	<557999A4.6080602@uva.nl>
+Message-ID: <55799C88.3080709@sri.com>
+
+Evidently the 4.8.x version of geod is inaccurate.  I'm surprised...  I
+didn't know it was quite this bad on relatively short lines.
+
+The 4.9.x version of geod gives the right answer.
+
+On 06/11/15 10:22, Lourens Veen wrote:
+> On 10/06/15 17:41, Lourens Veen wrote:
+>> I'll check everything again tomorrow, this time with lon and lat in the
+>> right order for invgeod to understand it correctly. I agree that geod
+>> should be fixed, both geod and proj are libproj utilities, they should
+>> correctly interpret each other's default output format.
+>
+> Well, I reversed lat and lon, and I'm getting much more reasonable
+> results now. I'm still getting a discrepancy between GeographicLib and
+> proj though:
+>
+> proj 4.8.0:	(Ubuntu package)
+>
+> $ invgeod +ellps=WGS84 +units=m
+> 43.948780899203733 -153.87240094587023 44.036369120054417
+> -153.93214592316059
+> -26d7'4.466"	153d50'26.145"	10861.026
+>
+> GeographicLib-1.42	(from source)
+> $ GeodSolve -i
+> 43.948780899203733 -153.87240094587023 44.036369120054417
+> -153.93214592316059
+> -26.19689664 -26.23839343 10848.141
+>
+> For my purposes, a 15m difference is not such a problem, but I'd like to
+> be sure that this is a precision issue, rather than a mistake on my part
+> somewhere. Perhaps this is why there's a new backend in 4.9.0?
+>
+> Thanks,
+>
+> Lourens
+>
+
+
+From forums.dmap at yahoo.com  Sat Jun 20 06:19:19 2015
+From: forums.dmap at yahoo.com (snitch)
+Date: Sat, 20 Jun 2015 06:19:19 -0700 (PDT)
+Subject: [Proj] Proj4 String and Well Known Text Keyword mapping
+Message-ID: <1434806359412-5212078.post@n6.nabble.com>
+
+Hi, 
+
+I guess this is the right place to ask. 
+
+Does anyone know about any resource that has a mapping between Proj4 and WKT
+keywords? 
+
+Thank you
+
+
+
+--
+View this message in context: http://osgeo-org.1560.x6.nabble.com/Proj4-String-and-Well-Known-Text-Keyword-mapping-tp5212078.html
+Sent from the PROJ.4 mailing list archive at Nabble.com.
+
+
+From even.rouault at spatialys.com  Sat Jun 20 16:35:03 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sun, 21 Jun 2015 01:35:03 +0200
+Subject: [Proj] Travis-CI + Coveralls setup
+Message-ID: <201506210135.04140.even.rouault@spatialys.com>
+
+Hi,
+
+I've setup Travis-CI to run builds on commit pushes (and pull requests) to 
+https://github.com/OSGeo/proj.4
+
+The script https://github.com/OSGeo/proj.4/blob/master/.travis.yml does the 
+following combinations:
+- gcc / clang
+- cmake build / autoconf build
+- with / without http://download.osgeo.org/proj/proj-datumgrid-1.5.zip
+
+So 8 combinations in less than 5 minutes :-)
+
+It does also "make check", but only for the autoconf setup since the target 
+doesn't appear to be implemented for cmake.
+
+I've also included coverage report of the test suite with the Coveralls 
+service. And that confirms my intuition that there would be place for 
+improvements: 28% line coverage
+
+The .travis.yml conf could certainly be improved, but that's a start.
+
+Travis results at https://travis-ci.org/OSGeo/proj.4/builds
+Coverage results at https://coveralls.io/r/OSGeo/proj.4
+
+
+Similarly to what I've done for GDAL, I've also used a trick to makes builds 
+with MacOSX and MinGW. I've a regular cron job (scheduled every 15 minutes 
+currently) that merges proj.4 master into my fork, in 2 dedicated branches, 
+https://github.com/rouault/proj.4/tree/travis_osx and 
+https://github.com/rouault/proj.4/tree/travis_mingw, and pushes the result of 
+the merge to github, so that Travis builds happen (that can break in case 
+.travis.yml in master is changed, in which case manual merge might be 
+required). The mingw target doesn't run the tests, "make check" being not 
+ready for that.
+
+Results for MacOSX and MinGW at https://travis-ci.org/rouault/proj.4/branches
+
+Of course, those 2 last targets are only triggered after pushes to master, not 
+pull requests.
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From sebastic at xs4all.nl  Sun Jun 21 01:39:55 2015
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Sun, 21 Jun 2015 10:39:55 +0200
+Subject: [Proj] Travis-CI + Coveralls setup
+In-Reply-To: <201506210135.04140.even.rouault@spatialys.com>
+References: <201506210135.04140.even.rouault@spatialys.com>
+Message-ID: <5586785B.6060403@xs4all.nl>
+
+On 06/21/2015 01:35 AM, Even Rouault wrote:
+> - with / without http://download.osgeo.org/proj/proj-datumgrid-1.5.zip
+
+What about proj-datumgrid-1.6RC1.zip?
+
+Kind Regards,
+
+Bas
+
+-- 
+ GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+
+
+From even.rouault at spatialys.com  Sun Jun 21 02:16:19 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sun, 21 Jun 2015 11:16:19 +0200
+Subject: [Proj] Travis-CI + Coveralls setup
+In-Reply-To: <5586785B.6060403@xs4all.nl>
+References: <201506210135.04140.even.rouault@spatialys.com>
+	<5586785B.6060403@xs4all.nl>
+Message-ID: <201506211116.19508.even.rouault@spatialys.com>
+
+Le dimanche 21 juin 2015 10:39:55, Sebastiaan Couwenberg a écrit :
+> On 06/21/2015 01:35 AM, Even Rouault wrote:
+> > - with / without http://download.osgeo.org/proj/proj-datumgrid-1.5.zip
+> 
+> What about proj-datumgrid-1.6RC1.zip?
+
+Completely forgotten about the existence of that one since it is not 
+mentionned on https://github.com/OSGeo/proj.4/wiki. I guess someone would have 
+to promote it to final if it is OK.
+
+> 
+> Kind Regards,
+> 
+> Bas
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From sebastic at xs4all.nl  Sun Jun 21 02:11:49 2015
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Sun, 21 Jun 2015 11:11:49 +0200
+Subject: [Proj] Travis-CI + Coveralls setup
+In-Reply-To: <201506211116.19508.even.rouault@spatialys.com>
+References: <201506210135.04140.even.rouault@spatialys.com>
+	<5586785B.6060403@xs4all.nl>
+	<201506211116.19508.even.rouault@spatialys.com>
+Message-ID: <55867FD5.1080103@xs4all.nl>
+
+On 06/21/2015 11:16 AM, Even Rouault wrote:
+> Le dimanche 21 juin 2015 10:39:55, Sebastiaan Couwenberg a écrit :
+>> On 06/21/2015 01:35 AM, Even Rouault wrote:
+>>> - with / without http://download.osgeo.org/proj/proj-datumgrid-1.5.zip
+>>
+>> What about proj-datumgrid-1.6RC1.zip?
+> 
+> Completely forgotten about the existence of that one since it is not 
+> mentionned on https://github.com/OSGeo/proj.4/wiki. I guess someone would have 
+> to promote it to final if it is OK.
+
+We include it in the proj 4.9.1 Debian package, and that's looking good
+so far.
+
+Kind Regards,
+
+Bas
+
+-- 
+ GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+
+
+From tomkralidis at gmail.com  Sun Jun 21 05:34:07 2015
+From: tomkralidis at gmail.com (Tom Kralidis)
+Date: Sun, 21 Jun 2015 08:34:07 -0400
+Subject: [Proj] first pass website complete
+Message-ID: <CAFWXLWWYCScyYsOvgSFUpqncswR2n47mNXjBb84ey2y9Z6HpWw@mail.gmail.com>
+
+Hi all: update on original proposal [1]: first pass is at
+http://osgeo.github.io/proj.4/
+(see gh-pages branch [2]).  Comments/suggestions/improvements welcome.
+
+I'll start working on the docs setup (help wanted!) once folks are
+comfortable with the new web presence.
+
+Thanks
+
+..Tom
+
+[1] http://lists.maptools.org/pipermail/proj/2015-May/007148.html
+[2] https://github.com/OSGeo/proj.4/tree/gh-pages
+
+
+From neteler at osgeo.org  Sun Jun 21 14:39:47 2015
+From: neteler at osgeo.org (Markus Neteler)
+Date: Sun, 21 Jun 2015 23:39:47 +0200
+Subject: [Proj] Proj4 String and Well Known Text Keyword mapping
+In-Reply-To: <1434806359412-5212078.post@n6.nabble.com>
+References: <1434806359412-5212078.post@n6.nabble.com>
+Message-ID: <CALFmHhsez5oE08UCQr0+xyNr_xMhVbcOEoVrFYYJ1nV35N37oQ@mail.gmail.com>
+
+On Sat, Jun 20, 2015 at 3:19 PM, snitch <forums.dmap at yahoo.com> wrote:
+> Hi,
+>
+> I guess this is the right place to ask.
+>
+> Does anyone know about any resource that has a mapping between Proj4 and WKT
+> keywords?
+
+Not sure if this is useful for you but here a script provided by GDAL:
+
+https://svn.osgeo.org/gdal/trunk/gdal/swig/python/scripts/epsg_tr.py
+
+Best,
+Markus
+
+-- 
+http://courses.neteler.org/blog/
+http://gis.cri.fmach.it/neteler/
+
+
+From even.rouault at spatialys.com  Tue Jun 23 08:29:49 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 23 Jun 2015 17:29:49 +0200
+Subject: [Proj] Experiment to speed up proj.4 by 2 or more
+Message-ID: <201506231729.50179.even.rouault@spatialys.com>
+
+Hi,
+
+I've done an experiment to use Intel SIMD intrinsics 
+(https://en.wikipedia.org/wiki/SIMD), and I think they could be beneficial for 
+proj, when called to transform several coordinates at a time.
+
+I've used the SSE2 instruction set (128 bit registers, so 2 doubles at a 
+time), and I managed to speed up the inverse Transverse Mercator ellipsoidal 
+transformation (ie. from projected to geodetic) by a factor of ~ 2 (excluding 
+potential datum transformations)
+
+One key for performance was to find an efficient way of computing the usual 
+transcendental functions (ie. sin, cos, tan and their inverse, exp, ln, 
+etc...) with SIMD registers, since they are not included in the instruction 
+set. Otherwise you have to collect each component of the SIMD register, 
+evaluate it with the x87 coprocessor, and reassemble the SIMD register from 
+the computed components, which kills all the other performance gains. The 
+SLEEF library (http://freecode.com/projects/sleef) has such routines, is in 
+the public domain and works rather well (with gcc/clang, although it has some 
+rough edges when trying with MSVC, but nothing that cannot be overcome)
+
+I've encapsulated the use of SSE2 intrinsics in a C++ class with overloading 
+of arithmetics operators, so the resulting code looks pretty much similar to 
+the original C code, which is great for readability (although the original C 
+code isn't always very readable ;-)), and confidence that it doesn't introduce 
+errors. Conditionnal branches are not so great for SIMD performance, but there 
+are tricks to rewrite some of them with a ternary-like operator.
+
+SLEEF also supports the AVX & AVX2+FMA instruction sets (256 bit registers), 
+which could also lead to a further ~ x2 gain over SSE2.
+
+So I was wondering if there was :
+
+1) interest of the project in pursuing into that approach (which involves  
+introducing C++ in the code base, as an implementation detail, the interface 
+being unchanged). We could imagine to have the same source files compiled 
+several times with different register sizes, with runtime selection of the 
+appropriate variant (note: SSE2 is guaranteed to be available on all x86_64 
+compatible processors. AVX/AVX2 is for more recent CPUs).
+
+2) ... and sponsors interested in making that happen.
+
+Finally, the proof of concept: 
+* regular code (runs in ~30s on Core i5 750 @ 2.67GHz  ): 
+   https://gist.github.com/rouault/946104d0b98e8e8cc564
+* SSE2 code (~14s):
+   https://gist.github.com/rouault/3bbc31c9f12391d79920
+
+Best regards,
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From jgpallero at gmail.com  Tue Jun 23 09:04:34 2015
+From: jgpallero at gmail.com (=?UTF-8?Q?Jos=C3=A9_Luis_Garc=C3=ADa_Pallero?=)
+Date: Tue, 23 Jun 2015 18:04:34 +0200
+Subject: [Proj] Experiment to speed up proj.4 by 2 or more
+In-Reply-To: <201506231729.50179.even.rouault@spatialys.com>
+References: <201506231729.50179.even.rouault@spatialys.com>
+Message-ID: <CAFemY3YBtuZJY7b34+xQhufc6R=UsfmNBz+80rvxZ=iJaHoutg@mail.gmail.com>
+
+2015-06-23 17:29 GMT+02:00 Even Rouault <even.rouault at spatialys.com>:
+> Hi,
+>
+> I've done an experiment to use Intel SIMD intrinsics
+> (https://en.wikipedia.org/wiki/SIMD), and I think they could be beneficial for
+> proj, when called to transform several coordinates at a time.
+>
+> I've used the SSE2 instruction set (128 bit registers, so 2 doubles at a
+> time), and I managed to speed up the inverse Transverse Mercator ellipsoidal
+> transformation (ie. from projected to geodetic) by a factor of ~ 2 (excluding
+> potential datum transformations)
+>
+> One key for performance was to find an efficient way of computing the usual
+> transcendental functions (ie. sin, cos, tan and their inverse, exp, ln,
+> etc...) with SIMD registers, since they are not included in the instruction
+> set. Otherwise you have to collect each component of the SIMD register,
+> evaluate it with the x87 coprocessor, and reassemble the SIMD register from
+> the computed components, which kills all the other performance gains. The
+> SLEEF library (http://freecode.com/projects/sleef) has such routines, is in
+> the public domain and works rather well (with gcc/clang, although it has some
+> rough edges when trying with MSVC, but nothing that cannot be overcome)
+>
+> I've encapsulated the use of SSE2 intrinsics in a C++ class with overloading
+> of arithmetics operators, so the resulting code looks pretty much similar to
+> the original C code, which is great for readability (although the original C
+> code isn't always very readable ;-)), and confidence that it doesn't introduce
+> errors. Conditionnal branches are not so great for SIMD performance, but there
+> are tricks to rewrite some of them with a ternary-like operator.
+>
+> SLEEF also supports the AVX & AVX2+FMA instruction sets (256 bit registers),
+> which could also lead to a further ~ x2 gain over SSE2.
+>
+> So I was wondering if there was :
+>
+> 1) interest of the project in pursuing into that approach (which involves
+> introducing C++ in the code base, as an implementation detail, the interface
+> being unchanged). We could imagine to have the same source files compiled
+> several times with different register sizes, with runtime selection of the
+> appropriate variant (note: SSE2 is guaranteed to be available on all x86_64
+> compatible processors. AVX/AVX2 is for more recent CPUs).
+>
+> 2) ... and sponsors interested in making that happen.
+>
+> Finally, the proof of concept:
+> * regular code (runs in ~30s on Core i5 750 @ 2.67GHz  ):
+>    https://gist.github.com/rouault/946104d0b98e8e8cc564
+> * SSE2 code (~14s):
+>    https://gist.github.com/rouault/3bbc31c9f12391d79920
+
+It sounds very interesting, but I find some bad things:
+
+1. Introducing C++: From my point of view, one of the PROJ best things
+is that it is written in pure C. Also I can see in the SLEEF folder
+that there exists a folder called 'purec'
+2. Can be used SLEEF with Intel compilers, PathScale, Portland et al.?
+
+Best regards
+
+>
+> Best regards,
+>
+> Even
+>
+> --
+> Spatialys - Geospatial professional services
+> http://www.spatialys.com
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+-- 
+*****************************************
+José Luis García Pallero
+jgpallero at gmail.com
+(o<
+/ / \
+V_/_
+Use Debian GNU/Linux and enjoy!
+*****************************************
+
+
+From even.rouault at spatialys.com  Tue Jun 23 09:30:16 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 23 Jun 2015 18:30:16 +0200
+Subject: [Proj] Experiment to speed up proj.4 by 2 or more
+In-Reply-To: <CAFemY3YBtuZJY7b34+xQhufc6R=UsfmNBz+80rvxZ=iJaHoutg@mail.gmail.com>
+References: <201506231729.50179.even.rouault@spatialys.com>
+	<CAFemY3YBtuZJY7b34+xQhufc6R=UsfmNBz+80rvxZ=iJaHoutg@mail.gmail.com>
+Message-ID: <201506231830.16930.even.rouault@spatialys.com>
+
+José Luis,
+
+> 
+> 1. Introducing C++: From my point of view, one of the PROJ best things
+> is that it is written in pure C.
+
+In which respect is the actual implementation of proj important to you as a 
+user, if you can still use it as a C library ? All nowadays C compilers should 
+be able to deal with C++ as well, and here I'm only using C++98 features (I'd 
+even say C++83 ;-)), not C++14.
+
+The code compiles with at least back to gcc 4.1 (generated code not optimal 
+however), which is really ancient. It doesn't compile with gcc 3.4, but this 
+is not because of the C++ part, but lack of support for SSE2 intrinsics.
+
+> Also I can see in the SLEEF folder
+> that there exists a folder called 'purec'
+
+Yes, but don't use that one as it is a software emulation of the 
+transcendantal functions, that opearte on single double arguments, and that 
+has roughly the same performance of standard non-SIMD x87 functions.
+
+The SIMD sleef implementation itself is .c/.h. The C++ bits I added in the 
+equation is just to make the code more readable, since using the sleef C 
+functions, or directly the Intel intrinsics, would rather be ugly. Do you 
+prefer a + b (C++) or vadd_vd_vd_vd(a,b) (SLEEF) or _mm_add_pd(a,b) (Intel 
+intrinsics) ? You can just compare the 2 source files of my P.O.C to see the 
+benefit of relying on C++ overloaded arithmetic operators (I'm far from being a 
+big C++ lover, but that's one of the use cases where it is undoubtly 
+appropriate)
+
+> 2. Can be used SLEEF with Intel compilers, PathScale, Portland et al.?
+
+Intel compiler, yes (according to SLEEF doc). No idea for the others (never 
+heard about them actually), but I guess that if they're decent enough and have 
+support for the SIMD intrinsics, that should work.
+
+Even
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+
+From jgpallero at gmail.com  Tue Jun 23 09:29:39 2015
+From: jgpallero at gmail.com (=?UTF-8?Q?Jos=C3=A9_Luis_Garc=C3=ADa_Pallero?=)
+Date: Tue, 23 Jun 2015 18:29:39 +0200
+Subject: [Proj] Experiment to speed up proj.4 by 2 or more
+In-Reply-To: <201506231830.16930.even.rouault@spatialys.com>
+References: <201506231729.50179.even.rouault@spatialys.com>
+	<CAFemY3YBtuZJY7b34+xQhufc6R=UsfmNBz+80rvxZ=iJaHoutg@mail.gmail.com>
+	<201506231830.16930.even.rouault@spatialys.com>
+Message-ID: <CAFemY3amTwuzV6VkbS3dRAwChoQ0x_sYXUFGWQy6zEQx_=EFbw@mail.gmail.com>
+
+2015-06-23 18:30 GMT+02:00 Even Rouault <even.rouault at spatialys.com>:
+> José Luis,
+>
+>>
+>> 1. Introducing C++: From my point of view, one of the PROJ best things
+>> is that it is written in pure C.
+>
+> In which respect is the actual implementation of proj important to you as a
+> user, if you can still use it as a C library ? All nowadays C compilers should
+> be able to deal with C++ as well, and here I'm only using C++98 features (I'd
+> even say C++83 ;-)), not C++14.
+>
+> The code compiles with at least back to gcc 4.1 (generated code not optimal
+> however), which is really ancient. It doesn't compile with gcc 3.4, but this
+> is not because of the C++ part, but lack of support for SSE2 intrinsics.
+
+OK, there is no problem if the library can still be used as a C library
+
+>
+>> Also I can see in the SLEEF folder
+>> that there exists a folder called 'purec'
+>
+> Yes, but don't use that one as it is a software emulation of the
+> transcendantal functions, that opearte on single double arguments, and that
+> has roughly the same performance of standard non-SIMD x87 functions.
+>
+> The SIMD sleef implementation itself is .c/.h. The C++ bits I added in the
+> equation is just to make the code more readable, since using the sleef C
+> functions, or directly the Intel intrinsics, would rather be ugly. Do you
+> prefer a + b (C++) or vadd_vd_vd_vd(a,b) (SLEEF) or _mm_add_pd(a,b) (Intel
+> intrinsics) ? You can just compare the 2 source files of my P.O.C to see the
+> benefit of relying on C++ overloaded arithmetic operators (I'm far from being a
+> big C++ lover, but that's one of the use cases where it is undoubtly
+> appropriate)
+>
+>> 2. Can be used SLEEF with Intel compilers, PathScale, Portland et al.?
+>
+> Intel compiler, yes (according to SLEEF doc). No idea for the others (never
+> heard about them actually), but I guess that if they're decent enough and have
+> support for the SIMD intrinsics, that should work.
+>
+> Even
+>
+> --
+> Spatialys - Geospatial professional services
+> http://www.spatialys.com
+
+
+
+-- 
+*****************************************
+José Luis García Pallero
+jgpallero at gmail.com
+(o<
+/ / \
+V_/_
+Use Debian GNU/Linux and enjoy!
+*****************************************
+
+
+From gdt at ir.bbn.com  Tue Jun 23 10:26:45 2015
+From: gdt at ir.bbn.com (Greg Troxel)
+Date: Tue, 23 Jun 2015 13:26:45 -0400
+Subject: [Proj] Experiment to speed up proj.4 by 2 or more
+In-Reply-To: <201506231830.16930.even.rouault@spatialys.com> (Even Rouault's
+	message of "Tue, 23 Jun 2015 18:30:16 +0200")
+References: <201506231729.50179.even.rouault@spatialys.com>
+	<CAFemY3YBtuZJY7b34+xQhufc6R=UsfmNBz+80rvxZ=iJaHoutg@mail.gmail.com>
+	<201506231830.16930.even.rouault@spatialys.com>
+Message-ID: <rmiy4ja8hey.fsf@fnord.ir.bbn.com>
+
+
+Even Rouault <even.rouault at spatialys.com> writes:
+
+> José Luis,
+>
+>> 
+>> 1. Introducing C++: From my point of view, one of the PROJ best things
+>> is that it is written in pure C.
+>
+> In which respect is the actual implementation of proj important to you as a 
+> user, if you can still use it as a C library ? All nowadays C compilers should 
+> be able to deal with C++ as well, and here I'm only using C++98 features (I'd 
+> even say C++83 ;-)), not C++14.
+
+That's not the only question; there's also packaging and portability.
+It could be that people only run proj on desktop systems that already
+have C++.
+
+Wiuh respect to packaging, are you proposing to detect the SSE
+instructions at compile time, or at runtime, and how does this interact
+with building packages on one system that run on another.  Or is this
+only for amd64?
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 180 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20150623/c941f4fa/attachment.sig>
+
+From even.rouault at spatialys.com  Tue Jun 23 10:57:00 2015
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 23 Jun 2015 19:57:00 +0200
+Subject: [Proj] Experiment to speed up proj.4 by 2 or more
+In-Reply-To: <rmiy4ja8hey.fsf@fnord.ir.bbn.com>
+References: <201506231729.50179.even.rouault@spatialys.com>
+	<201506231830.16930.even.rouault@spatialys.com>
+	<rmiy4ja8hey.fsf@fnord.ir.bbn.com>
+Message-ID: <201506231957.00867.even.rouault@spatialys.com>
+
+Le mardi 23 juin 2015 19:26:45, Greg Troxel a écrit :
+> Even Rouault <even.rouault at spatialys.com> writes:
+> > José Luis,
+> > 
+> >> 1. Introducing C++: From my point of view, one of the PROJ best things
+> >> is that it is written in pure C.
+> > 
+> > In which respect is the actual implementation of proj important to you as
+> > a user, if you can still use it as a C library ? All nowadays C
+> > compilers should be able to deal with C++ as well, and here I'm only
+> > using C++98 features (I'd even say C++83 ;-)), not C++14.
+> 
+> That's not the only question; there's also packaging and portability.
+> It could be that people only run proj on desktop systems that already
+> have C++.
+
+Hum, sorry I don't understand this sentence.
+
+> 
+> Wiuh respect to packaging, are you proposing to detect the SSE
+> instructions at compile time, or at runtime,
+
+You obviously need the 2 aspects:
+- compile time: you must detect if the compiler supports generating SSE2 (or 
+AVX, AVX2, etc...), to decide which source files to compile and with which 
+options.
+- runtime: you must check the feature set supported by the running CPU and 
+select accordingly the appropriate entry points. In the case of a x86_64 
+binary, you know that SSE2 is supported. For other instruction sets such as 
+AVX and later, you must use cpuid + xgetbv to check OS support for AVX. (or 
+for SSE2 on i86).
+
+Examples:
+- on x86_64, if the compiler supports AVX2, it would compile both the SSE2 and 
+AVX2 implementations. And proj would query the CPU&OS at runtime to see if 
+AVX2 is supported
+- on i386, the non-SIMD, SSE2 and AVX2 implementations.
+   Possibly with options to disable some implementations at compile time.
+- on obscure_architecture, just the non-SIMD implementation.
+
+That requires care, but that's doable. I've done similar things in GDAL 
+(gdal_grid has some optimized implementation of the invdist algorithm for SSE 
+and AVX, with the above described mix of compile+runtime checks).
+
+For other platforms, non SIMD code would still be used (SLEEF also supports 
+ARM Neon, so that could possibly be ported to non Intel platforms too). The 
+"Register" C++ class used would just encapsulate a single double value then.
+
+> and how does this interact
+> with building packages on one system that run on another. 
+
+That should work fine, even with cross compilers.
+
+> Or is this
+> only for amd64?
+
+I tried my POC with gcc -m32 -msse2 and that works fine. Surprisingly 
+performance was just a bit below x86_64, but marginally. I say "surprisingly" 
+since in 32 bit mode, you've only 8 XMM registers available, whereas 16 in 64 
+bit mode.
+
+-- 
+Spatialys - Geospatial professional services
+http://www.spatialys.com
+
+

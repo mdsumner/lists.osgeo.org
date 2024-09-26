@@ -1,0 +1,2214 @@
+From strk at keybit.net  Thu Mar  1 12:48:52 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Mar  1 12:49:51 2012
+Subject: [geos-devel] ST_Snap
+In-Reply-To: <4F4E4ED7.2080704@telus.net>
+References: <E3EF1FFCCEE6124887687AF1B41B686A0A7713F3@mail-mel>
+	<20120229080628.GA2187@gnash> <4F4E4ED7.2080704@telus.net>
+Message-ID: <20120301174852.GH22812@gnash>
+
+On Wed, Feb 29, 2012 at 08:14:15AM -0800, Martin Davis wrote:
+> Snap-rounding is a well-defined technique for eliminating robustness
+> problems when overlaying arrangements of line segments.  The
+> original paper is by John Hobby; another good paper is this one by
+> Goodrich et al:
+> 
+> http://www.ics.uci.edu/~goodrich/pubs/snap.pdf
+>
+> Google gives lots of references to various papers. As always, there
+> is a big gap between the papers and a practical implementation!
+
+Great, thanks for the link!
+My approach for the incremental topology creation is 
+a first-come best-served one. Hot pixels are nodes by definition,
+every node of an existing topology is an hot-pixel there.
+
+But it's not easy to determine the grid size, which that paper
+is based upon, right ? How close should a segment be to a node
+in order to snap there ? In other words, how big is the hot pixel ?
+
+It'd surely be useful to let the user specify such grid (tolerance?)
+when invoking GEOS functions.
+
+It's also interesting to note that the floating point number grid 
+is of variable size, with cells growing in size while moving away 
+from origin.
+
+--strk;
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From mtnclimb at telus.net  Thu Mar  1 20:08:26 2012
+From: mtnclimb at telus.net (Martin Davis)
+Date: Thu Mar  1 20:09:00 2012
+Subject: [geos-devel] ST_Snap
+In-Reply-To: <20120301174852.GH22812@gnash>
+References: <E3EF1FFCCEE6124887687AF1B41B686A0A7713F3@mail-mel>
+	<20120229080628.GA2187@gnash> <4F4E4ED7.2080704@telus.net>
+	<20120301174852.GH22812@gnash>
+Message-ID: <4F501D8A.1060506@telus.net>
+
+
+
+On 3/1/2012 9:48 AM, Sandro Santilli wrote:
+> On Wed, Feb 29, 2012 at 08:14:15AM -0800, Martin Davis wrote:
+>> Snap-rounding is a well-defined technique for eliminating robustness
+>> problems when overlaying arrangements of line segments.  The
+>> original paper is by John Hobby; another good paper is this one by
+>> Goodrich et al:
+>>
+>> http://www.ics.uci.edu/~goodrich/pubs/snap.pdf
+>>
+>> Google gives lots of references to various papers. As always, there
+>> is a big gap between the papers and a practical implementation!
+> Great, thanks for the link!
+> My approach for the incremental topology creation is
+> a first-come best-served one. Hot pixels are nodes by definition,
+> every node of an existing topology is an hot-pixel there.
+>
+> But it's not easy to determine the grid size, which that paper
+> is based upon, right ? How close should a segment be to a node
+> in order to snap there ? In other words, how big is the hot pixel ?
+Data-dependent.  I think you need to let the user choose.  You should be 
+able to get away with 10 digits of precision.
+>
+> It'd surely be useful to let the user specify such grid (tolerance?)
+> when invoking GEOS functions.
+>
+> It's also interesting to note that the floating point number grid
+> is of variable size, with cells growing in size while moving away
+> from origin.
+Snap-rounding assumes a fixed-point coordinate system.  It's not going 
+to be able to handle datasets with huge variation in scale.
+From strk at keybit.net  Fri Mar  2 03:46:59 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Fri Mar  2 03:47:11 2012
+Subject: [geos-devel] ST_Snap
+In-Reply-To: <4F501D8A.1060506@telus.net>
+References: <E3EF1FFCCEE6124887687AF1B41B686A0A7713F3@mail-mel>
+	<20120229080628.GA2187@gnash> <4F4E4ED7.2080704@telus.net>
+	<20120301174852.GH22812@gnash> <4F501D8A.1060506@telus.net>
+Message-ID: <20120302084659.GI31159@gnash>
+
+On Thu, Mar 01, 2012 at 05:08:26PM -0800, Martin Davis wrote:
+> On 3/1/2012 9:48 AM, Sandro Santilli wrote:
+
+> >But it's not easy to determine the grid size, which that paper
+> >is based upon, right ? How close should a segment be to a node
+> >in order to snap there ? In other words, how big is the hot pixel ?
+>
+> Data-dependent.  I think you need to let the user choose. 
+
+I agree, it needs to be decided once and globally.
+
+I've been thinking about the "expanding grid" idea and realized
+you just _can't_ rely on it because if you have to compute a grid
+based on ordinate values you can only do it _locally_ so you'd need
+to recompute it for every intersection point (and scaling to the
+origin to improve robustness would also change those "local" numbers
+making it even harder to tell).
+
+The alternative of computing "min_grid_size" based on each operation
+is also broken because an operation performed on a long edge (insert
+a long edge into the existing topology) will have to use a large grid
+(the size of the biggest cell within the new edge extent) while a point
+you may have added before would have used a smaller grid size so you'd
+end up with different tolerances which would create hard or impossible
+to manage situations (multiple candidate hotpixels to snap to).
+
+> You should be able to get away with 10 digits of precision.
+
+Yep, that's about the value my convoluted "find out min tolerance"
+gives you. Could be 10 digits very much on the left of the decimal
+digits too...
+
+> >It'd surely be useful to let the user specify such grid (tolerance?)
+> >when invoking GEOS functions.
+> >
+> >It's also interesting to note that the floating point number grid
+> >is of variable size, with cells growing in size while moving away
+> >from origin.
+>
+> Snap-rounding assumes a fixed-point coordinate system.  It's not
+> going to be able to handle datasets with huge variation in scale.
+
+If instructed by user about the cell size it wouldn't need to assume
+anything, right ? That'd probably be the aim.
+
+--strk;
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From mtnclimb at telus.net  Fri Mar  2 10:20:55 2012
+From: mtnclimb at telus.net (Martin Davis)
+Date: Fri Mar  2 10:21:59 2012
+Subject: [geos-devel] ST_Snap
+In-Reply-To: <20120302084659.GI31159@gnash>
+References: <E3EF1FFCCEE6124887687AF1B41B686A0A7713F3@mail-mel>
+	<20120229080628.GA2187@gnash> <4F4E4ED7.2080704@telus.net>
+	<20120301174852.GH22812@gnash> <4F501D8A.1060506@telus.net>
+	<20120302084659.GI31159@gnash>
+Message-ID: <4F50E557.60508@telus.net>
+
+
+
+On 3/2/2012 12:46 AM, Sandro Santilli wrote:
+>
+> Snap-rounding assumes a fixed-point coordinate system.  It's not
+> going to be able to handle datasets with huge variation in scale.
+> If instructed by user about the cell size it wouldn't need to assume
+> anything, right ? That'd probably be the aim.
+>
+cell size = fixed-precision coordinate system, right?
+
+Or am I not understanding your "cell size"?
+From strk at keybit.net  Mon Mar  5 03:59:28 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Mon Mar  5 04:00:22 2012
+Subject: [geos-devel] ST_Snap
+In-Reply-To: <4F50E557.60508@telus.net>
+References: <E3EF1FFCCEE6124887687AF1B41B686A0A7713F3@mail-mel>
+	<20120229080628.GA2187@gnash> <4F4E4ED7.2080704@telus.net>
+	<20120301174852.GH22812@gnash> <4F501D8A.1060506@telus.net>
+	<20120302084659.GI31159@gnash> <4F50E557.60508@telus.net>
+Message-ID: <20120305085928.GE6561@gnash>
+
+On Fri, Mar 02, 2012 at 07:20:55AM -0800, Martin Davis wrote:
+> 
+> 
+> On 3/2/2012 12:46 AM, Sandro Santilli wrote:
+> >
+> >Snap-rounding assumes a fixed-point coordinate system.  It's not
+> >going to be able to handle datasets with huge variation in scale.
+> >If instructed by user about the cell size it wouldn't need to assume
+> >anything, right ? That'd probably be the aim.
+> >
+> cell size = fixed-precision coordinate system, right?
+> 
+> Or am I not understanding your "cell size"?
+
+Yes, by "cell-size" I mean a fixed-precision coordinate system.
+
+--strk; 
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From geos-trac at osgeo.org  Mon Mar  5 11:18:29 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar  5 11:18:50 2012
+Subject: [geos-devel] [GEOS] #515: mingw64 make check returns #IND
+Message-ID: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+
+#515: mingw64 make check returns #IND
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ On my mingw64 chain.  Make check tests pass except for 1
+
+ {{{
+ ---> group: capi::GEOSisValidDetail, test: test<3>
+      problem: assertion failed
+      failed assertion: "Values are not equal: expected 'POINT (NAN -5)'
+ actual '
+ POINT (-1.#IND -5)'"
+ }}}
+
+
+ strk says its a harmless failure and just anotehr presentation of NAN.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/515>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Mon Mar  5 11:26:16 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar  5 11:27:02 2012
+Subject: [geos-devel] Re: [GEOS] #515: mingw64 make check returns #IND
+In-Reply-To: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+References: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+Message-ID: <053.da57bd3a8aa965bf4ac688bce2756b82@osgeo.org>
+
+#515: mingw64 make check returns #IND
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Did mingw32 give you the same failure ?
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/515#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Mon Mar  5 11:28:49 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar  5 11:28:58 2012
+Subject: [geos-devel] Re: [GEOS] #515: mingw64 make check returns #IND
+In-Reply-To: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+References: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+Message-ID: <053.cbc260259888fba469da4fa2c7bff541@osgeo.org>
+
+#515: mingw64 make check returns #IND
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by robe):
+
+ mingw32 which one do you mean (the 3.4.5 ? ).  I forget because that one
+ gives like 5 or 6 errors so I didn't pay much attention to it. That we
+ have a separate ticket for I think on GEOS with all the noted errors.
+
+ I'm planning to switch my 32-build to the mingw 64 chain BTW.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/515#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Mon Mar  5 11:37:05 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar  5 11:37:32 2012
+Subject: [geos-devel] Re: [GEOS] #515: mingw64 make check returns #IND
+In-Reply-To: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+References: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+Message-ID: <053.020386afa63a9e2f9e2a936a2e4e415a@osgeo.org>
+
+#515: mingw64 make check returns #IND
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Im asking because a fix to this would be expecting the different answer
+ based on the system, with some _MINGW_ macro or something. But I dont know
+ which macro would do...
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/515#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Mon Mar  5 11:39:32 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar  5 11:40:08 2012
+Subject: [geos-devel] Re: [GEOS] #515: mingw64 make check returns #IND
+In-Reply-To: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+References: <044.f9004e33c629eadddb90b7cdb2068449@osgeo.org>
+Message-ID: <053.17e57db7b20816984c0667d72d47f189@osgeo.org>
+
+#515: mingw64 make check returns #IND
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  trivial     |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Could you try the attached mingw.nan.patch file ?
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/515#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From candia234 at hotmail.com  Mon Mar  5 18:50:33 2012
+From: candia234 at hotmail.com (Gloria Candia Cuno)
+Date: Mon Mar  5 18:50:44 2012
+Subject: [geos-devel] Fresh meat color
+Message-ID: <SNT139-W13BD366A95AC4BDDF933A9FA500@phx.gbl>
+
+
+Ocher 
+
+Friends, I recently found a very good site.It can offer you so many kinds of electronic products which you may be in need,such as laptops, gps, TV, cell phones, ps, MP3/4, motorcycles even several kinds of musical instruments and etc..
+           www.metobuy.com    E-mail: \ metobuy@188.com  MSN: \ metobuy@hotmail.com its quality is very good. And the website is promoting their products these days, so they have very good price and big discount now. This website also sells tv,motor,laptop and so on. The promotion will keep 30 days .
+ Life is the sea, then you and I is the number of friendship ship, in the past from Jingtao passing years, the future of the wild waves will rush - you believe, I believe - that our faith will not be changed. ? ?  		 	   		  
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20120305/f67146ad/attachment.html
+From geos-trac at osgeo.org  Wed Mar  7 00:53:35 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Mar  7 00:54:02 2012
+Subject: [geos-devel] [GEOS] #516: platform.h doesn't work right for mingw64
+Message-ID: <044.1ad82d433b870fb5d61da0d89b0f5d98@osgeo.org>
+
+#516: platform.h doesn't work right for mingw64
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ IT may not work right for ming32 either which would explain the numerous
+ errors.
+
+ Regarding what the spatialite guy did to hack the platform.h to hardcode
+ the right answer:
+
+
+ {{{
+  typedef long long int int64;
+ }}}
+
+ He described in
+ http://www.gaia-gis.it/spatialite-3.0.0-BETA/mingw64_how_to.html#libgeos
+
+
+ When rebuilding my mingw 64 to make sure I didn't miss anything, I left
+ out this step to see what would happen.  It compiled but I ended up with
+ about 30 errors on make check.  Putting it back got me back to the single
+ harmless IND failure.
+
+ float-store was on in both situations.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/516>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From alex.trofast at actian.com  Thu Mar  8 10:00:40 2012
+From: alex.trofast at actian.com (Alex Trofast)
+Date: Thu Mar  8 10:01:10 2012
+Subject: [geos-devel] SRID & result geometries
+Message-ID: <4F58C998.7030108@actian.com>
+
+Greetings all,
+
+Using the CAPI if you have a geometry, you set its' SRID, then perform 
+for example a buffer on this geometry, the result geometry does not get 
+set with the input geometries SRID and you have to set it again. Is this 
+the way it's intended to work or should the result keep the SRID?
+
+Thanks,
+
+-- 
+Alex
+http://bit.ly/geodb
+
+From geos-trac at osgeo.org  Mon Mar 12 17:11:27 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar 12 17:12:00 2012
+Subject: [geos-devel] [GEOS] #517: GEOS Intersection() error w/ test case.
+Message-ID: <047.2a0569822f315088cb3b0d28c1bf0831@osgeo.org>
+
+#517: GEOS Intersection() error w/ test case.
+------------------------+---------------------------------------------------
+ Reporter:  andrepl     |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ The included test case fails when the order of the arguments is reversed.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/517>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From oyvind.idland at gmail.com  Thu Mar 15 05:45:31 2012
+From: oyvind.idland at gmail.com (Oyvind Idland)
+Date: Thu Mar 15 05:45:58 2012
+Subject: [geos-devel] Modifying vertices without copying ?
+Message-ID: <CAEVk4t1Uy48kPj=vCDu8ZtjttKOrNYw4m9gP6qBPK7PvLdf0Gw@mail.gmail.com>
+
+Hello,
+
+is it possible in some way to modify vertices on geometries, without making
+copies ?
+
+In my case I just want to perform transformations/projections, no internal
+structures will be altered.
+
+
+Oyvind
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20120315/c387acd7/attachment.html
+From strk at keybit.net  Thu Mar 15 06:02:39 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Mar 15 06:03:22 2012
+Subject: [geos-devel] Modifying vertices without copying ?
+In-Reply-To: <CAEVk4t1Uy48kPj=vCDu8ZtjttKOrNYw4m9gP6qBPK7PvLdf0Gw@mail.gmail.com>
+References: <CAEVk4t1Uy48kPj=vCDu8ZtjttKOrNYw4m9gP6qBPK7PvLdf0Gw@mail.gmail.com>
+Message-ID: <20120315100239.GB711@gnash>
+
+On Thu, Mar 15, 2012 at 10:45:31AM +0100, Oyvind Idland wrote:
+
+> is it possible in some way to modify vertices on geometries, without making
+> copies ?
+
+It should be possible with the C++ api.
+Check out coordinate transformation classes.
+
+Probably not very well tested.
+
+--strk;
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From oyvind.idland at gmail.com  Thu Mar 15 06:38:14 2012
+From: oyvind.idland at gmail.com (Oyvind Idland)
+Date: Thu Mar 15 06:39:05 2012
+Subject: [geos-devel] Modifying vertices without copying ?
+In-Reply-To: <20120315100239.GB711@gnash>
+References: <CAEVk4t1Uy48kPj=vCDu8ZtjttKOrNYw4m9gP6qBPK7PvLdf0Gw@mail.gmail.com>
+	<20120315100239.GB711@gnash>
+Message-ID: <CAEVk4t3nHBqtc_jdZzyj49tub3EkYJNv3k5EYZ=RTBE=GijPCw@mail.gmail.com>
+
+I do use the C++ API, and have been taking a look at
+geos::geom::util::GeometryTransformer.
+
+geos::geom::util::GeometryTransformer is based on copying aswell, or, at
+least I can't see
+an way to change that behaviour ?
+
+
+-- Oyvind
+
+
+On Thu, Mar 15, 2012 at 11:02 AM, Sandro Santilli <strk@keybit.net> wrote:
+
+> On Thu, Mar 15, 2012 at 10:45:31AM +0100, Oyvind Idland wrote:
+>
+> > is it possible in some way to modify vertices on geometries, without
+> making
+> > copies ?
+>
+> It should be possible with the C++ api.
+> Check out coordinate transformation classes.
+>
+> Probably not very well tested.
+>
+> --strk;
+>
+>  ,------o-.
+>  |   __/  |    Delivering high quality PostGIS 2.0 !
+>  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+>  `-o------'
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20120315/f1154cb2/attachment.html
+From strk at keybit.net  Thu Mar 15 06:39:59 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Mar 15 06:40:07 2012
+Subject: [geos-devel] Modifying vertices without copying ?
+In-Reply-To: <CAEVk4t3nHBqtc_jdZzyj49tub3EkYJNv3k5EYZ=RTBE=GijPCw@mail.gmail.com>
+References: <CAEVk4t1Uy48kPj=vCDu8ZtjttKOrNYw4m9gP6qBPK7PvLdf0Gw@mail.gmail.com>
+	<20120315100239.GB711@gnash>
+	<CAEVk4t3nHBqtc_jdZzyj49tub3EkYJNv3k5EYZ=RTBE=GijPCw@mail.gmail.com>
+Message-ID: <20120315103959.GD711@gnash>
+
+Look at coordinate filters ? --strk;
+
+On Thu, Mar 15, 2012 at 11:38:14AM +0100, Oyvind Idland wrote:
+> I do use the C++ API, and have been taking a look at
+> geos::geom::util::GeometryTransformer.
+> 
+> geos::geom::util::GeometryTransformer is based on copying aswell, or, at
+> least I can't see
+> an way to change that behaviour ?
+> 
+> 
+> -- Oyvind
+> 
+> 
+> On Thu, Mar 15, 2012 at 11:02 AM, Sandro Santilli <strk@keybit.net> wrote:
+> 
+> > On Thu, Mar 15, 2012 at 10:45:31AM +0100, Oyvind Idland wrote:
+> >
+> > > is it possible in some way to modify vertices on geometries, without
+> > making
+> > > copies ?
+> >
+> > It should be possible with the C++ api.
+> > Check out coordinate transformation classes.
+> >
+> > Probably not very well tested.
+> >
+> > --strk;
+> >
+> >  ,------o-.
+> >  |   __/  |    Delivering high quality PostGIS 2.0 !
+> >  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+> >  `-o------'
+> >
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+-- 
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From oyvind.idland at gmail.com  Thu Mar 15 08:04:18 2012
+From: oyvind.idland at gmail.com (Oyvind Idland)
+Date: Thu Mar 15 08:04:47 2012
+Subject: [geos-devel] Modifying vertices without copying ?
+In-Reply-To: <20120315103959.GD711@gnash>
+References: <CAEVk4t1Uy48kPj=vCDu8ZtjttKOrNYw4m9gP6qBPK7PvLdf0Gw@mail.gmail.com>
+	<20120315100239.GB711@gnash>
+	<CAEVk4t3nHBqtc_jdZzyj49tub3EkYJNv3k5EYZ=RTBE=GijPCw@mail.gmail.com>
+	<20120315103959.GD711@gnash>
+Message-ID: <CAEVk4t0zmpyKLPgJcE0TEoxjXo8R1KQc1aH7_4co8-Bp515w6w@mail.gmail.com>
+
+Excellent, works like a charm ! :)
+
+Thanks.
+
+-- Oyvind
+
+On Thu, Mar 15, 2012 at 11:39 AM, Sandro Santilli <strk@keybit.net> wrote:
+
+> Look at coordinate filters ? --strk;
+>
+> On Thu, Mar 15, 2012 at 11:38:14AM +0100, Oyvind Idland wrote:
+> > I do use the C++ API, and have been taking a look at
+> > geos::geom::util::GeometryTransformer.
+> >
+> > geos::geom::util::GeometryTransformer is based on copying aswell, or, at
+> > least I can't see
+> > an way to change that behaviour ?
+> >
+> >
+> > -- Oyvind
+> >
+> >
+> > On Thu, Mar 15, 2012 at 11:02 AM, Sandro Santilli <strk@keybit.net>
+> wrote:
+> >
+> > > On Thu, Mar 15, 2012 at 10:45:31AM +0100, Oyvind Idland wrote:
+> > >
+> > > > is it possible in some way to modify vertices on geometries, without
+> > > making
+> > > > copies ?
+> > >
+> > > It should be possible with the C++ api.
+> > > Check out coordinate transformation classes.
+> > >
+> > > Probably not very well tested.
+> > >
+> > > --strk;
+> > >
+> > >  ,------o-.
+> > >  |   __/  |    Delivering high quality PostGIS 2.0 !
+> > >  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+> > >  `-o------'
+> > >
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@lists.osgeo.org
+> > > http://lists.osgeo.org/mailman/listinfo/geos-devel
+> > >
+>
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> --
+>
+>  ,------o-.
+>  |   __/  |    Delivering high quality PostGIS 2.0 !
+>  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+>  `-o------'
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20120315/b24f5839/attachment.html
+From geos-trac at osgeo.org  Sat Mar 17 12:27:11 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Mar 17 12:27:50 2012
+Subject: [geos-devel] [GEOS] #518: GEOS 3.3.2 crashes on MinGW64
+Message-ID: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+
+#518: GEOS 3.3.2 crashes on MinGW64
+------------------------+---------------------------------------------------
+ Reporter:  esseffe     |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ I'm Sandro Furieri, developer and maintainer of SpatiaLite.
+ I noticed some nasty crash caused by the current GEOS 3.3.2 on Windows 7
+ (64 bit): I compiled GEOS using the MinGW64 compiler, but may well be that
+ all these issues are caused by Win64 runtime libs and not by MinGW itself
+ (not really sure about this).
+
+ Anyway, it's surely interesting to note that on the same identical
+ platform, anything runs smoothly (no crash at all) when I build a 32 bit
+ executable using MinGW32 and compiling the same identical sources. These
+ are the issues I noticed on MinGW64:
+
+ issue #1:
+ {{{
+ ./configure --host=x86_64-w64-mingw32
+ make
+ make check
+ --
+ Making check in xmltester
+ make[2]: Entering directory
+ `/f/sviluppo-64/contribs/geos-3.3.2/tests/xmltester'
+
+ make  check-TESTS
+ make[3]: Entering directory
+ `/f/sviluppo-64/contribs/geos-3.3.2/tests/xmltester'
+
+ >>>>>>>>>>>>>> XMLtester.exe crashes <<<<<<<<<<<<<<<<
+
+ FAIL: testrunner
+ ==================
+ 1 of 1 test failed
+ ==================
+ make[3]: *** [check-TESTS] Error 1
+ make[3]: Leaving directory
+ `/f/sviluppo-64/contribs/geos-3.3.2/tests/xmltester'
+ make[2]: *** [check-am] Error 2
+ make[2]: Leaving directory
+ `/f/sviluppo-64/contribs/geos-3.3.2/tests/xmltester'
+ make[1]: *** [check-recursive] Error 1
+ make[1]: Leaving directory `/f/sviluppo-64/contribs/geos-3.3.2/tests'
+ make: *** [check-recursive] Error 1
+ }}}
+
+ please note: this issue seems similar to the one reported on ticket #509,
+ but it's not identical. and in my case it works nicely when for MinGW 32
+ bit.
+
+
+
+ issue #2:[[BR]]
+ GEOSIsValid() crashes when examining this geometry:
+ {{{
+ LINESTRING(1 2, 1 2)
+ }}}
+ please note: this Linestring simply has two points, and both them
+ have identical coordinates.
+ on Linux32, Linux64 and Win32 the same op simply returns an error
+ and some warning as expected.
+
+ issue #3:[[BR]]
+ GEOSIsValid() crashes again when examining this geometry:
+ {{{
+ POLYGON((10 10, 15 10, 15 10, 10 15, 10 10), (5 5, 20 5, 20 20, 5 20, 5
+ 5))
+ }}}
+ please note: this Polygon is invalid, because the Interior Ring is
+ completely
+ outside the Exterior Ring.
+ yet again, on Linux32, Linux64 and Win32 the same op works as expected.
+
+ bye Sandro
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/518>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Mon Mar 19 08:06:21 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar 19 08:06:40 2012
+Subject: [geos-devel] Re: [GEOS] #518: GEOS 3.3.2 crashes on MinGW64
+In-Reply-To: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+References: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+Message-ID: <056.f0282b2938959604f996c98950d40a84@osgeo.org>
+
+#518: GEOS 3.3.2 crashes on MinGW64
+------------------------+---------------------------------------------------
+ Reporter:  esseffe     |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by robe):
+
+ Sandro,
+
+ Which gcc are you using in your MingW64. As I recall, I don't think I was
+ getting make check errors on the MingW64 chain, just the newer MingW that
+ comes packaged with I think 4.6.1.  On the MingW64 I compiled geos with,
+ it was something like 4.4.something but I haven't recently compiled on my
+ newer MingW64 which is with gcc 4.5.something.
+
+ BTW -- thanks for the Mingw64 instructions :)
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/518#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From candia234 at hotmail.com  Mon Mar 19 18:04:58 2012
+From: candia234 at hotmail.com (Gloria Candia Cuno)
+Date: Mon Mar 19 18:05:31 2012
+Subject: [geos-devel] Dark Green Gem
+Message-ID: <SNT139-W5394D6D2DD72DFACF4F0B6FA420@phx.gbl>
+
+
+Dark gray 
+
+looking for some crazy gifts for your family,For your friends and your customer,all products of our company;Computers, Televisions,Cell Phones,MP3/MP4 Players,Digital Cameras, 
+Camcorders,Video Games Consoles,GPS and Motorcycles,most items are sold at wholesale prices, you will find lots of great bargains here. And we have a sales promotion from now on,buy more, save more and get more!Please contact we. 
+The website is: www.metobuy.com
+Email?metobuy@188.com
+MSN?metobuy@hotmail.com
+ You only wish your days are happy to be able to enjoy the relaxing, make up your hard work this year.  		 	   		  
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20120319/af6a0aa4/attachment.html
+From warmerdam at pobox.com  Tue Mar 20 18:23:41 2012
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue Mar 20 18:23:53 2012
+Subject: [geos-devel] Project Officer
+Message-ID: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+
+GEOS PSC,
+
+I am recommending the GEOS project to the incubation committee
+for graduation.  One part of that is the need identify a "Project Officer".
+Usually this is the PSC Chair though GEOS does not seem to have
+identified a particular chair in RFC1 (http://trac.osgeo.org/geos/wiki/RFC1)
+or the PSC (http://trac.osgeo.org/geos/wiki/PSC) page.
+
+I would appreciate it if the PSC could nominate a representative, possibly
+keeping track of them as chair in the PSC wiki page.   My personal
+suggestion even though I'm not a PSC member would be strk or failing
+that pramsey.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush? ? | Geospatial Software Developer
+From warmerdam at pobox.com  Tue Mar 20 18:30:42 2012
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue Mar 20 18:31:20 2012
+Subject: [geos-devel] Re: [Incubator] Motion: GEOS to Graduate Incubation
+In-Reply-To: <4F68F93A.5050003@gmail.com>
+References: <4F682319.1020806@pobox.com>
+	<4F68F93A.5050003@gmail.com>
+Message-ID: <CA+YzLBfzvqGbbG-OeRe7gjK7PB_m1taC_Hf59gsK6eTU7SgG-w@mail.gmail.com>
+
+On Tue, Mar 20, 2012 at 2:40 PM, Cameron Shorter
+<cameron.shorter@gmail.com> wrote:
+> Frank,
+> Before we pass Geos through incubation, could you please point us at answers
+> to the Incubation checklist:
+
+Good point!
+
+> Current version here:
+> http://www.osgeo.org/incubator/process/project_graduation_checklist.html
+>
+> Although I think it would be better to make use of the new 2.0 version of
+> the checklist which I think Jody is about to get approved.
+> http://wiki.osgeo.org/wiki/Draft_Project_Graduation_Checklist_Draft
+
+Let me try to address the draft checklist.
+
+Open:
+
+The code is under an open source license (LGPL).
+Communication is done via the open mailing list and Trac.
+Decision making is open, on the list, though my concern is that the
+project hasn't really had contentious decisions to make so I'm not
+fully confident in the maturity of the project in making tough decisions.
+But I am not concerned about it being too closed.
+
+Active and healthy community:
+
+The developers and users are cooperative and open.
+
+I am concerned about the size of the developer community, though there
+are multiple contributors from different organizations so I think this is ok.
+
+
+Copyright and License:
+
+1. Again, the code is under an open source license.
+2. I believe the API documentation is under LGPL by virtue of being
+derived from the source files.  There is relatively little other
+documentation.
+3. The code is properly vetted as part of the provenence review.
+4. I do not believe the project keeps a list of copyright holders
+identified in the provenance review, and now that I come on this item
+in the checklist I question it's appropriateness.  We do not normally
+expect projects to keep a list of copyright holders.
+5. The commiters have agreed to the license policy.  I'm not sure
+about this agreement being archived.  I see this is archived for Chuck
+Thibert, but seemingly not for Steven Wong.
+
+Processes:
+
+1. The code is under svn.
+2. The project uses Trac.
+3. The project has RFCs covering the PSC and committer guidelines.  A
+bit light I must admit.
+
+Release Procedure:
+
+1. The project does not have a codified release procedure.  It does
+have established practice which involves beta's and RCs for review,
+and a vote before the release is finalized.
+2.  The project has a significant regression test ("make check").
+3. The processes are not documented though they are part of the
+project culture.
+
+Board:
+
+A person has not yet been identified to be the project officer.  I
+would suggest the person be Sandro Santilli, and I will discuss this
+with the project now.
+
+Marketing:
+
+The project lacks a "quickstart" page or an "application overview" or
+a one page flier.  I'm not sure quickstart is applicable since the
+project does not have any user facing tools, but at least an overview
+is desirable.
+
+The project is included in most binary distributions including OSGeo
+Live, UbuntuGIS, and OSGeo4W.
+
+Projects:
+
+The GEOS project has good links to GDAL/OGR, PostGIS, Ingres, and
+MapServer projects primarily in the form of common developers.
+
+SAC:
+
+The project is hosted at OSGeo, in the geos.osgeo.org domain and makes
+good use of SAC support.
+
+
+I would note I had imagined the check list being something that the
+mentor would review before recommending a project for graduation, and
+that incubation committee members would take into account when voting.
+ I was not expecting that a detailed report against the items would be
+expected from the mentor or project.
+
+> Of note (from the new checklist), I think that Geos should be addressing the
+> Marketing criteria from the new checklist, which would include creating a
+> Project Overview for Geos:
+> http://wiki.osgeo.org/wiki/Draft_Project_Graduation_Checklist_Draft#Marketing
+
+Agreed, this is a deficiency worth rectifying.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush? ? | Geospatial Software Developer
+From strk at keybit.net  Wed Mar 21 04:34:00 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Wed Mar 21 04:34:20 2012
+Subject: [geos-devel] Project Officer
+In-Reply-To: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+References: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+Message-ID: <20120321083400.GC1080@gnash>
+
+On Tue, Mar 20, 2012 at 03:23:41PM -0700, Frank Warmerdam wrote:
+> GEOS PSC,
+> 
+> I am recommending the GEOS project to the incubation committee
+> for graduation.  One part of that is the need identify a "Project Officer".
+> Usually this is the PSC Chair though GEOS does not seem to have
+> identified a particular chair in RFC1 (http://trac.osgeo.org/geos/wiki/RFC1)
+> or the PSC (http://trac.osgeo.org/geos/wiki/PSC) page.
+> 
+> I would appreciate it if the PSC could nominate a representative, possibly
+> keeping track of them as chair in the PSC wiki page.   My personal
+> suggestion even though I'm not a PSC member would be strk or failing
+> that pramsey.
+
+I've no problem taking the role, altough I don't like bureaucracy that much.
+
+So, +0 here for me as chair. As per RFC1 it takes +2 (and no -1) to go.
+Martin, Howard, Gary, Dale and Paul: cast your votes please.
+
+--strk;
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From geos-trac at osgeo.org  Wed Mar 21 05:56:09 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Mar 21 05:56:43 2012
+Subject: [geos-devel] Re: [GEOS] #518: GEOS 3.3.2 crashes on MinGW64
+In-Reply-To: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+References: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+Message-ID: <056.e07a5ba35d00e2b5320353e27b9c6cb6@osgeo.org>
+
+#518: GEOS 3.3.2 crashes on MinGW64
+------------------------+---------------------------------------------------
+ Reporter:  esseffe     |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by esseffe):
+
+ Hi Robe,
+
+ My MinGW64 reports: gcc version 4.6.1
+
+ bye Sandro
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/518#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From dale.lutz at safe.com  Wed Mar 21 12:10:54 2012
+From: dale.lutz at safe.com (Dale Lutz)
+Date: Wed Mar 21 12:11:48 2012
+Subject: [geos-devel] RE: Project Officer
+Message-ID: <cf57e99c660d5e05f15a415c830ef9aa@mail.gmail.com>
+
+> So, +0 here for me as chair. As per RFC1 it takes +2 (and no -1) to go.
+> Martin, Howard, Gary, Dale and Paul: cast your votes please.
+
++1 from Dale
+
+
+Dale
+_____________________________________________________________________
+Dale Lutz | Vice President Development
+Safe Software Inc.
+Suite 2017, 7445 - 132nd Street, Surrey, BC Canada V3W 1J8
+T 604.501.9985 | F 604.501.9965
+dale.lutz@safe.com | Twitter @DaleAtSafe | www.safe.com
+_____________________________________________________________________
+From hobu.inc at gmail.com  Wed Mar 21 12:11:56 2012
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed Mar 21 12:12:08 2012
+Subject: [geos-devel] RE: Project Officer
+In-Reply-To: <cf57e99c660d5e05f15a415c830ef9aa@mail.gmail.com>
+References: <cf57e99c660d5e05f15a415c830ef9aa@mail.gmail.com>
+Message-ID: <8C43EEE3-76F4-404D-9588-9BC402B14DE7@gmail.com>
+
+
+On Mar 21, 2012, at 11:10 AM, Dale Lutz wrote:
+
+>> So, +0 here for me as chair. As per RFC1 it takes +2 (and no -1) to go.
+>> Martin, Howard, Gary, Dale and Paul: cast your votes please.
+> 
+> +1 from Dale
+
++1 
+
+Howard
+From geos-trac at osgeo.org  Wed Mar 21 15:32:33 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Mar 21 15:32:43 2012
+Subject: [geos-devel] [GEOS] #519: TopologyPreservingSimplifier::simplify:
+ vector::reserve exception on
+Message-ID: <044.5fdba0a87ff1e609256c3d558381e2ec@osgeo.org>
+
+#519: TopologyPreservingSimplifier::simplify: vector::reserve exception on
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ Exception thrown when trying to simplify a collection with EMPTY elements.
+ See http://trac.osgeo.org/postgis/ticket/1700
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/519>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From warmerdam at pobox.com  Wed Mar 21 15:58:21 2012
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Mar 21 15:59:04 2012
+Subject: [geos-devel] Re: [Incubator] Motion: GEOS to Graduate Incubation
+In-Reply-To: <4F69B131.5060709@gmail.com>
+References: <4F682319.1020806@pobox.com> <4F68F93A.5050003@gmail.com>
+	<CA+YzLBfzvqGbbG-OeRe7gjK7PB_m1taC_Hf59gsK6eTU7SgG-w@mail.gmail.com>
+	<4F69B131.5060709@gmail.com>
+Message-ID: <CA+YzLBd0p-yrRw12oBKFEXhHZ5O5GN6gM=7aUknntqLT=DPopQ@mail.gmail.com>
+
+On Wed, Mar 21, 2012 at 3:45 AM, Cameron Shorter
+<cameron.shorter@gmail.com> wrote:
+> Thanks Frank,
+>
+> Based upon your questions, it seems like Geos is close to completion, but
+> there are still a couple of things that need to be addressed? (At least the
+> writing of a Project Overview for marketing).
+>
+> Am I right in assuming that we should wait until these issues are actioned
+> before considering Geos for incubation?
+
+Cameron,
+
+It is my opinion that it is sufficient for the project to accept the task of
+writing a project overview.  I would be willing to commit to doing this
+for the project.
+
+There is a motion on the table, and if you feel that not currently
+having the project overview is sufficient grounds to hold up
+graduation it would be appropriate for you to vote -1 with an
+explanation to hold things up.  I am not; however, going to
+withdraw the motion over this issue as I don't feel it is blocking.
+
+> If ok with you, I'd encourage you or someone to copy the incubation answers
+> below into a wiki or similar, so that we retain a more permanent record of
+> passing incubation.
+
+Once again, it had not been my expectation that we were supposed
+to provide in-advance answers to the checklist - that a completed
+incubation status report like:
+
+  http://wiki.osgeo.org/wiki/GEOS_Incubation_Status
+
+is what is expected.  If we want specific answers to everything in
+the checklist then it should be added to the status template.  I
+continue to see the checklist as something mentors and
+incubation committee members should be reviewing when
+considering a project for graduation - and that might prompt
+specific questions.  Many of my answers were already covered
+in the status document for instance.
+
+> My feeling is that the most thorough use of a checklist
+> is to have answers to each question (as you have done in an email) and
+> reviewers just need to check the answers, rather than try to work out
+> answers or email questions to a list to get the answers.
+
+Perhaps, but that is certainly a new process and I don't
+think it should be assumed.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush? ? | Geospatial Software Developer
+From warmerdam at pobox.com  Wed Mar 21 16:03:07 2012
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed Mar 21 16:03:17 2012
+Subject: [geos-devel] Re: [Incubator] Motion: GEOS to Graduate Incubation
+In-Reply-To: <CA+YzLBd0p-yrRw12oBKFEXhHZ5O5GN6gM=7aUknntqLT=DPopQ@mail.gmail.com>
+References: <4F682319.1020806@pobox.com> <4F68F93A.5050003@gmail.com>
+	<CA+YzLBfzvqGbbG-OeRe7gjK7PB_m1taC_Hf59gsK6eTU7SgG-w@mail.gmail.com>
+	<4F69B131.5060709@gmail.com>
+	<CA+YzLBd0p-yrRw12oBKFEXhHZ5O5GN6gM=7aUknntqLT=DPopQ@mail.gmail.com>
+Message-ID: <CA+YzLBfiSNvEkTqnjbFm_u1YfqtUkH4RKjHNY6zOx8BsmRQ+vw@mail.gmail.com>
+
+On Wed, Mar 21, 2012 at 12:58 PM, Frank Warmerdam <warmerdam@pobox.com> wrote:
+> It is my opinion that it is sufficient for the project to accept the task of
+> writing a project overview. ?I would be willing to commit to doing this
+> for the project.
+
+I have filed a ticket to this effect, and will try to do it this weekend.
+
+  http://trac.osgeo.org/geos/ticket/520
+
+I have also become convinced that a small developer introduction for
+developers using GEOS would be a big asset for the project and I
+might take a crack at that too.
+
+Best regards,
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush? ? | Geospatial Software Developer
+From mtnclimb at telus.net  Wed Mar 21 21:04:36 2012
+From: mtnclimb at telus.net (Martin Davis)
+Date: Wed Mar 21 21:05:01 2012
+Subject: [geos-devel] RE: Project Officer
+In-Reply-To: <8C43EEE3-76F4-404D-9588-9BC402B14DE7@gmail.com>
+References: <cf57e99c660d5e05f15a415c830ef9aa@mail.gmail.com>
+	<8C43EEE3-76F4-404D-9588-9BC402B14DE7@gmail.com>
+Message-ID: <4F6A7AA4.3020309@telus.net>
+
++1
+
+On 3/21/2012 9:11 AM, Howard Butler wrote:
+> On Mar 21, 2012, at 11:10 AM, Dale Lutz wrote:
+>
+>>> So, +0 here for me as chair. As per RFC1 it takes +2 (and no -1) to go.
+>>> Martin, Howard, Gary, Dale and Paul: cast your votes please.
+>> +1 from Dale
+> +1
+>
+> Howard
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+> -----
+> No virus found in this message.
+> Checked by AVG - www.avg.com
+> Version: 2012.0.1913 / Virus Database: 2114/4884 - Release Date: 03/21/12
+>
+>
+From geos-trac at osgeo.org  Thu Mar 22 04:39:52 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Mar 22 04:40:11 2012
+Subject: [geos-devel] Re: [GEOS] #519:
+ TopologyPreservingSimplifier::simplify: vector::reserve exception on
+In-Reply-To: <044.5fdba0a87ff1e609256c3d558381e2ec@osgeo.org>
+References: <044.5fdba0a87ff1e609256c3d558381e2ec@osgeo.org>
+Message-ID: <053.cc7b230c4c7548b26e0f7922cf1855b7@osgeo.org>
+
+#519: TopologyPreservingSimplifier::simplify: vector::reserve exception on
+------------------------+---------------------------------------------------
+ Reporter:  strk        |        Owner:  geos-devel@?              
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:  3.3.3                     
+Component:  Default     |      Version:  3.3.2                     
+ Severity:  Unassigned  |   Resolution:  fixed                     
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+ * cc: history (added)
+  * status:  new => closed
+  * resolution:  => fixed
+
+
+Comment:
+
+ Fixed in 3.3 branch with r3574 and trunk (3.4) with r3575
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/519#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From pramsey at opengeo.org  Thu Mar 22 12:19:01 2012
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Thu Mar 22 12:19:17 2012
+Subject: [geos-devel] Project Officer
+In-Reply-To: <20120321083400.GC1080@gnash>
+References: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+	<20120321083400.GC1080@gnash>
+Message-ID: <CACowWR0MENkb1R_D5J5a1c=2Dy3Mt+j-b844R==b0nCTESsVoQ@mail.gmail.com>
+
++1, rock on
+
+On Wed, Mar 21, 2012 at 1:34 AM, Sandro Santilli <strk@keybit.net> wrote:
+> On Tue, Mar 20, 2012 at 03:23:41PM -0700, Frank Warmerdam wrote:
+>> GEOS PSC,
+>>
+>> I am recommending the GEOS project to the incubation committee
+>> for graduation. ?One part of that is the need identify a "Project Officer".
+>> Usually this is the PSC Chair though GEOS does not seem to have
+>> identified a particular chair in RFC1 (http://trac.osgeo.org/geos/wiki/RFC1)
+>> or the PSC (http://trac.osgeo.org/geos/wiki/PSC) page.
+>>
+>> I would appreciate it if the PSC could nominate a representative, possibly
+>> keeping track of them as chair in the PSC wiki page. ? My personal
+>> suggestion even though I'm not a PSC member would be strk or failing
+>> that pramsey.
+>
+> I've no problem taking the role, altough I don't like bureaucracy that much.
+>
+> So, +0 here for me as chair. As per RFC1 it takes +2 (and no -1) to go.
+> Martin, Howard, Gary, Dale and Paul: cast your votes please.
+>
+> --strk;
+>
+> ?,------o-.
+> ?| ? __/ ?| ? ?Delivering high quality PostGIS 2.0 !
+> ?| ?/ 2.0 | ? ?http://strk.keybit.net - http://vizzuality.com
+> ?`-o------'
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+From strk at keybit.net  Thu Mar 22 12:37:05 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Mar 22 12:38:13 2012
+Subject: [geos-devel] Project Officer
+In-Reply-To: <CACowWR0MENkb1R_D5J5a1c=2Dy3Mt+j-b844R==b0nCTESsVoQ@mail.gmail.com>
+References: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+	<20120321083400.GC1080@gnash>
+	<CACowWR0MENkb1R_D5J5a1c=2Dy3Mt+j-b844R==b0nCTESsVoQ@mail.gmail.com>
+Message-ID: <20120322163705.GA3832@gnash>
+
+So only Gary's vote is left.
+
+If I'm not mistaken the last time Gary wrote on this list was to vote
+on RFC1 in 2008. 
+
+According to RFC1 the lack of communication from a member for a period
+of two months allows the committee to consider the position vacant.
+
+Gary: are you reading this ? 
+
+--strk;
+
+On Thu, Mar 22, 2012 at 09:19:01AM -0700, Paul Ramsey wrote:
+> +1, rock on
+> 
+> On Wed, Mar 21, 2012 at 1:34 AM, Sandro Santilli <strk@keybit.net> wrote:
+> > On Tue, Mar 20, 2012 at 03:23:41PM -0700, Frank Warmerdam wrote:
+> >> GEOS PSC,
+> >>
+> >> I am recommending the GEOS project to the incubation committee
+> >> for graduation. ?One part of that is the need identify a "Project Officer".
+> >> Usually this is the PSC Chair though GEOS does not seem to have
+> >> identified a particular chair in RFC1 (http://trac.osgeo.org/geos/wiki/RFC1)
+> >> or the PSC (http://trac.osgeo.org/geos/wiki/PSC) page.
+> >>
+> >> I would appreciate it if the PSC could nominate a representative, possibly
+> >> keeping track of them as chair in the PSC wiki page. ? My personal
+> >> suggestion even though I'm not a PSC member would be strk or failing
+> >> that pramsey.
+> >
+> > I've no problem taking the role, altough I don't like bureaucracy that much.
+> >
+> > So, +0 here for me as chair. As per RFC1 it takes +2 (and no -1) to go.
+> > Martin, Howard, Gary, Dale and Paul: cast your votes please.
+> >
+> > --strk;
+From geos-trac at osgeo.org  Mon Mar 26 04:09:44 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon Mar 26 04:09:53 2012
+Subject: [geos-devel] Re: [GEOS] #501: Snap operation: wrong snapping
+In-Reply-To: <049.647d33647a081b59a67c0f1853a22e42@osgeo.org>
+References: <049.647d33647a081b59a67c0f1853a22e42@osgeo.org>
+Message-ID: <058.3d0d6404d5ab144dee57629b8db69078@osgeo.org>
+
+#501: Snap operation: wrong snapping
+------------------------+---------------------------------------------------
+ Reporter:  aperi2007   |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  GEOS Future               
+Component:  Default     |     Version:  svn-trunk                 
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ I shall notice that the bug above would be fixed if we snapped to the
+ _closest_ snap point.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/501#comment:8>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From warmerdam at pobox.com  Tue Mar 27 02:06:45 2012
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue Mar 27 02:07:19 2012
+Subject: [geos-devel] Project Officer
+In-Reply-To: <20120322163705.GA3832@gnash>
+References: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+	<20120321083400.GC1080@gnash>
+	<CACowWR0MENkb1R_D5J5a1c=2Dy3Mt+j-b844R==b0nCTESsVoQ@mail.gmail.com>
+	<20120322163705.GA3832@gnash>
+Message-ID: <CA+YzLBey9SW4EzkQ3V543hA6ksvso96ivtXWaPkWoBoHY33xaA@mail.gmail.com>
+
+On Thu, Mar 22, 2012 at 9:37 AM, Sandro Santilli <strk@keybit.net> wrote:
+> So only Gary's vote is left.
+>
+> If I'm not mistaken the last time Gary wrote on this list was to vote
+> on RFC1 in 2008.
+>
+> According to RFC1 the lack of communication from a member for a period
+> of two months allows the committee to consider the position vacant.
+>
+> Gary: are you reading this ?
+
+Strk,
+
+I'd note that it is sufficient to get two positive votes, and no negative
+votes for motions within two business days so I think this motion is
+passed.  Perhaps you could update the PSC listing and other relevant
+locations to indicate you are project chair.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush? ? | Geospatial Software Developer
+From warmerdam at pobox.com  Tue Mar 27 02:08:08 2012
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue Mar 27 02:08:44 2012
+Subject: [geos-devel] Re: [Incubator] Motion: GEOS to Graduate Incubation
+In-Reply-To: <4F6B8F46.3080702@gmail.com>
+References: <4F682319.1020806@pobox.com> <4F68F93A.5050003@gmail.com>
+	<CA+YzLBfzvqGbbG-OeRe7gjK7PB_m1taC_Hf59gsK6eTU7SgG-w@mail.gmail.com>
+	<4F6B8F46.3080702@gmail.com>
+Message-ID: <CA+YzLBc9n2Kk+=VpLiUr_hhOSyNu+5hmdzcnAGXOiiWYwm60ww@mail.gmail.com>
+
+On Thu, Mar 22, 2012 at 1:44 PM, Cameron Shorter
+<cameron.shorter@gmail.com> wrote:
+> Frank,
+> Thankyou for your responses and hard work in mentoring.
+>
+> I am currently +0 for graduation of Geos.
+>
+> I will be +1 once:
+> * An OSGeo Project Officer has been identified. Can we also ask this project
+> officer if they will act as a contact point for the OSGeo-Live project too?
+
+Cameron,
+
+The project has selected Sandro Santilli as project liason and chair.
+
+> * A commitment has been made to create an OSGeo-Live Project Overview in
+> time for the next OSGeo-Live release. (Frank, I think you have already made
+> that commitment)
+
+I made a start on it this weekend and hope to finish soon.
+
+I will note that so far only Jody has explicitly supported the motion.
+I'll add my +1 and make another call for other members of the committee
+to vote.  I'd like a more convincing sense of the opinion of the committee
+before closing the motion!
+
+Best regards,
+--
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush? ? | Geospatial Software Developer
+From strk at keybit.net  Tue Mar 27 02:53:21 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Tue Mar 27 02:54:06 2012
+Subject: [geos-devel] Motion passed: Project Officer
+In-Reply-To: <CA+YzLBey9SW4EzkQ3V543hA6ksvso96ivtXWaPkWoBoHY33xaA@mail.gmail.com>
+References: <CA+YzLBdN9frBOJD+mVOqrh_EyW54gfNTVafb-Miq_ukRAX+GDg@mail.gmail.com>
+	<20120321083400.GC1080@gnash>
+	<CACowWR0MENkb1R_D5J5a1c=2Dy3Mt+j-b844R==b0nCTESsVoQ@mail.gmail.com>
+	<20120322163705.GA3832@gnash>
+	<CA+YzLBey9SW4EzkQ3V543hA6ksvso96ivtXWaPkWoBoHY33xaA@mail.gmail.com>
+Message-ID: <20120327065321.GD16591@gnash>
+
+Alright, following the RFC this is the mail declaring the motion
+passed, giving myself the chair role.
+
+Will update the listing.
+
+--strk;
+
+On Mon, Mar 26, 2012 at 11:06:45PM -0700, Frank Warmerdam wrote:
+> On Thu, Mar 22, 2012 at 9:37 AM, Sandro Santilli <strk@keybit.net> wrote:
+> > So only Gary's vote is left.
+> >
+> > If I'm not mistaken the last time Gary wrote on this list was to vote
+> > on RFC1 in 2008.
+> >
+> > According to RFC1 the lack of communication from a member for a period
+> > of two months allows the committee to consider the position vacant.
+> >
+> > Gary: are you reading this ?
+> 
+> Strk,
+> 
+> I'd note that it is sufficient to get two positive votes, and no negative
+> votes for motions within two business days so I think this motion is
+> passed.  Perhaps you could update the PSC listing and other relevant
+> locations to indicate you are project chair.
+> 
+> Best regards,
+> -- 
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up?? | Frank Warmerdam, warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush? ? | Geospatial Software Developer
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From geos-trac at osgeo.org  Tue Mar 27 08:45:04 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue Mar 27 08:45:47 2012
+Subject: [geos-devel] Re: [GEOS] #518: GEOS 3.3.2 crashes on MinGW64
+In-Reply-To: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+References: <047.b01ab5afea3f50a5f2df568d899fe87a@osgeo.org>
+Message-ID: <056.dfaeb39f429192689056fa89dd7752a4@osgeo.org>
+
+#518: GEOS 3.3.2 crashes on MinGW64
+------------------------+---------------------------------------------------
+ Reporter:  esseffe     |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by esseffe):
+
+ interesting to notice (and may be related to this ticket someway).
+ the Windows own runtime (printf) represents NaN-values in a completely
+ different way ("1.#QNAN", "-1.#INF") from the one adopted on linux
+ ("nan").
+ please see: http://trac.osgeo.org/gdal/ticket/3576
+
+ that's not only: I noticed an odd inconsistency affecting some math
+ C-APIs between 32 and 64 bit implementations on Win, e.g.:
+
+ {{{
+ MinGW32
+ -------------------------
+ p = pow(0, -3.6)
+ errno=34 [ERANGE, exactly as on Linux]
+ fpclassify(p)=1280 [FP_INFINITE]
+ }}}
+
+
+ {{{
+ MinGW64
+ -------------------------
+ p = pow(0, -3.6)
+ errno=0 [no error !!!!!!]
+ fpclassify(p)=1280 [FP_INFINITE]
+ }}}
+
+ anyway fpclassify() isn't natively supported by the Windows own runtime;
+ it looks much more consistent and robust relying on win-specific
+ _spclass()
+ instead (and useful to support MSVC as well, not only MinGW).
+
+ bye Sandro
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/518#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Tue Mar 27 18:46:25 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue Mar 27 18:46:53 2012
+Subject: [geos-devel] [GEOS] #521: ftools "intersect" geoprocessing tool
+ fails to gather all shapes
+Message-ID: <050.29a8e0a79152c2507155bdc09f2b37fa@osgeo.org>
+
+#521: ftools "intersect" geoprocessing tool fails to gather all shapes
+------------------------+---------------------------------------------------
+ Reporter:  jlortscher  |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  intersect ftools          
+------------------------+---------------------------------------------------
+ In QGIS, I used the ftools "intersect" geoprocessing tool and got
+ unexpected results. It collected only those shapes that are entirely
+ within the intersecting shape but missed shapes that are partially inside
+ and partially outside of the intersecting shape.
+
+ Below is an example using QGIS 1.7.4:
+
+ Example: Using TIGER line shapefiles (downloaded from
+ http://www.census.gov/geo/www/tiger/tgrshp2011/tgrshp2011.html), I do the
+ following:
+
+ 1. Create a new QGIS project, and add shapefiles for Illinois "Places"
+ (i.e. cities) and for Illinois "Counties".
+ 2. Select Cook County in the Counties shapefile.
+ 3. Open the window for vector:geoprocessing tools:intersect
+ 4. Specify Places as the Input vector layer (do not mark "use only
+ selected features")
+ 5. Specify Counties as the Intersect layer (mark "use only selected
+ features").
+
+ My expectation is that the result set will contain all of the places
+ (cities) that are partially or entirely within Cook County, IL. However,
+ the result set contains only those places (cities) that are entirely
+ within Cook County. Those places that are only partially inside of Cook
+ County are missing. For example, the City of Chicago, of which 99% is in
+ Cook County is missing from the result set as are a number of other
+ places/cities.
+
+ The version of ftools is 0.6.1 (appears to be the most recent). I do not
+ know what version of GEOS is being used.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/521>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Wed Mar 28 03:39:13 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Mar 28 03:39:42 2012
+Subject: [geos-devel] Re: [GEOS] #521: ftools "intersect" geoprocessing tool
+ fails to gather all shapes
+In-Reply-To: <050.29a8e0a79152c2507155bdc09f2b37fa@osgeo.org>
+References: <050.29a8e0a79152c2507155bdc09f2b37fa@osgeo.org>
+Message-ID: <059.3540c4701229934515aa371cf925a95c@osgeo.org>
+
+#521: ftools "intersect" geoprocessing tool fails to gather all shapes
+------------------------------+---------------------------------------------
+ Reporter:  jlortscher        |        Owner:  geos-devel@?              
+     Type:  defect            |       Status:  closed                    
+ Priority:  major             |    Milestone:  3.3.3                     
+Component:  Default           |      Version:  3.3.2                     
+ Severity:  Unassigned        |   Resolution:  invalid                   
+ Keywords:  intersect ftools  |  
+------------------------------+---------------------------------------------
+Changes (by strk):
+
+  * status:  new => closed
+  * resolution:  => invalid
+
+
+Comment:
+
+ Doesn't ftools have its own bug tracker or mailing list ?
+ Show one pair of geometries against which GEOSIntersect call fail for a
+ valid ticket.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/521#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From georger.silva at gmail.com  Wed Mar 28 14:51:19 2012
+From: georger.silva at gmail.com (George Silva)
+Date: Wed Mar 28 14:52:27 2012
+Subject: [geos-devel] Expose Extract Line
+Message-ID: <CAGyPVTsvq_5GVLoN8rWDcaBhaP+LP=Ow0qYUR1GP=fDttQGbkw@mail.gmail.com>
+
+Hello GEOS guys and gals!
+
+I would like to request that the Extract Line by Location function (
+http://geos.osgeo.org/doxygen/classgeos_1_1linearref_1_1ExtractLineByLocation.html)
+to
+be exposed in geos public API.
+
+What is the work involved in doing so? Can anyone point me to an example
+that I might try to code it? Or there are problems associated with exposing
+this function?
+
+I'm using django and python, but my guess is that I'm not the only one
+interested, as I've seen others needing it.
+
+I adapted a django geos api solution, but if GEOS exposed this natively, it
+would be much better.
+
+Thoughts? Comments?
+
+-- 
+George R. C. Silva
+
+Desenvolvimento em GIS
+http://geoprocessamento.net
+http://blog.geoprocessamento.net
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20120328/b503f637/attachment.html
+From geos-trac at osgeo.org  Fri Mar 30 04:45:27 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 04:46:07 2012
+Subject: [geos-devel] [GEOS] #522: Exception on overlay between valid
+	linestrings
+Message-ID: <044.cd40b1a0d6ce2f6e498e2ecce1f58682@osgeo.org>
+
+#522: Exception on overlay between valid linestrings
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ Two valid lines trigger a topology exception on union or difference (and
+ probably on any other overlay operation).
+
+ Here they are:
+ {{{
+ 010300002040A5000001000000050000001D020000F41831C1E399231EE6F729411C020000F41831C1B992E9C61EFB29411C020000F41831C156E1297A1CFB29411A493FC38F1831C1D8C6FEFCFEF929411D020000F41831C1E399231EE6F72941
+
+ 010300002040A5000001000000040000001D020000F41831C1056DF2EC6AFA29411C020000F41831C1D1D1C8A2C7FA2941D6FA5B26EC1831C1C8F5FEAEBBFA29411D020000F41831C1056DF2EC6AFA2941
+ }}}
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/522>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 04:49:41 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 04:49:45 2012
+Subject: [geos-devel] Re: [GEOS] #522: Exception on overlay between valid
+ linestrings [JTS fails too] (was: Exception on overlay between valid
+ linestrings)
+In-Reply-To: <044.cd40b1a0d6ce2f6e498e2ecce1f58682@osgeo.org>
+References: <044.cd40b1a0d6ce2f6e498e2ecce1f58682@osgeo.org>
+Message-ID: <053.7c4c326f0e74d2faf02a64c638612c38@osgeo.org>
+
+#522: Exception on overlay between valid linestrings [JTS fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+  * keywords:  => jtsfail
+
+
+Comment:
+
+ JTS trunk revision 537 also fails:
+ {{{
+ Test Threw Exception (A difference B)
+ com.vividsolutions.jts.geom.TopologyException: found non-noded
+ intersection between LINESTRING ( -1120500.0000001257 851294.299192949,
+ -1120500.0000001257 851343.3885007716 ) and LINESTRING (
+ -1120500.0000001257 851343.3885007716, -1120500.0000001257
+ 851342.2386007707 ) [ (-1120500.0000001257, 851343.3885007716, NaN) ]
+ }}}
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/522#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From strk at keybit.net  Fri Mar 30 04:59:31 2012
+From: strk at keybit.net (Sandro Santilli)
+Date: Fri Mar 30 05:00:10 2012
+Subject: [geos-devel] Expose Extract Line
+In-Reply-To: <CAGyPVTsvq_5GVLoN8rWDcaBhaP+LP=Ow0qYUR1GP=fDttQGbkw@mail.gmail.com>
+References: <CAGyPVTsvq_5GVLoN8rWDcaBhaP+LP=Ow0qYUR1GP=fDttQGbkw@mail.gmail.com>
+Message-ID: <20120330085931.GH16221@gnash>
+
+On Wed, Mar 28, 2012 at 03:51:19PM -0300, George Silva wrote:
+> Hello GEOS guys and gals!
+> 
+> I would like to request that the Extract Line by Location function (
+> http://geos.osgeo.org/doxygen/classgeos_1_1linearref_1_1ExtractLineByLocation.html)
+> to
+> be exposed in geos public API.
+> 
+> What is the work involved in doing so?
+
+1. file an enhancement ticket ( for milestone 3.4.0 )
+2. write the function signature in capi/geos_c.h
+3. prepare a testcase 
+4. write the code in capi/geos_ts_c.cpp
+5. write a wrapper in capi/geos_c.cpp
+6. refine the testcase :)
+7. attach a patch to the ticket.
+
+> Can anyone point me to an example that I might try to code it?
+
+Anything in capi/geos_ts_c.cpp
+
+> Or there are problems associated with exposing this function?
+
+I guess you'd also need a function to compute locations ?
+
+--strk;
+
+  ,------o-. 
+  |   __/  |    Delivering high quality PostGIS 2.0 !
+  |  / 2.0 |    http://strk.keybit.net - http://vizzuality.com
+  `-o------'
+
+From geos-trac at osgeo.org  Fri Mar 30 05:20:54 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 05:21:05 2012
+Subject: [geos-devel] Re: [GEOS] #522: Exception on overlay between valid
+ linestrings [JTS fails too]
+In-Reply-To: <044.cd40b1a0d6ce2f6e498e2ecce1f58682@osgeo.org>
+References: <044.cd40b1a0d6ce2f6e498e2ecce1f58682@osgeo.org>
+Message-ID: <053.d14e2de7204250dfd4d5deb8610564d8@osgeo.org>
+
+#522: Exception on overlay between valid linestrings [JTS fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Debugging output from GEOS is interesting:
+
+ {{{
+ Trying with original input.
+ Original exception: TopologyException: found non-noded intersection
+ between LINESTRING (-1.1205e+06 851294, -1.1205e+06 851343) and LINESTRING
+ (-1.1205e+06 851343, -1.1205e+06 851342) at -1120500.0000001257
+ 851343.3885007716
+ Trying with Common Bits Remover (CBR)
+ CBR: result (before common-bits addition) is INVALID: Self-intersection at
+ or near point -1120500.0000001257 851294.29919294897
+ (-1120500.0000001257285 851294.29919294896536)
+ CBR: TopologyException: Result of overlay became invalid after re-addin
+ common bits of operand coordinates: Self-intersection at or near point
+ -1120500.0000001257 851294.29919294897 at -1120500.0000001257
+ 851294.29919294897
+ Trying with snapping
+ Computed snap tolerance: 7.8501591251697397784e-09
+ Computed common bits: -1120512 849920
+ SNAP: snapped geom 0 is INVALID: Self-intersection at or near point
+ 11.999999874271452 1422.23860077071 (11.999999874271452427
+ 1422.2386007707100362)
+ SNAP: snapped geom 0: self-unioning
+ SNAP: snapped geom 0 self-unioned is INVALID: Self-intersection at or near
+ point 11.999999874271452 1422.23860077071 (11.999999874271452427
+ 1422.2386007707100362)
+ SNAP: TopologyException: found non-noded intersection between LINESTRING
+ (12 1379.82, 12 1423.39) and LINESTRING (12 1423.39, 12 1422.24) at
+ 11.999999874271452 1423.3885007716017
+ EXCEPTION on case 1 test 1: TopologyException: found non-noded
+ intersection between LINESTRING (-1.1205e+06 851294, -1.1205e+06 851343)
+ and LINESTRING (-1.1205e+06 851343, -1.1205e+06 851342) at
+ -1120500.0000001257 851343.3885007716
+ }}}
+
+ It basically tells us that the "Common bits removal" heuristic did succeed
+ in give a result, BUT such result is invalid due to self-intersection.
+
+ When it comes to the "Snap" heuristic snapping itself creates invalid
+ results.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/522#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 05:47:58 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 05:48:52 2012
+Subject: [geos-devel] [GEOS] #523: SymDifference between two valid
+ geometries return an _invalid_ geometry
+Message-ID: <044.a930774d74a88c51d62a6390e1a0584e@osgeo.org>
+
+#523: SymDifference between two valid geometries return an _invalid_ geometry
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ Geometry A:
+ {{{
+ 010300000001000000080000000000000087523A41000000402C62524100000000B0523A41000000C01E6252410000000084523A41000000C023625241858C4F2488523A4151F8EEAC2562524111A0F52288523A414F50F3AC25625241D59FF52288523A414F50F3AC25625241000000007F523A4100000080256252410000000087523A41000000402C625241
+ }}}
+
+ Geometry B:
+ {{{
+ 01030000000100000004000000A871502388523A4158FEF2AC2562524100A0F52288523A414F50F3AC2562524111A0F52288523A414F50F3AC25625241A871502388523A4158FEF2AC25625241
+ }}}
+
+ They are both valid, but when running SymDifference against them the
+ result is invalid.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/523>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 06:32:18 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 06:32:59 2012
+Subject: [geos-devel] Re: [GEOS] #523: SymDifference between two valid
+ geometries return an _invalid_ geometry
+In-Reply-To: <044.a930774d74a88c51d62a6390e1a0584e@osgeo.org>
+References: <044.a930774d74a88c51d62a6390e1a0584e@osgeo.org>
+Message-ID: <053.71d2f527013025dfd768af61e3716ea1@osgeo.org>
+
+#523: SymDifference between two valid geometries return an _invalid_ geometry
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ The inputs are a larger polygon (first) and a very narrow polygon almost
+ collapsed to a line which intersects with the former.
+
+ Areas:
+ {{{
+      839.745285423078
+  3.86746841149477e-14
+ }}}
+
+ Overlay with original input fails: TopologyException: found non-noded
+ intersection between LINESTRING (1.72506e+06 4.81909e+06, 1.72506e+06
+ 4.81909e+06) and LINESTRING (1.72506e+06 4.81909e+06, 1.72506e+06
+ 4.81909e+06) at 1725064.1365604463 4819094.70235069
+
+ Common-bits remover result is refused due to invalidity of the output.
+
+ Snap heuristic is accepted no matter invalidity of the output.
+ Invalidity is (in both cases): Self-intersection at or near point
+ 1725064.1365604463 4819094.70235069 (1725064.1365604463499
+ 4819094.7023506900296)
+
+ I guess it'd make more sense to throw a TopologyException on invalid
+ output.. but that's really something that shouldn't happen.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/523#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 07:07:22 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 07:07:30 2012
+Subject: [geos-devel] Re: [GEOS] #523: SymDifference between two valid
+ geometries return
+ an _invalid_ geometry [JTS fails too] (was: SymDifference between
+ two valid geometries return an _invalid_ geometry)
+In-Reply-To: <044.a930774d74a88c51d62a6390e1a0584e@osgeo.org>
+References: <044.a930774d74a88c51d62a6390e1a0584e@osgeo.org>
+Message-ID: <053.57bc995535d968a901bf6ceb2f5e016c@osgeo.org>
+
+#523: SymDifference between two valid geometries return an _invalid_ geometry
+[JTS fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+  * keywords:  => jtsfail
+
+
+Comment:
+
+ I've tested JTS which also fails. Not easy to tell because JTS testrunner
+ doesn't check output for validity, but it succeeds in returning the
+ invalid geometry as result.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/523#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 09:51:40 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 09:52:28 2012
+Subject: [geos-devel] [GEOS] #524: IntersectionMatrix of a line with itself
+ has NO boundary intersection [JTS fails too]
+Message-ID: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+
+#524: IntersectionMatrix of a line with itself has NO boundary intersection [JTS
+fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+ Here's a MULTILINESTRING having an IntersectionMatrix with itself with NO
+ boundary intersection !
+
+ {{{
+ 0105000000050000000102000000050000000000000087523A41000000402C62524100000000B0523A41000000C01E6252410000000084523A41000000C023625241858C4F2488523A4151F8EEAC2562524111A0F52288523A414F50F3AC2562524101020000000300000011A0F52288523A414F50F3AC2562524100A0F52288523A414F50F3AC25625241A871502388523A4158FEF2AC25625241010200000004000000A871502388523A4158FEF2AC25625241A0E6602488523A417108F2AC2562524121E7602488523A417108F2AC25625241A871502388523A4158FEF2AC25625241010200000002000000A871502388523A4158FEF2AC2562524111A0F52288523A414F50F3AC2562524101020000000400000011A0F52288523A414F50F3AC25625241D59FF52288523A414F50F3AC25625241000000007F523A4100000080256252410000000087523A41000000402C625241
+ }}}
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/524>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 09:52:48 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 09:52:52 2012
+Subject: [geos-devel] Re: [GEOS] #524: IntersectionMatrix of a line with
+ itself has NO boundary intersection [JTS fails too]
+In-Reply-To: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+References: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+Message-ID: <053.deff6e2bc9e3fc34444d9c37433ae8c1@osgeo.org>
+
+#524: IntersectionMatrix of a line with itself has NO boundary intersection [JTS
+fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Mind you: the attached testcase works with JTS but has an unsupported
+ format in GEOS.
+ XMLTester is to be fixed to support it.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/524#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 10:09:16 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 10:09:23 2012
+Subject: [geos-devel] Re: [GEOS] #524: IntersectionMatrix of a line with
+ itself has NO boundary intersection [JTS fails too]
+In-Reply-To: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+References: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+Message-ID: <053.60879000e136e5c6f0e76746feeedfe5@osgeo.org>
+
+#524: IntersectionMatrix of a line with itself has NO boundary intersection [JTS
+fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:  jtsfail                   
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ Note that the input is composed by a mix of closed and non closed
+ linestrings:
+ {{{
+ =# select path, ST_IsClosed(geom) from
+ ST_Dump('0105000000050000000102000000050000000000000087523A41000000402C62524100000000B0523A41000000C01E6252410000000084523A41000000C023625241858C4F2488523A4151F8EEAC2562524111A0F52288523A414F50F3AC2562524101020000000300000011A0F52288523A414F50F3AC2562524100A0F52288523A414F50F3AC25625241A871502388523A4158FEF2AC25625241010200000004000000A871502388523A4158FEF2AC25625241A0E6602488523A417108F2AC2562524121E7602488523A417108F2AC25625241A871502388523A4158FEF2AC25625241010200000002000000A871502388523A4158FEF2AC2562524111A0F52288523A414F50F3AC2562524101020000000400000011A0F52288523A414F50F3AC25625241D59FF52288523A414F50F3AC25625241000000007F523A4100000080256252410000000087523A41000000402C625241');
+  path | st_isclosed
+ ------+-------------
+  {1}  | f
+  {2}  | f
+  {3}  | t
+  {4}  | f
+  {5}  | f
+ (5 rows)
+ }}}
+
+ There's actually a _single_ closed line
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/524#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 10:29:02 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 10:29:26 2012
+Subject: [geos-devel] Re: [GEOS] #524: IntersectionMatrix of a line with
+ itself has NO boundary intersection [JTS fails too]
+In-Reply-To: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+References: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+Message-ID: <053.5970c718b01c33bac37fd0c302404dc0@osgeo.org>
+
+#524: IntersectionMatrix of a line with itself has NO boundary intersection [JTS
+fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |        Owner:  geos-devel@?              
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:  3.3.3                     
+Component:  Default     |      Version:  3.3.2                     
+ Severity:  Unassigned  |   Resolution:  invalid                   
+ Keywords:  jtsfail     |  
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+  * status:  new => closed
+  * resolution:  => invalid
+
+
+Comment:
+
+ Ok, false alarm.
+ According to the Mod2BoundaryNodeRule the input MultiLinestring has no
+ boundary, which explains
+ the lack of boundary-boundary intersection.
+
+ http://www.vividsolutions.com/jts/javadoc/com/vividsolutions/jts/algorithm/BoundaryNodeRule.Mod2BoundaryNodeRule.html
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/524#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 10:52:27 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 10:53:16 2012
+Subject: [geos-devel] Re: [GEOS] #524: IntersectionMatrix of a line with
+ itself has NO boundary intersection [JTS fails too]
+In-Reply-To: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+References: <044.1c7c5449e75e7eb51fed0dad78c49c69@osgeo.org>
+Message-ID: <053.8b4549f6e6ebea6b89aef05d8795a691@osgeo.org>
+
+#524: IntersectionMatrix of a line with itself has NO boundary intersection [JTS
+fails too]
+------------------------+---------------------------------------------------
+ Reporter:  strk        |        Owner:  geos-devel@?              
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:  3.3.3                     
+Component:  Default     |      Version:  3.3.2                     
+ Severity:  Unassigned  |   Resolution:  invalid                   
+ Keywords:  jtsfail     |  
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ For the record: passing boundary-node-rule 2 to GEOSRelate gives the
+ boundary intersection
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/524#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 12:48:29 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 12:49:07 2012
+Subject: [geos-devel] [GEOS] #525: Polygonizer fails to polygonize simple
+	input
+Message-ID: <044.eddaaa66c8b36e1bfc9a550418c18787@osgeo.org>
+
+#525: Polygonizer fails to polygonize simple input
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ Input:
+ {{{
+ LINESTRING(0 0, 4 0, 5 3, 4 6)
+ LINESTRING(4 6, 6 6, 5 3, 6 0, 10 0, 5 10, 0 0)
+ LINESTRING(4 0, 6 0)
+ }}}
+
+ Output: EMPTY
+
+ Note you also get EMPTY output w/out the third linestring
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/525>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri Mar 30 12:49:38 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Mar 30 12:50:17 2012
+Subject: [geos-devel] Re: [GEOS] #525: Polygonizer fails to polygonize
+	simple input
+In-Reply-To: <044.eddaaa66c8b36e1bfc9a550418c18787@osgeo.org>
+References: <044.eddaaa66c8b36e1bfc9a550418c18787@osgeo.org>
+Message-ID: <053.047da4f5a1f3f1c2b1ece44078c952a3@osgeo.org>
+
+#525: Polygonizer fails to polygonize simple input
+------------------------+---------------------------------------------------
+ Reporter:  strk        |       Owner:  geos-devel@?              
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.3.3                     
+Component:  Default     |     Version:  3.3.2                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+
+Comment(by strk):
+
+ [[Image(cannot_polygonize.png)]]
+
+ The third linestring is the middle one on the bottom
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/525#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Sat Mar 31 12:31:52 2012
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Mar 31 12:32:01 2012
+Subject: [geos-devel] Re: [GEOS] #525: Polygonizer fails to polygonize
+	simple input
+In-Reply-To: <044.eddaaa66c8b36e1bfc9a550418c18787@osgeo.org>
+References: <044.eddaaa66c8b36e1bfc9a550418c18787@osgeo.org>
+Message-ID: <053.7e9c0812e80b2460d4f8f29c66fa4dc1@osgeo.org>
+
+#525: Polygonizer fails to polygonize simple input
+------------------------+---------------------------------------------------
+ Reporter:  strk        |        Owner:  geos-devel@?              
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:  3.3.3                     
+Component:  Default     |      Version:  3.3.2                     
+ Severity:  Unassigned  |   Resolution:  invalid                   
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+  * status:  new => closed
+  * resolution:  => invalid
+
+
+Comment:
+
+ Alright my WKT wasn't correctly noded.
+ The nodes are (4,0), (4,3) and (6,0).
+ Passing correctly noded input gives the correct answer, which is the
+ "A"-looking polygon,
+ the polygon covering the southbound triangle hole and the polygon covering
+ the small northbound triangle at the bottom.
+
+ {{{
+  GEOMETRYCOLLECTION(POLYGON((4 0,0 0,5 10,10 0,6 0,5 3,4 0),(5 3,6 6,4 6,5
+ 3)),POLYGON((4 0,5 3,6 0,4 0)),POLYGON((5 3,4 6,6 6,5 3)))
+ }}}
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/525#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).

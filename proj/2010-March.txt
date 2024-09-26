@@ -1,0 +1,2265 @@
+From support.mn at elisanet.fi  Mon Mar  1 00:50:08 2010
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Mon, 1 Mar 2010 10:50:08 +0200 (EET)
+Subject: [Proj] +axis switch to control axis orientation
+Message-ID: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>
+
+Hello,
+
+my opinion is that it is an improvement and since it is downwards compatible
+it is also very welcome. My only concern is that it only works partially? An user
+might expect it to do the hole work but it just did half of it? How could it be
+implemented so that all routines used that switch?
+
+Regards: Janne
+
+------------------------------------------------
+
+
+Frank Warmerdam [warmerdam at pobox.com] kirjoitti: 
+> Folks,
+> 
+> As part of an effort to support the transverse mercator south orientated
+> based coordinate systems as well as a few other coordinate systems with
+> unusual axis orientations I have tentatively introduced support for a new
+> +axis parameter for coordinate systems in PROJ.4 (the OSGeo version).
+> 
+> The +axis switch takes three character arguments defining the axis
+> orientation of the coordinate system.  The possible values are:
+> 
+> 'e' - easting
+> 'w' - westing - an x/longitude with the opposite sign to normal.
+> 'n' - northing
+> 's' - southing - a y/latitude with the opposite sign to the normal.
+> 'u' - up - normal z
+> 'd' - down - a z/elevation with the opposite sign to the normal.
+> 
+> So, a normal coordinate system is defined as "+axis=enu".  This is the
+> default and it may be omitted in the normal case.  Some variations:
+> 
+> "end" - Normal in x/y but the Z is a depth rather elevation.
+> "neu" - reversed x/y axes, for instance +proj=latlong +axis=neu would truely
+>          be a latitude/longitude coordinate system.
+> "wsu" - A coordinate system with the sign of x and y negated as is used
+>          for transverse mercator south orientated.
+> 
+> I have committed preliminary support for this switch in PROJ.4 trunk.  I
+> should note that the axis switching is done on entrance to pj_transform()
+> and (in reverse) on exit.  So applications, like proj, that call pj_fwd()
+> and pj_inv() directly will ignore the axis orientation just as they ignore
+> the prime meridians, and datum shifts.   However, programs that do use
+> pj_transform() - like cs2cs - will utilize the axis orientation switches.
+> 
+> eg.
+> cs2cs +proj=latlong +datum=WGS84 \
+>    +to \
+>         +proj=tmerc +ellps=WGS84 +datum=WGS84 +k_0=1 +lon_0=31 +lat_0=0 \
+>                     +x_0=0 +y_0=0 +axis=wsu
+> 30.5 -29.5
+> 48483.46        3264793.45 0.00
+> 
+> Though this is already in trunk, I am seeking feedback from the community
+> on the approach.  Whether it seems sufficiently general for other possible
+> uses, and whether the naming seems reasonable.
+> 
+> I should note that anyone who feels that non-projection coordinate system
+> services (like datum shifts, etc) do not belong in PROJ.4 need not feel
+> obligated to make that point again in reference to +axis.  It can be assumed
+> to apply.
+> 
+> If there is no widespread outcry against this functionality, I will
+> document it properly and make modifications to the mechanisms for
+> generating the epsg init file to take advantage of it.
+> 
+> Best regards,
+> -- 
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+
+
+
+From zoltans at geograph.co.za  Mon Mar  1 01:35:19 2010
+From: zoltans at geograph.co.za (Zoltan Szecsei)
+Date: Mon, 01 Mar 2010 11:35:19 +0200
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>
+References: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>
+Message-ID: <4B8B8A57.3000503@geograph.co.za>
+
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100301/f051afd9/attachment.html>
+
+From warmerdam at pobox.com  Mon Mar  1 10:42:15 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 01 Mar 2010 13:42:15 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>
+References: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>
+Message-ID: <4B8C0A87.2050304@pobox.com>
+
+support.mn at elisanet.fi wrote:
+> Hello,
+> 
+> my opinion is that it is an improvement and since it is downwards compatible
+> it is also very welcome. My only concern is that it only works partially? An user
+> might expect it to do the hole work but it just did half of it? How could it be
+> implemented so that all routines used that switch?
+
+Janne,
+
+I presume your concern is that it has no effect on the pj_inv() and pj_fwd()
+functions.  It is possible to implement support for it within them rather than,
+or in addition to in pj_transform() but it would be more complicated for a
+few reasons and likely slower since the axis switching decision would need
+to be checked for every point rather than once for a whole array of points to
+be transformed.
+
+There are already a bunch of services that only apply for applications
+going through pj_transform().  These include prime meridian handling
+(+pm), datum shifting and alternate longitude wrapping (ie. 0 to 360
+instead of -180 to 180).  So I think there is at least a precident for
+the operation of the two API entry points being fairly distinct.
+
+In part, I'm trying to keep the functioning of pj_fwd() and pj_inv() as
+focused on the projection function as possible, while treating
+pj_transform() as a higher level "coordinate system transformations"
+function.  One benefit of this is that in theory at some point I could
+replace everything from pj_fwd()/pj_inv() down with use of Gerald's new
+library while treating pj_transform() and all it's services as a higher
+level function that would remain distinct from the low level projections
+library.
+
+What do you think?  Is my reasoning at all convincing?
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From warmerdam at pobox.com  Mon Mar  1 10:49:51 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 01 Mar 2010 13:49:51 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8B8A57.3000503@geograph.co.za>
+References: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>
+	<4B8B8A57.3000503@geograph.co.za>
+Message-ID: <4B8C0C4F.2030102@pobox.com>
+
+Zoltan Szecsei wrote:
+> Hi All,
+> _I have not used cs2cs _and am fairly new to this list, however, as 
+> acceptance/rejection of ideas like Frank's below seems to happen a lot 
+> faster on this list, than I think I will have time to "get into cs2cs" 
+> at the moment, I'd like to add my 2c even though my thoughts may already 
+> be covered by other functionality.
+> 
+> I would like to suggest that the +axis option also covers the input 
+> value layout (source coordinate). Perhaps this could be done by only 
+> allowing 3 or 6 character options for this parameter. If 6 chars, the 
+> 1st 3 apply to the source coordinates. [... but then do we also allow 2 
+> & 4 char values, to cater for when when no Z exists?]
+> I have often received coordinate lists in [true] LatLong order, and also 
+> YX (geodetic layout) when actually XY was needed.
+> By allowing +axis to define a non-standard coordinate layout, proj could 
+> save us the time it takes to write a quick filter for the input file layout.
+> 
+> [Like I said - I have not fiddled with much of this stuff, _but I am 
+> assuming_ one can pipe files through cs2cs - hence defining input 
+> coordinate order would be useful]
+
+Zoltan,
+
+The cs2cs program actually takes two coordinate system definitions, one for
+the source, and one for the destination.  I think your point was allowing
+a way to represent the input and output axis order, right?  With this new
+capability you could do the following to switch from long/lat to lat/long
+ordering:
+
+   cs2cs +proj=latlong +datum=WGS84 +to +proj=latlong +axis=neu +datum=WGS84
+
+So I think the ability to attach an axis order to each used coordinate system
+definition is sufficient for your needs.
+
+I should however mention that the proj and cs2cs programs already support
+the -r and -s commandline switches to switch the x/y order of coordinates
+on input and output.  This is done in the program itself rather than down in
+pj_transform().  So if we considered cs2cs and proj to be the only important
+interfaces to the proj.4 library there would be no real need for +axis.
+We could just use those switches.
+
+However, in my humble opinion, the use of proj.4 as a library rather than
+as command line utilities is far more important.  So the +axis switch is
+an attempt to provide axis control within the library without the
+application having to know anything about it.  It is also necessary if
+we want to embed axis orientation with the coordinate system definition
+in initialization files like the epsg init file.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From j.l.h.hartmann at uva.nl  Mon Mar  1 10:58:45 2010
+From: j.l.h.hartmann at uva.nl (Jan Hartmann)
+Date: Mon, 01 Mar 2010 19:58:45 +0100
+Subject: [Proj] Datum shift to WGS84 for Dutch coordinate system (EPSG:28992)
+In-Reply-To: <4B8B4691.7060305@pobox.com>
+References: <4B8B4691.7060305@pobox.com>
+Message-ID: <4B8C0E65.6000802@uva.nl>
+
+For all the fans of the official Dutch coordinate system ("Amersfoort", 
+"Rijksdriehoeksnet", "RD"), EPSG:28992, I finally figured out what the 
+right codes are in our beloved epsg database, version 4.9, 24 nov 2009. 
+See text and attached Excel spreadsheet at:
+
+http://trac.osgeo.org/geotiff/ticket/22#comment:3
+
+Comments are appreciated and I'll let you know when the earth changes 
+form again.
+
+Jan
+
+
+From dmorissette at mapgears.com  Mon Mar  1 11:36:47 2010
+From: dmorissette at mapgears.com (Daniel Morissette)
+Date: Mon, 01 Mar 2010 14:36:47 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8B4691.7060305@pobox.com>
+References: <4B8B4691.7060305@pobox.com>
+Message-ID: <4B8C174F.2040201@mapgears.com>
+
+Hi Frank,
+
+I think that's a good idea. +1
+
+BTW, how do you plan to reflect this in future revisions of the "epsg" 
+file? Will every definition contain an explicit +axis parameter or will 
+it be specified only for those that do not use the default (+axis=enu)? 
+I think it would be best if the epsg file contained an explicit +axis 
+value for every definition.
+
+This question crossed my mind as I was trying to figure the logic that 
+would have to be implemented in an application that wants to rely on the 
+axis order info from the epsg file (for OGC WMS 1.3.0 support for 
+instance). I guess applications will need to be aware that they are 
+running against a version of PROJ.4 with +axis support, and in this case 
+know that it can rely on the presence of the +axis parameter to decide 
+on coordinate order. However, to make sure things don't break if for 
+whatever reason the app is still using an old epsg file without +axis 
+info, it would be better to know that if +axis is absent then we should 
+not assume the default of "enu" but instead behave as if the information 
+is not available and either produce a fatal error or fallback on other 
+mechanisms if any is available. Hence my conclusion that you should 
+provide +axis explicitly in *all* definitions in the epsg file, 
+including those that use +axis=enu. (That was hard to explain, hopefully 
+my comment makes sense to you after a few reads)
+
+Daniel
+
+
+Frank Warmerdam wrote:
+> Folks,
+> 
+> As part of an effort to support the transverse mercator south orientated
+> based coordinate systems as well as a few other coordinate systems with
+> unusual axis orientations I have tentatively introduced support for a new
+> +axis parameter for coordinate systems in PROJ.4 (the OSGeo version).
+> 
+> The +axis switch takes three character arguments defining the axis
+> orientation of the coordinate system.  The possible values are:
+> 
+> 'e' - easting
+> 'w' - westing - an x/longitude with the opposite sign to normal.
+> 'n' - northing
+> 's' - southing - a y/latitude with the opposite sign to the normal.
+> 'u' - up - normal z
+> 'd' - down - a z/elevation with the opposite sign to the normal.
+> 
+> So, a normal coordinate system is defined as "+axis=enu".  This is the
+> default and it may be omitted in the normal case.  Some variations:
+> 
+> "end" - Normal in x/y but the Z is a depth rather elevation.
+> "neu" - reversed x/y axes, for instance +proj=latlong +axis=neu would truely
+>          be a latitude/longitude coordinate system.
+> "wsu" - A coordinate system with the sign of x and y negated as is used
+>          for transverse mercator south orientated.
+> 
+> I have committed preliminary support for this switch in PROJ.4 trunk.  I
+> should note that the axis switching is done on entrance to pj_transform()
+> and (in reverse) on exit.  So applications, like proj, that call pj_fwd()
+> and pj_inv() directly will ignore the axis orientation just as they ignore
+> the prime meridians, and datum shifts.   However, programs that do use
+> pj_transform() - like cs2cs - will utilize the axis orientation switches.
+> 
+> eg.
+> cs2cs +proj=latlong +datum=WGS84 \
+>    +to \
+>         +proj=tmerc +ellps=WGS84 +datum=WGS84 +k_0=1 +lon_0=31 +lat_0=0 \
+>                     +x_0=0 +y_0=0 +axis=wsu
+> 30.5 -29.5
+> 48483.46        3264793.45 0.00
+> 
+> Though this is already in trunk, I am seeking feedback from the community
+> on the approach.  Whether it seems sufficiently general for other possible
+> uses, and whether the naming seems reasonable.
+> 
+> I should note that anyone who feels that non-projection coordinate system
+> services (like datum shifts, etc) do not belong in PROJ.4 need not feel
+> obligated to make that point again in reference to +axis.  It can be assumed
+> to apply.
+> 
+> If there is no widespread outcry against this functionality, I will
+> document it properly and make modifications to the mechanisms for
+> generating the epsg init file to take advantage of it.
+> 
+> Best regards,
+
+
+-- 
+Daniel Morissette
+http://www.mapgears.com/
+
+
+From warmerdam at pobox.com  Mon Mar  1 13:17:31 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 01 Mar 2010 16:17:31 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8C174F.2040201@mapgears.com>
+References: <4B8B4691.7060305@pobox.com> <4B8C174F.2040201@mapgears.com>
+Message-ID: <4B8C2EEB.7070503@pobox.com>
+
+Daniel Morissette wrote:
+> Hi Frank,
+> 
+> I think that's a good idea. +1
+> 
+> BTW, how do you plan to reflect this in future revisions of the "epsg" 
+> file? Will every definition contain an explicit +axis parameter or will 
+> it be specified only for those that do not use the default (+axis=enu)? 
+> I think it would be best if the epsg file contained an explicit +axis 
+> value for every definition.
+
+Daniel,
+
+It was my intention to *not* emit a +axis definition for coordinate
+systems with the default axis orientation; however, I do not feel
+strongly on this topic.
+
+> This question crossed my mind as I was trying to figure the logic that 
+> would have to be implemented in an application that wants to rely on the 
+> axis order info from the epsg file (for OGC WMS 1.3.0 support for 
+> instance). 
+
+Currently the epsg init file is still being generated with the
+rule not to honour EPSG axis order for geographic coordinate systems.
+That is, the default importFromEPSG() rule is used on the OGRSpatialReference
+rather than the importFromEPSGA() which will preserve the geographic
+coordinate systems axis orientation as defined by EPSG.
+
+If this approach remains unchanged, the epsg init file is still not very
+helpful for determining the epsg expected axis ordering.  I'm wondering
+if I ought to generate an "epsga" version of the file that explicitly
+always follows the epsg axis order conventions.
+
+On a related point, I've been quite quite surprised how often EPSG
+defines axis orientations other than easting, northing for projected
+coordinate systems.  Translating the pcs.csv file I have found
+1072 coordinate systems with non-default axis orientation out of
+7051 total projected coordinate systems.  I'm now quite worried that,
+like with geographic coordinate systems, we are going to find that
+EPSG follows "paper conventions" in it's definition of axis orientation
+for many projected coordinate systems even though that does *not*
+reflect usage patterns in GIS.
+
+If I just carry through the EPSG axis orientation, I'm worried that
+lots of coordinate systems that were in reasonably wide use will
+suddenly be broken.  I am not sure how to address this.  I could take
+the EPSG/EPSGA approach where I only used the EPSG axis orientation
+in exceptional circumstances (like TM south oriented projections) in
+the epsg init file, but do use them all the time in the "epsga" file.
+
+ > I guess applications will need to be aware that they are
+> running against a version of PROJ.4 with +axis support, and in this case 
+> know that it can rely on the presence of the +axis parameter to decide 
+> on coordinate order. However, to make sure things don't break if for 
+> whatever reason the app is still using an old epsg file without +axis 
+> info, it would be better to know that if +axis is absent then we should 
+> not assume the default of "enu" but instead behave as if the information 
+> is not available and either produce a fatal error or fallback on other 
+> mechanisms if any is available. Hence my conclusion that you should 
+> provide +axis explicitly in *all* definitions in the epsg file, 
+> including those that use +axis=enu. (That was hard to explain, hopefully 
+> my comment makes sense to you after a few reads)
+
+I see your point though I'm not sure I'm completely convinced this is
+the best way for applications to check.  Normally applications don't
+actually get to "see" the definition loaded from the epsg init file
+and used within PROJ.4.  It might be better if apps just checked the
+proj.4 version to decide whether it is likely handling the axis order
+issues automatically
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From zoltans at geograph.co.za  Mon Mar  1 22:21:59 2010
+From: zoltans at geograph.co.za (Zoltan Szecsei)
+Date: Tue, 02 Mar 2010 08:21:59 +0200
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8C0C4F.2030102@pobox.com>
+References: <1106316.5427091267433408824.JavaMail.support.mn@elisanet.fi>	<4B8B8A57.3000503@geograph.co.za>
+	<4B8C0C4F.2030102@pobox.com>
+Message-ID: <4B8CAE87.9030807@geograph.co.za>
+
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100302/c220224d/attachment.html>
+
+From geraldi.evenden at gmail.com  Tue Mar  2 06:51:37 2010
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Tue, 2 Mar 2010 09:51:37 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8C2EEB.7070503@pobox.com>
+References: <4B8B4691.7060305@pobox.com> <4B8C174F.2040201@mapgears.com>
+	<4B8C2EEB.7070503@pobox.com>
+Message-ID: <201003020951.37561.geraldi.evenden@gmail.com>
+
+My first reaction to the thread was to simply add the basic transformation 
+matrix to the xy side of the proj system but after looking at
+
+http://en.wikipedia.org/wiki/Transformation_matrix
+
+I think the more general affine matrix would be a better final solution.
+
++xform=[comma separated array of 4 or 6 real numbers]
+
+4 for transform, 6 for affine.
+
+Note that cos/sin values must be precomputed.
+
+I'm somewhat kidding about the affine. ;-)
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939) British psychologist
+
+
+From dmorissette at mapgears.com  Tue Mar  2 11:54:13 2010
+From: dmorissette at mapgears.com (Daniel Morissette)
+Date: Tue, 02 Mar 2010 14:54:13 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8C2EEB.7070503@pobox.com>
+References: <4B8B4691.7060305@pobox.com> <4B8C174F.2040201@mapgears.com>
+	<4B8C2EEB.7070503@pobox.com>
+Message-ID: <4B8D6CE5.40609@mapgears.com>
+
+Frank Warmerdam wrote:
+> 
+> If I just carry through the EPSG axis orientation, I'm worried that
+> lots of coordinate systems that were in reasonably wide use will
+> suddenly be broken.  I am not sure how to address this.  I could take
+> the EPSG/EPSGA approach where I only used the EPSG axis orientation
+> in exceptional circumstances (like TM south oriented projections) in
+> the epsg init file, but do use them all the time in the "epsga" file.
+> 
+
+I see your point, I had not thought of those potential side-effects. 
+Perhaps the EPSG/EPSGA approach would be best then, and apps that want 
+to use +axis info would read it from the EPSGA file.
+
+-- 
+Daniel Morissette
+http://www.mapgears.com/
+
+
+From support.mn at elisanet.fi  Wed Mar  3 00:06:07 2010
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Wed, 3 Mar 2010 10:06:07 +0200 (EET)
+Subject: [Proj] +axis switch to control axis orientation
+Message-ID: <21512046.3250291267603568169.JavaMail.support.mn@elisanet.fi>
+
+Frank Warmerdam [warmerdam at pobox.com] kirjoitti: 
+> support.mn at elisanet.fi wrote:
+> > Hello,
+> > 
+> > my opinion is that it is an improvement and since it is downwards compatible
+> > it is also very welcome. My only concern is that it only works partially? An user
+> > might expect it to do the hole work but it just did half of it? How could it be
+> > implemented so that all routines used that switch?
+> 
+> Janne,
+> 
+> I presume your concern is that it has no effect on the pj_inv() and pj_fwd()
+> functions.  It is possible to implement support for it within them rather than,
+> or in addition to in pj_transform() but it would be more complicated for a
+> few reasons and likely slower since the axis switching decision would need
+> to be checked for every point rather than once for a whole array of points to
+> be transformed.
+
+I would like to have the support there also since if the user enters the switch
+then he also expects to have the effect.
+
+Why would that need to be checked for every point? Just write two different
+loops and check it before entering the loop .. or something similar?
+
+Janne
+
+
+
+From warmerdam at pobox.com  Wed Mar  3 07:03:08 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 03 Mar 2010 10:03:08 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <21512046.3250291267603568169.JavaMail.support.mn@elisanet.fi>
+References: <21512046.3250291267603568169.JavaMail.support.mn@elisanet.fi>
+Message-ID: <4B8E7A2C.7000507@pobox.com>
+
+support.mn at elisanet.fi wrote:
+> Frank Warmerdam [warmerdam at pobox.com] kirjoitti: 
+>> support.mn at elisanet.fi wrote:
+>>> Hello,
+>>>
+>>> my opinion is that it is an improvement and since it is downwards compatible
+>>> it is also very welcome. My only concern is that it only works partially? An user
+>>> might expect it to do the hole work but it just did half of it? How could it be
+>>> implemented so that all routines used that switch?
+>> Janne,
+>>
+>> I presume your concern is that it has no effect on the pj_inv() and pj_fwd()
+>> functions.  It is possible to implement support for it within them rather than,
+>> or in addition to in pj_transform() but it would be more complicated for a
+>> few reasons and likely slower since the axis switching decision would need
+>> to be checked for every point rather than once for a whole array of points to
+>> be transformed.
+> 
+> I would like to have the support there also since if the user enters the switch
+> then he also expects to have the effect.
+> 
+> Why would that need to be checked for every point? Just write two different
+> loops and check it before entering the loop .. or something similar?
+
+Janne,
+
+The pj_inv() and pj_fwd() functions only operate on a single point -
+not an array of points like pj_transform(), so there is no loop.
+
+Are you suggesting that we also ought to add prime meridian (+pm),
+"latlong as a projection" support (+proj=latlong), and alternative
+longitude wrapping (+lon_wrap) support in pj_fwd() and pj_inv() to
+provide for fully comparible functionality?  Datum shifting is the
+one thing we would not need in these functions that is in pj_transform()
+since pj_fwd() and pj_inv() are always operating within the datum same
+datum.
+
+If anything, I'd rather just drop the "proj" program, making it an
+alias for cs2cs rather than do this sort of change to pj_fwd() and
+pj_inv().  Are you concerned about end users of "proj" or developers
+who might be using pj_fwd()/pj_inv()?  I'm already trying to discourage
+new developers from using pj_fwd() / pj_inv() directly unless they
+really know what they are doing.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From Mikael.Rittri at carmenta.com  Thu Mar  4 00:39:00 2010
+From: Mikael.Rittri at carmenta.com (Mikael Rittri)
+Date: Thu, 4 Mar 2010 09:39:00 +0100
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B8B4691.7060305@pobox.com>
+References: <4B8B4691.7060305@pobox.com>
+Message-ID: <FAF6E56B26D2044696772EBE89B1535101CBAB87@posty.carmenta.se>
+
+Frank wrote:
+
+> I have tentatively introduced support for a new +axis parameter [...]
+> [...]
+> ... I am seeking feedback from the community on the approach.  
+> Whether it seems sufficiently general for other possible uses, 
+> and whether the naming seems reasonable. 
+  (http://lists.maptools.org/pipermail/proj/2010-February/005111.html )
+
+I like it. The design makes sense, and the syntax is quite readable.
+
+Just my 20 öre,
+
+--
+Mikael Rittri
+Carmenta AB
+SWEDEN
+www.carmenta.com
+
+-----Original Message-----
+From: proj-bounces at lists.maptools.org [mailto:proj-bounces at lists.maptools.org] On Behalf Of Frank Warmerdam
+Sent: Monday, March 01, 2010 5:46 AM
+To: PROJ.4 and general Projections Discussions
+Subject: [Proj] +axis switch to control axis orientation
+
+[-- Text deleted --] 
+
+
+From support.mn at elisanet.fi  Tue Mar  9 00:08:18 2010
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Tue, 9 Mar 2010 10:08:18 +0200 (EET)
+Subject: [Proj] +axis switch to control axis orientation
+Message-ID: <2976868.3682721268122098629.JavaMail.support.mn@elisanet.fi>
+
+Hello,
+
+I am only worried that the new development in proj4 is lost due
+to some formal detail?
+
+At least if someone could make a document about the new features
+and how to use them? That would be nice. There are many newcomers
+that need last time information about the proj4 development.
+
+New features could be separated using new names with improved functions
+so that old compilations would continue to be as they were?
+
+Regards: Janne.
+
+-------------------------------------------------------------------------
+
+Frank Warmerdam [warmerdam at pobox.com] kirjoitti: 
+> support.mn at elisanet.fi wrote:
+> > Frank Warmerdam [warmerdam at pobox.com] kirjoitti: 
+> >> support.mn at elisanet.fi wrote:
+> >>> Hello,
+> >>>
+> >>> my opinion is that it is an improvement and since it is downwards compatible
+> >>> it is also very welcome. My only concern is that it only works partially? An user
+> >>> might expect it to do the hole work but it just did half of it? How could it be
+> >>> implemented so that all routines used that switch?
+> >> Janne,
+> >>
+> >> I presume your concern is that it has no effect on the pj_inv() and pj_fwd()
+> >> functions.  It is possible to implement support for it within them rather than,
+> >> or in addition to in pj_transform() but it would be more complicated for a
+> >> few reasons and likely slower since the axis switching decision would need
+> >> to be checked for every point rather than once for a whole array of points to
+> >> be transformed.
+> > 
+> > I would like to have the support there also since if the user enters the switch
+> > then he also expects to have the effect.
+> > 
+> > Why would that need to be checked for every point? Just write two different
+> > loops and check it before entering the loop .. or something similar?
+> 
+> Janne,
+> 
+> The pj_inv() and pj_fwd() functions only operate on a single point -
+> not an array of points like pj_transform(), so there is no loop.
+> 
+> Are you suggesting that we also ought to add prime meridian (+pm),
+> "latlong as a projection" support (+proj=latlong), and alternative
+> longitude wrapping (+lon_wrap) support in pj_fwd() and pj_inv() to
+> provide for fully comparible functionality?  Datum shifting is the
+> one thing we would not need in these functions that is in pj_transform()
+> since pj_fwd() and pj_inv() are always operating within the datum same
+> datum.
+> 
+> If anything, I'd rather just drop the "proj" program, making it an
+> alias for cs2cs rather than do this sort of change to pj_fwd() and
+> pj_inv().  Are you concerned about end users of "proj" or developers
+> who might be using pj_fwd()/pj_inv()?  I'm already trying to discourage
+> new developers from using pj_fwd() / pj_inv() directly unless they
+> really know what they are doing.
+> 
+> Best regards,
+> -- 
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+
+
+
+From warmerdam at pobox.com  Tue Mar  9 07:45:49 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 09 Mar 2010 10:45:49 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <2976868.3682721268122098629.JavaMail.support.mn@elisanet.fi>
+References: <2976868.3682721268122098629.JavaMail.support.mn@elisanet.fi>
+Message-ID: <4B966D2D.90003@pobox.com>
+
+support.mn at elisanet.fi wrote:
+> Hello,
+> 
+> I am only worried that the new development in proj4 is lost due
+> to some formal detail?
+> 
+> At least if someone could make a document about the new features
+> and how to use them? That would be nice. There are many newcomers
+> that need last time information about the proj4 development.
+
+Janne,
+
+I'm a bit lost with regard to what you want.  It is my intention to document
+the +axis at:
+
+   http://trac.osgeo.org/proj/wiki/GenParms
+
+ > New features could be separated using new names with improved functions
+ > so that old compilations would continue to be as they were?
+
+The +axis feature should have no impact on those using the library who do
+not incorporate +axis into their coordinate system descriptions.
+
+Perhaps you can explain a bit more if this does not satisfy your needs?
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From woklist at kyngchaos.com  Tue Mar  9 11:53:48 2010
+From: woklist at kyngchaos.com (William Kyngesburye)
+Date: Tue, 9 Mar 2010 13:53:48 -0600
+Subject: [Proj] NAD conversion test points?
+Message-ID: <07F9FC20-623B-494D-9778-235E5C140FAD@kyngchaos.com>
+
+I'm trying to figure out a 32/64bit problem on OSX with the NAD files, and need some test points.
+
+I found the example in the cs2cs man page, but it doesn't seem to agree with what I got with NADCON (http://www.ngs.noaa.gov/cgi-bin/nadcon.prl).  From NADCON, for the cs2cs example point -111.5 45.25919444444, I get a NAD83 to NAD27 latlong of 111d29'57.12835"w 45d15'33.35792"n.
+
+I plug this into proj to get the UTM coordinate (this shouldn't be affected by NAD conversion in proj):
+
+proj +proj=utm +zone=10 +ellps=GRS80
+111d29'57.12835"w 45d15'33.35792"n
+1402259.10	5076507.88
+
+Not the same as the UTM coord from the cs2cs example:
+
+cs2cs +proj=latlong +datum=NAD83 +to +proj=utm +zone=10 +datum=NAD27
+-111.5 45.25919444444
+1402285.99	5076292.42 -0.0
+
+But, if I use NAD27 in proj on the NADCON latlong, I do get the UTM coord from the example, but this doesn't seem right - like I'm doing the datum conversion twice, once in NADCON latlong NAD83 to latlong NAD27, and once in proj latlong NAD?? to UTM NAD27:
+
+proj +proj=utm +zone=10 +datum=NAD27
+111d29'57.12835"w 45d15'33.35792"n
+1402285.99	5076292.42
+
+Is this right? does the output datum in proj also set the input latlong datum?
+
+
+My own test with cs2cs (which I'm trying to figure out if it's wrong) gives:
+
+1402224.58	5076275.42
+
+Is maybe the cs2cs example wrong for the output?  I did figure out that the lat/long in the example should be switched (x,y order), so maybe something else is missing?
+
+-----
+William Kyngesburye <kyngchaos*at*kyngchaos*dot*com>
+http://www.kyngchaos.com/
+
+Earth: "Mostly harmless"
+
+- revised entry in the HitchHiker's Guide to the Galaxy
+
+
+
+
+From EMiller at dfg.ca.gov  Tue Mar  9 14:50:02 2010
+From: EMiller at dfg.ca.gov (Eric Miller)
+Date: Tue, 09 Mar 2010 14:50:02 -0800
+Subject: [Proj] NAD conversion test points?
+In-Reply-To: <07F9FC20-623B-494D-9778-235E5C140FAD@kyngchaos.com>
+References: <07F9FC20-623B-494D-9778-235E5C140FAD@kyngchaos.com>
+Message-ID: <4B96601A.95FD.00E4.0@dfg.ca.gov>
+
+William,
+
+Your confusion might be cleared up by knowing that the "proj" program does not perform any datum conversion.  If your ellipsoid/datum is different between inputs and outputs you should use the "cs2cs" program.  Additionally, with "cs2cs" there is a "nadgrids" argument to specify a specific correction grid.
+
+Furthermore, I assume your nadgrids files were processed with nad2bin on an OSX machine of the same kind (32 or 64 bit).  This is important because cs2cs depends on machine specific binary files.  Probably you'd get a segment violation if that wasn't the case.  It'd be nice if someone wanted to convert it to use the "new" las/los files from the NGS.  But, until then...
+-- 
+
+Eric G. Miller
+Staff Programmer
+CA Dept. of Fish & Game
+
+
+>>> On 3/9/2010 at 11:53 AM, William Kyngesburye <woklist at kyngchaos.com> wrote:
+> I'm trying to figure out a 32/64bit problem on OSX with the NAD files, and 
+> need some test points.
+> 
+> I found the example in the cs2cs man page, but it doesn't seem to agree with 
+> what I got with NADCON (http://www.ngs.noaa.gov/cgi-bin/nadcon.prl).  From 
+> NADCON, for the cs2cs example point -111.5 45.25919444444, I get a NAD83 to 
+> NAD27 latlong of 111d29'57.12835"w 45d15'33.35792"n.
+> 
+> I plug this into proj to get the UTM coordinate (this shouldn't be affected 
+> by NAD conversion in proj):
+> 
+> proj +proj=utm +zone=10 +ellps=GRS80
+> 111d29'57.12835"w 45d15'33.35792"n
+> 1402259.10	5076507.88
+> 
+> Not the same as the UTM coord from the cs2cs example:
+> 
+> cs2cs +proj=latlong +datum=NAD83 +to +proj=utm +zone=10 +datum=NAD27
+> -111.5 45.25919444444
+> 1402285.99	5076292.42 -0.0
+> 
+> But, if I use NAD27 in proj on the NADCON latlong, I do get the UTM coord 
+> from the example, but this doesn't seem right - like I'm doing the datum 
+> conversion twice, once in NADCON latlong NAD83 to latlong NAD27, and once in 
+> proj latlong NAD?? to UTM NAD27:
+> 
+> proj +proj=utm +zone=10 +datum=NAD27
+> 111d29'57.12835"w 45d15'33.35792"n
+> 1402285.99	5076292.42
+> 
+> Is this right? does the output datum in proj also set the input latlong 
+> datum?
+> 
+> 
+> My own test with cs2cs (which I'm trying to figure out if it's wrong) gives:
+> 
+> 1402224.58	5076275.42
+> 
+> Is maybe the cs2cs example wrong for the output?  I did figure out that the 
+> lat/long in the example should be switched (x,y order), so maybe something 
+> else is missing?
+> 
+> -----
+> William Kyngesburye <kyngchaos*at*kyngchaos*dot*com>
+> http://www.kyngchaos.com/ 
+> 
+> Earth: "Mostly harmless"
+> 
+> - revised entry in the HitchHiker's Guide to the Galaxy
+> 
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org 
+> http://lists.maptools.org/mailman/listinfo/proj
+
+
+
+From woklist at kyngchaos.com  Tue Mar  9 17:31:09 2010
+From: woklist at kyngchaos.com (William Kyngesburye)
+Date: Tue, 9 Mar 2010 19:31:09 -0600
+Subject: [Proj] NAD conversion test points?
+In-Reply-To: <4B96601A.95FD.00E4.0@dfg.ca.gov>
+References: <07F9FC20-623B-494D-9778-235E5C140FAD@kyngchaos.com>
+	<4B96601A.95FD.00E4.0@dfg.ca.gov>
+Message-ID: <5470E3C6-B272-4425-BD9D-8833EFE8F02B@kyngchaos.com>
+
+On Mar 9, 2010, at 4:50 PM, Eric Miller wrote:
+
+> Furthermore, I assume your nadgrids files were processed with nad2bin on an OSX machine of the same kind (32 or 64 bit).  This is important because cs2cs depends on machine specific binary files.  Probably you'd get a segment violation if that wasn't the case.
+
+Actually, I've patched the nad read/write stuff to handle an endian/bitsize-agnostic binary NAD file (for my multi-arch PROJ framework), it's just that it suddenly stopped working, which is what I was investigating.  And I found the problem, I had inadvertantly disabled my patches.  Oops.  It's working now.
+
+-----
+William Kyngesburye <kyngchaos*at*kyngchaos*dot*com>
+http://www.kyngchaos.com/
+
+"Time is an illusion - lunchtime doubly so."
+
+- Ford Prefect
+
+
+-----
+William Kyngesburye <kyngchaos*at*kyngchaos*dot*com>
+http://www.kyngchaos.com/
+
+Earth: "Mostly harmless"
+
+- revised entry in the HitchHiker's Guide to the Galaxy
+
+
+
+
+From support.mn at elisanet.fi  Wed Mar 10 00:36:57 2010
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Wed, 10 Mar 2010 10:36:57 +0200 (EET)
+Subject: [Proj] +axis switch to control axis orientation
+Message-ID: <9150420.3691261268210217679.JavaMail.support.mn@elisanet.fi>
+
+Hello,
+
+> I'm a bit lost with regard to what you want.  It is my intention to document
+> the +axis at:
+> 
+>    http://trac.osgeo.org/proj/wiki/GenParms
+> 
+
+Ok, I was thinking those proj4 standard documents in pdf format. Somebody
+should add somthing to those? But if it is already on a web page it should be
+simple to take a pdf print out. There is a need for a complete single document
+(or set of documents) that cover all (also the latest) details. Just add a pdf (print
+out) to those there are?
+
+I would edit a complete proj4 single pdf document out of those there are and
+update it regulary as new versions come out. Now the documentation is here
+and there split all over the world.. not a very user friendly approach? (Given
+enough time)
+
+>  > New features could be separated using new names with improved functions
+>  > so that old compilations would continue to be as they were?
+> 
+> The +axis feature should have no impact on those using the library who do
+> not incorporate +axis into their coordinate system descriptions.
+> 
+
+Yes, that works also.
+
+Regards: Janne
+
+
+
+From warmerdam at pobox.com  Wed Mar 10 07:31:55 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed, 10 Mar 2010 10:31:55 -0500
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <9150420.3691261268210217679.JavaMail.support.mn@elisanet.fi>
+References: <9150420.3691261268210217679.JavaMail.support.mn@elisanet.fi>
+Message-ID: <4B97BB6B.9000804@pobox.com>
+
+support.mn at elisanet.fi wrote:
+> Hello,
+> 
+>> I'm a bit lost with regard to what you want.  It is my intention to document
+>> the +axis at:
+>>
+>>    http://trac.osgeo.org/proj/wiki/GenParms
+>>
+> 
+> Ok, I was thinking those proj4 standard documents in pdf format. Somebody
+> should add somthing to those? But if it is already on a web page it should be
+> simple to take a pdf print out. There is a need for a complete single document
+> (or set of documents) that cover all (also the latest) details. Just add a pdf (print
+> out) to those there are?
+> 
+> I would edit a complete proj4 single pdf document out of those there are and
+> update it regulary as new versions come out. Now the documentation is here
+> and there split all over the world.. not a very user friendly approach? (Given
+> enough time)
+
+Janne,
+
+The problem is that the original documents are not available in
+an updatable form, and no one has stepped forward to prepare new
+comprehensive documentation.  I don't have the time or creativity
+to do so.
+
+My inclination is to continue adding material in the Trac web
+pages as time permits.  I am not particularly enthusiastic of big
+pdf documents for software systems.
+
+I will certainly agree that the PROJ.4 documentation is not in a unified
+form any more, and that this is unfortunate.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From roger at opq.se  Wed Mar 10 08:43:57 2010
+From: roger at opq.se (Roger Oberholtzer)
+Date: Wed, 10 Mar 2010 17:43:57 +0100
+Subject: [Proj] +axis switch to control axis orientation
+In-Reply-To: <4B97BB6B.9000804@pobox.com>
+References: <9150420.3691261268210217679.JavaMail.support.mn@elisanet.fi>
+	<4B97BB6B.9000804@pobox.com>
+Message-ID: <1268239437.2047.200.camel@acme.pacific>
+
+On Wed, 2010-03-10 at 10:31 -0500, Frank Warmerdam wrote:
+
+> My inclination is to continue adding material in the Trac web
+> pages as time permits.  I am not particularly enthusiastic of big
+> pdf documents for software systems.
+
+And if you add TracWikiPrintPlugin, you can select wiki pages and have
+them printed to a pdf doc, with titles and table of contents.
+
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Krukmakargatan 21
+P.O. Box 17009
+SE-104 62 Stockholm, Sweden
+
+Office: Int +46 10-615 60 20
+Mobile: Int +46 70-815 1696
+
+
+
+From teletautala at hotmail.com  Thu Mar 11 15:08:30 2010
+From: teletautala at hotmail.com (` `)
+Date: Thu, 11 Mar 2010 23:08:30 +0000
+Subject: [Proj] Region Finder
+Message-ID: <SNT137-w5265182845D1D56712A81DAF320@phx.gbl>
+
+
+I have a the latitude/longitudes for a school boundary and I want to know if an address is in that boundary.  Is there a way to find out if a coordinate is within a latitude/longitude boundary?  Or even better would be to use an address and find out what boundary it is in.
+
+-Daniel
+
+ 		 	   		  
+_________________________________________________________________
+Your E-mail and More On-the-Go. Get Windows Live Hotmail Free.
+http://clk.atdmt.com/GBL/go/201469229/direct/01/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100311/5227ad18/attachment.html>
+
+From warmerdam at pobox.com  Thu Mar 11 15:51:58 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 11 Mar 2010 18:51:58 -0500
+Subject: [Proj] Region Finder
+In-Reply-To: <SNT137-w5265182845D1D56712A81DAF320@phx.gbl>
+References: <SNT137-w5265182845D1D56712A81DAF320@phx.gbl>
+Message-ID: <4B99821E.8000308@pobox.com>
+
+` ` wrote:
+> I have a the latitude/longitudes for a school boundary and I want to 
+> know if an address is in that boundary.  Is there a way to find out if a 
+> coordinate is within a latitude/longitude boundary?  Or even better 
+> would be to use an address and find out what boundary it is in.
+> 
+
+Daniel,
+
+There are two parts to your question, neither of which have to do with
+PROJ.4:
+
+1) The ability to determine the lat/long location associated with an
+address (ie. a postal address).  This is called geocoding.   The following
+posts by Martin Davis should provide a bit of background on geocoders.
+
+http://lin-ear-th-inking.blogspot.com/2010/03/open-source-geocoders.html
+http://lin-ear-th-inking.blogspot.com/2010/03/more-open-source-geocoders.html
+
+2) The ability to determine if a point is within a polygon or conversely
+which polygon within a set the point is in.  This is a geometry operation.
+One of the best known geometry libraries is GEOS (a C++ port of JTS which
+oddly is also Martin Davis' project).
+
+   http://geos.osgeo.org/
+
+Good luck,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From teletautala at hotmail.com  Fri Mar 12 13:41:19 2010
+From: teletautala at hotmail.com (` `)
+Date: Fri, 12 Mar 2010 21:41:19 +0000
+Subject: [Proj] Region Finder
+In-Reply-To: <4B99821E.8000308@pobox.com>
+References: <SNT137-w5265182845D1D56712A81DAF320@phx.gbl>,
+	<4B99821E.8000308@pobox.com>
+Message-ID: <SNT137-w14EF0881EE716C136AB92AF310@phx.gbl>
+
+
+Thank you for your post.  I will look into geos.
+
+-Daniel
+
+
+> Date: Thu, 11 Mar 2010 18:51:58 -0500
+> From: warmerdam at pobox.com
+> To: proj at lists.maptools.org
+> Subject: Re: [Proj] Region Finder
+> 
+> ` ` wrote:
+> > I have a the latitude/longitudes for a school boundary and I want to 
+> > know if an address is in that boundary.  Is there a way to find out if a 
+> > coordinate is within a latitude/longitude boundary?  Or even better 
+> > would be to use an address and find out what boundary it is in.
+> > 
+> 
+> Daniel,
+> 
+> There are two parts to your question, neither of which have to do with
+> PROJ.4:
+> 
+> 1) The ability to determine the lat/long location associated with an
+> address (ie. a postal address).  This is called geocoding.   The following
+> posts by Martin Davis should provide a bit of background on geocoders.
+> 
+> http://lin-ear-th-inking.blogspot.com/2010/03/open-source-geocoders.html
+> http://lin-ear-th-inking.blogspot.com/2010/03/more-open-source-geocoders.html
+> 
+> 2) The ability to determine if a point is within a polygon or conversely
+> which polygon within a set the point is in.  This is a geometry operation.
+> One of the best known geometry libraries is GEOS (a C++ port of JTS which
+> oddly is also Martin Davis' project).
+> 
+>    http://geos.osgeo.org/
+> 
+> Good luck,
+> -- 
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush    | Geospatial Programmer for Rent
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+ 		 	   		  
+_________________________________________________________________
+Hotmail: Trusted email with powerful SPAM protection.
+http://clk.atdmt.com/GBL/go/210850553/direct/01/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100312/d5db6f03/attachment.html>
+
+From support.mn at elisanet.fi  Sat Mar 13 00:54:57 2010
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Sat, 13 Mar 2010 10:54:57 +0200 (EET)
+Subject: [Proj] +axis switch to control axis orientation
+Message-ID: <19603693.3847451268470498426.JavaMail.support.mn@elisanet.fi>
+
+Hello,
+
+Frank Warmerdam [warmerdam at pobox.com] kirjoitti: 
+
+> I am not particularly enthusiastic of big
+> pdf documents for software systems.
+> 
+
+Yes, I agree. I would also shrink the documentation to absolute minimium
+with lot of examples and divide it to two pieces: One pdf for the end user
+who just needs information about the definition matters and the (larger) one
+for the implementer who needs to know how to write programs with it.
+
+> I will certainly agree that the PROJ.4 documentation is not in a unified
+> form any more, and that this is unfortunate.
+> 
+
+Sure, it can be on a web page and then just take pdf print outs of it as
+required.
+
+Regards: Janne
+
+
+
+From jean-baptiste.lott at asia.thalesgroup.com  Sun Mar 14 20:47:45 2010
+From: jean-baptiste.lott at asia.thalesgroup.com (LOTT Jean-Baptiste)
+Date: Mon, 15 Mar 2010 04:47:45 +0100
+Subject: [Proj] List of supported projections and ellipsoids
+Message-ID: <9C3681EB86CB484DABCFED866450A50607F2C138CB@THSNCOA01MSG36P.NUCO.GRP>
+
+Hi all,
+
+I would need to get the list of projections and ellipsoids that I can use with the library. What I am looking for is a list like the one that is returned when calling cs2cs -lp and cs2cs -le. Those functions use pj_get_list_ref and pj_get_ellps_ref to get those lists, is there any way to do the same thing using the API?
+
+Thanks,
+
+--
+Jean-Baptiste Lott
+Software Engineer
+
+Thales Security Asia Pte Ltd
+21 Changi North Rise, Singapore 498788
+DID: (65) 6424 8158, Fax: (65) 6424 8173.
+Mobile: (65) 9730 3594
+
+Security Solutions & Services Division
+
+www.thalesgroup.com
+
+Disclaimer: This message may contain information which is privileged or confidential. If you are not the intended addressee(s) of this message, please destroy it without reading, copying or disclosing its contents to any other person and notify the sender immediately.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100315/9330f3e3/attachment.html>
+
+From warmerdam at pobox.com  Mon Mar 15 03:57:42 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 15 Mar 2010 06:57:42 -0400
+Subject: [Proj] List of supported projections and ellipsoids
+In-Reply-To: <9C3681EB86CB484DABCFED866450A50607F2C138CB@THSNCOA01MSG36P.NUCO.GRP>
+References: <9C3681EB86CB484DABCFED866450A50607F2C138CB@THSNCOA01MSG36P.NUCO.GRP>
+Message-ID: <4B9E12A6.4000604@pobox.com>
+
+LOTT Jean-Baptiste wrote:
+> Hi all,
+> 
+>  
+> 
+> I would need to get the list of projections and ellipsoids that I can 
+> use with the library. What I am looking for is a list like the one that 
+> is returned when calling cs2cs -lp and cs2cs -le. Those functions use 
+> pj_get_list_ref and pj_get_ellps_ref to get those lists, is there any 
+> way to do the same thing using the API?
+
+Jean-Baptiste,
+
+I see that those functions and the structure defines they are based on
+are not currently part of the public api in proj_api.h.  However, they
+are available if you include the internal projects.h include file.  I
+generally discourage this, but it may still be the expedient thing for
+you to do.
+
+I might make sense to move these structure definitions and function
+prototypes to proj_api.h if we want to consider them generally available.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+
+
+From jean-baptiste.lott at asia.thalesgroup.com  Mon Mar 15 18:08:53 2010
+From: jean-baptiste.lott at asia.thalesgroup.com (LOTT Jean-Baptiste)
+Date: Tue, 16 Mar 2010 02:08:53 +0100
+Subject: [Proj] List of supported projections and ellipsoids
+In-Reply-To: <4B9E12A6.4000604@pobox.com>
+References: <9C3681EB86CB484DABCFED866450A50607F2C138CB@THSNCOA01MSG36P.NUCO.GRP>
+	<4B9E12A6.4000604@pobox.com>
+Message-ID: <9C3681EB86CB484DABCFED866450A50607F2C53E97@THSNCOA01MSG36P.NUCO.GRP>
+
+Hi Frank,
+
+Thanks for the answer, I saw they were in projects.h but I had some compilation errors while including it so that meant to me that it's not the right thing to do. I'll try to figure it out for the short term but I think it would be good to put them int proj_api.h. In my case I want to let the user know which projection he wants to apply to his map, so the goal is to offer a list of projections from where he can choose the one he wants.
+
+Thanks,
+
+LOTT Jean-Baptiste wrote:
+> Hi all,
+> 
+>  
+> 
+> I would need to get the list of projections and ellipsoids that I can 
+> use with the library. What I am looking for is a list like the one that 
+> is returned when calling cs2cs -lp and cs2cs -le. Those functions use 
+> pj_get_list_ref and pj_get_ellps_ref to get those lists, is there any 
+> way to do the same thing using the API?
+
+Jean-Baptiste,
+
+I see that those functions and the structure defines they are based on
+are not currently part of the public api in proj_api.h.  However, they
+are available if you include the internal projects.h include file.  I
+generally discourage this, but it may still be the expedient thing for
+you to do.
+
+I might make sense to move these structure definitions and function
+prototypes to proj_api.h if we want to consider them generally available.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+
+
+From Cees.Kling at knmi.nl  Tue Mar 16 08:04:57 2010
+From: Cees.Kling at knmi.nl (Kling, Cees (KNMI))
+Date: Tue, 16 Mar 2010 16:04:57 +0100
+Subject: [Proj] rotated grid conversions
+Message-ID: <804040A3AF90884DB085B02317786EA6028511@BCSXTC.knmi.nl>
+
+Hi,
+
+i'm currently working with a model who has a rotated pole grid
+
+Output of wgrib:
+rotated LatLon grid  lat -35.600000 to 29.000000  lon -34.400000 to 
+46.600000
+nxny 131544  (406 x 324)  dx 200 dy 200  scan 64  mode 136
+  transform: south pole lat -30.000000 lon -15.000000  rot angle
+0.000000
+
+I need a tranformation from latlon to rotated latlon and I thought the 
+trick would be
+>proj -v +proj=ob_tran +o_proj=eqc +o_lat_p=-30.0 +a=57.29578 +
+o_lon_0=-15
+but this doesn't seems to work.
+
+Can anyone gives me a direction
+
+Thanks
+Kees Kling
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100316/eb809246/attachment.html>
+
+From bryan at ideotrope.org  Fri Mar 26 10:33:23 2010
+From: bryan at ideotrope.org (Bryan Keith)
+Date: Fri, 26 Mar 2010 11:33:23 -0600 (MDT)
+Subject: [Proj] grid shift file installation on ubuntu
+Message-ID: <3215.64.15.96.66.1269624803.squirrel@ideotrope.org>
+
+Hello,
+
+I recently noticed that cs2cs was returning incorrect results on my Ubuntu
+machine.  I looked at the proj.4 readme file, and it gave this example of
+using cs2cs:
+
+cs2cs +proj=latlong +datum=NAD27 +to +proj=latlong +datum=NAD83
+-117 30
+
+producing:
+
+117d0'2.901"W   30d0'0.407"N 0.00
+
+However, on machine I get no datum shift:
+
+cs2cs +proj=latlong +datum=NAD27 +to +proj=latlong +datum=NAD83
+-117 30
+117dW	30dN 0.000
+
+I tried reinstalling proj like this:
+
+sudo apt-get --reinstall install proj
+
+but it didn't make any difference.  How can I get proj.4 to be installed
+correctly with the grid shift files on Ubuntu?
+
+Thank you for any help.
+
+Bryan
+
+
+
+From bryan at ideotrope.org  Fri Mar 26 15:07:42 2010
+From: bryan at ideotrope.org (Bryan Keith)
+Date: Fri, 26 Mar 2010 16:07:42 -0600 (MDT)
+Subject: [Proj] grid shift file installation on ubuntu
+In-Reply-To: <3215.64.15.96.66.1269624804.squirrel@ideotrope.org>
+References: <3215.64.15.96.66.1269624804.squirrel@ideotrope.org>
+Message-ID: <1775.64.15.96.66.1269641262.squirrel@ideotrope.org>
+
+Well, here's the problem:
+
+https://bugs.launchpad.net/ubuntu/+source/proj/+bug/368065
+
+Not sure how I'm going to solve it yet.
+
+Bryan
+
+> Hello,
+>
+> I recently noticed that cs2cs was returning incorrect results on my Ubuntu
+> machine.  I looked at the proj.4 readme file, and it gave this example of
+> using cs2cs:
+>
+> cs2cs +proj=latlong +datum=NAD27 +to +proj=latlong +datum=NAD83
+> -117 30
+>
+> producing:
+>
+> 117d0'2.901"W   30d0'0.407"N 0.00
+>
+> However, on machine I get no datum shift:
+>
+> cs2cs +proj=latlong +datum=NAD27 +to +proj=latlong +datum=NAD83
+> -117 30
+> 117dW	30dN 0.000
+>
+> I tried reinstalling proj like this:
+>
+> sudo apt-get --reinstall install proj
+>
+> but it didn't make any difference.  How can I get proj.4 to be installed
+> correctly with the grid shift files on Ubuntu?
+>
+> Thank you for any help.
+>
+> Bryan
+>
+
+
+
+
+From gdt at ir.bbn.com  Fri Mar 26 15:18:23 2010
+From: gdt at ir.bbn.com (Greg Troxel)
+Date: Fri, 26 Mar 2010 18:18:23 -0400
+Subject: [Proj] grid shift file installation on ubuntu
+In-Reply-To: <1775.64.15.96.66.1269641262.squirrel@ideotrope.org> (Bryan
+	Keith's message of "Fri, 26 Mar 2010 16:07:42 -0600 (MDT)")
+References: <3215.64.15.96.66.1269624804.squirrel@ideotrope.org>
+	<1775.64.15.96.66.1269641262.squirrel@ideotrope.org>
+Message-ID: <rmi1vf6g21c.fsf@fnord.ir.bbn.com>
+
+
+  https://bugs.launchpad.net/ubuntu/+source/proj/+bug/368065
+
+pkgsrc gets this right:
+
+  $ cs2cs +proj=latlong +datum=NAD27 +to +proj=latlong +datum=NAD83
+  -117 30
+  117d0'2.901"W   30d0'0.407"N 0.000
+  $ pkg_info |egrep proj-
+  proj-4.7.0          Cartographic projection software
+  proj-swig-0.02nb3   Guile and python wrappers for proj
+
+(but surely in other areas ubuntu packages are better - I'm not trying
+to dis ubuntu), and you can use pkgsrc on Linux and many other
+platforms.  (It's the native packaging system on NetBSD and Dragonfly.)
+This is a bit of work to get started with but then is helpful.
+
+http://www.netbsd.org/docs/software/packages.html
+
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100326/a33f7c02/attachment.sig>
+
+From bryan at ideotrope.org  Fri Mar 26 15:41:29 2010
+From: bryan at ideotrope.org (Bryan Keith)
+Date: Fri, 26 Mar 2010 16:41:29 -0600 (MDT)
+Subject: [Proj] grid shift file installation on ubuntu
+In-Reply-To: <1775.64.15.96.66.1269641262.squirrel@ideotrope.org>
+References: <3215.64.15.96.66.1269624804.squirrel@ideotrope.org>
+	<1775.64.15.96.66.1269641262.squirrel@ideotrope.org>
+Message-ID: <2056.64.15.96.66.1269643289.squirrel@ideotrope.org>
+
+> Well, here's the problem:
+>
+> https://bugs.launchpad.net/ubuntu/+source/proj/+bug/368065
+
+In the above link that I posted is a reference to the ubuntugis packages
+which include the correct grid shift files.  Here's that link:
+
+https://launchpad.net/~ubuntugis/+archive/ubuntugis-unstable
+
+I followed the instructions on this page to install the proj package from
+there, and now everything is working as I expect it to.
+
+Bryan
+
+
+
+
+
+From hamish_b at yahoo.com  Fri Mar 26 16:06:40 2010
+From: hamish_b at yahoo.com (Hamish)
+Date: Fri, 26 Mar 2010 16:06:40 -0700 (PDT)
+Subject: [Proj] grid shift file installation on ubuntu
+In-Reply-To: <2056.64.15.96.66.1269643289.squirrel@ideotrope.org>
+Message-ID: <639439.48363.qm@web110014.mail.gq1.yahoo.com>
+
+Bryan Keith wrote:
+> > Well, here's the problem:
+> >
+> > https://bugs.launchpad.net/ubuntu/+source/proj/+bug/368065
+> 
+> In the above link that I posted is a reference to the
+> ubuntugis packages which include the correct grid shift files.
+> Here's that link:
+> 
+> https://launchpad.net/~ubuntugis/+archive/ubuntugis-unstable
+> 
+> I followed the instructions on this page to install the
+> proj package from there, and now everything is working as I
+> expect it to.
+
+
+or you probably could have installed the "proj-data" package;
+the main package is currently missing that as a dependency.
+To be fixed in the upstream DebianGIS sources..
+
+http://packages.ubuntu.com/karmic/i386/proj-data/filelist
+
+
+Hamish
+
+
+
+      
+
+
+
+From hamish_b at yahoo.com  Fri Mar 26 17:10:09 2010
+From: hamish_b at yahoo.com (Hamish)
+Date: Fri, 26 Mar 2010 17:10:09 -0700 (PDT)
+Subject: [Proj] Fw: failure notice
+Message-ID: <227222.15707.qm@web110016.mail.gq1.yahoo.com>
+
+try, try again.
+
+--- MAILER-DAEMON at n1.bullet.mail.gq1.yahoo.com <MAILER-DAEMON at n1.bullet.mail.gq1.yahoo.com> wrote:
+[...]
+> <proj at lists.maptools.org>:
+> No MX or A records for lists.maptools.org
+> 
+> --- Below this line is a copy of the message.
+
+
+
+> Hamish wrote:
+> > or you probably could have installed the "proj-data" package;
+> > the main package is currently missing that as a dependency.
+> > To be fixed in the upstream DebianGIS sources..
+> > 
+> > http://packages.ubuntu.com/karmic/i386/proj-data/filelist
+> 
+> 
+> actually, no.
+> 
+> In Karmic proj depends of libproj0 which depends on
+> proj-data.
+> 
+> so if proj-data somehow manages not to be installed I'm not
+> sure what the problem is/was.
+> 
+> 
+> Hamish
+
+
+
+      
+
+
+From martin.raspaud at smhi.se  Mon Mar 29 23:07:30 2010
+From: martin.raspaud at smhi.se (Martin Raspaud)
+Date: Tue, 30 Mar 2010 08:07:30 +0200
+Subject: [Proj] Coordinate within an area ?
+Message-ID: <4BB19522.7000202@smhi.se>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Hi all,
+
+Is there a way to know if a point defined by its lon/lat coordinates is within
+an area which corners are given in lon/lats also ?
+
+Thanks,
+Martin
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Fedora - http://enigmail.mozdev.org/
+
+iQEcBAEBAgAGBQJLsZUiAAoJEBdvyODiyJI4oT4H/jtH3oYjE8LzEw8QVQfWeAEH
+pR48HaLZWhnzjY68Elklb0i4qGpro0HQ5G6NOW3wYC7BGnB7GcWmo4CFdJDULD8b
+cNFIZEkBD6E+04Fn/vZROCCFwpkDyK06OTq+EYFXKasAVNW8bfJOs2jyzU7xErGS
+xDTEUVWoooI/PhiF6ZZXGFn2mWCeB3sBs9AjhablP8Adm2bzcSpeG9Ub4gvG4aaI
+WniQJeAk2FLfBwLBk7KB3a2Sx9BvAoahdptG1UXRlDMx8WF2x9seEMRQoVZmRIJz
+UiTFw4RqrUj3vnZCcmwK+YEaVhDb3ELNLbXujcSD48vDBIyuoczDU6spRHRNn3k=
+=uJVC
+-----END PGP SIGNATURE-----
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: martin_raspaud.vcf
+Type: text/x-vcard
+Size: 260 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100330/e8497bae/attachment.vcf>
+
+From hamish_b at yahoo.com  Tue Mar 30 04:18:55 2010
+From: hamish_b at yahoo.com (Hamish)
+Date: Tue, 30 Mar 2010 04:18:55 -0700 (PDT)
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <4BB19522.7000202@smhi.se>
+Message-ID: <316637.77541.qm@web110008.mail.gq1.yahoo.com>
+
+Martin Raspaud wrote:
+> Is there a way to know if a point defined by its lon/lat
+> coordinates is within
+> an area which corners are given in lon/lats also ?
+
+
+yes, there are many methods to do this. try a web search
+for "point in polygon". if it is corners of a box, it's trivial..
+
+
+Hamish
+
+
+
+      
+
+
+From roger at opq.se  Tue Mar 30 05:05:13 2010
+From: roger at opq.se (Roger Oberholtzer)
+Date: Tue, 30 Mar 2010 14:05:13 +0200
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <316637.77541.qm@web110008.mail.gq1.yahoo.com>
+References: <316637.77541.qm@web110008.mail.gq1.yahoo.com>
+Message-ID: <1269950713.3374.112.camel@acme.pacific>
+
+On Tue, 2010-03-30 at 04:18 -0700, Hamish wrote:
+> Martin Raspaud wrote:
+> > Is there a way to know if a point defined by its lon/lat
+> > coordinates is within
+> > an area which corners are given in lon/lats also ?
+> 
+> 
+> yes, there are many methods to do this. try a web search
+> for "point in polygon". if it is corners of a box, it's trivial..
+
+As lat/longs and not meters? On a non-flat surface? Isn't it more
+complicated with lat/long for this? I would think you should convert the
+values to northings/eastings and do the test on that data. Then it could
+perhaps be a bounding box test.
+
+My next questions would be: (1) how accurate does it need to be? and (2)
+If it is done everywhere in the world, what projection to use to reduce
+error? I would think SMHI would be working in and near Sweden, and would
+be ok with SWEREF99.
+
+
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Krukmakargatan 21
+P.O. Box 17009
+SE-104 62 Stockholm, Sweden
+
+Office: Int +46 10-615 60 20
+Mobile: Int +46 70-815 1696
+
+
+
+From martin.raspaud at smhi.se  Tue Mar 30 07:18:46 2010
+From: martin.raspaud at smhi.se (Martin Raspaud)
+Date: Tue, 30 Mar 2010 16:18:46 +0200
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <1269950713.3374.112.camel@acme.pacific>
+References: <316637.77541.qm@web110008.mail.gq1.yahoo.com>
+	<1269950713.3374.112.camel@acme.pacific>
+Message-ID: <4BB20846.6010304@smhi.se>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Roger Oberholtzer skrev:
+> On Tue, 2010-03-30 at 04:18 -0700, Hamish wrote:
+>> Martin Raspaud wrote:
+>>> Is there a way to know if a point defined by its lon/lat
+>>> coordinates is within
+>>> an area which corners are given in lon/lats also ?
+>>
+>> yes, there are many methods to do this. try a web search
+>> for "point in polygon". if it is corners of a box, it's trivial..
+> 
+> As lat/longs and not meters? On a non-flat surface? Isn't it more
+> complicated with lat/long for this? I would think you should convert the
+> values to northings/eastings and do the test on that data. Then it could
+> perhaps be a bounding box test.
+
+Yes I thought about this, but wondered if there was a straight mthod I had missed.
+
+> My next questions would be: (1) how accurate does it need to be? and (2)
+> If it is done everywhere in the world, what projection to use to reduce
+> error? I would think SMHI would be working in and near Sweden, and would
+> be ok with SWEREF99.
+
+1/ Not so accurate. We would have two areas, approximately the size of
+scandinavia in different projections, and would want to know if there is
+overlap. Missing an overlap to 5% is no big deal.
+2/ We use global data, so it is everywhere in the world. I thought about using
+Lambert azimuthal equal-area projection.
+
+Martin
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Fedora - http://enigmail.mozdev.org/
+
+iQEcBAEBAgAGBQJLsghFAAoJEBdvyODiyJI4dKkH/iihae4UphQyM1MaOMaBecoq
+NLDjuclDjhYyVT6DmU7negf+VGgd7BmPOpxofhq/lAzuvjpCiQkYwuQZgJG4ufa7
+kOeuwiIRc6PzAwit58WvUiyiDa7kZtA33Ns0O1OllmeQeydTJ3+MvFayzw1pYO5G
+h1mHjnAwBD+pzp+sjqdt1Gg0OC1ypKhloIVZa/by0XekkUWot3SRAJN4WMeTbEIE
+CO+zTwI5uVgd8TVxpY6MYn+rHgqYh+lD5fvPYotAiwvDQes4Ws+K//a6QGVF8Biv
+cQ0aBFvfXsADqEpAHU5RYSif18q93iWEyiTubBrARS1b1y72rKLMcZhQEe3VdbQ=
+=Cw6b
+-----END PGP SIGNATURE-----
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: martin_raspaud.vcf
+Type: text/x-vcard
+Size: 260 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100330/4ee10661/attachment.vcf>
+
+From karl at kls2.com  Tue Mar 30 09:49:39 2010
+From: karl at kls2.com (Karl Swartz)
+Date: Tue, 30 Mar 2010 09:49:39 -0700
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <4BB20846.6010304@smhi.se>
+References: <316637.77541.qm@web110008.mail.gq1.yahoo.com>
+	<1269950713.3374.112.camel@acme.pacific> <4BB20846.6010304@smhi.se>
+Message-ID: <20100330164939.GB13417@orion2.kls2.com>
+
+> > My next questions would be: (1) how accurate does it need to be? and (2)
+> > If it is done everywhere in the world, what projection to use to reduce
+> > error?
+
+> 2/ We use global data, so it is everywhere in the world. I thought
+> about using Lambert azimuthal equal-area projection.
+
+If you're working with lat/lon coordinates why would you be using a
+projection at all?
+
+For a point and a simple polygon that's not enormous, I'd calculate
+paths and compare angles.  Consider triangle ABC as the polygon and
+you want to determine if point P is inside the triangle.  Compute the
+initial azimuth paths AB, AC, and AP.  Then, determine if P lies within
+angle A:
+
+    if azim(AB) < azim(AC)
+        within(B) = azim(AP) > azim(AB) && azim(AP) < azim(AC)
+    else
+        within(B) = azim(AP) > azim(AC) && azim(AP) < azim(AB)
+
+Repeat from angles B and C and if P is within all three angles then P
+is within the triangle, otherwise it is not.
+
+Note that the comparisons I used treat the boundaries of the triangle
+as "not within" -- change the "within" comparisons to >= and <= to
+include the boundaries of the polygon.
+
+This algorithm can be trivially generalized to any convex n-sided
+polygon.
+
+For the azimuth calculations, you can use Vincenty or similar if you
+want high accuracy, or but you said small errors are acceptable so
+basic spherical geometry may suffice.
+
+ -- Karl
+
+
+From strebe at aol.com  Tue Mar 30 13:39:24 2010
+From: strebe at aol.com (strebe)
+Date: Tue, 30 Mar 2010 13:39:24 -0700
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <20100330164939.GB13417@orion2.kls2.com>
+Message-ID: <98F17E39.03DF.4148.8ECD.6F483E70D74D@aol.com>
+
+
+On Mar 30, 2010, at 9:49:39 AM, "Karl Swartz" <karl at kls2.com> wrote:
+
+For the azimuth calculations, you can use Vincenty or similar if you
+want high accuracy, or but you said small errors are acceptable so
+basic spherical geometry may suffice.
+The accuracy is not important, since the value of the azimuth does not matter; only its relative geometry does. The geometry is the same on the sphere and the ellipsoid except when the polygon include antipodes. If the polygon is that large then you need to consider more. You need to consider the very definition of "inside", since this is a closed surface we're talking about. None of the responses so far have addressed this problem.
+
+Regards,
+— daan Strebe
+
+
+On Mar 30, 2010, at 9:49:39 AM, "Karl Swartz" <karl at kls2.com> wrote:
+
+From:   "Karl Swartz" <karl at kls2.com>
+Subject:    Re: [Proj] Coordinate within an area ?
+Date:   March 30, 2010 9:49:39 AM PDT
+To: "PROJ.4 and general Projections Discussions" <proj at lists.maptools.org>
+> > My next questions would be: (1) how accurate does it need to be? and (2)
+> > If it is done everywhere in the world, what projection to use to reduce
+> > error?
+
+> 2/ We use global data, so it is everywhere in the world. I thought
+> about using Lambert azimuthal equal-area projection.
+
+If you're working with lat/lon coordinates why would you be using a
+projection at all?
+
+For a point and a simple polygon that's not enormous, I'd calculate
+paths and compare angles. Consider triangle ABC as the polygon and
+you want to determine if point P is inside the triangle. Compute the
+initial azimuth paths AB, AC, and AP. Then, determine if P lies within
+angle A:
+
+if azim(AB) < azim(AC)
+within(B) = azim(AP) > azim(AB) && azim(AP) < azim(AC)
+else
+within(B) = azim(AP) > azim(AC) && azim(AP) < azim(AB)
+
+Repeat from angles B and C and if P is within all three angles then P
+is within the triangle, otherwise it is not.
+
+Note that the comparisons I used treat the boundaries of the triangle
+as "not within" -- change the "within" comparisons to >= and <= to
+include the boundaries of the polygon.
+
+This algorithm can be trivially generalized to any convex n-sided
+polygon.
+
+For the azimuth calculations, you can use Vincenty or similar if you
+want high accuracy, or but you said small errors are acceptable so
+basic spherical geometry may suffice.
+
+-- Karl
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100330/20d9ec5b/attachment.html>
+
+From teletautala at hotmail.com  Tue Mar 30 14:13:19 2010
+From: teletautala at hotmail.com (` `)
+Date: Tue, 30 Mar 2010 21:13:19 +0000
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <98F17E39.03DF.4148.8ECD.6F483E70D74D@aol.com>
+References: <20100330164939.GB13417@orion2.kls2.com>,
+	<98F17E39.03DF.4148.8ECD.6F483E70D74D@aol.com>
+Message-ID: <SNT137-w2652575147C0DBC61C8816AF1F0@phx.gbl>
+
+
+This may be more complicated than is desired, but this algorithm is one I will keep in my tool box for ascertaining if a point is in a polygon:
+http://local.wasp.uwa.edu.au/~pbourke/geometry/insidepoly/
+I modified this to be a function in a php object, but the concept is great.
+
+-Daniel
+
+Date: Tue, 30 Mar 2010 13:39:24 -0700
+From: strebe at aol.com
+To: proj at lists.maptools.org
+Subject: Re: [Proj] Coordinate within an area ?
+
+
+
+
+On Mar 30, 2010, at 9:49:39 AM, "Karl Swartz" <karl at kls2.com> wrote:
+For the azimuth calculations, you can use Vincenty or similar if you
+want high accuracy, or but you said small errors are acceptable so
+basic spherical geometry may suffice.
+The accuracy is not important, since the value of the azimuth does not matter; only its relative geometry does. The geometry is the same on the sphere and the ellipsoid except when the polygon include antipodes. If the polygon is that large then you need to consider more. You need to consider the very definition of "inside", since this is a closed surface we're talking about. None of the responses so far have addressed this problem.
+
+Regards,— daan Strebe
+
+On Mar 30, 2010, at 9:49:39 AM, "Karl Swartz" <karl at kls2.com> wrote:
+From:"Karl Swartz" <karl at kls2.com>Subject:Re: [Proj] Coordinate within an area ?Date:March 30, 2010 9:49:39 AM PDTTo:"PROJ.4 and general Projections Discussions" <proj at lists.maptools.org>> > My next questions would be: (1) how accurate does it need to be? and (2)
+> > If it is done everywhere in the world, what projection to use to reduce
+> > error?
+
+> 2/ We use global data, so it is everywhere in the world. I thought
+> about using Lambert azimuthal equal-area projection.
+
+If you're working with lat/lon coordinates why would you be using a
+projection at all?
+
+For a point and a simple polygon that's not enormous, I'd calculate
+paths and compare angles. Consider triangle ABC as the polygon and
+you want to determine if point P is inside the triangle. Compute the
+initial azimuth paths AB, AC, and AP. Then, determine if P lies within
+angle A:
+
+if azim(AB) < azim(AC)
+within(B) = azim(AP) > azim(AB) && azim(AP) < azim(AC)
+else
+within(B) = azim(AP) > azim(AC) && azim(AP) < azim(AB)
+
+Repeat from angles B and C and if P is within all three angles then P
+is within the triangle, otherwise it is not.
+
+Note that the comparisons I used treat the boundaries of the triangle
+as "not within" -- change the "within" comparisons to >= and <= to
+include the boundaries of the polygon.
+
+This algorithm can be trivially generalized to any convex n-sided
+polygon.
+
+For the azimuth calculations, you can use Vincenty or similar if you
+want high accuracy, or but you said small errors are acceptable so
+basic spherical geometry may suffice.
+
+-- Karl
+ 		 	   		  
+_________________________________________________________________
+Hotmail: Trusted email with Microsoft’s powerful SPAM protection.
+http://clk.atdmt.com/GBL/go/210850552/direct/01/
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100330/f693bce6/attachment.html>
+
+From martin.raspaud at smhi.se  Tue Mar 30 23:21:37 2010
+From: martin.raspaud at smhi.se (Martin Raspaud)
+Date: Wed, 31 Mar 2010 08:21:37 +0200
+Subject: [Proj] Coordinate within an area ?
+In-Reply-To: <SNT137-w2652575147C0DBC61C8816AF1F0@phx.gbl>
+References: <20100330164939.GB13417@orion2.kls2.com>,
+	<98F17E39.03DF.4148.8ECD.6F483E70D74D@aol.com>
+	<SNT137-w2652575147C0DBC61C8816AF1F0@phx.gbl>
+Message-ID: <4BB2E9F1.6070803@smhi.se>
+
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA1
+
+Thanks for the great feedback guys !
+
+I will try the angles approach, since it seems to fit my purpose.
+As for the antipodes problem, this is not a issue at the moment, but I keep my
+ears and eyes open.
+
+Regards,
+Martin
+
+
+` ` skrev:
+> This may be more complicated than is desired, but this algorithm is one
+> I will keep in my tool box for ascertaining if a point is in a polygon:
+> http://local.wasp.uwa.edu.au/~pbourke/geometry/insidepoly/
+> I modified this to be a function in a php object, but the concept is great.
+> 
+> -Daniel
+> 
+> ------------------------------------------------------------------------
+> Date: Tue, 30 Mar 2010 13:39:24 -0700
+> From: strebe at aol.com
+> To: proj at lists.maptools.org
+> Subject: Re: [Proj] Coordinate within an area ?
+> 
+> 
+> On Mar 30, 2010, at 9:49:39 AM, "Karl Swartz" <karl at kls2.com> wrote:
+> 
+>     For the azimuth calculations, you can use Vincenty or similar if you
+>     want high accuracy, or but you said small errors are acceptable so
+>     basic spherical geometry may suffice.
+> 
+> The accuracy is not important, since the value of the azimuth does not
+> matter; only its relative geometry does. The geometry is the same on the
+> sphere and the ellipsoid except when the polygon include antipodes. If
+> the polygon is that large then you need to consider more. You need to
+> consider the very definition of "inside", since this is a closed surface
+> we're talking about. None of the responses so far have addressed this
+> problem.
+> 
+> Regards,
+> — daan Strebe
+> 
+> 
+> On Mar 30, 2010, at 9:49:39 AM, "Karl Swartz" <karl at kls2.com> wrote:
+> 
+>     From:	"Karl Swartz" <karl at kls2.com>
+>     Subject:	Re: [Proj] Coordinate within an area ?
+>     Date:	March 30, 2010 9:49:39 AM PDT
+>     To:	"PROJ.4 and general Projections Discussions"
+>     <proj at lists.maptools.org>
+> 
+>     > > My next questions would be: (1) how accurate does it need to be?
+>     and (2)
+>     > > If it is done everywhere in the world, what projection to use to
+>     reduce
+>     > > error?
+> 
+>     > 2/ We use global data, so it is everywhere in the world. I thought
+>     > about using Lambert azimuthal equal-area projection.
+> 
+>     If you're working with lat/lon coordinates why would you be using a
+>     projection at all?
+> 
+>     For a point and a simple polygon that's not enormous, I'd calculate
+>     paths and compare angles. Consider triangle ABC as the polygon and
+>     you want to determine if point P is inside the triangle. Compute the
+>     initial azimuth paths AB, AC, and AP. Then, determine if P lies within
+>     angle A:
+> 
+>     if azim(AB) < azim(AC)
+>     within(B) = azim(AP) > azim(AB) && azim(AP) < azim(AC)
+>     else
+>     within(B) = azim(AP) > azim(AC) && azim(AP) < azim(AB)
+> 
+>     Repeat from angles B and C and if P is within all three angles then P
+>     is within the triangle, otherwise it is not.
+> 
+>     Note that the comparisons I used treat the boundaries of the triangle
+>     as "not within" -- change the "within" comparisons to >= and <= to
+>     include the boundaries of the polygon.
+> 
+>     This algorithm can be trivially generalized to any convex n-sided
+>     polygon.
+> 
+>     For the azimuth calculations, you can use Vincenty or similar if you
+>     want high accuracy, or but you said small errors are acceptable so
+>     basic spherical geometry may suffice.
+> 
+>     -- Karl
+> 
+> 
+> ------------------------------------------------------------------------
+> Hotmail: Trusted email with Microsoft’s powerful SPAM protection. Sign
+> up now. <http://clk.atdmt.com/GBL/go/210850552/direct/01/>
+> 
+> 
+> ------------------------------------------------------------------------
+> 
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+
+-----BEGIN PGP SIGNATURE-----
+Version: GnuPG v1.4.9 (GNU/Linux)
+Comment: Using GnuPG with Fedora - http://enigmail.mozdev.org/
+
+iQEcBAEBAgAGBQJLsunwAAoJEBdvyODiyJI42Y0H/0C/klIbyZrw50UdNf/z1yKz
+UsDejo7+I1HsQA+KPBR0WRDMpSRGcVjbRqoeA2QRVxjWPla1Ijn+46U+7La1YrS7
+pD809rIwNekmO8GDkyJxfh1FH/SZPWtdo/qKYJh2XzFdq0jK3oQ2AMYsCjl/Gv0S
+MwG52XsW4TP9FJYVDgHXLatNqHiF4dx5QLMlyer4fE6r6l7fpKwReYn02+0k+QSm
+N2CxwIKVTKo5lenv6fTRwNL57EXeXFJuvz2pMTV7HTIzfbIxQ9X4Gyi21iJtgYmf
+DmAyNfhPCtcROLTOcx21CPPTESn0ieeV69IvnfembMgE1ZpbRk8T4QYg4Ys4DtU=
+=6Uet
+-----END PGP SIGNATURE-----
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: martin_raspaud.vcf
+Type: text/x-vcard
+Size: 260 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20100331/216f4c12/attachment.vcf>
+
+From csbruce at cubewerx.com  Wed Mar 31 16:36:34 2010
+From: csbruce at cubewerx.com (Craig Bruce)
+Date: Wed, 31 Mar 2010 19:36:34 -0400
+Subject: [Proj] Numerical Precision in Proj, WKT, and everywhere
+Message-ID: <201003312336.o2VNaYhi015027@tux.cubewerx.com>
+
+I was reading the following web page and its discussion of numerical
+precision written by Frank Warmerdam:
+
+http://home.gdal.org/projects/opengis/wktproblems.html
+
+I agree with what he said, but printf's "%.16g" does have a problem which
+manifests itself frequently, such as in the "epsg" CRS definitions in
+proj-4.6.0, e.g.:
+
+# Anguilla 1957 / British West Indies Grid
+<2000> +proj=tmerc +lat_0=0 +lon_0=-62 +k=0.9995000000000001 +x_0=400000 +y_0=0 +ellps=clrk80 +units=m +no_defs  <>
+
+The "+k" parameter value is an eyesore.  I think a better approach is to
+generate the "%.16g" number as indicated, but then scan its characters for
+the ugly pattern of '01' or '99' in the 15th and 16th significant digits.
+If this pattern is found, then the number should be generated again using
+"%.15g".
+
+If you want, you could atof() the re-generated string back to a double
+and check to see if it is exactly equal to the given value.  If it is,
+then the 15-digit value is definitely the correct value.  If not, then
+it means that the .0000 and .0001 representations are distinct and the
+"ugly" .0001 representation can be used instead, though as noted below,
+this presumes that the source value was correct to begin with.  This step
+is optional.
+
+This approach gives you nearly full double precision all of the time
+without the eyesores.
+
+Here is a C function that implements what I am talking about (plus it
+takes precision as a parameter).  (It uses a 'bool' type with values
+'true' and 'false'.  'cw_traceN' are debugging macros.)  It is licensed
+under the LGPL.
+
+/*------------------------------------------------------------------------*\
+ *  NAME:
+ *     CwStr_GenDoublePrec() - generate a 'double' to a string buffer
+ *  DESCRIPTION:
+ *     Generates a double-precision floating-point number to a decimal
+ *     text representation similar to printf's "%.g" into a string buffer
+ *     with the given number of significant digits, which is clipped
+ *     to be between 1 and 20.  If 16 significant digits is selected,
+ *     then error control is applied to favor rounder decimal numbers
+ *     when the 15th and 16th digits have the pattern '01' or '99'.
+ *     Since 'double's only have around 16 significant decimal digits
+ *     of precision, selecting more will only show artifacts in the IEEE
+ *     'double' encoding, which may be desirable in some circumstances.
+ *  NOTE:
+ *     It would be desirable to verify that the corrected value has
+ *     exactly the same 'double' bit pattern as the given value and to
+ *     undo the correction if this is not true.  This would mean that
+ *     the given value is numerically distinct from the rounded value.
+ *     Unfortunately, there are faulty sources of double-precision
+ *     values, such as the Oracle database.  E.g., given the Oracle
+ *     decimal NUMBER value 4.877, it generates the wrong 'double' value,
+ *     4.8770000000000007 instead of the correct 4.8769999999999998.
+ *     Verification is not practical because of faulty sources like this.
+ *  ARGUMENTS:
+ *     strBuf - string buffer to generate number into, at least [nDigits+8]
+ *     number - number to print
+ *     nDigits - number of significant digits to generate
+ *  RETURNS:
+ *     strBuf - pointer to given string buffer
+ *  ERRORS:
+ *     (no errors are possible)
+\*------------------------------------------------------------------------*/
+
+char *CwStr_GenDoublePrec( char *strBuf, double number, long nDigits )
+{
+    static const char *printfFmts[] = { NULL, "%.1g", "%.2g", "%.3g", "%.4g",
+        "%.5g", "%.6g", "%.7g", "%.8g", "%.9g", "%.10g", "%.11g", "%.12g",
+        "%.13g", "%.14g", "%.15g", "%.16g", "%.17g", "%.18g", "%.19g", "%.20g"};
+    const char *printfFmt;
+    bool amAfterDecimal, isZero;
+    char c, numChar15;
+    long nScanDigits, pos;
+#if 0
+    double verifyNum;
+#endif
+
+    cw_trace2(("CwStr_GenDoublePrec(number=%.16g, nDigits="COUNT_FMT")\n",
+                number, nDigits ));
+
+    /** generate raw string **/
+    if (nDigits < 1) nDigits = 1;
+    if (nDigits > 20) nDigits = 20;
+    printfFmt = printfFmts[nDigits];
+    sprintf( strBuf, printfFmt, number );
+
+    /** apply error control **/
+    if (nDigits == 16) {
+        /** scan number for pattern of digits 15 & 16 **/
+        cw_trace3(("checking if number needs to be corrected\n"));
+        amAfterDecimal = false;
+        nScanDigits = 0;
+        c = 'x';
+        numChar15 = 'x';
+        isZero = true;
+        for (pos=0; strBuf[pos] != '\0'; pos++) {
+            c = strBuf[pos];
+            if (c >= '0' && c <= '9') {
+                isZero = (isZero && c == '0');
+                if (!isZero) {
+                    nScanDigits += 1;
+                    if (nScanDigits == 15) {
+                        numChar15 = c;
+                    } else if (nScanDigits == 16) {
+                        break;
+                    }
+                }
+            } else if (c == '.') {
+                amAfterDecimal = true;
+            } else if (c == 'e') {
+                break;
+            }
+        }
+        cw_trace3(("scan: nScanDigits=%d, amAfterDecimal=%s, numChar15='%c', "
+            "c='%c'\n", nScanDigits, CwStr_DecodeBool(amAfterDecimal),
+             numChar15, c ));
+
+        /** correct number if necessary **/
+        if (nScanDigits == 16 && amAfterDecimal
+                && ((numChar15 == '0' && c == '1')
+                    || (numChar15 == '9' && c == '9'))) {
+            /** correct '01' or '99' pattern **/
+            cw_trace3(("correcting '...%c%c' pattern\n", numChar15, c ));
+            sprintf( strBuf, "%.15g", number );
+
+#if 0
+            /** verify correction **/
+            cw_trace3(("verifying corrected number \"%s\"\n", strBuf ));
+            verifyNum = atof(strBuf);
+            if (verifyNum == number) {  /* exact match */
+                cw_trace3(("verification confirmed; number corrected: "
+                    "num=%.20g, vfy=%.20g, strBuf=\"%s\"\n", number,
+                     verifyNum, strBuf ));
+            } else {
+                sprintf( strBuf, "%.16g", number );
+                cw_trace3(("verification failed; number restored: "
+                    "num=%.20g, vfy=%.20g, strBuf=\"%s\"\n", number,
+                     verifyNum, strBuf ));
+            }
+#endif
+        }
+    }
+    return( strBuf );
+}
+
+--------------------------+----------------------+--------------------------
+Dr. Craig S. Bruce        | Ph 819-771-8303 x205 |             CubeWerx Inc.
+Senior Software Developer |   Fax 819-771-8388   |  Gatineau, Québec, Canada
+csbruce at cubewerx.com      |  http://csbruce.com/ |  http://www.cubewerx.com/
+--------------------------+----------------------+--------------------------
+                "I am both amused and annoyed that you think
+            I should be less stubborn than you are." -- House, MD
+
+
+From geraldi.evenden at gmail.com  Wed Mar 31 17:26:02 2010
+From: geraldi.evenden at gmail.com (Gerald I. Evenden)
+Date: Wed, 31 Mar 2010 20:26:02 -0400
+Subject: [Proj] Numerical Precision in Proj, WKT, and everywhere
+In-Reply-To: <201003312336.o2VNaYhi015027@tux.cubewerx.com>
+References: <201003312336.o2VNaYhi015027@tux.cubewerx.com>
+Message-ID: <201003312026.02254.geraldi.evenden@gmail.com>
+
+On Wednesday 31 March 2010 7:36:34 pm Craig Bruce wrote:
+> I was reading the following web page and its discussion of numerical
+> precision written by Frank Warmerdam:
+>
+> http://home.gdal.org/projects/opengis/wktproblems.html
+>
+> I agree with what he said, but printf's "%.16g" does have a problem which
+> manifests itself frequently, such as in the "epsg" CRS definitions in
+> proj-4.6.0, e.g.:
+>
+> # Anguilla 1957 / British West Indies Grid
+> <2000> +proj=tmerc +lat_0=0 +lon_0=-62 +k=0.9995000000000001 +x_0=400000
+> +y_0=0 +ellps=clrk80 +units=m +no_defs  <>
+
+Prey tell, why is someone using %,16g to print out a numbet that is rarely, if 
+ever, specified to more 4 to 6 digits? %g would be completely adequate and 
+avoid the absurd gyration suggested in the original email.
+
+Of course, the other question is why is the number, apparently from a data 
+base, store in binary in the first place?
+
+Sorry for the sarcasm but the nature of this non-problem overwhelms me.
+
+-- 
+The whole religious complexion of the modern world is due
+to the absence from Jerusalem of a lunatic asylum.
+-- Havelock Ellis (1859-1939) British psychologist
+
+

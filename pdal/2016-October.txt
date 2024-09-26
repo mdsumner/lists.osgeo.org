@@ -1,0 +1,1727 @@
+From kreve at sdfe.dk  Mon Oct  3 04:28:29 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Mon, 3 Oct 2016 11:28:29 +0000
+Subject: [pdal] Riegl extrabytes stripped
+Message-ID: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+
+Hi.
+
+I have some laz-files that incoorporates Riegl's extrabytes waveform extension [0]. I am running the files through a PDAL pipeline but unfortunately the VLR header and extrabytes are stripped from the resulting files. This behavior of writers.las is documented on the webpage [1]. The forward options description ends with:
+
+"VLRs can be forwarded by using the special value 'vlr'. VLRs containing the following User IDs are NOT forwarded: 'LASF_Projection', 'LASF_Spec', 'liblas', 'laszip encoded'. These VLRs are known to contain information regarding the formatting of the data and will be rebuilt properly in the output file as necessary. Unlike header values, VLRs from multiple input files are accumulated and each is written to the output file. Forwarded VLRs may contain duplicate User ID/Record ID pairs."
+
+The Riegl extrabytes are stored with user ID "LASF_Spec" and record ID 4. I accept that it is necessary to treat some VLR's differently than others, but I don't think this is one of them. The extra-bytes in this case contains data that PDAL has no way of knowing how to reconstruct properly. I believe something similar happens when storing waveform data as specified in LAS v. 1.3 since it is also defined as VLR's with user ID "LASF_Spec" (and record ID in the interval 100-355).
+
+I would much prefer the extrabytes attached to each record just be forwarded like any other VLR and extrabytes data. A way to do this would be to only ignore VLRs with certain user ID's that matches data that PDAL knows how to construct properly at write-time.
+
+I have tested this with the translate application:
+
+pdal translate -i in.laz -o out.laz --writers.las.forward=vlr --writers.las.extra_dims=all
+
+Running "pdal info --metadata" on in.laz explicitly tells me that the Riegl extrabytes exists. Doing the same for out.laz gives me (roughly) the same output but without the Riegl-VLR. The filesize of out.laz is also significantly smaller which leads me to conclude that the actual extrabytes have not been transferred to the output file.
+
+This leads me to two questions:
+
+
+1.       Would it make sense to allow some VLR+extrabytes with user ID "LASF_Spec" to pass through PDAL?
+
+2.       Is there a way - that I have overlooked - to transfer the Riegl extrabytes data to new files created by a PDAL pipeline?
+
+Thanks,
+
+Kristian Evers
+
+[0] http://www.riegl.com/uploads/tx_pxpriegldownloads/Whitepaper_-_LAS_extrabytes_implementation_in_Riegl_software_01.pdf
+[1] http://www.pdal.io/stages/writers.las.html
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/52a245cc/attachment.html>
+
+From andrew.bell.ia at gmail.com  Mon Oct  3 05:25:51 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 3 Oct 2016 07:25:51 -0500
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+Message-ID: <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+
+On Mon, Oct 3, 2016 at 6:28 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+
+> Hi.
+>
+>
+>
+> I have some laz-files that incoorporates Riegl’s extrabytes waveform
+> extension [0]. I am running the files through a PDAL pipeline but
+> unfortunately the VLR header and extrabytes are stripped from the resulting
+> files. This behavior of writers.las is documented on the webpage [1]. The
+> forward options description ends with:
+>
+>
+>
+> “VLRs can be forwarded by using the special value ‘vlr’. VLRs containing
+> the following User IDs are NOT forwarded: ‘LASF_Projection’, ‘LASF_Spec’,
+> ‘liblas’, ‘laszip encoded’. These VLRs are known to contain information
+> regarding the formatting of the data and will be rebuilt properly in the
+> output file as necessary. Unlike header values, VLRs from multiple input
+> files are accumulated and each is written to the output file. Forwarded
+> VLRs may contain duplicate User ID/Record ID pairs.”
+>
+>
+>
+> The Riegl extrabytes are stored with user ID “LASF_Spec” and record ID 4.
+> I accept that it is necessary to treat some VLR’s differently than others,
+> but I don’t think this is one of them.
+>
+
+The LASF_Spec is defined in the LAS 1.4 specification and needs special
+handling by PDAL.  In order to support LAS 1.4, PDAL needs to write
+arbitrary dimensions to the output as extra bytes and also needs to be able
+to construct the LASF_Spec VLR to reflect the data in the extra bytes.
+
+Without a sample data file, I really don't know what's going on or why the
+data isn't being forwarded as expected.
+
+
+> The extra-bytes in this case contains data that PDAL has no way of knowing
+> how to reconstruct properly.
+>
+
+I don't believe this is true.  The VLR should describe the data on input,
+which should allow it to also properly reconstructed on output.
+
+
+> I believe something similar happens when storing waveform data as
+> specified in LAS v. 1.3 since it is also defined as VLR’s with user ID
+> “LASF_Spec” (and record ID in the interval 100-355).
+>
+
+Waveform data is explicitly not supported by PDAL (we don't support point
+formats 4, 5, 9 and 10).
+
+I would much prefer the extrabytes attached to each record just be
+> forwarded like any other VLR and extrabytes data. A way to do this would be
+> to only ignore VLRs with certain user ID’s that matches data that PDAL
+> knows how to construct properly at write-time.
+>
+
+PDAL is handling formats other than LAS.  The current handling allows data
+read from some other format to be properly written to a LAS 1.4 file, using
+the LASF_Spec VLR and extra bytes to store data not supported by the native
+LAS point formats.  In order to diagnose your issue, I need to examine the
+data in more detail.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/fad10961/attachment.html>
+
+From pete.gadomski at gmail.com  Mon Oct  3 05:40:10 2016
+From: pete.gadomski at gmail.com (Pete Gadomski)
+Date: Mon, 3 Oct 2016 06:40:10 -0600
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+Message-ID: <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+
+Andrew,
+
+Here's a 43 point las file w/ Riegl's extra bytes that I use for
+developing against this stuff. I was *not* able to reproduce the OP's
+issue — `pdal translate -i 1.2_1_extra_bytes.las -o out.laz
+--writers.las.forward=vlr --writers.las.extra_dims=all && pdal info
+--metadata out.laz` reported the presence of the extra bytes vlr, and
+the extra bytes were present on each point. However, `pdal info -p 0
+out.laz` did not report the values stored in those extra bytes
+(Reflectance, Amplitude, and Deviation) — not sure if that's supported
+ATM.
+
+The VLR description is also changed from "RIEGL Extra Bytes" to "Extra
+Bytes Record", not a big deal but may surprise some end-users who
+expect a "forward" option to forward without change.
+
+HTH,
+Pete
+
+On Mon, Oct 3, 2016 at 6:25 AM, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+> On Mon, Oct 3, 2016 at 6:28 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+>>
+>> Hi.
+>>
+>>
+>>
+>> I have some laz-files that incoorporates Riegl’s extrabytes waveform
+>> extension [0]. I am running the files through a PDAL pipeline but
+>> unfortunately the VLR header and extrabytes are stripped from the resulting
+>> files. This behavior of writers.las is documented on the webpage [1]. The
+>> forward options description ends with:
+>>
+>>
+>>
+>> “VLRs can be forwarded by using the special value ‘vlr’. VLRs containing
+>> the following User IDs are NOT forwarded: ‘LASF_Projection’, ‘LASF_Spec’,
+>> ‘liblas’, ‘laszip encoded’. These VLRs are known to contain information
+>> regarding the formatting of the data and will be rebuilt properly in the
+>> output file as necessary. Unlike header values, VLRs from multiple input
+>> files are accumulated and each is written to the output file. Forwarded VLRs
+>> may contain duplicate User ID/Record ID pairs.”
+>>
+>>
+>>
+>> The Riegl extrabytes are stored with user ID “LASF_Spec” and record ID 4.
+>> I accept that it is necessary to treat some VLR’s differently than others,
+>> but I don’t think this is one of them.
+>
+>
+> The LASF_Spec is defined in the LAS 1.4 specification and needs special
+> handling by PDAL.  In order to support LAS 1.4, PDAL needs to write
+> arbitrary dimensions to the output as extra bytes and also needs to be able
+> to construct the LASF_Spec VLR to reflect the data in the extra bytes.
+>
+> Without a sample data file, I really don't know what's going on or why the
+> data isn't being forwarded as expected.
+>
+>>
+>> The extra-bytes in this case contains data that PDAL has no way of knowing
+>> how to reconstruct properly.
+>
+>
+> I don't believe this is true.  The VLR should describe the data on input,
+> which should allow it to also properly reconstructed on output.
+>
+>>
+>> I believe something similar happens when storing waveform data as
+>> specified in LAS v. 1.3 since it is also defined as VLR’s with user ID
+>> “LASF_Spec” (and record ID in the interval 100-355).
+>
+>
+> Waveform data is explicitly not supported by PDAL (we don't support point
+> formats 4, 5, 9 and 10).
+>
+>> I would much prefer the extrabytes attached to each record just be
+>> forwarded like any other VLR and extrabytes data. A way to do this would be
+>> to only ignore VLRs with certain user ID’s that matches data that PDAL knows
+>> how to construct properly at write-time.
+>
+>
+> PDAL is handling formats other than LAS.  The current handling allows data
+> read from some other format to be properly written to a LAS 1.4 file, using
+> the LASF_Spec VLR and extra bytes to store data not supported by the native
+> LAS point formats.  In order to diagnose your issue, I need to examine the
+> data in more detail.
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: 1.2_1_extra_bytes.las
+Type: application/octet-stream
+Size: 9860 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/322322eb/attachment-0001.obj>
+
+From kreve at sdfe.dk  Mon Oct  3 05:59:15 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Mon, 3 Oct 2016 12:59:15 +0000
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+
+Andrew,
+
+I think, in the case of version 1.1-1.3 LAS files, that the format of the extrabytes are not specified in the VLR header. It is simply not possible in the format specification, but it is still allowed to attach extra stuff at the end of a data record. How much extra stuff can be calculated from the information in the header about the record size, and the size of an un-altered record of a specific data format. I.e. knowing from the header that a record is 41 bytes and the data record point format 1 is 37 bytes we can infer that there must be 4 extra bytes in a record. What those bytes are is not specified in LAS files before version 1.4. And I guess that makes it hard for PDAL to understand how to treat those bytes, since there’s not a predefined dimension to put it in. Sorry if I am stating the obvious here, this stuff can be a bit confusing I think, so just trying make sure we agree on how to interpret the different LAS specifications.
+
+The file in question has point format 1 so PDAL should be okay with it. Also this is not waveform data as specified in the LAS 1.3, it is just Riegl utilizing the extra-bytes feature to store some information related to waveforms. It could just as well have been different information stored.
+
+You should be able to download the file from https://filkassen.statens-it.dk/mobile/links/public/home?token=sD240hC9uNeiPbjR&name=150327_103118.laz. Notice that it is a rather big file!
+Output from pdal info --metadata for both input and output files can be seen here: https://gist.github.com/kbevers/f98f588c4fe67773b9a75aa7fce53bf0 
+
+For the record, pdal --version says "pdal 1.3.0 (git-version: 258504)" build on windows with the latest version of visual studio.
+
+Pete,
+
+I notice the same description as you. That was indeed confusing. The same for pdal info -p 0. Which makes it hard to check if the extrabytes data is actually there. My input file is 1.1GB and the output is 650MB. Either PDAL compresses the data a lot better than Riegls software, or something is missing...
+
+Thank you both for your help. I am less convinced know than before that there actually is a problem here. It might just be that I am trying to do something that PDAL was never meant to be able to do.
+
+/Kristian
+
+> -----Oprindelig meddelelse-----
+> Fra: Pete Gadomski [mailto:pete.gadomski at gmail.com]
+> Sendt: 3. oktober 2016 14:40
+> Til: Andrew Bell
+> Cc: Kristian Evers; pdal at lists.osgeo.org
+> Emne: Re: [pdal] Riegl extrabytes stripped
+> 
+> Andrew,
+> 
+> Here's a 43 point las file w/ Riegl's extra bytes that I use for
+> developing against this stuff. I was *not* able to reproduce the OP's
+> issue — `pdal translate -i 1.2_1_extra_bytes.las -o out.laz
+> --writers.las.forward=vlr --writers.las.extra_dims=all && pdal info
+> --metadata out.laz` reported the presence of the extra bytes vlr, and
+> the extra bytes were present on each point. However, `pdal info -p 0
+> out.laz` did not report the values stored in those extra bytes
+> (Reflectance, Amplitude, and Deviation) — not sure if that's supported
+> ATM.
+> 
+> The VLR description is also changed from "RIEGL Extra Bytes" to "Extra
+> Bytes Record", not a big deal but may surprise some end-users who
+> expect a "forward" option to forward without change.
+> 
+> HTH,
+> Pete
+> 
+> On Mon, Oct 3, 2016 at 6:25 AM, Andrew Bell <andrew.bell.ia at gmail.com>
+> wrote:
+> > On Mon, Oct 3, 2016 at 6:28 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+> >>
+> >> Hi.
+> >>
+> >>
+> >>
+> >> I have some laz-files that incoorporates Riegl’s extrabytes waveform
+> >> extension [0]. I am running the files through a PDAL pipeline but
+> >> unfortunately the VLR header and extrabytes are stripped from the
+> resulting
+> >> files. This behavior of writers.las is documented on the webpage [1]. The
+> >> forward options description ends with:
+> >>
+> >>
+> >>
+> >> “VLRs can be forwarded by using the special value ‘vlr’. VLRs containing
+> >> the following User IDs are NOT forwarded: ‘LASF_Projection’,
+> ‘LASF_Spec’,
+> >> ‘liblas’, ‘laszip encoded’. These VLRs are known to contain information
+> >> regarding the formatting of the data and will be rebuilt properly in the
+> >> output file as necessary. Unlike header values, VLRs from multiple input
+> >> files are accumulated and each is written to the output file. Forwarded
+> VLRs
+> >> may contain duplicate User ID/Record ID pairs.”
+> >>
+> >>
+> >>
+> >> The Riegl extrabytes are stored with user ID “LASF_Spec” and record ID 4.
+> >> I accept that it is necessary to treat some VLR’s differently than others,
+> >> but I don’t think this is one of them.
+> >
+> >
+> > The LASF_Spec is defined in the LAS 1.4 specification and needs special
+> > handling by PDAL.  In order to support LAS 1.4, PDAL needs to write
+> > arbitrary dimensions to the output as extra bytes and also needs to be able
+> > to construct the LASF_Spec VLR to reflect the data in the extra bytes.
+> >
+> > Without a sample data file, I really don't know what's going on or why the
+> > data isn't being forwarded as expected.
+> >
+> >>
+> >> The extra-bytes in this case contains data that PDAL has no way of
+> knowing
+> >> how to reconstruct properly.
+> >
+> >
+> > I don't believe this is true.  The VLR should describe the data on input,
+> > which should allow it to also properly reconstructed on output.
+> >
+> >>
+> >> I believe something similar happens when storing waveform data as
+> >> specified in LAS v. 1.3 since it is also defined as VLR’s with user ID
+> >> “LASF_Spec” (and record ID in the interval 100-355).
+> >
+> >
+> > Waveform data is explicitly not supported by PDAL (we don't support point
+> > formats 4, 5, 9 and 10).
+> >
+> >> I would much prefer the extrabytes attached to each record just be
+> >> forwarded like any other VLR and extrabytes data. A way to do this would
+> be
+> >> to only ignore VLRs with certain user ID’s that matches data that PDAL
+> knows
+> >> how to construct properly at write-time.
+> >
+> >
+> > PDAL is handling formats other than LAS.  The current handling allows data
+> > read from some other format to be properly written to a LAS 1.4 file, using
+> > the LASF_Spec VLR and extra bytes to store data not supported by the
+> native
+> > LAS point formats.  In order to diagnose your issue, I need to examine the
+> > data in more detail.
+> >
+> > --
+> > Andrew Bell
+> > andrew.bell.ia at gmail.com
+> >
+> > _______________________________________________
+> > pdal mailing list
+> > pdal at lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/pdal
+
+From howard at hobu.co  Mon Oct  3 06:38:30 2016
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 3 Oct 2016 08:38:30 -0500
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+Message-ID: <5748C209-708D-48B7-913C-A6F6EF1B181D@hobu.co>
+
+
+> On Oct 3, 2016, at 7:59 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+> 
+> Andrew,
+> 
+> I think, in the case of version 1.1-1.3 LAS files, that the format of the extrabytes are not specified in the VLR header. It is simply not possible in the format specification,
+
+AFAIK, it is allowed to specify the extrabytes format for 1.0-1.3 LAS files. It's up to the software interpreting the specification to actually consume it, however. You are correct about extrabytes being allowed after the end of the fixed part of the point record, it's just that we had no way to communicate the interpretation of those bytes until the 1.4 version of the document.
+
+> but it is still allowed to attach extra stuff at the end of a data record. How much extra stuff can be calculated from the information in the header about the record size, and the size of an un-altered record of a specific data format. I.e. knowing from the header that a record is 41 bytes and the data record point format 1 is 37 bytes we can infer that there must be 4 extra bytes in a record. What those bytes are is not specified in LAS files before version 1.4. And I guess that makes it hard for PDAL to understand how to treat those bytes, since there’s not a predefined dimension to put it in. Sorry if I am stating the obvious here, this stuff can be a bit confusing I think, so just trying make sure we agree on how to interpret the different LAS specifications.
+
+I think one possibility is PDAL only uses this extrabytes machinery for 1.4 files and nothing earlier.
+
+
+From kreve at sdfe.dk  Mon Oct  3 07:52:40 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Mon, 3 Oct 2016 14:52:40 +0000
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+ <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E79EA6CC2@S000014.PROD.SITAD.DK>
+
+Ah, there it is!
+
+--readers.las.extra_dims="amplitude=uint16,pulse_width=uint16"
+
+I completely missed that option. I expected PDAL to just transfer the complete data records when running a basic read-write pipeline, but the way it works makes sense when you think about the format-independent nature of PDAL. It is a bit cumbersome to use the extrabytes in las version earlier than 1.4. For now I am stuck with version 1.3 and will just have to pay extra attention when reading/writing files.
+
+Thank you very much for your help Andrew, Pete and Howard. The fast response on this list and the endless possibilities of PDAL never cease to amaze me.
+
+/Kristian
+
+Fra: Andrew Bell [mailto:andrew.bell.ia at gmail.com]
+Sendt: 3. oktober 2016 15:39
+Til: Kristian Evers
+Emne: Re: [pdal] Riegl extrabytes stripped
+
+On Mon, Oct 3, 2016 at 7:59 AM, Kristian Evers <kreve at sdfe.dk<mailto:kreve at sdfe.dk>> wrote:
+Andrew,
+
+I think, in the case of version 1.1-1.3 LAS files, that the format of the extrabytes are not specified in the VLR header. It is simply not possible in the format specification, but it is still allowed to attach extra stuff at the end of a data record. How much extra stuff can be calculated from the information in the header about the record size, and the size of an un-altered record of a specific data format. I.e. knowing from the header that a record is 41 bytes and the data record point format 1 is 37 bytes we can infer that there must be 4 extra bytes in a record. What those bytes are is not specified in LAS files before version 1.4. And I guess that makes it hard for PDAL to understand how to treat those bytes, since there’s not a predefined dimension to put it in. Sorry if I am stating the obvious here, this stuff can be a bit confusing I think, so just trying make sure we agree on how to interpret the different LAS specifications.
+
+It wasn't clear from your original note the version of the file you were having problems with.  Very simply, the PDAL reader doesn't handle the extra bytes VLR (LASF_Spec/4) in LAS files that aren't version 1.4.  As The Riegl document states:
+
+Please note: All versions will contain the VLR Header describing the meaning of the extrabytes. As this description mechanism is not defined expressively in the LAS specifications up to v1.3, existing readers are very likely to neglect this information.
+
+The 'LASF_Spec' User ID in the VLR indicates that the VLR is defined in the LAS specification.  If a VLR with 'LASF_Spec' exists but doesn't have a known record ID for that file version, it will be ignored.  This seems reasonable behavior to me.
+
+If you are trying to read a LAS 1.1 - 1.3 file with extra bytes, you can use the *readers.las* extra_dims option to describe them and load them into PDAL.  At that point you should also be able to write them to a LAS file using the extra bytes in a record by specifying extra_dims=all.  For instance, if you are reading a LAS 1.2 file with extra bytes fields amplitude and pulse width as described in the Riegl document, you should be able to say:
+
+pdal translate -i in.laz -o out.laz --readers.las.extra_dims="amplitude=uint16,pulse_width=uint16" --writers.las.forward=vlr --writers.las.extra_dims=all
+
+If you also add '--writers.las.minor_version=4', the file should be written as LAS 1.4 and the extrabytes VLR should be created.
+
+--
+Andrew Bell
+andrew.bell.ia at gmail.com<mailto:andrew.bell.ia at gmail.com>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/3fd4424f/attachment-0001.html>
+
+From howard at hobu.co  Mon Oct  3 08:28:56 2016
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 3 Oct 2016 10:28:56 -0500
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0E79EA6CC2@S000014.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+ <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6CC2@S000014.PROD.SITAD.DK>
+Message-ID: <1EF7344A-DA9E-4B8E-A6D8-6D98FBCA7752@hobu.co>
+
+Kristian,
+
+If you have notes, tutorial, or example to contribute on this topic, feel free to make pull requests in the docs where you think this kind of information would fit best. We really appreciate those kinds of contributions (like you've done for Proj.4).
+
+Howard
+
+> On Oct 3, 2016, at 9:52 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+> 
+> Ah, there it is!
+>  
+> --readers.las.extra_dims="amplitude=uint16,pulse_width=uint16"
+>  
+> I completely missed that option. I expected PDAL to just transfer the complete data records when running a basic read-write pipeline, but the way it works makes sense when you think about the format-independent nature of PDAL. It is a bit cumbersome to use the extrabytes in las version earlier than 1.4. For now I am stuck with version 1.3 and will just have to pay extra attention when reading/writing files.
+>  
+> Thank you very much for your help Andrew, Pete and Howard. The fast response on this list and the endless possibilities of PDAL never cease to amaze me.
+>  
+> /Kristian
+>  
+> Fra: Andrew Bell [mailto:andrew.bell.ia at gmail.com] 
+> Sendt: 3. oktober 2016 15:39
+> Til: Kristian Evers
+> Emne: Re: [pdal] Riegl extrabytes stripped
+>  
+> On Mon, Oct 3, 2016 at 7:59 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+> Andrew,
+> 
+> I think, in the case of version 1.1-1.3 LAS files, that the format of the extrabytes are not specified in the VLR header. It is simply not possible in the format specification, but it is still allowed to attach extra stuff at the end of a data record. How much extra stuff can be calculated from the information in the header about the record size, and the size of an un-altered record of a specific data format. I.e. knowing from the header that a record is 41 bytes and the data record point format 1 is 37 bytes we can infer that there must be 4 extra bytes in a record. What those bytes are is not specified in LAS files before version 1.4. And I guess that makes it hard for PDAL to understand how to treat those bytes, since there’s not a predefined dimension to put it in. Sorry if I am stating the obvious here, this stuff can be a bit confusing I think, so just trying make sure we agree on how to interpret the different LAS specifications.
+>  
+> It wasn't clear from your original note the version of the file you were having problems with.  Very simply, the PDAL reader doesn't handle the extra bytes VLR (LASF_Spec/4) in LAS files that aren't version 1.4.  As The Riegl document states:
+>  
+> Please note: All versions will contain the VLR Header describing the meaning of the extrabytes. As this description mechanism is not defined expressively in the LAS specifications up to v1.3, existing readers are very likely to neglect this information.
+>  
+> The 'LASF_Spec' User ID in the VLR indicates that the VLR is defined in the LAS specification.  If a VLR with 'LASF_Spec' exists but doesn't have a known record ID for that file version, it will be ignored.  This seems reasonable behavior to me.
+>  
+> If you are trying to read a LAS 1.1 - 1.3 file with extra bytes, you can use the *readers.las* extra_dims option to describe them and load them into PDAL.  At that point you should also be able to write them to a LAS file using the extra bytes in a record by specifying extra_dims=all.  For instance, if you are reading a LAS 1.2 file with extra bytes fields amplitude and pulse width as described in the Riegl document, you should be able to say:
+>  
+> pdal translate -i in.laz -o out.laz --readers.las.extra_dims="amplitude=uint16,pulse_width=uint16" --writers.las.forward=vlr --writers.las.extra_dims=all
+>  
+> If you also add '--writers.las.minor_version=4', the file should be written as LAS 1.4 and the extrabytes VLR should be created.
+>  
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From andrew.bell.ia at gmail.com  Mon Oct  3 09:17:36 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 3 Oct 2016 11:17:36 -0500
+Subject: [pdal] Fwd:  Riegl extrabytes stripped
+In-Reply-To: <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+ <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+Message-ID: <CACJ51z2Dh+X7Gb2+W_u8JY5K=7TvR+0zb3p0+Xq=rcJAaX9UuQ@mail.gmail.com>
+
+On Mon, Oct 3, 2016 at 7:59 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+
+> Andrew,
+>
+> I think, in the case of version 1.1-1.3 LAS files, that the format of the
+> extrabytes are not specified in the VLR header. It is simply not possible
+> in the format specification, but it is still allowed to attach extra stuff
+> at the end of a data record. How much extra stuff can be calculated from
+> the information in the header about the record size, and the size of an
+> un-altered record of a specific data format. I.e. knowing from the header
+> that a record is 41 bytes and the data record point format 1 is 37 bytes we
+> can infer that there must be 4 extra bytes in a record. What those bytes
+> are is not specified in LAS files before version 1.4. And I guess that
+> makes it hard for PDAL to understand how to treat those bytes, since
+> there’s not a predefined dimension to put it in. Sorry if I am stating the
+> obvious here, this stuff can be a bit confusing I think, so just trying
+> make sure we agree on how to interpret the different LAS specifications.
+>
+
+It wasn't clear from your original note the version of the file you were
+having problems with.  Very simply, the PDAL reader doesn't handle the
+extra bytes VLR (LASF_Spec/4) in LAS files that aren't version 1.4.  As The
+Riegl document states:
+
+Please note: All versions will contain the VLR Header describing the
+> meaning of the extrabytes. As this description mechanism is not defined
+> expressively in the LAS specifications up to v1.3, existing readers are
+> very likely to neglect this information.
+
+
+The 'LASF_Spec' User ID in the VLR indicates that the VLR is defined in the
+LAS specification.  If a VLR with 'LASF_Spec' exists but doesn't have a
+known record ID for that file version, it will be ignored.  This seems
+reasonable behavior to me.
+
+If you are trying to read a LAS 1.1 - 1.3 file with extra bytes, you can
+use the *readers.las* extra_dims option to describe them and load them into
+PDAL.  At that point you should also be able to write them to a LAS file
+using the extra bytes in a record by specifying extra_dims=all.  For
+instance, if you are reading a LAS 1.2 file with extra bytes fields
+amplitude and pulse width as described in the Riegl document, you should be
+able to say:
+
+pdal translate -i in.laz -o out.laz --readers.las.extra_dims="
+amplitude=uint16,pulse_width=uint16" --writers.las.forward=vlr
+--writers.las.extra_dims=all
+
+
+If you also add '--writers.las.minor_version=4', the file should be written
+as LAS 1.4 and the extrabytes VLR should be created.
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/ccbaaac2/attachment.html>
+
+From andrew.bell.ia at gmail.com  Mon Oct  3 09:18:48 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 3 Oct 2016 11:18:48 -0500
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0E79EA6CC2@S000014.PROD.SITAD.DK>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+ <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6CC2@S000014.PROD.SITAD.DK>
+Message-ID: <CACJ51z3SYPZK7J4msDBxj5L+rK3LTXHvijrY6YmRCWLM-3ZcGA@mail.gmail.com>
+
+On Mon, Oct 3, 2016 at 9:52 AM, Kristian Evers <kreve at sdfe.dk> wrote:
+
+> Ah, there it is!
+>
+>
+>
+> --readers.las.extra_dims="amplitude=uint16,pulse_width=uint16"
+>
+>
+>
+> I completely missed that option. I expected PDAL to just transfer the
+> complete data records when running a basic read-write pipeline, but the way
+> it works makes sense when you think about the format-independent nature of
+> PDAL. It is a bit cumbersome to use the extrabytes in las version earlier
+> than 1.4. For now I am stuck with version 1.3 and will just have to pay
+> extra attention when reading/writing files.
+>
+
+It's hard to know what should be handled as the "normal" case.  When you're
+just working with LAS, it seems like PDAL should know what to do, but even
+then it's not clear.  As an example to go with your case, if you're using
+PDAL to construct some extra dimension that you wanted written out as extra
+bytes with each record, you certainly don't want the LAS_Spec/4 VLR
+forwarded or the existing extra bytes just tacked on.  We try to make the
+common things easy, but sometimes what's common for one person isn't for
+others.  Perhaps other times we just didn't anticipate well.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/7009858e/attachment.html>
+
+From kreve at sdfe.dk  Mon Oct  3 12:49:50 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Mon, 3 Oct 2016 19:49:50 +0000
+Subject: [pdal] Riegl extrabytes stripped
+In-Reply-To: <CACJ51z3SYPZK7J4msDBxj5L+rK3LTXHvijrY6YmRCWLM-3ZcGA@mail.gmail.com>
+References: <2E885BB293AF0448A0181138489E9A0E79EA6AA8@S000014.PROD.SITAD.DK>
+ <CACJ51z0bbeL=GgzXWvHSRU7vYCCmmOnXTtBrBnMogtYFWs012w@mail.gmail.com>
+ <CAOY6Aa0SA_uoB6AJNQLSd6DWsnVnd_D_vYxaT0-eLH5ES1U5dA@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6B6F@S000014.PROD.SITAD.DK>
+ <CACJ51z3JqVFxDbOfTV8zb_QM0E_2CyVDeLPev=nDWX0K8Z+qQg@mail.gmail.com>
+ <2E885BB293AF0448A0181138489E9A0E79EA6CC2@S000014.PROD.SITAD.DK>
+ <CACJ51z3SYPZK7J4msDBxj5L+rK3LTXHvijrY6YmRCWLM-3ZcGA@mail.gmail.com>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E79EA6DE5@S000014.PROD.SITAD.DK>
+
+Sure, I totally agree with that. I think what confused me here was that I knew that the VLR and extrabytes were related (though PDAL does not know that) and just assumed that the extrabytes would be passed along when adding the writers.las.forward=vlr option. Now that those two things have been decoupled in my mind I think it is very reasonable what PDAL does. And I believe my two initial questions has been answered very nicely.
+
+
+1.       No, it would not make sense change the behavior regarding the LASF_Spec VLR’s
+
+2.       Yes, I had overlooked the extra_dims option in the las reader/writers
+
+This has been a very fruitful discussion for me. As per Howards suggestion I am working on a tutorial that explains this stuff in more detail and hopefully others will find this easier in the future.
+
+Thanks,
+
+Kristian
+
+Fra: Andrew Bell [mailto:andrew.bell.ia at gmail.com]
+Sendt: 3. oktober 2016 18:19
+Til: Kristian Evers
+Cc: pdal at lists.osgeo.org
+Emne: Re: [pdal] Riegl extrabytes stripped
+
+
+
+On Mon, Oct 3, 2016 at 9:52 AM, Kristian Evers <kreve at sdfe.dk<mailto:kreve at sdfe.dk>> wrote:
+Ah, there it is!
+
+--readers.las.extra_dims="amplitude=uint16,pulse_width=uint16"
+
+I completely missed that option. I expected PDAL to just transfer the complete data records when running a basic read-write pipeline, but the way it works makes sense when you think about the format-independent nature of PDAL. It is a bit cumbersome to use the extrabytes in las version earlier than 1.4. For now I am stuck with version 1.3 and will just have to pay extra attention when reading/writing files.
+
+It's hard to know what should be handled as the "normal" case.  When you're just working with LAS, it seems like PDAL should know what to do, but even then it's not clear.  As an example to go with your case, if you're using PDAL to construct some extra dimension that you wanted written out as extra bytes with each record, you certainly don't want the LAS_Spec/4 VLR forwarded or the existing extra bytes just tacked on.  We try to make the common things easy, but sometimes what's common for one person isn't for others.  Perhaps other times we just didn't anticipate well.
+
+--
+Andrew Bell
+andrew.bell.ia at gmail.com<mailto:andrew.bell.ia at gmail.com>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161003/4d94385d/attachment.html>
+
+From howard at hobu.co  Wed Oct 19 09:20:05 2016
+From: howard at hobu.co (Howard Butler)
+Date: Wed, 19 Oct 2016 11:20:05 -0500
+Subject: [pdal] writers.gdal and P2G
+Message-ID: <6C349F97-2772-48CF-8CBC-AD6A42C4DAD0@hobu.co>
+
+All,
+
+As I mentioned in Twitter [1], Andrew has implemented a writers.gdal [2] in current master that replaces and significantly improves upon the functionality provided by points2grid. The new driver allows you to control the output to a GDAL-writeable raster, allows you to specify the dimension to interpolate, allows you to pass GDAL options, and it is significantly faster than PDAL's previous p2g usage. In exchange, writers.gdal can consume significant memory depending upon your configuration and how much data you are pushing into it. p2g also consumed plenty of memory, but it had its own memory paging system to try to manage that. The assumption with writers.gdal is your system can page memory more efficiently than a homespun implementation.
+
+I would like to propose that we remove p2g in the upcoming PDAL 1.4 release, but I wanted to hear any feedback on that topic before doing so. Are you wed to p2g? Does it impact you greatly to switch to writers.gdal if we were to remove it?
+
+Thanks,
+
+Howard
+
+[1] https://twitter.com/pointcloudpipe/status/788768713583448064
+[2] https://github.com/PDAL/PDAL/blob/master/doc/stages/writers.gdal.rst
+
+
+From charles.karney at sri.com  Wed Oct 19 11:48:42 2016
+From: charles.karney at sri.com (Charles Karney)
+Date: Wed, 19 Oct 2016 14:48:42 -0400
+Subject: [pdal] Building pdal 1.3.0 under Windows
+Message-ID: <0d8e3a11-e012-5d1c-1fa1-718d1febd38e@sri.com>
+
+I've started investigating using pdal as a substitute for liblas for
+reading point cloud data.  I have it building under Linux OK (with
+cmake).  I having problems building under Windows (this is pdal 1.3.0):
+
+(1) A required dependency is geos.  The seems to require Visual Studio
+2013 or later.  This comes from
+
+   geos/tests/xmltester/XMLTester.cpp
+
+expecting std::round to be defined in <cmath>.  Is this right?  Or can I
+skip the tests in geos and compile with Visual Studio 2012 as well.
+
+(2) curl appears to be an optional dependency (cmake does not insist
+that it be found).  And yet
+
+   pdal/src/PDALUtils.cpp
+
+includes vendor/arbiter/arbiter.hpp and this tries to do
+
+   #include <curl/curl.h>
+
+(3) Installing curl (for Visual Studio 2013 this time) and building with
+cmake hits an error on line 898 or pdal/util/Utils.hpp:
+
+   error C2144: syntax error : 'std::underlying_type<_Ty>::type' should
+   be preceded by ';'
+
+This looks like some new-fangled C++11 stuff which perhaps Visual Studio
+2013 doesn't recognize.
+
+I'm happy to delve into this further.  But I thought I should first
+align my expectations with those of the developer:
+
+   With what versions of Visual Studio should I expect success?
+   I've attempting to build it with
+     gdal 2.1.1
+     LASzip 2.2.0
+     eigen 3.2.8
+     geos 3.5.0
+     curl (maybe) 7.39.0
+   Should I expect this combination to work?
+
+Thanks for you help
+
+   --Charles
+
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+
+From howard at hobu.co  Wed Oct 19 12:32:12 2016
+From: howard at hobu.co (Howard Butler)
+Date: Wed, 19 Oct 2016 14:32:12 -0500
+Subject: [pdal] Building pdal 1.3.0 under Windows
+In-Reply-To: <0d8e3a11-e012-5d1c-1fa1-718d1febd38e@sri.com>
+References: <0d8e3a11-e012-5d1c-1fa1-718d1febd38e@sri.com>
+Message-ID: <3C2D659E-5009-4153-9AB6-E476B6F5AC4C@hobu.co>
+
+
+> On Oct 19, 2016, at 1:48 PM, Charles Karney <charles.karney at sri.com> wrote:
+> 
+> I've started investigating using pdal as a substitute for liblas for
+> reading point cloud data.  I have it building under Linux OK (with
+> cmake).  I having problems building under Windows (this is pdal 1.3.0):
+> 
+> (1) A required dependency is geos.  The seems to require Visual Studio
+> 2013 or later.  This comes from
+> 
+>  geos/tests/xmltester/XMLTester.cpp
+> 
+> expecting std::round to be defined in <cmath>.  Is this right?  Or can I
+> skip the tests in geos and compile with Visual Studio 2012 as well.
+
+You should be fine to skip the tests there. I didn't realize GEOS gave up on 2012, but maybe this wasn't intentional.
+
+> 
+> (2) curl appears to be an optional dependency (cmake does not insist
+> that it be found).  And yet
+> 
+>  pdal/src/PDALUtils.cpp
+> 
+> includes vendor/arbiter/arbiter.hpp and this tries to do
+> 
+>  #include <curl/curl.h>
+> 
+> (3) Installing curl (for Visual Studio 2013 this time) and building with
+> cmake hits an error on line 898 or pdal/util/Utils.hpp:
+> 
+>  error C2144: syntax error : 'std::underlying_type<_Ty>::type' should
+>  be preceded by ';'
+> 
+> This looks like some new-fangled C++11 stuff which perhaps Visual Studio
+> 2013 doesn't recognize.
+
+PDAL definitely has requirement for the new-fangled C++11 stuff, which was the deal with the devil we made to (almost entirely) ditch Boost (we have a small embedded copy of a few things that are about to be ditched in 1.4 or 1.5 PDAL release). That probably means 2013 *might* work, but we only auto-build stuff with 2015. We are happy to take patches to get that down to 2013 as long as they aren't too disruptive, but we can't back off of the C++11 stuff because it's sprinkled throughout the codebase now. 
+
+
+I'll also note that none of the very active PDAL developers are windows-first devs, and we're happy to take patches to bolster that particular topic. The effort done on the AppVeyor builds have mostly been an attempt to prevent things from diverging so far that we could never get windows happy again, but they haven't been there to keep windows a first class operator with PDAL. 
+
+IMO, curl should be an optional dependency, and I see that our AppVeyor builds [1] are failing because of it. AppVeyor uses MSVC 19.0.24215.1 (MSVC 2015). Run [2] to ground to see what we're doing for our windows builds. I will try to clean up the curl thing so we degrade gracefully without that library.
+
+[1] https://ci.appveyor.com/project/hobu/pdal
+[2] https://github.com/PDAL/PDAL/blob/master/appveyor.yml
+
+> 
+> I'm happy to delve into this further.  But I thought I should first
+> align my expectations with those of the developer:
+> 
+>  With what versions of Visual Studio should I expect success?
+>  I've attempting to build it with
+>    gdal 2.1.1
+>    LASzip 2.2.0
+>    eigen 3.2.8
+>    geos 3.5.0
+>    curl (maybe) 7.39.0
+>  Should I expect this combination to work?
+
+PDAL embeds a copy of eigen at the moment. This may or may not be a problem for you depending on what you're doing. That should be fixable though with some CMake tweaks.
+
+Count on any windows-specific patches getting merged as long as they don't regress our C++11 situation too much. We've been waiting on a champion for this particular topic.
+
+Howard
+
+
+
+From kreve at sdfe.dk  Thu Oct 20 01:39:12 2016
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Thu, 20 Oct 2016 08:39:12 +0000
+Subject: [pdal] Building pdal 1.3.0 under Windows
+In-Reply-To: <3C2D659E-5009-4153-9AB6-E476B6F5AC4C@hobu.co>
+References: <0d8e3a11-e012-5d1c-1fa1-718d1febd38e@sri.com>
+ <3C2D659E-5009-4153-9AB6-E476B6F5AC4C@hobu.co>
+Message-ID: <2E885BB293AF0448A0181138489E9A0E7A8563B6@S000014.PROD.SITAD.DK>
+
+Charles,
+
+I use the script below to set up cmake for Visual Studio 2015 on Windows 7. It took me quite a while to find a setup that worked, but in the end I settled on building with VS2015 inside an OSGeo4W shell. Most dependencies are met this way. The remaining dependencies, boost and hexer, for the configuration below I had to build myself. Boost and hexer dll's need to be in the system search path if I remember correctly. If you don't need hexbin I think you can do without both boost and hexer, but I am not entirely sure about that.
+
+/Kristian
+
+---------------------------------------pdal_cmake_setup.bat--------------------------------------
+@echo off
+REM Run this to get access to the Microsoft command line build stuff: 
+REM
+REM "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86_amd64
+REM
+REM Run script from build directory, e.g. C:\dev\pdal_build
+REM Build with:
+REM
+REM     devenv PDAL.sln /Build "Release|x64"
+REM
+REM Run tests:
+REM
+REM     ctest -V --output-on-failure -C Release
+REM
+
+set OSGEO4W_ROOT=C:\OSGeo4W64
+set BUILD_TYPE=Release
+set BOOST_ROOT=C:\lib\boost_1_61_0
+
+
+cmake -G "Visual Studio 14 2015 Win64" ^
+    -DBoost_DEBUG=OFF ^
+    -DBOOST_ROOT=%BOOST_ROOT% ^
+    -DBUILD_PLUGIN_CPD=OFF ^
+    -DBUILD_PLUGIN_GEOWAVE=OFF ^
+    -DBUILD_PLUGIN_GREYHOUND=OFF ^
+    -DBUILD_PLUGIN_HEXBIN=ON ^
+    -DBUILD_PLUGIN_ICEBRIDGE=OFF ^
+    -DBUILD_PLUGIN_MATLAB=OFF ^
+    -DBUILD_PLUGIN_MRSID=OFF ^
+    -DBUILD_PLUGIN_NITF=OFF ^
+    -DBUILD_PLUGIN_OCI=OFF ^
+    -DBUILD_PLUGIN_P2G=OFF ^
+    -DBUILD_PLUGIN_PCL=OFF ^
+    -DBUILD_PLUGIN_PGPOINTCLOUD=OFF ^
+    -DBUILD_PLUGIN_PYTHON=ON ^
+    -DBUILD_PLUGIN_RIVLIB=OFF ^
+    -DBUILD_PLUGIN_SQLITE=OFF ^
+    -DENABLE_CTEST=OFF ^
+    -DWITH_APPS=ON ^
+    -DWITH_LAZPERF=OFF ^
+    -DWITH_GEOTIFF=ON ^
+    -DWITH_LASZIP=ON ^
+    -DWITH_TESTS=ON ^
+    -DPYTHON_LIBRARY=%OSGEO4W_ROOT%\apps\python27\libs\python27.lib ^
+    -DPYTHON_INCLUDE_DIR=%OSGEO4W_ROOT%\apps\python27\include ^
+    -DNUMPY_INCLUDE_DIR=%OSGEO4W_ROOT%\apps\python27\lib\site-packages\numpy\core\include ^
+    -DNUMPY_VERSION=1.11.0 ^
+    -Dgtest_force_shared_crt=ON ^
+    -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
+    -DCMAKE_INSTALL_PREFIX=C:\bin\PDAL ^
+    C:\dev\PDAL\
+---------------------------------------------------------------------------------------------------------
+
+
+
+> -----Oprindelig meddelelse-----
+> Fra: pdal [mailto:pdal-bounces at lists.osgeo.org] På vegne af Howard Butler
+> Sendt: 19. oktober 2016 21:32
+> Til: Charles Karney
+> Cc: pdal
+> Emne: Re: [pdal] Building pdal 1.3.0 under Windows
+> 
+> 
+> > On Oct 19, 2016, at 1:48 PM, Charles Karney <charles.karney at sri.com>
+> wrote:
+> >
+> > I've started investigating using pdal as a substitute for liblas for
+> > reading point cloud data.  I have it building under Linux OK (with
+> > cmake).  I having problems building under Windows (this is pdal 1.3.0):
+> >
+> > (1) A required dependency is geos.  The seems to require Visual Studio
+> > 2013 or later.  This comes from
+> >
+> >  geos/tests/xmltester/XMLTester.cpp
+> >
+> > expecting std::round to be defined in <cmath>.  Is this right?  Or can I
+> > skip the tests in geos and compile with Visual Studio 2012 as well.
+> 
+> You should be fine to skip the tests there. I didn't realize GEOS gave up on
+> 2012, but maybe this wasn't intentional.
+> 
+> >
+> > (2) curl appears to be an optional dependency (cmake does not insist
+> > that it be found).  And yet
+> >
+> >  pdal/src/PDALUtils.cpp
+> >
+> > includes vendor/arbiter/arbiter.hpp and this tries to do
+> >
+> >  #include <curl/curl.h>
+> >
+> > (3) Installing curl (for Visual Studio 2013 this time) and building with
+> > cmake hits an error on line 898 or pdal/util/Utils.hpp:
+> >
+> >  error C2144: syntax error : 'std::underlying_type<_Ty>::type' should
+> >  be preceded by ';'
+> >
+> > This looks like some new-fangled C++11 stuff which perhaps Visual Studio
+> > 2013 doesn't recognize.
+> 
+> PDAL definitely has requirement for the new-fangled C++11 stuff, which was
+> the deal with the devil we made to (almost entirely) ditch Boost (we have a
+> small embedded copy of a few things that are about to be ditched in 1.4 or
+> 1.5 PDAL release). That probably means 2013 *might* work, but we only
+> auto-build stuff with 2015. We are happy to take patches to get that down to
+> 2013 as long as they aren't too disruptive, but we can't back off of the C++11
+> stuff because it's sprinkled throughout the codebase now.
+> 
+> 
+> I'll also note that none of the very active PDAL developers are windows-first
+> devs, and we're happy to take patches to bolster that particular topic. The
+> effort done on the AppVeyor builds have mostly been an attempt to prevent
+> things from diverging so far that we could never get windows happy again,
+> but they haven't been there to keep windows a first class operator with
+> PDAL.
+> 
+> IMO, curl should be an optional dependency, and I see that our AppVeyor
+> builds [1] are failing because of it. AppVeyor uses MSVC 19.0.24215.1 (MSVC
+> 2015). Run [2] to ground to see what we're doing for our windows builds. I
+> will try to clean up the curl thing so we degrade gracefully without that
+> library.
+> 
+> [1] https://ci.appveyor.com/project/hobu/pdal
+> [2] https://github.com/PDAL/PDAL/blob/master/appveyor.yml
+> 
+> >
+> > I'm happy to delve into this further.  But I thought I should first
+> > align my expectations with those of the developer:
+> >
+> >  With what versions of Visual Studio should I expect success?
+> >  I've attempting to build it with
+> >    gdal 2.1.1
+> >    LASzip 2.2.0
+> >    eigen 3.2.8
+> >    geos 3.5.0
+> >    curl (maybe) 7.39.0
+> >  Should I expect this combination to work?
+> 
+> PDAL embeds a copy of eigen at the moment. This may or may not be a
+> problem for you depending on what you're doing. That should be fixable
+> though with some CMake tweaks.
+> 
+> Count on any windows-specific patches getting merged as long as they don't
+> regress our C++11 situation too much. We've been waiting on a champion for
+> this particular topic.
+> 
+> Howard
+> 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From charles.karney at sri.com  Thu Oct 20 14:04:38 2016
+From: charles.karney at sri.com (Charles Karney)
+Date: Thu, 20 Oct 2016 17:04:38 -0400
+Subject: [pdal] Building pdal 1.3.0 under Windows
+In-Reply-To: <3C2D659E-5009-4153-9AB6-E476B6F5AC4C@hobu.co>
+References: <0d8e3a11-e012-5d1c-1fa1-718d1febd38e@sri.com>
+ <3C2D659E-5009-4153-9AB6-E476B6F5AC4C@hobu.co>
+Message-ID: <d05375d1-4a96-89d1-006e-3b64d13358b3@sri.com>
+
+Thanks Howard.  Getting the compile working under Visual Studio 2015
+turns out to be straight-forward.  I attach the patches to give you
+a flavor of the changes; however, I suggest you hold off applying them
+while I work through other issues (getting the tests to work).
+
+   --Charles
+
+On 10/19/16 15:32, Howard Butler wrote:
+>
+>> On Oct 19, 2016, at 1:48 PM, Charles Karney <charles.karney at sri.com> wrote:
+>>
+>> I've started investigating using pdal as a substitute for liblas for
+>> reading point cloud data.  I have it building under Linux OK (with
+>> cmake).  I having problems building under Windows (this is pdal 1.3.0):
+>>
+>> (1) A required dependency is geos.  The seems to require Visual Studio
+>> 2013 or later.  This comes from
+>>
+>>  geos/tests/xmltester/XMLTester.cpp
+>>
+>> expecting std::round to be defined in <cmath>.  Is this right?  Or can I
+>> skip the tests in geos and compile with Visual Studio 2012 as well.
+>
+> You should be fine to skip the tests there. I didn't realize GEOS gave up on 2012, but maybe this wasn't intentional.
+>
+>>
+>> (2) curl appears to be an optional dependency (cmake does not insist
+>> that it be found).  And yet
+>>
+>>  pdal/src/PDALUtils.cpp
+>>
+>> includes vendor/arbiter/arbiter.hpp and this tries to do
+>>
+>>  #include <curl/curl.h>
+>>
+>> (3) Installing curl (for Visual Studio 2013 this time) and building with
+>> cmake hits an error on line 898 or pdal/util/Utils.hpp:
+>>
+>>  error C2144: syntax error : 'std::underlying_type<_Ty>::type' should
+>>  be preceded by ';'
+>>
+>> This looks like some new-fangled C++11 stuff which perhaps Visual Studio
+>> 2013 doesn't recognize.
+>
+> PDAL definitely has requirement for the new-fangled C++11 stuff, which was the deal with the devil we made to (almost entirely) ditch Boost (we have a small embedded copy of a few things that are about to be ditched in 1.4 or 1.5 PDAL release). That probably means 2013 *might* work, but we only auto-build stuff with 2015. We are happy to take patches to get that down to 2013 as long as they aren't too disruptive, but we can't back off of the C++11 stuff because it's sprinkled throughout the codebase now.
+>
+>
+> I'll also note that none of the very active PDAL developers are windows-first devs, and we're happy to take patches to bolster that particular topic. The effort done on the AppVeyor builds have mostly been an attempt to prevent things from diverging so far that we could never get windows happy again, but they haven't been there to keep windows a first class operator with PDAL.
+>
+> IMO, curl should be an optional dependency, and I see that our AppVeyor builds [1] are failing because of it. AppVeyor uses MSVC 19.0.24215.1 (MSVC 2015). Run [2] to ground to see what we're doing for our windows builds. I will try to clean up the curl thing so we degrade gracefully without that library.
+>
+> [1] https://ci.appveyor.com/project/hobu/pdal
+> [2] https://github.com/PDAL/PDAL/blob/master/appveyor.yml
+>
+>>
+>> I'm happy to delve into this further.  But I thought I should first
+>> align my expectations with those of the developer:
+>>
+>>  With what versions of Visual Studio should I expect success?
+>>  I've attempting to build it with
+>>    gdal 2.1.1
+>>    LASzip 2.2.0
+>>    eigen 3.2.8
+>>    geos 3.5.0
+>>    curl (maybe) 7.39.0
+>>  Should I expect this combination to work?
+>
+> PDAL embeds a copy of eigen at the moment. This may or may not be a problem for you depending on what you're doing. That should be fixable though with some CMake tweaks.
+>
+> Count on any windows-specific patches getting merged as long as they don't regress our C++11 situation too much. We've been waiting on a champion for this particular topic.
+>
+> Howard
+>
+>
+
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: pdal-vc2013.patch
+Type: text/x-patch
+Size: 2827 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161020/b4c63c58/attachment.bin>
+
+From charles.karney at sri.com  Thu Oct 20 14:10:52 2016
+From: charles.karney at sri.com (Charles Karney)
+Date: Thu, 20 Oct 2016 17:10:52 -0400
+Subject: [pdal] Building pdal 1.3.0 under Windows
+In-Reply-To: <2E885BB293AF0448A0181138489E9A0E7A8563B6@S000014.PROD.SITAD.DK>
+References: <0d8e3a11-e012-5d1c-1fa1-718d1febd38e@sri.com>
+ <3C2D659E-5009-4153-9AB6-E476B6F5AC4C@hobu.co>
+ <2E885BB293AF0448A0181138489E9A0E7A8563B6@S000014.PROD.SITAD.DK>
+Message-ID: <8f406e67-4f44-f7ed-9e3d-fbd5c84291f0@sri.com>
+
+Thanks for the feedback.  We expect to compile all the dependencies
+separately, so we'll end up doing something rather different.
+Nevertheless, it's good to have your script as a starting point.
+
+By the way, I would normally compile, test, and install with
+
+   cmake --build . --config Release
+   cmake --build . --config Release --target RUN_TESTS
+   cmake --build . --config Release --target INSTALL
+
+(This obviates the need to run vcvarsall.bat.)
+
+   --Charles
+
+On 10/20/16 04:39, Kristian Evers wrote:
+> Charles,
+>
+> I use the script below to set up cmake for Visual Studio 2015 on Windows 7. It took me quite a while to find a setup that worked, but in the end I settled on building with VS2015 inside an OSGeo4W shell. Most dependencies are met this way. The remaining dependencies, boost and hexer, for the configuration below I had to build myself. Boost and hexer dll's need to be in the system search path if I remember correctly. If you don't need hexbin I think you can do without both boost and hexer, but I am not entirely sure about that.
+>
+> /Kristian
+>
+> ---------------------------------------pdal_cmake_setup.bat--------------------------------------
+> @echo off
+> REM Run this to get access to the Microsoft command line build stuff:
+> REM
+> REM "c:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86_amd64
+> REM
+> REM Run script from build directory, e.g. C:\dev\pdal_build
+> REM Build with:
+> REM
+> REM     devenv PDAL.sln /Build "Release|x64"
+> REM
+> REM Run tests:
+> REM
+> REM     ctest -V --output-on-failure -C Release
+> REM
+>
+> set OSGEO4W_ROOT=C:\OSGeo4W64
+> set BUILD_TYPE=Release
+> set BOOST_ROOT=C:\lib\boost_1_61_0
+>
+>
+> cmake -G "Visual Studio 14 2015 Win64" ^
+>     -DBoost_DEBUG=OFF ^
+>     -DBOOST_ROOT=%BOOST_ROOT% ^
+>     -DBUILD_PLUGIN_CPD=OFF ^
+>     -DBUILD_PLUGIN_GEOWAVE=OFF ^
+>     -DBUILD_PLUGIN_GREYHOUND=OFF ^
+>     -DBUILD_PLUGIN_HEXBIN=ON ^
+>     -DBUILD_PLUGIN_ICEBRIDGE=OFF ^
+>     -DBUILD_PLUGIN_MATLAB=OFF ^
+>     -DBUILD_PLUGIN_MRSID=OFF ^
+>     -DBUILD_PLUGIN_NITF=OFF ^
+>     -DBUILD_PLUGIN_OCI=OFF ^
+>     -DBUILD_PLUGIN_P2G=OFF ^
+>     -DBUILD_PLUGIN_PCL=OFF ^
+>     -DBUILD_PLUGIN_PGPOINTCLOUD=OFF ^
+>     -DBUILD_PLUGIN_PYTHON=ON ^
+>     -DBUILD_PLUGIN_RIVLIB=OFF ^
+>     -DBUILD_PLUGIN_SQLITE=OFF ^
+>     -DENABLE_CTEST=OFF ^
+>     -DWITH_APPS=ON ^
+>     -DWITH_LAZPERF=OFF ^
+>     -DWITH_GEOTIFF=ON ^
+>     -DWITH_LASZIP=ON ^
+>     -DWITH_TESTS=ON ^
+>     -DPYTHON_LIBRARY=%OSGEO4W_ROOT%\apps\python27\libs\python27.lib ^
+>     -DPYTHON_INCLUDE_DIR=%OSGEO4W_ROOT%\apps\python27\include ^
+>     -DNUMPY_INCLUDE_DIR=%OSGEO4W_ROOT%\apps\python27\lib\site-packages\numpy\core\include ^
+>     -DNUMPY_VERSION=1.11.0 ^
+>     -Dgtest_force_shared_crt=ON ^
+>     -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
+>     -DCMAKE_INSTALL_PREFIX=C:\bin\PDAL ^
+>     C:\dev\PDAL\
+> ---------------------------------------------------------------------------------------------------------
+>
+>
+>
+>> -----Oprindelig meddelelse-----
+>> Fra: pdal [mailto:pdal-bounces at lists.osgeo.org] På vegne af Howard Butler
+>> Sendt: 19. oktober 2016 21:32
+>> Til: Charles Karney
+>> Cc: pdal
+>> Emne: Re: [pdal] Building pdal 1.3.0 under Windows
+>>
+>>
+>>> On Oct 19, 2016, at 1:48 PM, Charles Karney <charles.karney at sri.com>
+>> wrote:
+>>>
+>>> I've started investigating using pdal as a substitute for liblas for
+>>> reading point cloud data.  I have it building under Linux OK (with
+>>> cmake).  I having problems building under Windows (this is pdal 1.3.0):
+>>>
+>>> (1) A required dependency is geos.  The seems to require Visual Studio
+>>> 2013 or later.  This comes from
+>>>
+>>>  geos/tests/xmltester/XMLTester.cpp
+>>>
+>>> expecting std::round to be defined in <cmath>.  Is this right?  Or can I
+>>> skip the tests in geos and compile with Visual Studio 2012 as well.
+>>
+>> You should be fine to skip the tests there. I didn't realize GEOS gave up on
+>> 2012, but maybe this wasn't intentional.
+>>
+>>>
+>>> (2) curl appears to be an optional dependency (cmake does not insist
+>>> that it be found).  And yet
+>>>
+>>>  pdal/src/PDALUtils.cpp
+>>>
+>>> includes vendor/arbiter/arbiter.hpp and this tries to do
+>>>
+>>>  #include <curl/curl.h>
+>>>
+>>> (3) Installing curl (for Visual Studio 2013 this time) and building with
+>>> cmake hits an error on line 898 or pdal/util/Utils.hpp:
+>>>
+>>>  error C2144: syntax error : 'std::underlying_type<_Ty>::type' should
+>>>  be preceded by ';'
+>>>
+>>> This looks like some new-fangled C++11 stuff which perhaps Visual Studio
+>>> 2013 doesn't recognize.
+>>
+>> PDAL definitely has requirement for the new-fangled C++11 stuff, which was
+>> the deal with the devil we made to (almost entirely) ditch Boost (we have a
+>> small embedded copy of a few things that are about to be ditched in 1.4 or
+>> 1.5 PDAL release). That probably means 2013 *might* work, but we only
+>> auto-build stuff with 2015. We are happy to take patches to get that down to
+>> 2013 as long as they aren't too disruptive, but we can't back off of the C++11
+>> stuff because it's sprinkled throughout the codebase now.
+>>
+>>
+>> I'll also note that none of the very active PDAL developers are windows-first
+>> devs, and we're happy to take patches to bolster that particular topic. The
+>> effort done on the AppVeyor builds have mostly been an attempt to prevent
+>> things from diverging so far that we could never get windows happy again,
+>> but they haven't been there to keep windows a first class operator with
+>> PDAL.
+>>
+>> IMO, curl should be an optional dependency, and I see that our AppVeyor
+>> builds [1] are failing because of it. AppVeyor uses MSVC 19.0.24215.1 (MSVC
+>> 2015). Run [2] to ground to see what we're doing for our windows builds. I
+>> will try to clean up the curl thing so we degrade gracefully without that
+>> library.
+>>
+>> [1] https://ci.appveyor.com/project/hobu/pdal
+>> [2] https://github.com/PDAL/PDAL/blob/master/appveyor.yml
+>>
+>>>
+>>> I'm happy to delve into this further.  But I thought I should first
+>>> align my expectations with those of the developer:
+>>>
+>>>  With what versions of Visual Studio should I expect success?
+>>>  I've attempting to build it with
+>>>    gdal 2.1.1
+>>>    LASzip 2.2.0
+>>>    eigen 3.2.8
+>>>    geos 3.5.0
+>>>    curl (maybe) 7.39.0
+>>>  Should I expect this combination to work?
+>>
+>> PDAL embeds a copy of eigen at the moment. This may or may not be a
+>> problem for you depending on what you're doing. That should be fixable
+>> though with some CMake tweaks.
+>>
+>> Count on any windows-specific patches getting merged as long as they don't
+>> regress our C++11 situation too much. We've been waiting on a champion for
+>> this particular topic.
+>>
+>> Howard
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/pdal
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+
+From b.kabelik at airbornetechnologies.at  Mon Oct 24 08:52:57 2016
+From: b.kabelik at airbornetechnologies.at (Benjamin Kabelik)
+Date: Mon, 24 Oct 2016 17:52:57 +0200
+Subject: [pdal]  Riegl extrabytes stripped
+Message-ID: <3FB09E30D726C54A99B50CCB731EE1715E13A2DAC2@ATEX008.at.local>
+
+Dear mailing list members,
+
+I read the thread about the extra bytes and wrote a pdal translate command for a ntv2 projection from UTM33n ETRS89 to Austria MGI M34:
+
+
+For %i in (*.las) do (docker run -v c:/temp/trafo_wien2/:/data pdal/pdal:1.3 pdal translate reprojection --filters.reprojection.in_srs="EPSG:25833" --filters.reprojection.out_srs="+proj=tmerc +lat_0=0 +lon_0=16.33333333333333 +k=1 +x_0=0 +y_0=-5000000 +ellps=bessel +towgs84=577.326,90.129,463.919,5.137,1.474,5.297,2.4232 +units=m +no_defs +nadgrids=/data/AT_GIS_GRID.gsb" --writers.las.forward=vlr --writers.las.extra_dims="Amplitude=float,Pulse width=float" --writers.las.minor_version=4 --writers.las.dataformat_id=6  --writers.las.offset_x=auto --writers.las.offset_y=auto --writers.las.offset_z=auto -i /data/%i -o /data/%i_gk_gisgrid.las)
+
+
+There are two things that came up:
+
+1.       I had to switch the data type of amplitude and pulse width from uint16 to float because with uint16 I get integer values instead of float.
+
+2.       Is there any option to forward the description and scale of the extra bytes?
+
+
+
+Source file UTM33n ETRS89:
+data type: 3 (unsigned short), name "Amplitude", description: "Echo signal amplitude [dB]", min: 0, max: 10000, scale: 0.01, offset: 0 (not set)
+                data type: 3 (unsigned short), name "Pulse width", description: "Full width at half maximum [ns]", min: 1, max: 10000, scale: 0.1, offset: 0 (not set)
+
+                Target file Austria MGI M34:
+                data type: 9 (float), name "Amplitude", description: "", scale: 1 (not set), offset: 0 (not set)
+                data type: 9 (float), name "Pulse width", description: "", scale: 1 (not set), offset: 0 (not set)
+
+Thanks in advance!
+
+Mit freundlichen Grüßen / Kind regards
+
+Benjamin Kabelik
+Head of Data Solutions | CIO
+
+[cid:image003.png at 01D22E1F.743CA100]
+
+Airborne Technologies GmbH
+Viktor Lang Straße 8
+2700 Wiener Neustadt | Austria
+P   +43 2622 347 18 206
+F   +43 2622 347 18 300
+M  +43 664 8845 3023
+b.kabelik at airbornetechnologies.at<mailto:b.kabelik at airbornetechnologies.at>
+www.airbornetechnologies.at<http://www.airbornetechnologies.at/>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161024/19e09805/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image003.png
+Type: image/png
+Size: 4211 bytes
+Desc: image003.png
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161024/19e09805/attachment.png>
+
+From andrew.bell.ia at gmail.com  Mon Oct 24 11:03:33 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 24 Oct 2016 13:03:33 -0500
+Subject: [pdal] Fwd:  Riegl extrabytes stripped
+In-Reply-To: <CACJ51z3=Qb-5wrY0mGDtqSOTUb7UmNBdnbfHTq8K3Kjy0zcBiA@mail.gmail.com>
+References: <3FB09E30D726C54A99B50CCB731EE1715E13A2DAC2@ATEX008.at.local>
+ <CACJ51z3=Qb-5wrY0mGDtqSOTUb7UmNBdnbfHTq8K3Kjy0zcBiA@mail.gmail.com>
+Message-ID: <CACJ51z0Xg=W6ZM20YVY8BP2R1+JVvgRNZeDGq5QZCPQs_Wqwaw@mail.gmail.com>
+
+On Mon, Oct 24, 2016 at 10:52 AM, Benjamin Kabelik <b.kabelik@
+airbornetechnologies.at> wrote:
+
+> Dear mailing list members,
+>
+>
+>
+> I read the thread about the extra bytes and wrote a pdal translate command
+> for a ntv2 projection from UTM33n ETRS89 to Austria MGI M34:
+>
+>
+>
+> For %i in (*.las) do (docker run -v c:/temp/trafo_wien2/:/data
+> pdal/pdal:1.3 pdal translate reprojection --filters.reprojection.in_srs="EPSG:25833"
+> --filters.reprojection.out_srs="+proj=tmerc +lat_0=0
+> +lon_0=16.33333333333333 +k=1 +x_0=0 +y_0=-5000000 +ellps=bessel
+> +towgs84=577.326,90.129,463.919,5.137,1.474,5.297,2.4232 +units=m
+> +no_defs +nadgrids=/data/AT_GIS_GRID.gsb" --writers.las.forward=vlr
+> --writers.las.extra_dims="Amplitude=float,Pulse width=float"
+> --writers.las.minor_version=4 --writers.las.dataformat_id=6
+> --writers.las.offset_x=auto --writers.las.offset_y=auto
+> --writers.las.offset_z=auto -i /data/%i -o /data/%i_gk_gisgrid.las)
+>
+>
+>
+>
+>
+> There are two things that came up:
+>
+> 1.       I had to switch the data type of amplitude and pulse width from
+> uint16 to float because with uint16 I get integer values instead of float.
+>
+> 2.       Is there any option to forward the description and scale of the
+> extra bytes?
+>
+
+I'm sorry, but there is currently no way to set the scale/offset or
+description in an extra-bytes VLR/field.  I'd be happy to help with a
+contribution that you may wish to make to remedy the situation.
+
+Best,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161024/8e0fe50d/attachment.html>
+
+From Adam.Steer at anu.edu.au  Mon Oct 24 21:56:41 2016
+From: Adam.Steer at anu.edu.au (Adam Steer)
+Date: Tue, 25 Oct 2016 04:56:41 +0000
+Subject: [pdal] Clipping from multiple LAS tiles
+In-Reply-To: <6C349F97-2772-48CF-8CBC-AD6A42C4DAD0@hobu.co>
+References: <6C349F97-2772-48CF-8CBC-AD6A42C4DAD0@hobu.co>
+Message-ID: <5A0798C0-0E64-4B8B-ADDE-E891C7BAB3CA@anu.edu.au>
+
+Hi PDAL Ninjas
+
+I’m wondering how we can replicate LAStool’s multi-tile clipping fiunction, eg: lasclip -i folder/*.las -poly polygon.shp -o newfile.las
+
+I’ve got a pretty clunky pipeline that works, based on the github pipeline examples:
+
+{
+    "pipeline": [
+        { "filename": "Merimbula2013-C3-AHD_7585912_55_0002_0002.las",
+          "tag": "A"
+        },
+	{ "filename": "Merimbula2013-C3-AHD_7585914_55_0002_0002.las",
+          "tag": "B"
+        },
+	{ "filename": "Merimbula2013-C3-AHD_7605914_55_0002_0002.las",
+          "tag": "C"
+        },
+	{
+            "inputs": ["A", "B", "C"],
+            "type": "filters.crop",
+            "polygon": "POLYGON((759094.480855234 5913008.2715937095,758464.6999094139 5912716.199270982,757743.6463627518 5912898.7444$
+            "outside": false
+        },
+	"./merimbulatown.las"
+    ]
+}
+
+
+…but would prefer to not have to list all my tiles. The obvious:
+
+    "pipeline": [
+         "../merimbula2013/Tiles_2k_2k/\*.las",
+        {
+            "type": "filters.crop”,
+
+…didn’t work.
+
+I’ve read the examples from the workshop/tutorial samples - and can’t put a finger on how to extend those either.
+
+I see that tindex might be a way, but I’d like to do the job without constructing another file. Hmm. I feel like I’m missing something really obvious.
+
+
+Any suggestions will be appreciated!
+
+Thanks
+
+Adam
+
+From howard at hobu.co  Tue Oct 25 05:55:58 2016
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 25 Oct 2016 07:55:58 -0500
+Subject: [pdal] Clipping from multiple LAS tiles
+In-Reply-To: <5A0798C0-0E64-4B8B-ADDE-E891C7BAB3CA@anu.edu.au>
+References: <6C349F97-2772-48CF-8CBC-AD6A42C4DAD0@hobu.co>
+ <5A0798C0-0E64-4B8B-ADDE-E891C7BAB3CA@anu.edu.au>
+Message-ID: <7446A188-BD35-4F3B-A93D-DBD87E79A5F0@hobu.co>
+
+Adam,
+
+IMO a tileindex is better for a number reasons:
+
+1) You can use standard OGR query limitation operations (SQL, spatial SQL)
+2) It can live in any OGR-writeable format
+3) You can use coarse or fine boundaries
+4) You can pass in filters in different coordinate systems and let OGR reproject them for you
+
+Here's a potential workflow:
+
+> pdal tindex index.sqlite "../merimbula2013/Tiles_2k_2k/\*.las"    -f "SQLite" --lyr_name "pdal" --t_srs "EPSG:4326" --fast_boundary
+
+Then given something like the following pipeline:
+
+> pdal pipeline merge-them.json
+
+
+> {
+>   "pipeline":[
+>     {
+>       "type":"readers.tindex",
+>       "sql":"SELECT * from pdal",
+>       "filename":"index.sqlite",
+>       "where":"location LIKE \'%Merimbula2013-C3-AHD_7585912_55%\'",
+>       "wkt":"POLYGON((759094.480855234 5913008.2715937095,758464.6999094139 5912716.199270982,757743.6463627518 5912898.7444 ........"
+>     },
+>     {
+>       "type":"writers.las",
+>       "filename":"outputfile.las"
+>     }
+>   ]
+> }
+
+
+A tile index allows you to treat it like any other reader, allows you to visualize tile sets using other GIS software like QGIS, and allows you to leverage GDAL/OGR for sophisticated query operations. Please try this workflow (which was stolen directly from how people do large tilesets in GDAL) and see if it doesn't fit within the PDAL gestalt a little better...
+
+http://www.pdal.io/stages/readers.tindex.html
+http://www.pdal.io/apps.html#tindex-command
+
+Howard
+
+
+> On Oct 24, 2016, at 11:56 PM, Adam Steer <Adam.Steer at anu.edu.au> wrote:
+> 
+> Hi PDAL Ninjas
+> 
+> I’m wondering how we can replicate LAStool’s multi-tile clipping fiunction, eg: lasclip -i folder/*.las -poly polygon.shp -o newfile.las
+> 
+> I’ve got a pretty clunky pipeline that works, based on the github pipeline examples:
+> 
+> {
+>    "pipeline": [
+>        { "filename": "Merimbula2013-C3-AHD_7585912_55_0002_0002.las",
+>          "tag": "A"
+>        },
+> 	{ "filename": "Merimbula2013-C3-AHD_7585914_55_0002_0002.las",
+>          "tag": "B"
+>        },
+> 	{ "filename": "Merimbula2013-C3-AHD_7605914_55_0002_0002.las",
+>          "tag": "C"
+>        },
+> 	{
+>            "inputs": ["A", "B", "C"],
+>            "type": "filters.crop",
+>            "polygon": "POLYGON((759094.480855234 5913008.2715937095,758464.6999094139 5912716.199270982,757743.6463627518 5912898.7444$
+>            "outside": false
+>        },
+> 	"./merimbulatown.las"
+>    ]
+> }
+> 
+> 
+> …but would prefer to not have to list all my tiles. The obvious:
+> 
+>    "pipeline": [
+>         "../merimbula2013/Tiles_2k_2k/\*.las",
+>        {
+>            "type": "filters.crop”,
+> 
+> …didn’t work.
+> 
+> I’ve read the examples from the workshop/tutorial samples - and can’t put a finger on how to extend those either.
+> 
+> I see that tindex might be a way, but I’d like to do the job without constructing another file. Hmm. I feel like I’m missing something really obvious.
+> 
+> 
+> Any suggestions will be appreciated!
+> 
+> Thanks
+> 
+> Adam
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From andrew.bell.ia at gmail.com  Tue Oct 25 06:47:05 2016
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Tue, 25 Oct 2016 08:47:05 -0500
+Subject: [pdal] Clipping from multiple LAS tiles
+In-Reply-To: <5A0798C0-0E64-4B8B-ADDE-E891C7BAB3CA@anu.edu.au>
+References: <6C349F97-2772-48CF-8CBC-AD6A42C4DAD0@hobu.co>
+ <5A0798C0-0E64-4B8B-ADDE-E891C7BAB3CA@anu.edu.au>
+Message-ID: <CACJ51z27iTJirk+DJ1032Mvux9VCOrnzGy1u+uyote0PZ1hd+Q@mail.gmail.com>
+
+On Mon, Oct 24, 2016 at 11:56 PM, Adam Steer <Adam.Steer at anu.edu.au> wrote:
+
+> Hi PDAL Ninjas
+>
+> I’m wondering how we can replicate LAStool’s multi-tile clipping
+> fiunction, eg: lasclip -i folder/*.las -poly polygon.shp -o newfile.las
+>
+> I’ve got a pretty clunky pipeline that works, based on the github pipeline
+> examples:
+>
+> {
+>     "pipeline": [
+>         { "filename": "Merimbula2013-C3-AHD_7585912_55_0002_0002.las",
+>           "tag": "A"
+>         },
+>         { "filename": "Merimbula2013-C3-AHD_7585914_55_0002_0002.las",
+>           "tag": "B"
+>         },
+>         { "filename": "Merimbula2013-C3-AHD_7605914_55_0002_0002.las",
+>           "tag": "C"
+>         },
+>         {
+>             "inputs": ["A", "B", "C"],
+>             "type": "filters.crop",
+>             "polygon": "POLYGON((759094.480855234
+> 5913008.2715937095,758464.6999094139 5912716.199270982,757743.6463627518
+> 5912898.7444$
+>             "outside": false
+>         },
+>         "./merimbulatown.las"
+>     ]
+> }
+>
+>
+> …but would prefer to not have to list all my tiles. The obvious:
+>
+
+Unfortunately, you can't wildcard inputs to a reader at this time.
+However, you also don't need the tags in your case.  All files listed
+before filters get routed to the filter automatically:
+
+{
+    "pipeline": [
+        "Merimbula2013-C3-AHD_7585912_55_0002_0002.las",
+        "Merimbula2013-C3-AHD_7585914_55_0002_0002.las",
+        "Merimbula2013-C3-AHD_7605914_55_0002_0002.las",
+        {
+            "type": "filters.crop",
+            "polygon": "POLYGON((759094.480855234
+5913008.2715937095,758464.6999094139
+5912716.199270982,757743.6463627518 5912898.7444))
+        },
+        "./merimbulatown.las"
+    ]
+}
+
+should work.  If you want the output from the three input files to be
+separate, you can specify the output file as:
+
+"./merimbulatown#.las"
+
+Which should yield merimbulatown1.las, merimbulatown2.las and
+merimbulatown3.las which correspond to the three input files.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20161025/0519f592/attachment.html>
+
+From Adam.Steer at anu.edu.au  Tue Oct 25 14:52:09 2016
+From: Adam.Steer at anu.edu.au (Adam Steer)
+Date: Tue, 25 Oct 2016 21:52:09 +0000
+Subject: [pdal] Clipping from multiple LAS tiles
+In-Reply-To: <CACJ51z27iTJirk+DJ1032Mvux9VCOrnzGy1u+uyote0PZ1hd+Q@mail.gmail.com>
+References: <6C349F97-2772-48CF-8CBC-AD6A42C4DAD0@hobu.co>
+ <5A0798C0-0E64-4B8B-ADDE-E891C7BAB3CA@anu.edu.au>
+ <CACJ51z27iTJirk+DJ1032Mvux9VCOrnzGy1u+uyote0PZ1hd+Q@mail.gmail.com>
+Message-ID: <28977335-844D-42FF-A258-470824DF0272@anu.edu.au>
+
+Andrew, Howard - thanks!!
+
+I’ll try both methods - I can see how some bash magic might make [1] work for me right now - but in the longer term I can also see (blurrily right now) how using tindex [2] might work well within the infrastructure we have/are developing.
+
+I also see that filename globbing for pipelines is listed as an issue at github :)
+
+Cheers
+Adam
+
+[1]
+
+> 
+> {
+>     "pipeline": [
+>         "Merimbula2013-C3-AHD_7585912_55_0002_0002.las",
+>         "Merimbula2013-C3-AHD_7585914_55_0002_0002.las",
+>         "Merimbula2013-C3-AHD_7605914_55_0002_0002.las",
+>         {
+>             "type": "filters.crop",
+>             "polygon": "POLYGON((759094.480855234 5913008.2715937095,758464.6999094139 5912716.199270982,757743.6463627518 5912898.7444))
+>         },
+>         "./merimbulatown.las"
+>     ]
+> }
+> 
+> should work.  If you want the output from the three input files to be separate, you can specify the output file as:
+> 
+> "./merimbulatown#.las"
+> 
+> Which should yield merimbulatown1.las, merimbulatown2.las and merimbulatown3.las which correspond to the three input files.
+
+[2]
+
+> 
+> pdal tindex index.sqlite "../merimbula2013/Tiles_2k_2k/\*.las"    -f "SQLite" --lyr_name "pdal" --t_srs "EPSG:4326" --fast_boundary
+
+Then given something like the following pipeline:
+
+> pdal pipeline merge-them.json
+
+
+> {
+>  "pipeline":[
+>    {
+>      "type":"readers.tindex",
+>      "sql":"SELECT * from pdal",
+>      "filename":"index.sqlite",
+>      "where":"location LIKE \'%Merimbula2013-C3-AHD_7585912_55%\'",
+>      "wkt":"POLYGON((759094.480855234 5913008.2715937095,758464.6999094139 5912716.199270982,757743.6463627518 5912898.7444 ........"
+>    },
+>    {
+>      "type":"writers.las",
+>      "filename":"outputfile.las"
+>    }
+>  ]
+> }
+
+

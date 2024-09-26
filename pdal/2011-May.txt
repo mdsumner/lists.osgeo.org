@@ -1,0 +1,341 @@
+From hobu.inc at gmail.com  Mon May  9 11:43:08 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Dimension/Schema discussion
+Message-ID: <25B17207-B0E4-4914-871D-656142D58829@gmail.com>
+
+Michael,
+
+An immediate thing I noticed while implementing a non-LAS-conforming driver Friday is the desire to name my dimensions appropriately.  The names of course are set in a static array right now, and there isn't any way to override them.
+
+My question is can you describe how what we have now is different than what I had been cooking in libLAS?  How was this design arrived at?
+
+In libLAS, I had a boost::multi_index that included a random lookup and a name-based lookup.  Because of libLAS' point-at-a-time nature, this meant doing map look ups in the critical path and killed performance.  But this wouldn't be necessary with our PointBuffer-based approach, and dimension positions within a schema could continue to be fetched from outside the loop and passed into methods that would expect a position and a width to fetch.
+
+We maintain an array of names, and a dimension type that is used to do random lookups in the dimensions array of Schema. . The slots are named to avoid doing so in the critical path, and we do our dimension name -> dimension slot lookup outside loops where we're fetching data.  Could we not continue to do that with the SchemaLayout maintaining the multi_index?
+
+My complaint is that as we add more and more data providers, the Dimension Type system we've currently outlined is going to start feeling like quite a straight jacket.   The QFIT driver really needs two "X" dimensions because there's an X dimension of the sensor and X dimension of the measurement, per-point.  So these are logically X,  if we're to follow the dimension type system, but they can't be modeled that way because we can't have two X's.  
+
+What could happen if we threw out the dimension type system we have now?  What would be the consequences?  What if the user "marked" their XYZ dimensions (first three are to be assumed that if no dimensions are marked) for use with bounds/windows/etc?  
+
+Sorry for the still-a-bit-incompletely-formed-thoughts,
+
+Howard 
+From mpg at flaxen.com  Mon May  9 12:01:30 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] RE: Dimension/Schema discussion
+In-Reply-To: <25B17207-B0E4-4914-871D-656142D58829@gmail.com>
+References: <25B17207-B0E4-4914-871D-656142D58829@gmail.com>
+Message-ID: <008c01cc0e62$5e87e550$1b97aff0$@flaxen.com>
+
+I agree -- this is something I've been aware of, but not thought through to
+any solutions yet.   What we have doesn't scale very well, and now that
+we've got more formats/features coming online, the problem is becoming
+clearer.  I guess you're just the first one to hit it hard enough to decide
+we need to fix it :-)
+
+If we went with your "mulit-index lookup, but called outside the PointBuffer
+loop" concept, one thing I'd like to see is we put back the concept of
+"readBegin/readEnd", which wrap the set of "read PointBuffer" calls.  In
+this readBegin function, then, we could put the multi-index lookup code, so
+it would be truly only once per full read operation, as opposed to once per
+chunk of the full read.
+
+Making this change would break a lot of code, but the breakage would be
+largely "syntactic" and we've got good unit tests, so I'd not be at all
+concerned about trying it.
+
+Unfortunately, I'm booked up all today (including the chunked zip code), am
+out of the office all day tomorrow, and have some other things on my plate
+for the next couple days after that.
+
+How much of a block is this for you right now?  Do you want to just dive in
+now, or do you want to bounce some ideas around for a while, or wait for me
+to do it later on, or..?
+
+-mpg
+
+
+> -----Original Message-----
+> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> Sent: Monday, May 09, 2011 8:43 AM
+> To: Michael Gerlek
+> Cc: libpc@lists.osgeo.org
+> Subject: Dimension/Schema discussion
+> 
+> Michael,
+> 
+> An immediate thing I noticed while implementing a non-LAS-conforming
+> driver Friday is the desire to name my dimensions appropriately.  The
+names
+> of course are set in a static array right now, and there isn't any way to
+> override them.
+> 
+> My question is can you describe how what we have now is different than
+> what I had been cooking in libLAS?  How was this design arrived at?
+> 
+> In libLAS, I had a boost::multi_index that included a random lookup and a
+> name-based lookup.  Because of libLAS' point-at-a-time nature, this meant
+> doing map look ups in the critical path and killed performance.  But this
+> wouldn't be necessary with our PointBuffer-based approach, and dimension
+> positions within a schema could continue to be fetched from outside the
+> loop and passed into methods that would expect a position and a width to
+> fetch.
+> 
+> We maintain an array of names, and a dimension type that is used to do
+> random lookups in the dimensions array of Schema. . The slots are named to
+> avoid doing so in the critical path, and we do our dimension name ->
+> dimension slot lookup outside loops where we're fetching data.  Could we
+> not continue to do that with the SchemaLayout maintaining the multi_index?
+> 
+> My complaint is that as we add more and more data providers, the
+> Dimension Type system we've currently outlined is going to start feeling
+like
+> quite a straight jacket.   The QFIT driver really needs two "X" dimensions
+> because there's an X dimension of the sensor and X dimension of the
+> measurement, per-point.  So these are logically X,  if we're to follow the
+> dimension type system, but they can't be modeled that way because we
+> can't have two X's.
+> 
+> What could happen if we threw out the dimension type system we have
+> now?  What would be the consequences?  What if the user "marked" their
+> XYZ dimensions (first three are to be assumed that if no dimensions are
+> marked) for use with bounds/windows/etc?
+> 
+> Sorry for the still-a-bit-incompletely-formed-thoughts,
+> 
+> Howard =
+
+
+From hobu.inc at gmail.com  Mon May  9 12:05:52 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Re: Dimension/Schema discussion
+In-Reply-To: <008c01cc0e62$5e87e550$1b97aff0$@flaxen.com>
+References: <25B17207-B0E4-4914-871D-656142D58829@gmail.com>
+	<008c01cc0e62$5e87e550$1b97aff0$@flaxen.com>
+Message-ID: <F6AA4D91-47F0-4976-9088-B1FF5A31B0C7@gmail.com>
+
+
+On May 9, 2011, at 11:01 AM, Michael P. Gerlek wrote:
+
+> I agree -- this is something I've been aware of, but not thought through to
+> any solutions yet.   What we have doesn't scale very well, and now that
+> we've got more formats/features coming online, the problem is becoming
+> clearer.  I guess you're just the first one to hit it hard enough to decide
+> we need to fix it :-)
+> 
+> If we went with your "mulit-index lookup, but called outside the PointBuffer
+> loop" concept, one thing I'd like to see is we put back the concept of
+> "readBegin/readEnd", which wrap the set of "read PointBuffer" calls.  In
+> this readBegin function, then, we could put the multi-index lookup code, so
+> it would be truly only once per full read operation, as opposed to once per
+> chunk of the full read.
+
+Agreed.
+
+> 
+> Making this change would break a lot of code, but the breakage would be
+> largely "syntactic" and we've got good unit tests, so I'd not be at all
+> concerned about trying it.
+
+Agreed.  It'll bust a bunch of stuff but AFAIK, we're our only users at this point.  Unit tests should preserve our sanity.
+
+> 
+> Unfortunately, I'm booked up all today (including the chunked zip code), am
+> out of the office all day tomorrow, and have some other things on my plate
+> for the next couple days after that.
+> 
+> How much of a block is this for you right now?  Do you want to just dive in
+> now, or do you want to bounce some ideas around for a while, or wait for me
+> to do it later on, or..?
+
+Not such a blocker for me at the moment, but I'm going to add BAG, TerraSolid .bin, and start cribbing up a Spirit-based text parser in the not too distant future here (next month or so).  I wasn't trying to put this on your plate, and I'd be willing to take it on, but I wanted to get some rationale and pushback on it since my picture of it isn't probably is clear as yours. 
+
+> 
+> -mpg
+> 
+> 
+>> -----Original Message-----
+>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>> Sent: Monday, May 09, 2011 8:43 AM
+>> To: Michael Gerlek
+>> Cc: libpc@lists.osgeo.org
+>> Subject: Dimension/Schema discussion
+>> 
+>> Michael,
+>> 
+>> An immediate thing I noticed while implementing a non-LAS-conforming
+>> driver Friday is the desire to name my dimensions appropriately.  The
+> names
+>> of course are set in a static array right now, and there isn't any way to
+>> override them.
+>> 
+>> My question is can you describe how what we have now is different than
+>> what I had been cooking in libLAS?  How was this design arrived at?
+>> 
+>> In libLAS, I had a boost::multi_index that included a random lookup and a
+>> name-based lookup.  Because of libLAS' point-at-a-time nature, this meant
+>> doing map look ups in the critical path and killed performance.  But this
+>> wouldn't be necessary with our PointBuffer-based approach, and dimension
+>> positions within a schema could continue to be fetched from outside the
+>> loop and passed into methods that would expect a position and a width to
+>> fetch.
+>> 
+>> We maintain an array of names, and a dimension type that is used to do
+>> random lookups in the dimensions array of Schema. . The slots are named to
+>> avoid doing so in the critical path, and we do our dimension name ->
+>> dimension slot lookup outside loops where we're fetching data.  Could we
+>> not continue to do that with the SchemaLayout maintaining the multi_index?
+>> 
+>> My complaint is that as we add more and more data providers, the
+>> Dimension Type system we've currently outlined is going to start feeling
+> like
+>> quite a straight jacket.   The QFIT driver really needs two "X" dimensions
+>> because there's an X dimension of the sensor and X dimension of the
+>> measurement, per-point.  So these are logically X,  if we're to follow the
+>> dimension type system, but they can't be modeled that way because we
+>> can't have two X's.
+>> 
+>> What could happen if we threw out the dimension type system we have
+>> now?  What would be the consequences?  What if the user "marked" their
+>> XYZ dimensions (first three are to be assumed that if no dimensions are
+>> marked) for use with bounds/windows/etc?
+>> 
+>> Sorry for the still-a-bit-incompletely-formed-thoughts,
+>> 
+>> Howard =
+> 
+
+
+From mpg at flaxen.com  Mon May  9 14:24:09 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] RE: Dimension/Schema discussion
+In-Reply-To: <F6AA4D91-47F0-4976-9088-B1FF5A31B0C7@gmail.com>
+References: <25B17207-B0E4-4914-871D-656142D58829@gmail.com>
+	<008c01cc0e62$5e87e550$1b97aff0$@flaxen.com>
+	<F6AA4D91-47F0-4976-9088-B1FF5A31B0C7@gmail.com>
+Message-ID: <00ab01cc0e76$4aa09730$dfe1c590$@flaxen.com>
+
+OK, so let's agree that this is a good first cut proposal, and we'll work
+towards it as our mutual schedules allow...
+
+-mpg
+
+
+> -----Original Message-----
+> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> Sent: Monday, May 09, 2011 9:06 AM
+> To: mpg@flaxen.com
+> Cc: libpc@lists.osgeo.org
+> Subject: Re: Dimension/Schema discussion
+> 
+> 
+> On May 9, 2011, at 11:01 AM, Michael P. Gerlek wrote:
+> 
+> > I agree -- this is something I've been aware of, but not thought through
+to
+> > any solutions yet.   What we have doesn't scale very well, and now that
+> > we've got more formats/features coming online, the problem is becoming
+> > clearer.  I guess you're just the first one to hit it hard enough to
+> > decide we need to fix it :-)
+> >
+> > If we went with your "mulit-index lookup, but called outside the
+> > PointBuffer loop" concept, one thing I'd like to see is we put back
+> > the concept of "readBegin/readEnd", which wrap the set of "read
+> > PointBuffer" calls.  In this readBegin function, then, we could put
+> > the multi-index lookup code, so it would be truly only once per full
+> > read operation, as opposed to once per chunk of the full read.
+> 
+> Agreed.
+> 
+> >
+> > Making this change would break a lot of code, but the breakage would
+> > be largely "syntactic" and we've got good unit tests, so I'd not be at
+> > all concerned about trying it.
+> 
+> Agreed.  It'll bust a bunch of stuff but AFAIK, we're our only users at
+this
+> point.  Unit tests should preserve our sanity.
+> 
+> >
+> > Unfortunately, I'm booked up all today (including the chunked zip
+> > code), am out of the office all day tomorrow, and have some other
+> > things on my plate for the next couple days after that.
+> >
+> > How much of a block is this for you right now?  Do you want to just
+> > dive in now, or do you want to bounce some ideas around for a while,
+> > or wait for me to do it later on, or..?
+> 
+> Not such a blocker for me at the moment, but I'm going to add BAG,
+> TerraSolid .bin, and start cribbing up a Spirit-based text parser in the
+not too
+> distant future here (next month or so).  I wasn't trying to put this on
+your
+> plate, and I'd be willing to take it on, but I wanted to get some
+rationale and
+> pushback on it since my picture of it isn't probably is clear as yours.
+> 
+> >
+> > -mpg
+> >
+> >
+> >> -----Original Message-----
+> >> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> >> Sent: Monday, May 09, 2011 8:43 AM
+> >> To: Michael Gerlek
+> >> Cc: libpc@lists.osgeo.org
+> >> Subject: Dimension/Schema discussion
+> >>
+> >> Michael,
+> >>
+> >> An immediate thing I noticed while implementing a non-LAS-conforming
+> >> driver Friday is the desire to name my dimensions appropriately.  The
+> > names
+> >> of course are set in a static array right now, and there isn't any
+> >> way to override them.
+> >>
+> >> My question is can you describe how what we have now is different
+> >> than what I had been cooking in libLAS?  How was this design arrived
+at?
+> >>
+> >> In libLAS, I had a boost::multi_index that included a random lookup
+> >> and a name-based lookup.  Because of libLAS' point-at-a-time nature,
+> >> this meant doing map look ups in the critical path and killed
+> >> performance.  But this wouldn't be necessary with our
+> >> PointBuffer-based approach, and dimension positions within a schema
+> >> could continue to be fetched from outside the loop and passed into
+> >> methods that would expect a position and a width to fetch.
+> >>
+> >> We maintain an array of names, and a dimension type that is used to
+> >> do random lookups in the dimensions array of Schema. . The slots are
+> >> named to avoid doing so in the critical path, and we do our dimension
+> >> name -> dimension slot lookup outside loops where we're fetching
+> >> data.  Could we not continue to do that with the SchemaLayout
+> maintaining the multi_index?
+> >>
+> >> My complaint is that as we add more and more data providers, the
+> >> Dimension Type system we've currently outlined is going to start
+> >> feeling
+> > like
+> >> quite a straight jacket.   The QFIT driver really needs two "X"
+dimensions
+> >> because there's an X dimension of the sensor and X dimension of the
+> >> measurement, per-point.  So these are logically X,  if we're to
+> >> follow the dimension type system, but they can't be modeled that way
+> >> because we can't have two X's.
+> >>
+> >> What could happen if we threw out the dimension type system we have
+> >> now?  What would be the consequences?  What if the user "marked"
+> >> their XYZ dimensions (first three are to be assumed that if no
+> >> dimensions are
+> >> marked) for use with bounds/windows/etc?
+> >>
+> >> Sorry for the still-a-bit-incompletely-formed-thoughts,
+> >>
+> >> Howard =
+> >
+
+

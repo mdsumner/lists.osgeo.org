@@ -1,0 +1,413 @@
+From lists at brachttal.net  Mon Apr  9 10:11:37 2007
+From: lists at brachttal.net (Andreas Volz)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] Memory problems while parsing WKB
+Message-ID: <20070409161137.71ffe58c@frodo.mittelerde>
+
+Hello,
+
+I've problems to parse WKB with GEOS. Here is my sample application:
+
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <iomanip>
+#include <pqxx/pqxx>
+#include <proj_api.h>
+#include <geos.h>
+
+using namespace std;
+using namespace pqxx;
+using namespace geos;
+
+projPJ pj;
+
+int main (int argc, char **argv)
+{
+  result R;
+
+  try
+  {
+    connection Conn ("dbname=osm");
+
+    work transaction (Conn, "OSMTransaction");
+
+    R = transaction.exec("SELECT name,AsBinary(way) FROM
+	planet_osm_point WHERE place = 'city' and name != ''"); 
+  } catch (pqxx::broken_connection) 
+  {
+    cerr << "No connection to database" << endl;
+  }
+
+  if (!(pj = pj_init_plus ("+datum=WGS84 +to +proj=utm +zone=32
+	+datum=WGS84"))) exit(1);
+
+  for (result::const_iterator i = R.begin(); i != R.end(); ++i)
+  {
+  	cout << "#City: " << (*i)[0] << endl;
+
+   
+    pqxx::binarystring b ((*i)[1]);
+
+    stringstream binaryStream
+	(ios_base::binary|ios_base::in|ios_base::out);
+
+    binaryStream << b.str();
+
+    GeometryFactory geoFactory;
+
+    WKBReader wkbReader (geoFactory);
+
+    Geometry *geom;
+
+    try
+    {
+      geom = wkbReader.read (binaryStream);
+    }
+    catch (geos::ParseException*)
+    {
+      cerr << "Parse exception" << endl;
+      exit (1);
+    }
+
+    cout << geom->getGeometryType() << endl;
+
+    cout << "getNumPoints(): " << geom->getNumPoints () << endl;
+
+    const Coordinate *coord = geom->getCoordinate ();
+
+    cout << "x/y: " << coord->x << "/" << coord->y << endl;
+  }
+
+  return 0;
+}
+
+It works in most cases, but sometimes the result values are broken or I
+get a segfault. So I used valgrind to get some more information. I got
+this as result:
+
+==17755== Invalid read of size 4
+==17755==    at 0x41327FE: geos::PrecisionModel::makePrecise(double)
+const (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x401D5D5A: ???
+==17755==  Address 0x460A544 is 4 bytes inside a block of size 16 free'd
+==17755==    at 0x40212FA: operator delete(void*)
+(in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so) ==17755==    by
+0x4132695: geos::PrecisionModel::~PrecisionModel()
+(in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x42F083B: (below main)
+(in /lib/libc-2.5.so) ==17755==
+
+... and this as often as I read coordinates.
+
+Any ideas why PrecisionModel has this problem? A problem in GEOS WKBParser or my 
+application?
+
+regards
+Andreas
+
+From mateusz at loskot.net  Wed Apr 18 14:52:51 2007
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] Memory problems while parsing WKB
+In-Reply-To: <20070409161137.71ffe58c@frodo.mittelerde>
+References: <20070409161137.71ffe58c@frodo.mittelerde>
+Message-ID: <46266903.3030100@loskot.net>
+
+Andreas Volz wrote:
+> Hello,
+> 
+> I've problems to parse WKB with GEOS. Here is my sample application:
+> [...]
+> It works in most cases, but sometimes the result values are broken or I
+> get a segfault. So I used valgrind to get some more information. I got
+> this as result:
+> 
+> ==17755== Invalid read of size 4
+> ==17755==    at 0x41327FE: geos::PrecisionModel::makePrecise(double)
+> const (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x401D5D5A: ???
+> ==17755==  Address 0x460A544 is 4 bytes inside a block of size 16 free'd
+> ==17755==    at 0x40212FA: operator delete(void*)
+> (in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so) ==17755==    by
+> 0x4132695: geos::PrecisionModel::~PrecisionModel()
+> (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x42F083B: (below main)
+> (in /lib/libc-2.5.so) ==17755==
+> 
+> ... and this as often as I read coordinates.
+> 
+> Any ideas why PrecisionModel has this problem? A problem in GEOS WKBParser or my 
+> application?
+
+Andreas,
+
+Could you provide us with simple but generic program presenting the
+problem? Ideally, if the example:
+- refers only to GEOS, but not to any database
+- shows values of coordinates causing the crash, just hardcoded in the
+program
+
+Your code is not usable, because it's specific to your particular
+environment and data.
+
+Cheers
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+From lists at brachttal.net  Wed Apr 18 16:33:05 2007
+From: lists at brachttal.net (Andreas Volz)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] Memory problems while parsing WKB
+In-Reply-To: <46266903.3030100@loskot.net>
+References: <20070409161137.71ffe58c@frodo.mittelerde>
+	<46266903.3030100@loskot.net>
+Message-ID: <20070418223305.61e6b7f2@frodo.mittelerde>
+
+Am Wed, 18 Apr 2007 20:52:51 +0200 schrieb Mateusz Loskot:
+
+> Andreas Volz wrote:
+> > Hello,
+> > 
+> > I've problems to parse WKB with GEOS. Here is my sample application:
+> > [...]
+> > It works in most cases, but sometimes the result values are broken
+> > or I get a segfault. So I used valgrind to get some more
+> > information. I got this as result:
+> > 
+> > ==17755== Invalid read of size 4
+> > ==17755==    at 0x41327FE: geos::PrecisionModel::makePrecise(double)
+> > const (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x401D5D5A: ???
+> > ==17755==  Address 0x460A544 is 4 bytes inside a block of size 16
+> > free'd ==17755==    at 0x40212FA: operator delete(void*)
+> > (in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so) ==17755==
+> > by 0x4132695: geos::PrecisionModel::~PrecisionModel()
+> > (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x42F083B: (below
+> > main) (in /lib/libc-2.5.so) ==17755==
+> > 
+> > ... and this as often as I read coordinates.
+> > 
+> > Any ideas why PrecisionModel has this problem? A problem in GEOS
+> > WKBParser or my application?
+> 
+> Andreas,
+> 
+> Could you provide us with simple but generic program presenting the
+> problem? Ideally, if the example:
+> - refers only to GEOS, but not to any database
+> - shows values of coordinates causing the crash, just hardcoded in the
+> program
+> 
+> Your code is not usable, because it's specific to your particular
+> environment and data.
+
+I've created an example without database access:
+
+http://tux-style.de/osm/tmp/proj_test.zip
+
+Makefile
+proj_test.cpp
+data.bin         - Binary dump of a database line into a file
+valgrind.txt     - You see the problem only with valgrind (saved output)
+
+Tell me what else you need if I've not provided enough information.
+
+regards
+Andreas
+
+From mateusz at loskot.net  Wed Apr 18 16:52:21 2007
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] Memory problems while parsing WKB
+In-Reply-To: <20070418223305.61e6b7f2@frodo.mittelerde>
+References: <20070409161137.71ffe58c@frodo.mittelerde>	<46266903.3030100@loskot.net>
+	<20070418223305.61e6b7f2@frodo.mittelerde>
+Message-ID: <46268505.6020101@loskot.net>
+
+Andreas Volz wrote:
+> Am Wed, 18 Apr 2007 20:52:51 +0200 schrieb Mateusz Loskot:
+> 
+>> Andreas Volz wrote:
+>>> Hello,
+>>>
+>>> I've problems to parse WKB with GEOS. Here is my sample application:
+>>> [...]
+>>> It works in most cases, but sometimes the result values are broken
+>>> or I get a segfault. So I used valgrind to get some more
+>>> information. I got this as result:
+>>>
+>>> ==17755== Invalid read of size 4
+>>> ==17755==    at 0x41327FE: geos::PrecisionModel::makePrecise(double)
+>>> const (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x401D5D5A: ???
+>>> ==17755==  Address 0x460A544 is 4 bytes inside a block of size 16
+>>> free'd ==17755==    at 0x40212FA: operator delete(void*)
+>>> (in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so) ==17755==
+>>> by 0x4132695: geos::PrecisionModel::~PrecisionModel()
+>>> (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x42F083B: (below
+>>> main) (in /lib/libc-2.5.so) ==17755==
+>>>
+>>> ... and this as often as I read coordinates.
+>>>
+>>> Any ideas why PrecisionModel has this problem? A problem in GEOS
+>>> WKBParser or my application?
+>> Andreas,
+>>
+>> Could you provide us with simple but generic program presenting the
+>> problem? Ideally, if the example:
+>> - refers only to GEOS, but not to any database
+>> - shows values of coordinates causing the crash, just hardcoded in the
+>> program
+>>
+>> Your code is not usable, because it's specific to your particular
+>> environment and data.
+> 
+> I've created an example without database access:
+> 
+> http://tux-style.de/osm/tmp/proj_test.zip
+> 
+> Makefile
+> proj_test.cpp
+> data.bin         - Binary dump of a database line into a file
+> valgrind.txt     - You see the problem only with valgrind (saved output)
+> 
+> Tell me what else you need if I've not provided enough information.
+
+Andreas,
+
+Thanks for the example.
+
+Could you tell me what version of GEOS do you use?
+
+I suppose it's line of GEOS  2.x because the example
+does not compile with 3.x.
+
+Am I correct?
+
+Cheers
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+From lists at brachttal.net  Wed Apr 18 17:33:32 2007
+From: lists at brachttal.net (Andreas Volz)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] Memory problems while parsing WKB
+In-Reply-To: <46268505.6020101@loskot.net>
+References: <20070409161137.71ffe58c@frodo.mittelerde>
+	<46266903.3030100@loskot.net>
+	<20070418223305.61e6b7f2@frodo.mittelerde>
+	<46268505.6020101@loskot.net>
+Message-ID: <20070418233332.134b8c61@frodo.mittelerde>
+
+Am Wed, 18 Apr 2007 22:52:21 +0200 schrieb Mateusz Loskot:
+
+> Andreas Volz wrote:
+> > Am Wed, 18 Apr 2007 20:52:51 +0200 schrieb Mateusz Loskot:
+> > 
+> >> Andreas Volz wrote:
+> >>> Hello,
+> >>>
+> >>> I've problems to parse WKB with GEOS. Here is my sample
+> >>> application: [...]
+> >>> It works in most cases, but sometimes the result values are broken
+> >>> or I get a segfault. So I used valgrind to get some more
+> >>> information. I got this as result:
+> >>>
+> >>> ==17755== Invalid read of size 4
+> >>> ==17755==    at 0x41327FE:
+> >>> geos::PrecisionModel::makePrecise(double) const
+> >>> (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x401D5D5A: ???
+> >>> ==17755==  Address 0x460A544 is 4 bytes inside a block of size 16
+> >>> free'd ==17755==    at 0x40212FA: operator delete(void*)
+> >>> (in /usr/lib/valgrind/x86-linux/vgpreload_memcheck.so) ==17755==
+> >>> by 0x4132695: geos::PrecisionModel::~PrecisionModel()
+> >>> (in /usr/lib/libgeos.so.2.2.3) ==17755==    by 0x42F083B: (below
+> >>> main) (in /lib/libc-2.5.so) ==17755==
+> >>>
+> >>> ... and this as often as I read coordinates.
+> >>>
+> >>> Any ideas why PrecisionModel has this problem? A problem in GEOS
+> >>> WKBParser or my application?
+> >> Andreas,
+> >>
+> >> Could you provide us with simple but generic program presenting the
+> >> problem? Ideally, if the example:
+> >> - refers only to GEOS, but not to any database
+> >> - shows values of coordinates causing the crash, just hardcoded in
+> >> the program
+> >>
+> >> Your code is not usable, because it's specific to your particular
+> >> environment and data.
+> > 
+> > I've created an example without database access:
+> > 
+> > http://tux-style.de/osm/tmp/proj_test.zip
+> > 
+> > Makefile
+> > proj_test.cpp
+> > data.bin         - Binary dump of a database line into a file
+> > valgrind.txt     - You see the problem only with valgrind (saved
+> > output)
+> > 
+> > Tell me what else you need if I've not provided enough information.
+> 
+> Andreas,
+> 
+> Thanks for the example.
+> 
+> Could you tell me what version of GEOS do you use?
+> 
+> I suppose it's line of GEOS  2.x because the example
+> does not compile with 3.x.
+> 
+> Am I correct?
+
+[I] sci-libs/geos
+     Available versions:  2.2.1 2.2.3 ~3.0.0_rc3
+     Installed versions:  2.2.3(13:38:02 24.03.2007)(-doc python ruby)
+     Homepage:            http://geos.refractions.net
+     Description:         Geometry Engine - Open Sour
+
+It's version 2.2.3, because this is stable in Gentoo Linux. There's
+also 3.0.0_rc3 available, but not in stable. I like only to update if
+there's really no other solution.
+
+Has the API so much changed between 2.x and 3.x?
+
+regards
+Andreas
+
+From olitour at gmail.com  Thu Apr 19 13:54:19 2007
+From: olitour at gmail.com (Olivier Tournaire)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] Polygon rotation
+Message-ID: <4cbd7b750704191054j56dd198ak9a912edc8a021b5f@mail.gmail.com>
+
+Hi all,
+
+I am new to GEOS, and I would like to know how to perform a rotation on a
+polygon, or a geometry.
+
+Thanks in advance
+
+Olivier
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20070419/feca08f2/attachment.html
+From stefanzweig1881 at web.de  Tue Apr 24 04:04:26 2007
+From: stefanzweig1881 at web.de (Stefan Zweig)
+Date: Fri Nov  2 20:53:42 2007
+Subject: [geos-devel] preserve topology while simplifying geometry
+Message-ID: <55995814@web.de>
+
+Hi all,
+
+Maybe this could be a nice feature for a future release of geos: a simplification algorithm which preserves topology on geometries, especially for the geos spatial analyze functions to prevent the "TopologyException: side location conflict"-error. There is a modificated Douglas-Peucker-Algorithm which prevents a Polyline / Polygon from getting self-intersections by being simplified, in case theese features did not have self-intersections in their original state. So if they had been valid (isvalid()) before simplification they would keep valid afterwards.
+unfortunately only little sources to this algorithm can be found on the web. originally it was published in
+
+Saalfeld, Alan. 1999. Topologically Consitent Line Simplification with the Douglas-Peucker-Algorithm. American Congress on Surveying and Mapping. p. 7-18.
+
+regards.
+_______________________________________________________________
+SMS schreiben mit WEB.DE FreeMail - einfach, schnell und
+kostenguenstig. Jetzt gleich testen! http://f.web.de/?mc=021192
+
+

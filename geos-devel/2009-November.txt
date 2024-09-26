@@ -1,0 +1,3718 @@
+From strk at keybit.net  Tue Nov  3 12:38:41 2009
+From: strk at keybit.net (strk)
+Date: Tue Nov  3 12:38:48 2009
+Subject: [geos-devel] blowing up on negative value buffer() call
+In-Reply-To: <4AEB5945.8010908@energysavvy.com>
+References: <4AEB5945.8010908@energysavvy.com>
+Message-ID: <20091103173841.GG82667@keybit.net>
+
+On Fri, Oct 30, 2009 at 02:23:17PM -0700, Leo Shklovskii wrote:
+
+> Unfortunately, I've found several polygons that are valid but cause the 
+> first call to buffer() to blow up (memory leak + spiked cpu + doesn't 
+> return).
+> 
+> Should I file this as a GEOS bug? or am I not using buffer() correctly?
+
+Negative buffer is supported, so looks like a bug.
+The best report would be in the form of an XML test.
+See tests/xmltester/tests/TestBufferExternal2.xml
+for examples on how to format a testcase for negative buffers.
+
+Or feel free to just report your input polygon WKT.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From frederik at remote.org  Fri Nov  6 16:15:48 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Fri Nov  6 16:14:50 2009
+Subject: [geos-devel] Which one of "n" polygons contains this point?
+Message-ID: <4AF49204.4020004@remote.org>
+
+Hi,
+
+    I have a few hundred polygons representing country borders. And I 
+have a few hundred million points, and for each, I want to record the 
+country it lies in. I have about an hour of computing time to spend for 
+this task.
+
+A simple and working algorithm is of course to create the polygons for 
+the countries, then for each point, do a "contains" test for all 
+polygons until a match is found. Unfortunately many of these polygons 
+are quite complex (the outline taking anything from 1.000 to 50.000 
+nodes) which makes the "contains" test expensive, especially if you are 
+planning to execute it for a large number of points.
+
+Now I can think of a number of optimisations (divide earth into a grid 
+of rectangles, record which polygons overlap any given grid square, thus 
+reducing the number of "contains" tests you have to perform), but before 
+I set about playing around with these I wanted to ask if you are aware 
+of anything deep down it the GEOS guts that might help.
+
+There is a class of algorithms that efficiently solves my problem, 
+called "point location algorithms", however the only available 
+implementation for this I could find comes from the CGAL library which 
+has a license problem (my application must be GPL and the specific CGAL 
+component I'm after is licensed in a GPL incompatible way).
+
+Thank you
+Frederik
+
+-- 
+Frederik Ramm  ##  eMail frederik@remote.org  ##  N49?00'09" E008?23'33"
+From pramsey at cleverelephant.ca  Fri Nov  6 16:40:12 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri Nov  6 16:40:16 2009
+Subject: [geos-devel] Which one of "n" polygons contains this point?
+In-Reply-To: <4AF49204.4020004@remote.org>
+References: <4AF49204.4020004@remote.org>
+Message-ID: <30fe546d0911061340x39c22932j62c525f76d68d257@mail.gmail.com>
+
+Build your polygons.
+Turn them into "prepared" geometries.
+Build an STRTree on the polygons.
+
+Now, each point can find a short-list of possible countries in about
+log(n) time (thanks to STR tree) and (more importantly, thanks to the
+prepared geometry feature) can determine whether they are inside said
+countries in about log(v) time (where v = number of vertices).
+
+Not sure if you can do your 100M points in an hour w/ this (0.036ms
+per point reqd), but I think it's the best GEOS will do for you,
+as-is.
+
+P.
+
+Algorithm guys on list can sort you out, but the "best" solution would
+probably be a coverage topology of your border edges, with an index on
+the edges so you can quickly determine what your leftwards and
+rightwards edges are for a given point in the coverage.
+
+On Fri, Nov 6, 2009 at 1:15 PM, Frederik Ramm <frederik@remote.org> wrote:
+> Hi,
+>
+> ? I have a few hundred polygons representing country borders. And I have a
+> few hundred million points, and for each, I want to record the country it
+> lies in. I have about an hour of computing time to spend for this task.
+>
+> A simple and working algorithm is of course to create the polygons for the
+> countries, then for each point, do a "contains" test for all polygons until
+> a match is found. Unfortunately many of these polygons are quite complex
+> (the outline taking anything from 1.000 to 50.000 nodes) which makes the
+> "contains" test expensive, especially if you are planning to execute it for
+> a large number of points.
+>
+> Now I can think of a number of optimisations (divide earth into a grid of
+> rectangles, record which polygons overlap any given grid square, thus
+> reducing the number of "contains" tests you have to perform), but before I
+> set about playing around with these I wanted to ask if you are aware of
+> anything deep down it the GEOS guts that might help.
+>
+> There is a class of algorithms that efficiently solves my problem, called
+> "point location algorithms", however the only available implementation for
+> this I could find comes from the CGAL library which has a license problem
+> (my application must be GPL and the specific CGAL component I'm after is
+> licensed in a GPL incompatible way).
+>
+> Thank you
+> Frederik
+>
+> --
+> Frederik Ramm ?## ?eMail frederik@remote.org ?## ?N49?00'09" E008?23'33"
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From geos-trac at osgeo.org  Wed Nov 11 15:40:17 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Nov 11 15:40:21 2009
+Subject: [geos-devel] [GEOS] #298: Support GeometryCollections as input to
+ boolean predicates
+Message-ID: <047.8cf53c6ed0ef4e9c38a626e886698655@osgeo.org>
+
+#298: Support GeometryCollections as input to boolean predicates
+-------------------------+--------------------------------------------------
+ Reporter:  pramsey      |       Owner:  geos-devel@lists.osgeo.org
+     Type:  enhancement  |      Status:  new                       
+ Priority:  major        |   Milestone:  3.3.0                     
+Component:  Default      |     Version:  svn-trunk                 
+ Severity:  Unassigned   |    Keywords:                            
+-------------------------+--------------------------------------------------
+ Anonymous geometry collections are currently not allowed in boolean
+ predicates (at least, PostGIS doesn't allow them to be passed in). While
+ the Relate() operator probably can't handle them, perhaps the boolean
+ predicates could. (ie, g1.intersects(g2) iff any element of g1 intersects
+ an element of g2).
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/298>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From strk at keybit.net  Thu Nov 12 02:32:14 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 12 02:32:19 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+Message-ID: <20091112073157.GA92700@keybit.net>
+
+Cheers all.
+GEOS 3.2.0 is ready for test.
+I've tagged a 3.2.0rc1.
+Please take your time to try upgrades against
+your existing clients.
+
+C-API clients should get the new functionalities
+for free (much faster buffer operation for example).
+
+C++ clients would need a rebuild as usual.
+
+Get with:
+svn co http://trac.osgeo.org/geos/browser/tags/3.2.0rc1
+
+I'd tag final after a week of no issues reported.
+Thank you.
+
+--strk; 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From robe.dnd at cityofboston.gov  Thu Nov 12 10:27:40 2009
+From: robe.dnd at cityofboston.gov (Obe, Regina)
+Date: Thu Nov 12 10:28:50 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <20091112073157.GA92700@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+Message-ID: <BD3A1BBF51D14C47B26207A07669948227392D83A7@XCCMS2.cityhall.boston.cob>
+
+Strk,
+Any chance you are going to make this available as a download file on the website?
+
+A lot of people just go for the tar, especially if you don't have svn client installed on your server.  So making sure the download file is well packaged and can be compiled I consider part of a good test since some of the flaws are in the packaging that you don't catch when pulling from svn.
+
+Thanks,
+Regina
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+Sent: Thursday, November 12, 2009 2:32 AM
+To: geos-devel@lists.osgeo.org
+Subject: [geos-devel] 3.2.0rc1 tagged
+
+Cheers all.
+GEOS 3.2.0 is ready for test.
+I've tagged a 3.2.0rc1.
+Please take your time to try upgrades against
+your existing clients.
+
+C-API clients should get the new functionalities
+for free (much faster buffer operation for example).
+
+C++ clients would need a rebuild as usual.
+
+Get with:
+svn co http://trac.osgeo.org/geos/browser/tags/3.2.0rc1
+
+I'd tag final after a week of no issues reported.
+Thank you.
+
+--strk; 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+-----------------------------------------
+The substance of this message, including any attachments, may be
+confidential, legally privileged and/or exempt from disclosure
+pursuant to Massachusetts law. It is intended
+solely for the addressee. If you received this in error, please
+contact the sender and delete the material from any computer.
+From pramsey at opengeo.org  Thu Nov 12 15:20:01 2009
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Thu Nov 12 15:20:03 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <20091112073157.GA92700@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+Message-ID: <30fe546d0911121220h5d5a3caevde7d99b8adfcb9ed@mail.gmail.com>
+
+FYI, URL is wrong:
+
+svn co http://svn.osgeo.org/geos/tags/3.2.0-rc1
+
+I'll build a tarball for posting.
+
+P
+
+On Wed, Nov 11, 2009 at 11:32 PM, strk <strk@keybit.net> wrote:
+> Cheers all.
+> GEOS 3.2.0 is ready for test.
+> I've tagged a 3.2.0rc1.
+> Please take your time to try upgrades against
+> your existing clients.
+>
+> C-API clients should get the new functionalities
+> for free (much faster buffer operation for example).
+>
+> C++ clients would need a rebuild as usual.
+>
+> Get with:
+> svn co http://trac.osgeo.org/geos/browser/tags/3.2.0rc1
+>
+> I'd tag final after a week of no issues reported.
+> Thank you.
+>
+> --strk;
+>
+> ?Free GIS & Flash consultant/developer ? ? ?() ?ASCII Ribbon Campaign
+> ?http://foo.keybit.net/~strk/services.html ?/\ ?Keep it simple!
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From strk at keybit.net  Thu Nov 12 16:32:10 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 12 16:32:15 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <30fe546d0911121220h5d5a3caevde7d99b8adfcb9ed@mail.gmail.com>
+References: <20091112073157.GA92700@keybit.net>
+	<30fe546d0911121220h5d5a3caevde7d99b8adfcb9ed@mail.gmail.com>
+Message-ID: <20091112213210.GE92700@keybit.net>
+
+For the record, it's here:
+
+  http://download.osgeo.org/geos/geos-3.2.0rc1.tar.bz2
+
+Thanks Paul.
+
+--strk;
+
+On Thu, Nov 12, 2009 at 12:20:01PM -0800, Paul Ramsey wrote:
+> FYI, URL is wrong:
+> 
+> svn co http://svn.osgeo.org/geos/tags/3.2.0-rc1
+> 
+> I'll build a tarball for posting.
+> 
+> P
+> 
+> On Wed, Nov 11, 2009 at 11:32 PM, strk <strk@keybit.net> wrote:
+> > Cheers all.
+> > GEOS 3.2.0 is ready for test.
+> > I've tagged a 3.2.0rc1.
+> > Please take your time to try upgrades against
+> > your existing clients.
+> >
+> > C-API clients should get the new functionalities
+> > for free (much faster buffer operation for example).
+> >
+> > C++ clients would need a rebuild as usual.
+> >
+> > Get with:
+> > svn co http://trac.osgeo.org/geos/browser/tags/3.2.0rc1
+> >
+> > I'd tag final after a week of no issues reported.
+> > Thank you.
+> >
+> > --strk;
+> >
+> > ?Free GIS & Flash consultant/developer ? ? ?() ?ASCII Ribbon Campaign
+> > ?http://foo.keybit.net/~strk/services.html ?/\ ?Keep it simple!
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From robe.dnd at cityofboston.gov  Fri Nov 13 16:13:14 2009
+From: robe.dnd at cityofboston.gov (Obe, Regina)
+Date: Fri Nov 13 16:16:14 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <20091112213210.GE92700@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+	<30fe546d0911121220h5d5a3caevde7d99b8adfcb9ed@mail.gmail.com>,
+	<20091112213210.GE92700@keybit.net>
+Message-ID: <BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+
+I think this is on the todo so I'm not really complaining.  But make check doesn't work under MingW, but hasn't for a while anyway.
+
+Now for VC++ 2009 express, I tried compiling and it seems I need inttypes.h?  I don't recall that being a dependency before (GEOS 3.1)  or maybe I always had it before on my prior boxes and didn't know it.
+
+Thanks,
+Regina
+________________________________________
+From: geos-devel-bounces@lists.osgeo.org [geos-devel-bounces@lists.osgeo.org] On Behalf Of strk [strk@keybit.net]
+Sent: Thursday, November 12, 2009 4:32 PM
+To: GEOS Development List
+Subject: Re: [geos-devel] 3.2.0rc1 tagged
+
+For the record, it's here:
+
+  http://download.osgeo.org/geos/geos-3.2.0rc1.tar.bz2
+
+Thanks Paul.
+
+--strk;
+
+On Thu, Nov 12, 2009 at 12:20:01PM -0800, Paul Ramsey wrote:
+> FYI, URL is wrong:
+>
+> svn co http://svn.osgeo.org/geos/tags/3.2.0-rc1
+>
+> I'll build a tarball for posting.
+>
+> P
+>
+> On Wed, Nov 11, 2009 at 11:32 PM, strk <strk@keybit.net> wrote:
+> > Cheers all.
+> > GEOS 3.2.0 is ready for test.
+> > I've tagged a 3.2.0rc1.
+> > Please take your time to try upgrades against
+> > your existing clients.
+> >
+> > C-API clients should get the new functionalities
+> > for free (much faster buffer operation for example).
+> >
+> > C++ clients would need a rebuild as usual.
+> >
+> > Get with:
+> > svn co http://trac.osgeo.org/geos/browser/tags/3.2.0rc1
+> >
+> > I'd tag final after a week of no issues reported.
+> > Thank you.
+> >
+> > --strk;
+> >
+> >  Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+> >  http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+--
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+-----------------------------------------
+The substance of this message, including any attachments, may be
+confidential, legally privileged and/or exempt from disclosure
+pursuant to Massachusetts law. It is intended
+solely for the addressee. If you received this in error, please
+contact the sender and delete the material from any computer.
+From strk at keybit.net  Fri Nov 13 16:29:31 2009
+From: strk at keybit.net (strk)
+Date: Fri Nov 13 16:29:35 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+Message-ID: <20091113212931.GJ92700@keybit.net>
+
+On Fri, Nov 13, 2009 at 04:13:14PM -0500, Obe, Regina wrote:
+> 
+
+> Now for VC++ 2009 express, I tried compiling and it seems I need inttypes.h?  I don't recall that being a dependency before (GEOS 3.1)  or maybe I always had it before on my prior boxes and didn't know it.
+
+Was in 3.1 too, and only in platform.h.
+Maybe you need to copy platform.h.vc to platform.h ?
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From pramsey at cleverelephant.ca  Fri Nov 13 16:44:50 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri Nov 13 16:44:53 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <20091113212931.GJ92700@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<20091113212931.GJ92700@keybit.net>
+Message-ID: <30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+
+Yes, VC users must remember to run autogen.bat before starting...
+
+P
+
+On Fri, Nov 13, 2009 at 1:29 PM, strk <strk@keybit.net> wrote:
+> On Fri, Nov 13, 2009 at 04:13:14PM -0500, Obe, Regina wrote:
+>>
+>
+>> Now for VC++ 2009 express, I tried compiling and it seems I need inttypes.h? ?I don't recall that being a dependency before (GEOS 3.1) ?or maybe I always had it before on my prior boxes and didn't know it.
+>
+> Was in 3.1 too, and only in platform.h.
+> Maybe you need to copy platform.h.vc to platform.h ?
+>
+> --strk;
+>
+> ?Free GIS & Flash consultant/developer ? ? ?() ?ASCII Ribbon Campaign
+> ?http://foo.keybit.net/~strk/services.html ?/\ ?Keep it simple!
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From oyvind.idland at gmail.com  Tue Nov 17 10:41:44 2009
+From: oyvind.idland at gmail.com (Oyvind Idland)
+Date: Tue Nov 17 10:41:49 2009
+Subject: [geos-devel] GEOS and arcs
+Message-ID: <aff28ff20911170741s124873en6cfb552f493e3971@mail.gmail.com>
+
+Hi,
+
+is there any plans to support arcs in geometries ?
+
+OGC does not include arcs in their spec, but the ISO spec does (ISO/IEC JTC
+1/SC 32 N 1107),
+such as CircularString, CompoundCurve etc.
+
+
+Regards,
+
+
+Oyvind Idland
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20091117/1123dfc9/attachment.html
+From robe.dnd at cityofboston.gov  Tue Nov 17 13:36:40 2009
+From: robe.dnd at cityofboston.gov (Obe, Regina)
+Date: Tue Nov 17 13:37:51 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<20091113212931.GJ92700@keybit.net>,
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+Message-ID: <BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+
+Yes that was it.  I guess I should have read the glaring readme on geos site :)
+
+Is it needed for solution compiles?  I think I've always compiled with the full VS 2008  product before so maybe its already part of the solution.
+
+Also just curious - what is the reason why autogen.bat is not packaged in the tar ball?  Seems a bit of a pain to have to
+go to svn for that file.
+
+My VC tests have failed though the dll compiles -- trying again -- but on first blush --
+This file is missing in the package
+
+..\..\..\tests\unit\capi\GEOSGeomFromWKBTest.cpp
+
+and the vc unit proj file references it. So that is the cause of the first trial test failure.
+
+Thanks,
+Regina
+________________________________________
+From: geos-devel-bounces@lists.osgeo.org [geos-devel-bounces@lists.osgeo.org] On Behalf Of Paul Ramsey [pramsey@cleverelephant.ca]
+Sent: Friday, November 13, 2009 4:44 PM
+To: GEOS Development List
+Subject: Re: [geos-devel] 3.2.0rc1 tagged
+
+Yes, VC users must remember to run autogen.bat before starting...
+
+P
+
+On Fri, Nov 13, 2009 at 1:29 PM, strk <strk@keybit.net> wrote:
+> On Fri, Nov 13, 2009 at 04:13:14PM -0500, Obe, Regina wrote:
+>>
+>
+>> Now for VC++ 2009 express, I tried compiling and it seems I need inttypes.h?  I don't recall that being a dependency before (GEOS 3.1)  or maybe I always had it before on my prior boxes and didn't know it.
+>
+> Was in 3.1 too, and only in platform.h.
+> Maybe you need to copy platform.h.vc to platform.h ?
+>
+> --strk;
+>
+>  Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+>  http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+-----------------------------------------
+The substance of this message, including any attachments, may be
+confidential, legally privileged and/or exempt from disclosure
+pursuant to Massachusetts law. It is intended
+solely for the addressee. If you received this in error, please
+contact the sender and delete the material from any computer.
+From strk at keybit.net  Tue Nov 17 15:24:08 2009
+From: strk at keybit.net (strk)
+Date: Tue Nov 17 15:24:18 2009
+Subject: [geos-devel] 3.2.0rc1 tagged
+In-Reply-To: <BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+	<BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+Message-ID: <20091117202408.GH97137@keybit.net>
+
+On Tue, Nov 17, 2009 at 01:36:40PM -0500, Obe, Regina wrote:
+
+> Also just curious - what is the reason why autogen.bat is not packaged in the tar ball?  Seems a bit of a pain to have to
+> go to svn for that file.
+
+Users of proprietary systems must suffer ;)
+
+> This file is missing in the package
+> 
+> ..\..\..\tests\unit\capi\GEOSGeomFromWKBTest.cpp
+
+Good catch, it's missing from Makefile.am as well.
+I'll take a look (and ok, I'll add the autogen.bat too)
+
+--strk; 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From strk at keybit.net  Tue Nov 17 15:32:28 2009
+From: strk at keybit.net (strk)
+Date: Tue Nov 17 15:32:31 2009
+Subject: [geos-devel] autogen.bat
+In-Reply-To: <20091117202408.GH97137@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+	<BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+	<20091117202408.GH97137@keybit.net>
+Message-ID: <20091117203228.GI97137@keybit.net>
+
+On Tue, Nov 17, 2009 at 09:24:08PM +0100, strk wrote:
+> On Tue, Nov 17, 2009 at 01:36:40PM -0500, Obe, Regina wrote:
+> 
+> > Also just curious - what is the reason why autogen.bat is not packaged in the tar ball?  Seems a bit of a pain to have to
+> > go to svn for that file.
+> 
+> Users of proprietary systems must suffer ;)
+
+I've found this in autogen.bat:
+
+ REM NOTE: DO NOT include this script in GEOS sources distribution
+
+Author seems to be Mateusz.
+Mat, reason ?
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From strk at keybit.net  Tue Nov 17 15:34:32 2009
+From: strk at keybit.net (strk)
+Date: Tue Nov 17 15:34:35 2009
+Subject: [geos-devel] GEOSGeomFromWKBTest.cpp
+In-Reply-To: <20091117202408.GH97137@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+	<BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+	<20091117202408.GH97137@keybit.net>
+Message-ID: <20091117203432.GJ97137@keybit.net>
+
+On Tue, Nov 17, 2009 at 09:24:08PM +0100, strk wrote:
+> On Tue, Nov 17, 2009 at 01:36:40PM -0500, Obe, Regina wrote:
+
+> > This file is missing in the package
+> > 
+> > ..\..\..\tests\unit\capi\GEOSGeomFromWKBTest.cpp
+> 
+> Good catch, it's missing from Makefile.am as well.
+> I'll take a look (and ok, I'll add the autogen.bat too)
+
+It's in as of r2716.
+Please go on testing before an rc2.
+Thanks.
+
+--strk; 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From maxime at altribe.org  Wed Nov 18 07:51:38 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Nov 18 08:29:46 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+Message-ID: <4B03EDDA.7020507@altribe.org>
+
+Hi list,
+
+A geometry library is currently being reviewed by the Boost project (GGL
+- Generic Geometry Library)[1] and they did some benchmarks available here:
+
+http://trac.osgeo.org/ggl/wiki/IntersectionMore
+http://trac.osgeo.org/ggl/wiki/IntersectionStarComb
+
+Depending on the situations geos performs well or quite bad.
+
+It could be interesting to investigate what went wrong with those tests.
+
+
+[1] http://lists.boost.org/boost-users/2009/11/53451.php
+
+-- 
+Maxime
+From mbdavis at refractions.net  Wed Nov 18 11:55:32 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 11:47:28 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B03EDDA.7020507@altribe.org>
+References: <4B03EDDA.7020507@altribe.org>
+Message-ID: <4B042704.1080807@refractions.net>
+
+I'm not sure that anything "went wrong" with the tests.  The results may 
+be due to fundamental design differences between GGL and GEOS.  These 
+include:
+
+- GEOS uses a less efficient memory handling strategy, primarily due to 
+the goal of tracking JTS closely (and also due to the substantial 
+brainpower required to grok C++ template programming)
+- GEOS focuses heavily on providing robustness and ability to handle a 
+wide variety of real-world geometry correctly.  This requires using some 
+algorithms and extra checking which have an impact on performance
+
+The robustness question I think is a key one.  In order for a library to 
+be viable in an uncontrolled production setting such as PostGIS, it 
+needs to be highly robust.  I think this needs to be considered of equal 
+importance to performance for these kinds of uses.
+
+Maxime van Noppen wrote:
+> Hi list,
+>
+> A geometry library is currently being reviewed by the Boost project (GGL
+> - Generic Geometry Library)[1] and they did some benchmarks available here:
+>
+> http://trac.osgeo.org/ggl/wiki/IntersectionMore
+> http://trac.osgeo.org/ggl/wiki/IntersectionStarComb
+>
+> Depending on the situations geos performs well or quite bad.
+>
+> It could be interesting to investigate what went wrong with those tests.
+>
+>
+> [1] http://lists.boost.org/boost-users/2009/11/53451.php
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From pramsey at cleverelephant.ca  Wed Nov 18 12:18:58 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed Nov 18 12:19:01 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B042704.1080807@refractions.net>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+Message-ID: <30fe546d0911180918w48f5ff05me76b24283240cb31@mail.gmail.com>
+
+I see that Matz has already been looking at a GGL binding for PostGIS,
+and I think when the 2.0 cycle begins I will also examine the
+possibility. Then we can see where the rubber meets the road. Even
+where GGL has a strong base-case speed, thinks like PreparedGeometry
+will probably make GEOS faster for common predicate use cases (not
+that GGL can't steal that idea too, eventually).
+
+P.
+
+On Wed, Nov 18, 2009 at 8:55 AM, Martin Davis <mbdavis@refractions.net> wrote:
+> I'm not sure that anything "went wrong" with the tests. ?The results may be
+> due to fundamental design differences between GGL and GEOS. ?These include:
+>
+> - GEOS uses a less efficient memory handling strategy, primarily due to the
+> goal of tracking JTS closely (and also due to the substantial brainpower
+> required to grok C++ template programming)
+> - GEOS focuses heavily on providing robustness and ability to handle a wide
+> variety of real-world geometry correctly. ?This requires using some
+> algorithms and extra checking which have an impact on performance
+>
+> The robustness question I think is a key one. ?In order for a library to be
+> viable in an uncontrolled production setting such as PostGIS, it needs to be
+> highly robust. ?I think this needs to be considered of equal importance to
+> performance for these kinds of uses.
+>
+> Maxime van Noppen wrote:
+>>
+>> Hi list,
+>>
+>> A geometry library is currently being reviewed by the Boost project (GGL
+>> - Generic Geometry Library)[1] and they did some benchmarks available
+>> here:
+>>
+>> http://trac.osgeo.org/ggl/wiki/IntersectionMore
+>> http://trac.osgeo.org/ggl/wiki/IntersectionStarComb
+>>
+>> Depending on the situations geos performs well or quite bad.
+>>
+>> It could be interesting to investigate what went wrong with those tests.
+>>
+>>
+>> [1] http://lists.boost.org/boost-users/2009/11/53451.php
+>>
+>>
+>
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From maxime at altribe.org  Wed Nov 18 12:18:11 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Nov 18 12:22:02 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B042704.1080807@refractions.net>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+Message-ID: <4B042C53.2050509@altribe.org>
+
+Martin Davis wrote:
+> I'm not sure that anything "went wrong" with the tests.  The results may
+> be due to fundamental design differences between GGL and GEOS.  These
+> include:
+> 
+> - GEOS uses a less efficient memory handling strategy, primarily due to
+> the goal of tracking JTS closely (and also due to the substantial
+> brainpower required to grok C++ template programming)
+> - GEOS focuses heavily on providing robustness and ability to handle a
+> wide variety of real-world geometry correctly.  This requires using some
+> algorithms and extra checking which have an impact on performance
+> 
+> The robustness question I think is a key one.  In order for a library to
+> be viable in an uncontrolled production setting such as PostGIS, it
+> needs to be highly robust.  I think this needs to be considered of equal
+> importance to performance for these kinds of uses.
+
+I fully agree with your post. I'm new to geos/postgis so I obviously
+miss things.
+
+It's quite interesting to have some numbers though, as sometimes they
+can lead to significant performance boost (CascadedPolygonUnion is a
+good example). It might be interesting to analyze why geos is 23x slower
+than other geometry libraries in some cases whereas it competes with
+them elsewhere.
+
+-- 
+Maxime
+From mbdavis at refractions.net  Wed Nov 18 12:39:41 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 12:30:58 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B042C53.2050509@altribe.org>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+	<4B042C53.2050509@altribe.org>
+Message-ID: <4B04315D.7090506@refractions.net>
+
+
+
+Maxime van Noppen wrote:
+>
+> It's quite interesting to have some numbers though, as sometimes they
+> can lead to significant performance boost (CascadedPolygonUnion is a
+> good example). It might be interesting to analyze why geos is 23x slower
+> than other geometry libraries in some cases whereas it competes with
+> them elsewhere.
+>
+>   
+Yes, definitely it's nice to have examples of how things can be improved.
+
+Personally I intend to stay well away from any C++ template hacking, though!
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From pramsey at cleverelephant.ca  Wed Nov 18 12:32:01 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed Nov 18 12:32:03 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B04315D.7090506@refractions.net>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+	<4B042C53.2050509@altribe.org> <4B04315D.7090506@refractions.net>
+Message-ID: <30fe546d0911180932n275f74c2ub0dcbd40cb0d660d@mail.gmail.com>
+
+Probably something as simple as running Maxime's test polygons and
+watching the profile in Shark would give the answer, since the
+difference is so huge.
+
+P.
+
+On Wed, Nov 18, 2009 at 9:39 AM, Martin Davis <mbdavis@refractions.net> wrote:
+>
+>
+> Maxime van Noppen wrote:
+>>
+>> It's quite interesting to have some numbers though, as sometimes they
+>> can lead to significant performance boost (CascadedPolygonUnion is a
+>> good example). It might be interesting to analyze why geos is 23x slower
+>> than other geometry libraries in some cases whereas it competes with
+>> them elsewhere.
+>>
+>>
+>
+> Yes, definitely it's nice to have examples of how things can be improved.
+>
+> Personally I intend to stay well away from any C++ template hacking, though!
+>
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From pramsey at cleverelephant.ca  Wed Nov 18 12:33:02 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed Nov 18 12:33:05 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <30fe546d0911180932n275f74c2ub0dcbd40cb0d660d@mail.gmail.com>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+	<4B042C53.2050509@altribe.org> <4B04315D.7090506@refractions.net>
+	<30fe546d0911180932n275f74c2ub0dcbd40cb0d660d@mail.gmail.com>
+Message-ID: <30fe546d0911180933j53023cf6ja5a8afc79257027c@mail.gmail.com>
+
+I wonder if we could somehow prevail upon Maxime to add JTS to the
+benchmark set, to disentangle algorithm from implementation.
+
+P.
+
+On Wed, Nov 18, 2009 at 9:32 AM, Paul Ramsey <pramsey@cleverelephant.ca> wrote:
+> Probably something as simple as running Maxime's test polygons and
+> watching the profile in Shark would give the answer, since the
+> difference is so huge.
+>
+> P.
+>
+> On Wed, Nov 18, 2009 at 9:39 AM, Martin Davis <mbdavis@refractions.net> wrote:
+>>
+>>
+>> Maxime van Noppen wrote:
+>>>
+>>> It's quite interesting to have some numbers though, as sometimes they
+>>> can lead to significant performance boost (CascadedPolygonUnion is a
+>>> good example). It might be interesting to analyze why geos is 23x slower
+>>> than other geometry libraries in some cases whereas it competes with
+>>> them elsewhere.
+>>>
+>>>
+>>
+>> Yes, definitely it's nice to have examples of how things can be improved.
+>>
+>> Personally I intend to stay well away from any C++ template hacking, though!
+>>
+>> --
+>> Martin Davis
+>> Senior Technical Architect
+>> Refractions Research, Inc.
+>> (250) 383-3022
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>
+From mbdavis at refractions.net  Wed Nov 18 12:43:21 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 12:34:37 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B04315D.7090506@refractions.net>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>
+Message-ID: <4B043239.5000009@refractions.net>
+
+Further to this, I did look at the GGL source to see if there were some 
+obvious algorithmic ideas that could be used in JTS/GEOS.  But I got 
+lost in all the template code...  8^(   
+
+I am curious to know how much of the speed improvement is due to more 
+efficient compilation due to templating, VS pure algorithm design.  The 
+latter can inform other libraries - the former, not so much.
+
+Martin Davis wrote:
+>
+>
+> Maxime van Noppen wrote:
+>>
+>> It's quite interesting to have some numbers though, as sometimes they
+>> can lead to significant performance boost (CascadedPolygonUnion is a
+>> good example). It might be interesting to analyze why geos is 23x slower
+>> than other geometry libraries in some cases whereas it competes with
+>> them elsewhere.
+>>
+>>   
+> Yes, definitely it's nice to have examples of how things can be improved.
+>
+> Personally I intend to stay well away from any C++ template hacking, 
+> though!
+>
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mbdavis at refractions.net  Wed Nov 18 12:44:14 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 12:35:31 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <30fe546d0911180933j53023cf6ja5a8afc79257027c@mail.gmail.com>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>	<30fe546d0911180932n275f74c2ub0dcbd40cb0d660d@mail.gmail.com>
+	<30fe546d0911180933j53023cf6ja5a8afc79257027c@mail.gmail.com>
+Message-ID: <4B04326E.3080900@refractions.net>
+
+Yeah, that'd be interesting.  I thought about trying to run the test 
+cases, but it's not really relevant unles they are run in the same 
+environment.
+
+Paul Ramsey wrote:
+> I wonder if we could somehow prevail upon Maxime to add JTS to the
+> benchmark set, to disentangle algorithm from implementation.
+>
+> P.
+>
+> On Wed, Nov 18, 2009 at 9:32 AM, Paul Ramsey <pramsey@cleverelephant.ca> wrote:
+>   
+>> Probably something as simple as running Maxime's test polygons and
+>> watching the profile in Shark would give the answer, since the
+>> difference is so huge.
+>>
+>> P.
+>>
+>> On Wed, Nov 18, 2009 at 9:39 AM, Martin Davis <mbdavis@refractions.net> wrote:
+>>     
+>>> Maxime van Noppen wrote:
+>>>       
+>>>> It's quite interesting to have some numbers though, as sometimes they
+>>>> can lead to significant performance boost (CascadedPolygonUnion is a
+>>>> good example). It might be interesting to analyze why geos is 23x slower
+>>>> than other geometry libraries in some cases whereas it competes with
+>>>> them elsewhere.
+>>>>
+>>>>
+>>>>         
+>>> Yes, definitely it's nice to have examples of how things can be improved.
+>>>
+>>> Personally I intend to stay well away from any C++ template hacking, though!
+>>>
+>>> --
+>>> Martin Davis
+>>> Senior Technical Architect
+>>> Refractions Research, Inc.
+>>> (250) 383-3022
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@lists.osgeo.org
+>>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>>
+>>>       
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From maxime at altribe.org  Wed Nov 18 12:38:23 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Wed Nov 18 12:42:15 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <30fe546d0911180933j53023cf6ja5a8afc79257027c@mail.gmail.com>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>	<30fe546d0911180932n275f74c2ub0dcbd40cb0d660d@mail.gmail.com>
+	<30fe546d0911180933j53023cf6ja5a8afc79257027c@mail.gmail.com>
+Message-ID: <4B04310F.3080401@altribe.org>
+
+Paul Ramsey wrote:
+> I wonder if we could somehow prevail upon Maxime to add JTS to the
+> benchmark set, to disentangle algorithm from implementation.
+
+I have nothing to do with GGL. But as both geos & boost user I follow
+both lists and as I'm interested in geometry related libraries I tried
+out GGL and found those benchmarks.
+
+However given the geos implementation :
+
+https://svn.boost.org/svn/boost/sandbox/ggl/other/comparison_star_comb/geos/geos_starcomb.cpp
+
+
+It shouldn't be hard to write a similar JTS test. I never developed in
+Java though, so I am of little help here.
+
+-- 
+Maxime
+From hartmut.kaiser at gmail.com  Wed Nov 18 13:20:54 2009
+From: hartmut.kaiser at gmail.com (Hartmut Kaiser)
+Date: Wed Nov 18 13:21:06 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B043239.5000009@refractions.net>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>
+	<4B043239.5000009@refractions.net>
+Message-ID: <4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+
+> Further to this, I did look at the GGL source to see if there were some
+> obvious algorithmic ideas that could be used in JTS/GEOS.  But I got
+> lost in all the template code...  8^(
+> 
+> I am curious to know how much of the speed improvement is due to more
+> efficient compilation due to templating, VS pure algorithm design.  The
+> latter can inform other libraries - the former, not so much.
+
+I strongly believe the performance gain does not come from templates per se. As already said, but that's only an educated guess - I did not measure, GEOS loses a lot performance from allocating everything from the heap. These allocations/deallocations are done even in cases where no allocation is necessary. From the top of my head I remember GEOS often using constructs like:
+
+    {
+        vector<bla>* v = new vector<bla>();
+        // use v
+        delete v;
+    }
+
+instead of a simpler and faster (and, BTW, additionally exception safe):
+
+    {
+        vector<bla> v;
+        // use v
+    }
+
+The GEOS code base is full of those...
+
+The template vs. non-template issues are much less significant, as the major differences result from GEOS using runtime polymorphism (virtual functions) vs. GGL using static polymorphism (templates). Surely this has an impact as virtual functions not only add some overhead to the function calls, but additionally act as an optimization barrier for the compiler (no inlining and no global optimization possible). But this alone shouldn't result in magnitudes of performance differences.
+
+Regards Hartmut
+
+-------------------
+Meet me at BoostCon
+http://boostcon.com
+
+> 
+> Martin Davis wrote:
+> >
+> >
+> > Maxime van Noppen wrote:
+> >>
+> >> It's quite interesting to have some numbers though, as sometimes
+> they
+> >> can lead to significant performance boost (CascadedPolygonUnion is a
+> >> good example). It might be interesting to analyze why geos is 23x
+> slower
+> >> than other geometry libraries in some cases whereas it competes with
+> >> them elsewhere.
+> >>
+> >>
+> > Yes, definitely it's nice to have examples of how things can be
+> improved.
+> >
+> > Personally I intend to stay well away from any C++ template hacking,
+> > though!
+> >
+> 
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From mbdavis at refractions.net  Wed Nov 18 14:02:13 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 13:53:30 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>
+	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+Message-ID: <4B0444B5.7020606@refractions.net>
+
+Thanks for clarifying this, Hartmut.  This makes good sense to me.  In 
+my (admittedly limited and dated) experience, the C/C++ heap allocator 
+(good ol' malloc still, right?) is pretty slow.  From what you're saying 
+stack allocation is substantially faster.
+
+The kind of change you indicated should be fairly simple to make in the 
+GEOS codebase.
+
+I'd be interested to see how widespread this actually is.  Many of the 
+structures that JTS/GEOS creates during processing are shared across 
+multiple methods and classes.  I suppose this doesn't preclude using 
+stack-based allocation, but mightn't it require passing more references 
+down into function calls?
+
+Hartmut Kaiser wrote:
+>> Further to this, I did look at the GGL source to see if there were some
+>> obvious algorithmic ideas that could be used in JTS/GEOS.  But I got
+>> lost in all the template code...  8^(
+>>
+>> I am curious to know how much of the speed improvement is due to more
+>> efficient compilation due to templating, VS pure algorithm design.  The
+>> latter can inform other libraries - the former, not so much.
+>>     
+>
+> I strongly believe the performance gain does not come from templates per se. As already said, but that's only an educated guess - I did not measure, GEOS loses a lot performance from allocating everything from the heap. These allocations/deallocations are done even in cases where no allocation is necessary. From the top of my head I remember GEOS often using constructs like:
+>
+>     {
+>         vector<bla>* v = new vector<bla>();
+>         // use v
+>         delete v;
+>     }
+>
+> instead of a simpler and faster (and, BTW, additionally exception safe):
+>
+>     {
+>         vector<bla> v;
+>         // use v
+>     }
+>
+> The GEOS code base is full of those...
+>
+> The template vs. non-template issues are much less significant, as the major differences result from GEOS using runtime polymorphism (virtual functions) vs. GGL using static polymorphism (templates). Surely this has an impact as virtual functions not only add some overhead to the function calls, but additionally act as an optimization barrier for the compiler (no inlining and no global optimization possible). But this alone shouldn't result in magnitudes of performance differences.
+>
+> Regards Hartmut
+>
+> -------------------
+> Meet me at BoostCon
+> http://boostcon.com
+>
+>   
+>> Martin Davis wrote:
+>>     
+>>> Maxime van Noppen wrote:
+>>>       
+>>>> It's quite interesting to have some numbers though, as sometimes
+>>>>         
+>> they
+>>     
+>>>> can lead to significant performance boost (CascadedPolygonUnion is a
+>>>> good example). It might be interesting to analyze why geos is 23x
+>>>>         
+>> slower
+>>     
+>>>> than other geometry libraries in some cases whereas it competes with
+>>>> them elsewhere.
+>>>>
+>>>>
+>>>>         
+>>> Yes, definitely it's nice to have examples of how things can be
+>>>       
+>> improved.
+>>     
+>>> Personally I intend to stay well away from any C++ template hacking,
+>>> though!
+>>>
+>>>       
+>> --
+>> Martin Davis
+>> Senior Technical Architect
+>> Refractions Research, Inc.
+>> (250) 383-3022
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>     
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From geos-trac at osgeo.org  Wed Nov 18 13:58:41 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Nov 18 13:58:43 2009
+Subject: [geos-devel] Re: [GEOS] #287: Shouldn't GEOS 3.1 branch be bumped
+	to 3.1.2
+In-Reply-To: <044.f9261f7ac23ee8545825bf400eeb5957@osgeo.org>
+References: <044.f9261f7ac23ee8545825bf400eeb5957@osgeo.org>
+Message-ID: <053.910f998ca97193cf7a5b99512d1a4f07@osgeo.org>
+
+#287: Shouldn't GEOS 3.1 branch be bumped to 3.1.2
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  trivial     |    Milestone:  3.1.2                     
+Component:  Default     |      Version:  3.1.1                     
+ Severity:  Unassigned  |   Resolution:  fixed                     
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by pramsey):
+
+  * status:  new => closed
+  * resolution:  => fixed
+
+Comment:
+
+ Committed to branch 3.1 at r2721 and trunk at r2720.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/287#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Wed Nov 18 13:59:23 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed Nov 18 13:59:24 2009
+Subject: [geos-devel] Re: [GEOS] #287: Shouldn't GEOS 3.1 branch be bumped
+	to 3.1.2
+In-Reply-To: <044.f9261f7ac23ee8545825bf400eeb5957@osgeo.org>
+References: <044.f9261f7ac23ee8545825bf400eeb5957@osgeo.org>
+Message-ID: <053.acd49728c2fb2dae5789d6349e9ed1cd@osgeo.org>
+
+#287: Shouldn't GEOS 3.1 branch be bumped to 3.1.2
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  trivial     |    Milestone:  3.1.2                     
+Component:  Default     |      Version:  3.1.1                     
+ Severity:  Unassigned  |   Resolution:  fixed                     
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by pramsey):
+
+ Reversed the upgrade process a bit, bump up revision numbers *after*
+ release so that the repo version is always one higher than the release
+ version.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/287#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From hartmut.kaiser at gmail.com  Wed Nov 18 14:14:51 2009
+From: hartmut.kaiser at gmail.com (Hartmut Kaiser)
+Date: Wed Nov 18 14:15:05 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B0444B5.7020606@refractions.net>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>
+	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+	<4B0444B5.7020606@refractions.net>
+Message-ID: <4b0447b4.0f1abc0a.5989.1636@mx.google.com>
+
+> Thanks for clarifying this, Hartmut.  This makes good sense to me.  In
+> my (admittedly limited and dated) experience, the C/C++ heap allocator
+> (good ol' malloc still, right?) is pretty slow.  From what you're
+> saying
+> stack allocation is substantially faster.
+
+It's not that allocation is necessarily slow it's that GEOS is doing _a lot_ non-necessary allocations. And no allocation (putting the instances on the stack results in no allocation) is always faster than the fastest one available :-P
+
+> The kind of change you indicated should be fairly simple to make in the
+> GEOS codebase.
+
+Agreed.
+
+> I'd be interested to see how widespread this actually is.  Many of the
+> structures that JTS/GEOS creates during processing are shared across
+> multiple methods and classes.  I suppose this doesn't preclude using
+> stack-based allocation, but mightn't it require passing more references
+> down into function calls?
+
+Sharing is certainly a bit trickier this way, but allocating on the stack helps defining proper ownership of the data.
+
+Regards Hartmut
+
+-------------------
+Meet me at BoostCon
+http://boostcon.com
+
+
+
+From mbdavis at refractions.net  Wed Nov 18 17:38:14 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 17:29:31 2009
+Subject: [Fwd: Re: [geos-devel] Benchmark between various geometry libraries]
+Message-ID: <4B047756.2040808@refractions.net>
+
+Hartmut Kaiser wrote:
+>>     
+>
+> It's not that allocation is necessarily slow 
+Well, compared to the JVM it is.  Java is amazingly fast at allocating 
+objects. 
+
+>
+> Sharing is certainly a bit trickier this way, but allocating on the stack helps defining proper ownership of the data.
+>   
+For better or worse, JTS/GEOS already has well-defined sharing 
+policies.  Performance-wise, it's probably for worse (in C land) - many 
+of the intermediate data structures are designed to be usable on their 
+own - which means that their components are shared.  And since they are 
+mostly dynamic in nature, I think this implies that their component 
+objects need to be heap allocated, correct?
+
+Actually, I'm a bit puzzled by your code example.  If I understand it, 
+you say that
+
+{
+       vector<bla> v;
+       // use v
+   }
+
+results on stack-only memory usage.  But aren't vectors dynamically 
+sized?  Doesn't the dynamically created memory get allocated from the 
+heap? 
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+
+
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From pramsey at cleverelephant.ca  Wed Nov 18 17:59:41 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed Nov 18 17:59:43 2009
+Subject: [Fwd: Re: [geos-devel] Benchmark between various geometry 
+	libraries]
+In-Reply-To: <4B047756.2040808@refractions.net>
+References: <4B047756.2040808@refractions.net>
+Message-ID: <30fe546d0911181459w615ecd98k2f7ad17a9800c22@mail.gmail.com>
+
+I got within a hair of stuffing GEOS into the PgSQL palloc/pfree
+memory pool last year, which would have dramatically reduced memory
+allocation costs. I could probably make it work this year, since the
+thread-safety improvements have, I think, removed the last little
+leaky bit I could stuff inside (a statically defined geometry
+factory). By the same token, we could probably bolt GEOS onto a memory
+pool implementation from APR or somewhere else and see how much things
+change.
+
+P.
+
+On Wed, Nov 18, 2009 at 2:38 PM, Martin Davis <mbdavis@refractions.net> wrote:
+> Hartmut Kaiser wrote:
+>>>
+>>>
+>>
+>> It's not that allocation is necessarily slow
+>
+> Well, compared to the JVM it is. ?Java is amazingly fast at allocating
+> objects.
+>>
+>> Sharing is certainly a bit trickier this way, but allocating on the stack
+>> helps defining proper ownership of the data.
+>>
+>
+> For better or worse, JTS/GEOS already has well-defined sharing policies.
+> ?Performance-wise, it's probably for worse (in C land) - many of the
+> intermediate data structures are designed to be usable on their own - which
+> means that their components are shared. ?And since they are mostly dynamic
+> in nature, I think this implies that their component objects need to be heap
+> allocated, correct?
+>
+> Actually, I'm a bit puzzled by your code example. ?If I understand it, you
+> say that
+>
+> {
+> ? ? ?vector<bla> v;
+> ? ? ?// use v
+> ?}
+>
+> results on stack-only memory usage. ?But aren't vectors dynamically sized?
+> ?Doesn't the dynamically created memory get allocated from the heap?
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+>
+>
+>
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From mbdavis at refractions.net  Wed Nov 18 19:33:04 2009
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed Nov 18 19:24:20 2009
+Subject: [Fwd: Re: [geos-devel] Benchmark between various geometry
+	libraries]
+In-Reply-To: <30fe546d0911181459w615ecd98k2f7ad17a9800c22@mail.gmail.com>
+References: <4B047756.2040808@refractions.net>
+	<30fe546d0911181459w615ecd98k2f7ad17a9800c22@mail.gmail.com>
+Message-ID: <4B049240.6060602@refractions.net>
+
+It would be very interesting to see how this affects performance, for sure.
+
+Paul Ramsey wrote:
+> I got within a hair of stuffing GEOS into the PgSQL palloc/pfree
+> memory pool last year, which would have dramatically reduced memory
+> allocation costs. I could probably make it work this year, since the
+> thread-safety improvements have, I think, removed the last little
+> leaky bit I could stuff inside (a statically defined geometry
+> factory). By the same token, we could probably bolt GEOS onto a memory
+> pool implementation from APR or somewhere else and see how much things
+> change.
+>
+> P.
+>
+> On Wed, Nov 18, 2009 at 2:38 PM, Martin Davis <mbdavis@refractions.net> wrote:
+>   
+>> Hartmut Kaiser wrote:
+>>     
+>>>>         
+>>> It's not that allocation is necessarily slow
+>>>       
+>> Well, compared to the JVM it is.  Java is amazingly fast at allocating
+>> objects.
+>>     
+>>> Sharing is certainly a bit trickier this way, but allocating on the stack
+>>> helps defining proper ownership of the data.
+>>>
+>>>       
+>> For better or worse, JTS/GEOS already has well-defined sharing policies.
+>>  Performance-wise, it's probably for worse (in C land) - many of the
+>> intermediate data structures are designed to be usable on their own - which
+>> means that their components are shared.  And since they are mostly dynamic
+>> in nature, I think this implies that their component objects need to be heap
+>> allocated, correct?
+>>
+>> Actually, I'm a bit puzzled by your code example.  If I understand it, you
+>> say that
+>>
+>> {
+>>      vector<bla> v;
+>>      // use v
+>>  }
+>>
+>> results on stack-only memory usage.  But aren't vectors dynamically sized?
+>>  Doesn't the dynamically created memory get allocated from the heap?
+>> --
+>> Martin Davis
+>> Senior Technical Architect
+>> Refractions Research, Inc.
+>> (250) 383-3022
+>>
+>>
+>>
+>>
+>> --
+>> Martin Davis
+>> Senior Technical Architect
+>> Refractions Research, Inc.
+>> (250) 383-3022
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>>     
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From hartmut.kaiser at gmail.com  Wed Nov 18 19:39:04 2009
+From: hartmut.kaiser at gmail.com (Hartmut Kaiser)
+Date: Wed Nov 18 19:39:26 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B04714D.9030600@refractions.net>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>
+	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+	<4B0444B5.7020606@refractions.net>
+	<4b0447b4.0f1abc0a.5989.1636@mx.google.com>
+	<4B04714D.9030600@refractions.net>
+Message-ID: <4b0493b0.8702be0a.2046.0155@mx.google.com>
+
+Sorry sent to Martin only...
+
+> > It's not that allocation is necessarily slow
+> Well, compared to the JVM it is.  Java is amazingly fast at allocating
+> objects.
+
+Well, as both allocators the one in JVM and the one used by the C++ compiler is probably written in C or C++ I don't see why Java should be soo much faster when it comes to allocating objects :-P
+
+> > Sharing is certainly a bit trickier this way, but allocating on the
+> stack helps defining proper ownership of the data.
+> >
+> For better or worse, JTS/GEOS already has well-defined sharing
+> policies.  Performance-wise, it's probably for worse (in C land) - many
+> of the intermediate data structures are designed to be usable on their
+> own - which means that their components are shared.  And since they are
+> mostly dynamic in nature, I think this implies that their component
+> objects need to be heap allocated, correct?
+
+Well, I'm too ignorant wrt GEOS to give a definitive answer, sorry. But it sounds right.
+
+> Actually, I'm a bit puzzled by your code example.  If I understand it,
+> you say that
+> 
+>  {
+>         vector<bla> v;
+>         // use v
+>     }
+> 
+> results on stack-only memory usage.  But aren't vectors dynamically
+> sized?  Doesn't the dynamically created memory get allocated from the
+> heap?
+
+The vector internally will allocate from the heap, yes, but the vector itself doesn't have to be allocated this way. If you avoid that you just remove half of the memory allocations...
+
+Regards Hartmut
+
+-------------------
+Meet me at BoostCon
+http://boostcon.com
+
+
+
+From maxime at altribe.org  Thu Nov 19 06:25:29 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Thu Nov 19 06:29:10 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4b0493b0.8702be0a.2046.0155@mx.google.com>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>	<4B0444B5.7020606@refractions.net>	<4b0447b4.0f1abc0a.5989.1636@mx.google.com>	<4B04714D.9030600@refractions.net>
+	<4b0493b0.8702be0a.2046.0155@mx.google.com>
+Message-ID: <4B052B29.9090801@altribe.org>
+
+Hartmut Kaiser wrote:
+> Well, as both allocators the one in JVM and the one used by the C++ compiler is probably written in C or C++ I don't see why Java should be soo much faster when it comes to allocating objects :-P
+
+It's not that the allocator is faster but that the JVM has a pool of
+preallocated space and objects that it can use and reuse, therefore
+being much faster in long-term runs.
+
+> The vector internally will allocate from the heap, yes, but the vector itself doesn't have to be allocated this way. If you avoid that you just remove half of the memory allocations...
+
+And more than that : the vector will use the allocators smartly which
+means you won't have N allocations for N push_backs on the vector (there
+will be a slight memory overhead though, which makes vector of vectors
+less interesting).
+
+-- 
+Maxime
+From strk at keybit.net  Thu Nov 19 10:51:38 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 19 10:53:59 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B0444B5.7020606@refractions.net>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+	<4B042C53.2050509@altribe.org> <4B04315D.7090506@refractions.net>
+	<4B043239.5000009@refractions.net>
+	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+	<4B0444B5.7020606@refractions.net>
+Message-ID: <20091119155138.GB22298@keybit.net>
+
+On Wed, Nov 18, 2009 at 11:02:13AM -0800, Martin Davis wrote:
+> Thanks for clarifying this, Hartmut.  This makes good sense to me.  In 
+> my (admittedly limited and dated) experience, the C/C++ heap allocator 
+> (good ol' malloc still, right?) is pretty slow.  From what you're saying 
+> stack allocation is substantially faster.
+> 
+> The kind of change you indicated should be fairly simple to make in the 
+> GEOS codebase.
+
+I occasionally did rounds of such cleanups, but I think more time is spent
+in copying read-only coordinates for the sake of memory management
+while the JTS counterpart passes pointers around and delegates memory management
+to the garbage collector.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From maxime at altribe.org  Thu Nov 19 11:16:53 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Thu Nov 19 11:20:37 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <20091119155138.GB22298@keybit.net>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>	<4B0444B5.7020606@refractions.net>
+	<20091119155138.GB22298@keybit.net>
+Message-ID: <4B056F75.4020701@altribe.org>
+
+strk wrote:
+> I occasionally did rounds of such cleanups, but I think more time is spent
+> in copying read-only coordinates for the sake of memory management
+> while the JTS counterpart passes pointers around and delegates memory management
+> to the garbage collector.
+
+Indeed there are not that much containers heap-allocated. Though some
+might be in performance sensitive areas (AbstractNode ? BufferBuilder ?).
+
+> ~/dev/geos/trunk $ grep 'new std' `find . -iname '*.cpp'`
+> ./capi/geos_ts_c.cpp:        std::vector<Geometry*>* vgeoms = new std::vector<Geometry*>(geoms, geoms + ngeoms);
+> ./capi/geos_ts_c.cpp:        std::vector<Geometry*> *polyvec = new std::vector<Geometry *>(polys->size());
+> ./capi/geos_ts_c.cpp:        std::vector<Geometry*> *linevec = new std::vector<Geometry *>(lines->size());
+> ./capi/geos_ts_c.cpp:        std::vector<Geometry *>*geoms = new std::vector<Geometry *>(lines->size());
+> ./capi/geos_ts_c.cpp:        std::vector<Geometry *> *vholes = new std::vector<Geometry *>(holes, holes + nholes);
+> ./tests/unit/geom/CoordinateListTest.cpp:               std::auto_ptr< std::vector<Coordinate> > col( new std::vector<Coordinate>() );
+> ./tests/unit/geom/CoordinateArraySequenceTest.cpp:              std::vector<Coordinate>* col = new std::vector<Coordinate>();
+> ./tests/unit/geom/CoordinateArraySequenceTest.cpp:              std::vector<Coordinate>* col = new std::vector<Coordinate>();
+> ./tests/unit/geom/CoordinateArraySequenceTest.cpp:              std::vector<Coordinate>* col = new std::vector<Coordinate>();
+> ./tests/unit/geom/CoordinateArraySequenceTest.cpp:              std::vector<Coordinate>* col = new std::vector<Coordinate>();
+> ./tests/unit/geom/GeometryFactoryTest.cpp:              std::vector<GeometryPtr>* vec = new std::vector<GeometryPtr>();
+> ./tests/unit/geom/GeometryFactoryTest.cpp:              std::vector<GeometryPtr>* vec = new std::vector<GeometryPtr>();
+> ./tests/unit/geom/GeometryFactoryTest.cpp:              std::vector<GeometryPtr>* lines = new std::vector<GeometryPtr>();
+> ./tests/unit/geom/CoordinateArraySequenceFactoryTest.cpp:                       std::vector<Coordinate>* col = new std::vector<Coordinate>();
+> ./tests/unit/geom/CoordinateArraySequenceFactoryTest.cpp:                       std::vector<Coordinate>* col = new std::vector<Coordinate>();
+> ./tests/xmltester/XMLTester.cpp:                        std::vector<geom::Geometry *>*newgeoms = new std::vector<geom::Geometry *>;
+> ./tests/xmltester/XMLTester.cpp:                        std::vector<geom::Geometry *>*newgeoms = new std::vector<geom::Geometry *>(lines->begin(),
+> ./source/index/strtree/AbstractNode.cpp:        childBoundables=new std::vector<Boundable*>();
+> ./source/operation/polygonize/PolygonizeGraph.cpp:                              intNodes=new std::vector<Node*>();
+> ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<EdgeRing*> *edgeRingList=new std::vector<EdgeRing*>();
+> ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<PolygonizeDirectedEdge*> *edgeRingStarts=new std::vector<PolygonizeDirectedEdge*>();
+> ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<const LineString*> *cutLines=new std::vector<const LineString*>();
+> ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<DirectedEdge*> *edges=new std::vector<DirectedEdge*>();
+> ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<const LineString*> *dangleLines=new std::vector<const LineString*>();
+> ./source/operation/buffer/BufferBuilder.cpp:      new std::vector< Geometry * >();
+> ./source/operation/buffer/BufferBuilder.cpp:   std::vector< Geometry* >* mergedLinesGeom = new std::vector< Geometry* >();
+> ./source/operation/valid/ConnectedInteriorTester.cpp:   std::vector<EdgeRing*> *edgeRings=new std::vector<EdgeRing*>();
+> ./source/geomgraph/DirectedEdgeStar.cpp:        resultAreaEdgeList=new std::vector<DirectedEdge*>();
+> ./source/noding/MCIndexSegmentSetMutualIntersector.cpp::        monoChains( new std::vector<index::chain::MonotoneChain *>()),
+> ./source/planargraph/Node.cpp:  std::vector<Edge*>* commonEdges = new std::vector<Edge*>();
+
+-- 
+Maxime
+From Barend.Gehrels at geodan.nl  Thu Nov 19 12:13:08 2009
+From: Barend.Gehrels at geodan.nl (Barend Gehrels)
+Date: Thu Nov 19 12:13:20 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B04310F.3080401@altribe.org>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>	<30fe546d0911180932n275f74c2ub0dcbd40cb0d660d@mail.gmail.com>	<30fe546d0911180933j53023cf6ja5a8afc79257027c@mail.gmail.com>
+	<4B04310F.3080401@altribe.org>
+Message-ID: <4B057CA4.1040907@geodan.nl>
+
+Hi,
+
+I don't want to mingle in this discussion but on this point:
+
+
+> However given the geos implementation :
+>
+> https://svn.boost.org/svn/boost/sandbox/ggl/other/comparison_star_comb/geos/geos_starcomb.cpp
+>
+>
+> It shouldn't be hard to write a similar JTS test. I never developed in
+> Java though, so I am of little help here.
+>   
+Someone of my company ported the benchmark (not the starcomb, but the 
+one comparing different algorithms) to JTS a month ago.
+
+I just committed it to the SVN at boost, to avoid the same work being 
+done twice. With help of this the starcomb test might be ported more easily.
+
+
+Regards, Barend
+
+
+
+From chapmanm at pixia.com  Thu Nov 19 12:19:50 2009
+From: chapmanm at pixia.com (Martin Chapman)
+Date: Thu Nov 19 12:19:51 2009
+Subject: FW: [geos-devel] Benchmark between various geometry libraries
+Message-ID: <67DBC93B5D514C918428B499F5307764@chapmanm64>
+
+One typo on last email:
+
+COOORD** coords = new*[numCoordinates];
+
+Should have been:
+
+COOORD** coords = new COOORD*[numCoordinates];
+
+Martin
+
+
+-----Original Message-----
+From: Martin Chapman [mailto:chapmanm@pixia.com] 
+Sent: Thursday, November 19, 2009 10:14 AM
+To: 'GEOS Development List'
+Subject: RE: [geos-devel] Benchmark between various geometry libraries
+
+Food for thought:
+
+Stl vectors are not good for storing coordinates, pixel values, etc.  They
+are extremely slow compared to an array of structs like:
+
+COOORD** coords = new*[numCoordinates];
+
+I used vectors for storing pixel values a long time ago and found that
+looping through the values was super slow.  Then I created my own vector
+class that used an internal array similar to the one above.  Performance was
+awesome after the change.  I would suggest creating your own vector class
+that resembled the stl vector and use that one instead.  Or, just use raw
+arrays.  Allocation will be fast as well.
+
+Also, I noticed a long time ago that GEOS passes these vectors around to
+functions by value versus by reference.  That means the vector is getting
+copied a lot.  I don't know if this has changed since then but that would be
+a performance killer as well.
+
+Just a thought...
+
+Martin
+
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org
+[mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+Sent: Thursday, November 19, 2009 8:52 AM
+To: GEOS Development List
+Subject: Re: [geos-devel] Benchmark between various geometry libraries
+
+On Wed, Nov 18, 2009 at 11:02:13AM -0800, Martin Davis wrote:
+> Thanks for clarifying this, Hartmut.  This makes good sense to me.  In 
+> my (admittedly limited and dated) experience, the C/C++ heap allocator 
+> (good ol' malloc still, right?) is pretty slow.  From what you're saying 
+> stack allocation is substantially faster.
+> 
+> The kind of change you indicated should be fairly simple to make in the 
+> GEOS codebase.
+
+I occasionally did rounds of such cleanups, but I think more time is spent
+in copying read-only coordinates for the sake of memory management
+while the JTS counterpart passes pointers around and delegates memory
+management
+to the garbage collector.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From chapmanm at pixia.com  Thu Nov 19 12:14:17 2009
+From: chapmanm at pixia.com (Martin Chapman)
+Date: Thu Nov 19 12:23:23 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <20091119155138.GB22298@keybit.net>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net><4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net><4B043239.5000009@refractions.net><4b043b0f.0e1abc0a.228c.14cf@mx.google.com><4B0444B5.7020606@refractions.net>
+	<20091119155138.GB22298@keybit.net>
+Message-ID: <3DC75281E2DE4C85BD59A2DB15974904@chapmanm64>
+
+Food for thought:
+
+Stl vectors are not good for storing coordinates, pixel values, etc.  They
+are extremely slow compared to an array of structs like:
+
+COOORD** coords = new*[numCoordinates];
+
+I used vectors for storing pixel values a long time ago and found that
+looping through the values was super slow.  Then I created my own vector
+class that used an internal array similar to the one above.  Performance was
+awesome after the change.  I would suggest creating your own vector class
+that resembled the stl vector and use that one instead.  Or, just use raw
+arrays.  Allocation will be fast as well.
+
+Also, I noticed a long time ago that GEOS passes these vectors around to
+functions by value versus by reference.  That means the vector is getting
+copied a lot.  I don't know if this has changed since then but that would be
+a performance killer as well.
+
+Just a thought...
+
+Martin
+
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org
+[mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+Sent: Thursday, November 19, 2009 8:52 AM
+To: GEOS Development List
+Subject: Re: [geos-devel] Benchmark between various geometry libraries
+
+On Wed, Nov 18, 2009 at 11:02:13AM -0800, Martin Davis wrote:
+> Thanks for clarifying this, Hartmut.  This makes good sense to me.  In 
+> my (admittedly limited and dated) experience, the C/C++ heap allocator 
+> (good ol' malloc still, right?) is pretty slow.  From what you're saying 
+> stack allocation is substantially faster.
+> 
+> The kind of change you indicated should be fairly simple to make in the 
+> GEOS codebase.
+
+I occasionally did rounds of such cleanups, but I think more time is spent
+in copying read-only coordinates for the sake of memory management
+while the JTS counterpart passes pointers around and delegates memory
+management
+to the garbage collector.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From hartmut.kaiser at gmail.com  Thu Nov 19 12:43:32 2009
+From: hartmut.kaiser at gmail.com (Hartmut Kaiser)
+Date: Thu Nov 19 12:43:53 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <3DC75281E2DE4C85BD59A2DB15974904@chapmanm64>
+References: <4B03EDDA.7020507@altribe.org>	<4B042704.1080807@refractions.net><4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net><4B043239.5000009@refractions.net><4b043b0f.0e1abc0a.228c.14cf@mx.google.com><4B0444B5.7020606@refractions.net>	<20091119155138.GB22298@keybit.net>
+	<3DC75281E2DE4C85BD59A2DB15974904@chapmanm64>
+Message-ID: <4b0583d6.0d1abc0a.45ff.1daf@mx.google.com>
+
+> Food for thought:
+> 
+> Stl vectors are not good for storing coordinates, pixel values, etc.
+> They
+> are extremely slow compared to an array of structs like:
+> 
+> COOORD** coords = new*[numCoordinates];
+> 
+> I used vectors for storing pixel values a long time ago and found that
+> looping through the values was super slow.  Then I created my own
+> vector
+> class that used an internal array similar to the one above.
+> Performance was
+> awesome after the change.  I would suggest creating your own vector
+> class
+> that resembled the stl vector and use that one instead.  Or, just use
+> raw
+> arrays.  Allocation will be fast as well.
+> 
+> Also, I noticed a long time ago that GEOS passes these vectors around
+> to
+> functions by value versus by reference.  That means the vector is
+> getting
+> copied a lot.  I don't know if this has changed since then but that
+> would be
+> a performance killer as well.
+> 
+> Just a thought...
+
+a) It is known that the abstraction penalty to be paid for using vectors
+over plain arrays if properly used is in the range of 1-2% (see here:
+http://tinyurl.com/yhca3kd, look for 'release build with _SECURE_SCL
+disabled' to see the evidence, others have verified those results using
+other compilers). It's hardly worth removing the use of vectors to gain 1-2%
+in performance if the difference in performance between GEOS and GGL is in
+the order of magnitudes. Even more as GGL uses vectors extensively as well. 
+
+b) allocation cost for plain arrays would not be smaller than if using
+vectors properly
+
+c) exception safety would be much more difficult to achieve if compared to
+properly used vectors.
+
+d) passing vectors by value (or returning those from functions) is certainly
+a performance killer, indeed, this should be changed to passing by
+const&/non-const&.
+
+Regards Hartmut
+
+-------------------
+Meet me at BoostCon
+http://boostcon.com
+
+> 
+> Martin
+> 
+> 
+> -----Original Message-----
+> From: geos-devel-bounces@lists.osgeo.org
+> [mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+> Sent: Thursday, November 19, 2009 8:52 AM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Benchmark between various geometry libraries
+> 
+> On Wed, Nov 18, 2009 at 11:02:13AM -0800, Martin Davis wrote:
+> > Thanks for clarifying this, Hartmut.  This makes good sense to me.
+> In
+> > my (admittedly limited and dated) experience, the C/C++ heap
+> allocator
+> > (good ol' malloc still, right?) is pretty slow.  From what you're
+> saying
+> > stack allocation is substantially faster.
+> >
+> > The kind of change you indicated should be fairly simple to make in
+> the
+> > GEOS codebase.
+> 
+> I occasionally did rounds of such cleanups, but I think more time is
+> spent
+> in copying read-only coordinates for the sake of memory management
+> while the JTS counterpart passes pointers around and delegates memory
+> management
+> to the garbage collector.
+> 
+> --strk;
+> 
+>  Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+>  http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Thu Nov 19 16:32:07 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 19 16:32:11 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B056F75.4020701@altribe.org>
+References: <4B03EDDA.7020507@altribe.org> <4B042704.1080807@refractions.net>
+	<4B042C53.2050509@altribe.org> <4B04315D.7090506@refractions.net>
+	<4B043239.5000009@refractions.net>
+	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+	<4B0444B5.7020606@refractions.net>
+	<20091119155138.GB22298@keybit.net> <4B056F75.4020701@altribe.org>
+Message-ID: <20091119213207.GD22298@keybit.net>
+
+On Thu, Nov 19, 2009 at 05:16:53PM +0100, Maxime van Noppen wrote:
+
+> > ~/dev/geos/trunk $ grep 'new std' `find . -iname '*.cpp'`
+
+Thanks for another couple of eyes (see below for comment/fixes).
+
+> > ./capi/geos_ts_c.cpp:        std::vector<Geometry*>* vgeoms = new std::vector<Geometry*>(geoms, geoms + ngeoms);
+[...]
+> > ./capi/geos_ts_c.cpp:        std::vector<Geometry *> *vholes = new std::vector<Geometry *>(holes, holes + nholes);
+
+The above are heap-allocated to transfer their ownership to the collection
+constructed with them. Should be auto_ptr for clarity and exception safety
+(GeometryFactory interface needs to be extended to allow that).
+
+> > ./tests/unit/geom/CoordinateListTest.cpp:               std::auto_ptr< std::vector<Coordinate> > col( new std::vector<Coordinate>() );
+[...]
+> > ./tests/xmltester/XMLTester.cpp:                        std::vector<geom::Geometry *>*newgeoms = new std::vector<geom::Geometry *>(lines->begin(),
+
+Tests, not much important.
+
+> > ./source/index/strtree/AbstractNode.cpp:        childBoundables=new std::vector<Boundable*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2724
+
+> > ./source/operation/polygonize/PolygonizeGraph.cpp:                              intNodes=new std::vector<Node*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2725
+
+> > ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<EdgeRing*> *edgeRingList=new std::vector<EdgeRing*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2726
+(this is a C++ API change but of an "internal" class)
+
+> > ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<PolygonizeDirectedEdge*> *edgeRingStarts=new std::vector<PolygonizeDirectedEdge*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2727
+
+> > ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<const LineString*> *cutLines=new std::vector<const LineString*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2728
+... just moving the heap allocation closer to the surface,
+will need a second pass ...
+
+> > ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<DirectedEdge*> *edges=new std::vector<DirectedEdge*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2729
+
+> > ./source/operation/polygonize/PolygonizeGraph.cpp:      std::vector<const LineString*> *dangleLines=new std::vector<const LineString*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2730
+... just moving the heap allocation closer to the surface,
+will need a second pass ...
+
+> > ./source/operation/buffer/BufferBuilder.cpp:      new std::vector< Geometry * >();
+> > ./source/operation/buffer/BufferBuilder.cpp:   std::vector< Geometry* >* mergedLinesGeom = new std::vector< Geometry* >();
+
+Constructive again, should be auto_ptr when GeometryFactory is ready
+
+
+> > ./source/operation/valid/ConnectedInteriorTester.cpp:   std::vector<EdgeRing*> *edgeRings=new std::vector<EdgeRing*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2731
+
+> > ./source/geomgraph/DirectedEdgeStar.cpp:        resultAreaEdgeList=new std::vector<DirectedEdge*>();
+
+This is for lazy creation, will only be called once per instance,
+could be changed by adding a flag to remember whether processing
+happened already, but I don't think it will change things much.
+
+> > ./source/noding/MCIndexSegmentSetMutualIntersector.cpp::        monoChains( new std::vector<index::chain::MonotoneChain *>()),
+
+Fixed by http://trac.osgeo.org/geos/changeset/2732
+
+> > ./source/planargraph/Node.cpp:  std::vector<Edge*>* commonEdges = new std::vector<Edge*>();
+
+This is in a method marked as UNUSED
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From strk at keybit.net  Thu Nov 19 16:34:27 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 19 16:34:30 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <3DC75281E2DE4C85BD59A2DB15974904@chapmanm64>
+References: <4B03EDDA.7020507@altribe.org> <20091119155138.GB22298@keybit.net>
+	<3DC75281E2DE4C85BD59A2DB15974904@chapmanm64>
+Message-ID: <20091119213427.GE22298@keybit.net>
+
+On Thu, Nov 19, 2009 at 10:14:17AM -0700, Martin Chapman wrote:
+
+> Also, I noticed a long time ago that GEOS passes these vectors around to
+> functions by value versus by reference.  That means the vector is getting
+> copied a lot.  I don't know if this has changed since then but that would be
+> a performance killer as well.
+
+Vectors are no more passed by value.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From chapmanm at pixia.com  Thu Nov 19 16:36:30 2009
+From: chapmanm at pixia.com (Martin Chapman)
+Date: Thu Nov 19 16:36:32 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <20091119213427.GE22298@keybit.net>
+References: <4B03EDDA.7020507@altribe.org>
+	<20091119155138.GB22298@keybit.net><3DC75281E2DE4C85BD59A2DB15974904@chapmanm64>
+	<20091119213427.GE22298@keybit.net>
+Message-ID: <3076378D6F284265B7125516C946E1A2@chapmanm64>
+
+For my own knowledge, did you see a decent performance gain when you made
+the change or was it only a small increase in speed?
+
+Martin
+
+-----Original Message-----
+From: geos-devel-bounces@lists.osgeo.org
+[mailto:geos-devel-bounces@lists.osgeo.org] On Behalf Of strk
+Sent: Thursday, November 19, 2009 2:34 PM
+To: GEOS Development List
+Subject: Re: [geos-devel] Benchmark between various geometry libraries
+
+On Thu, Nov 19, 2009 at 10:14:17AM -0700, Martin Chapman wrote:
+
+> Also, I noticed a long time ago that GEOS passes these vectors around to
+> functions by value versus by reference.  That means the vector is getting
+> copied a lot.  I don't know if this has changed since then but that would
+be
+> a performance killer as well.
+
+Vectors are no more passed by value.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Thu Nov 19 16:41:26 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 19 16:41:48 2009
+Subject: [geos-devel] Re: autogen.bat
+In-Reply-To: <4B032ECC.8000804@loskot.net>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+	<BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+	<20091117202408.GH97137@keybit.net>
+	<20091117203228.GI97137@keybit.net> <4B032ECC.8000804@loskot.net>
+Message-ID: <20091119214126.GF22298@keybit.net>
+
+On Tue, Nov 17, 2009 at 11:16:28PM +0000, Mateusz Loskot wrote:
+
+> I assumed that GEOS distribution is supposed to already
+> provide generated and valid version.h and platform.h and geos_c.h
+
+Uhm, those are distributed indeed.
+
+Regina, do you still need autogen.bat to complete a build out-of-the-box ?
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From strk at keybit.net  Thu Nov 19 17:05:31 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 19 17:05:33 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <3076378D6F284265B7125516C946E1A2@chapmanm64>
+References: <4B03EDDA.7020507@altribe.org> <20091119213427.GE22298@keybit.net>
+	<3076378D6F284265B7125516C946E1A2@chapmanm64>
+Message-ID: <20091119220530.GJ22298@keybit.net>
+
+On Thu, Nov 19, 2009 at 02:36:30PM -0700, Martin Chapman wrote:
+> For my own knowledge, did you see a decent performance gain when you made
+> the change or was it only a small increase in speed?
+
+Generally speaking, the biggest performance gains I've ever seen
+in GEOS had origin in algorithmical changes.
+Always driven by JTS code.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From robe.dnd at cityofboston.gov  Thu Nov 19 22:23:48 2009
+From: robe.dnd at cityofboston.gov (Obe, Regina)
+Date: Thu Nov 19 22:30:05 2009
+Subject: [geos-devel] RE: {SPAM: 40} :Re: autogen.bat
+In-Reply-To: <20091119214126.GF22298@keybit.net>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+	<BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+	<20091117202408.GH97137@keybit.net> <20091117203228.GI97137@keybit.net>
+	<4B032ECC.8000804@loskot.net>,<20091119214126.GF22298@keybit.net>
+Message-ID: <BD3A1BBF51D14C47B26207A076699482273942867A@XCCMS2.cityhall.boston.cob>
+
+Those only work for Linux boxes I think.  So I had to download the autoexec.bat and run that against my tar download to get it to compile under VS 2008 C++ Express.  I'll have to try with the solution files on my other box as I don't recall ever having to do this before.  Then again in prior versions the tar ball was broken so wouldn't compile under VS anyway so I always had to use subversion version.
+
+The frustrations of being a citizen of the evil empire :)
+
+Thanks,
+Regina
+
+________________________________________
+From: strk [strk@keybit.net]
+Sent: Thursday, November 19, 2009 4:41 PM
+To: Mateusz Loskot; Obe, Regina
+Cc: GEOS Development List
+Subject: {SPAM: 40} :Re: autogen.bat
+
+On Tue, Nov 17, 2009 at 11:16:28PM +0000, Mateusz Loskot wrote:
+
+> I assumed that GEOS distribution is supposed to already
+> provide generated and valid version.h and platform.h and geos_c.h
+
+Uhm, those are distributed indeed.
+
+Regina, do you still need autogen.bat to complete a build out-of-the-box ?
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+-----------------------------------------
+The substance of this message, including any attachments, may be
+confidential, legally privileged and/or exempt from disclosure
+pursuant to Massachusetts law. It is intended
+solely for the addressee. If you received this in error, please
+contact the sender and delete the material from any computer.
+From maxime at altribe.org  Fri Nov 20 04:54:58 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Fri Nov 20 12:27:31 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <20091119213207.GD22298@keybit.net>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>	<4B0444B5.7020606@refractions.net>	<20091119155138.GB22298@keybit.net>
+	<4B056F75.4020701@altribe.org> <20091119213207.GD22298@keybit.net>
+Message-ID: <4B066772.5070608@altribe.org>
+
+strk wrote:
+> Thanks for another couple of eyes (see below for comment/fixes).
+
+Great work !
+
+-- 
+Maxime
+From maxime at altribe.org  Fri Nov 20 12:42:53 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Fri Nov 20 12:46:44 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <20091119213207.GD22298@keybit.net>
+References: <4B03EDDA.7020507@altribe.org>
+	<4B042704.1080807@refractions.net>	<4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>	<4B0444B5.7020606@refractions.net>	<20091119155138.GB22298@keybit.net>
+	<4B056F75.4020701@altribe.org> <20091119213207.GD22298@keybit.net>
+Message-ID: <4B06D51D.7060103@altribe.org>
+
+strk wrote:
+> Thanks for another couple of eyes (see below for comment/fixes).
+
+I've got some bad news. :-)
+
+I looked for any 'new std::something' but I just found there are 'using
+namespace std;' in the code, and therefore we should also look for 'new
+something'. I found 120 'new vector' out of 656 'new something' :
+
+> yabo@xen ~/dev/geos/trunk $ grep -n 'new vector' `find . -iname '*.cpp'`
+> ./doc/example.cpp:297:  vector<Geometry *> *holes = new vector<Geometry *>;
+> ./doc/example.cpp:396:  vector<Geometry *> *geoms = new vector<Geometry *>;
+> ./doc/example.cpp:450:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:470:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:495:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:880:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:915:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:948:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:981:  newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:1019: newgeoms = new vector<Geometry *>;
+> ./doc/example.cpp:1043: newgeoms = new vector<Geometry *>;
+> ./tests/bigtest/bug234.cpp:17: vector< Geometry * > *polys1 = new vector<Geometry*>();
+> ./tests/bigtest/bug234.cpp:18: vector< Geometry * > *polys2 = new vector<Geometry*>();
+> ./tests/bigtest/bug234.cpp:19: vector< Geometry * > *holes1 = new vector<Geometry*>();
+> ./tests/bigtest/bug234.cpp:36: polys2->push_back( factory.createPolygon(factory.createLinearRing(coords2), new vector<Geometry*>) );
+> ./source/geom/GeometryFactory.cpp:238:          CoordinateSequence *cl=coordinateListFactory->create(new vector<Coordinate>(1, coordinate));
+> ./source/geom/GeometryFactory.cpp:288:  vector<Geometry *>*newGeoms = new vector<Geometry *>(fromLines.size());
+> ./source/geom/GeometryFactory.cpp:333:  vector<Geometry *> *newGeoms = new vector<Geometry *>(fromGeoms.size());
+> ./source/geom/GeometryFactory.cpp:368:  vector<Geometry *>*newGeoms = new vector<Geometry *>(fromPolys.size());
+> ./source/geom/GeometryFactory.cpp:429:  vector<Geometry *>*newGeoms = new vector<Geometry *>(fromPoints.size());
+> ./source/geom/GeometryFactory.cpp:460:  vector<Geometry *> *pts=new vector<Geometry *>;
+> ./source/geom/GeometryFactory.cpp:498:  vector<Geometry *>*newHoles = new vector<Geometry *>(holes.size());
+> ./source/geom/Geometry.cpp:567:         vector<Geometry *> *v = new vector<Geometry *>();
+> ./source/geom/MultiPolygon.cpp:69:      vector<Geometry *>* allRings=new vector<Geometry *>();
+> ./source/geom/Polygon.cpp:59:   holes=new vector<Geometry *>(nholes);
+> ./source/geom/Polygon.cpp:87:           holes=new vector<Geometry *>();
+> ./source/geom/Polygon.cpp:110:  vector<Coordinate> *cl = new vector<Coordinate>;
+> ./source/geom/Polygon.cpp:211:  vector<Geometry *> *rings = new vector<Geometry *>(holes->size()+1);
+> ./source/geom/CoordinateArraySequence.cpp:32:   vect(new vector<Coordinate>())
+> ./source/geom/CoordinateArraySequence.cpp:37:   vect(new vector<Coordinate>(n))
+> ./source/geom/CoordinateArraySequence.cpp:44:   if ( ! vect ) vect = new vector<Coordinate>();
+> ./source/geom/CoordinateArraySequence.cpp:51:   vect(new vector<Coordinate>(*(c.vect)))
+> ./source/geom/CoordinateArraySequence.cpp:70:   return vect; //new vector<Coordinate>(vect->begin(),vect->end());
+> ./source/geom/LineString.cpp:222:       vector<Geometry*> *pts=new vector<Geometry*>();
+> ./source/geom/LineSegment.cpp:186:              CoordinateSequence *cl=new CoordinateArraySequence(new vector<Coordinate>(2, intPt));
+> ./source/geom/LineSegment.cpp:195:      //vector<Coordinate> *cv = new vector<Coordinate>(2);
+> ./source/geom/util/GeometryEditor.cpp:117:      vector<Geometry*> *holes=new vector<Geometry*>;
+> ./source/geom/util/GeometryEditor.cpp:141:      vector<Geometry*> *geometries = new vector<Geometry*>();
+> ./source/geom/util/GeometryTransformer.cpp:154: vector<Geometry*>* transGeomList = new vector<Geometry*>();
+> ./source/geom/util/GeometryTransformer.cpp:227: vector<Geometry*>* transGeomList = new vector<Geometry*>();
+> ./source/geom/util/GeometryTransformer.cpp:272: vector<Geometry*>* holes = new vector<Geometry*>();
+> ./source/geom/util/GeometryTransformer.cpp:305:         vector<Geometry*>* components = new vector<Geometry*>();
+> ./source/geom/util/GeometryTransformer.cpp:331: auto_ptr< vector<Geometry*> > transGeomList( new vector<Geometry*>() );
+> ./source/geom/util/GeometryTransformer.cpp:362: vector<Geometry*>* transGeomList = new vector<Geometry*>();
+> ./source/geom/CoordinateSequence.cpp:253:       vector<Coordinate> *nv=new vector<Coordinate>;
+> ./source/geom/GeometryCollection.cpp:52:        geometries=new vector<Geometry *>(ngeoms);
+> ./source/geom/GeometryCollection.cpp:64:                geometries=new vector<Geometry *>();
+> ./source/geom/GeometryCollection.cpp:83:        vector<Coordinate> *coordinates = new vector<Coordinate>(getNumPoints());
+> ./source/index/quadtree/Quadtree.cpp:129:       vector<void*> *foundItems=new vector<void*>();
+> ./source/index/chain/MonotoneChainBuilder.cpp:49:       vector<MonotoneChain*>* mcList = new vector<MonotoneChain*>();
+> ./source/index/bintree/NodeBase.cpp:47: items=new vector<void*>();
+> ./source/index/bintree/Bintree.cpp:114: vector<void*>* foundItems=new vector<void*>();
+> ./source/index/bintree/Bintree.cpp:131: vector<void*>* foundItems=new vector<void*>();
+> ./source/index/sweepline/SweepLineIndex.cpp:34: //events=new vector<SweepLineEvent*>();
+> ./source/index/strtree/STRtree.cpp:167: vector<BoundableList*>* slices = new vector<BoundableList*>(sliceCount);
+> ./source/operation/polygonize/Polygonizer.cpp:232:      polyList=new vector<Polygon*>();
+> ./source/operation/polygonize/Polygonizer.cpp:243:      vector<EdgeRing*> *validEdgeRingList=new vector<EdgeRing*>();
+> ./source/operation/polygonize/Polygonizer.cpp:244:      invalidRingLines=new vector<LineString*>();
+> ./source/operation/polygonize/Polygonizer.cpp:286:      holeList=new vector<EdgeRing*>();
+> ./source/operation/polygonize/Polygonizer.cpp:287:      shellList=new vector<EdgeRing*>();
+> ./source/operation/polygonize/EdgeRing.cpp:123: deList=new vector<const DirectedEdge*>();
+> ./source/operation/polygonize/EdgeRing.cpp:164:         holes=new vector<Geometry*>();
+> ./source/operation/overlay/LineBuilder.cpp:57:  //lineEdgesList(new vector<Edge *>()),
+> ./source/operation/overlay/LineBuilder.cpp:58:  resultLineList(new vector<LineString *>())
+> ./source/operation/overlay/MaximalEdgeRing.cpp:108:     vector<MinimalEdgeRing*> *minEdgeRings=new vector<MinimalEdgeRing*>;
+> ./source/operation/overlay/OverlayOp.cpp:624:   vector<Geometry*> *geomList=new vector<Geometry*>();
+> ./source/operation/overlay/OverlayOp.cpp:760:   resultPolyList=new vector<Polygon*>(gvsize);
+> ./source/operation/overlay/EdgeSetNoder.cpp:52: vector<Edge*> *splitEdges=new vector<Edge*>();
+> ./source/operation/overlay/PolygonBuilder.cpp:153:      vector<MaximalEdgeRing*> *maxEdgeRings=new vector<MaximalEdgeRing*>();
+> ./source/operation/overlay/PolygonBuilder.cpp:198:      vector<MaximalEdgeRing*> *edgeRings=new vector<MaximalEdgeRing*>();
+> ./source/operation/overlay/PolygonBuilder.cpp:386:      vector<Geometry*> *resultPolyList=new vector<Geometry*>();
+> ./source/operation/overlay/validate/OffsetPointGenerator.cpp:62:        offsetPts.reset(new vector<Coordinate>());
+> ./source/operation/overlay/validate/FuzzyPointLocator.cpp:66:   vector<Geometry*>* lineGeoms = new vector<Geometry*>();
+> ./source/operation/overlay/validate/FuzzyPointLocator.cpp:99:   vector<Geometry*>* lineGeoms = new vector<Geometry*>();
+> ./source/operation/overlay/validate/OverlayResultValidator.cpp:78:      auto_ptr< vector<Coordinate> > nc ( new vector<Coordinate>(coords) );
+> ./source/operation/distance/ConnectedElementLocationFilter.cpp:42:      vector<GeometryLocation*> *loc=new vector<GeometryLocation*>();
+> ./source/operation/distance/DistanceOp.cpp:229: minDistanceLocation = new vector<GeometryLocation*>(2);
+> ./source/operation/distance/DistanceOp.cpp:263: vector<GeometryLocation*> *locPtPoly = new vector<GeometryLocation*>(2);
+> ./source/operation/distance/ConnectedElementPointFilter.cpp:44: vector<const Coordinate*> *points=new vector<const Coordinate*>();
+> ./source/operation/linemerge/EdgeString.cpp:45: directedEdges(new vector<LineMergeDirectedEdge*>()),
+> ./source/operation/linemerge/LineMerger.cpp:120:        mergedLineStrings=new vector<LineString*>(numEdgeStrings);
+> ./source/operation/relate/EdgeEndBundle.cpp:44: edgeEnds=new vector<EdgeEnd*>();
+> ./source/operation/relate/EdgeEndBuilder.cpp:41:        vector<EdgeEnd*> *l=new vector<EdgeEnd*>();
+> ./source/io/WKBReader.cpp:354:                  holes = new vector<Geometry *>(numRings-1);
+> ./source/io/WKBReader.cpp:372:  vector<Geometry *> *geoms = new vector<Geometry *>(numGeoms);
+> ./source/io/WKBReader.cpp:399:  vector<Geometry *> *geoms = new vector<Geometry *>(numGeoms);
+> ./source/io/WKBReader.cpp:426:  vector<Geometry *> *geoms = new vector<Geometry *>(numGeoms);
+> ./source/io/WKBReader.cpp:453:  vector<Geometry *> *geoms = new vector<Geometry *>(numGeoms);
+> ./source/io/WKTReader.cpp:285:          vector<Geometry *> *points=new vector<Geometry *>();
+> ./source/io/WKTReader.cpp:349:  vector<Geometry *> *holes=new vector<Geometry *>();
+> ./source/io/WKTReader.cpp:374:  vector<Geometry *> *lineStrings=new vector<Geometry *>();
+> ./source/io/WKTReader.cpp:394:  vector<Geometry *> *polygons=new vector<Geometry *>();
+> ./source/io/WKTReader.cpp:414:  vector<Geometry *> *geoms=new vector<Geometry *>();
+> ./source/simplify/LineSegmentIndex.cpp:66:              items(new vector<LineSegment*>())
+> ./source/simplify/LineSegmentIndex.cpp:78:              items(new vector<LineSegment*>(*(o.items.get())))
+> ./source/simplify/LineSegmentIndex.cpp:86:              items.reset(new vector<LineSegment*>(*(o.items.get())));
+> ./source/geomgraph/index/SimpleSweepLineIntersector.cpp:34:     //events(new vector<SweepLineEvent*>()),
+> ./source/geomgraph/index/SimpleMCSweepLineIntersector.cpp:33:   //events(new vector<SweepLineEvent*>())
+> ./source/geomgraph/index/MonotoneChainIndexer.cpp:38:   //vector<int>* startIndexList=new vector<int>();
+> ./source/geomgraph/PlanarGraph.cpp:78:  edges(new vector<Edge*>()),
+> ./source/geomgraph/PlanarGraph.cpp:80:  edgeEndList(new vector<EdgeEnd*>())
+> ./source/geomgraph/PlanarGraph.cpp:87:  edges(new vector<Edge*>()),
+> ./source/geomgraph/PlanarGraph.cpp:89:  edgeEndList(new vector<EdgeEnd*>())
+> ./source/geomgraph/EdgeRing.cpp:184:    vector<Geometry *> *holeLR=new vector<Geometry *>(nholes);
+> ./source/geomgraph/TopologyLocation.cpp:72:     //location=new vector<int>(gl->location->begin(),gl->location->end());
+> ./source/geomgraph/EdgeIntersectionList.cpp:153:        vector<Coordinate> *vc=new vector<Coordinate>();
+> ./source/geomgraph/GeometryGraph.cpp:118:               boundaryNodes.reset(new vector<Node*>());
+> ./source/algorithm/ConvexHull.cpp:335://        vector<Coordinate> *ps=new vector<Coordinate>();
+> ./source/algorithm/ConvexHull.cpp:517://        vector<Coordinate> *newPts=new vector<Coordinate>;
+> ./source/algorithm/InteriorPointArea.cpp:145:   vector<Coordinate>*cv=new vector<Coordinate>(2);
+> ./source/examples/CustomPointCoordinateSequence.cpp:78: vector<Coordinate>* v=new vector<Coordinate>();
+> ./source/examples/CustomPointCoordinateSequence.cpp:86: vector<point_3d>* v=new vector<point_3d>();
+> ./source/util/GeometricShapeFactory.cpp:102:    vector<Coordinate> *vc = new vector<Coordinate>(4*nSide+1);
+> ./source/util/GeometricShapeFactory.cpp:143:    vector<Coordinate>*pts=new vector<Coordinate>(nPts+1);
+> ./source/util/GeometricShapeFactory.cpp:174:    vector<Coordinate> *pts = new vector<Coordinate>(nPts);
+> ./source/util/GeometricShapeFactory.cpp:203:    vector<Coordinate> *pts = new vector<Coordinate>(nPts + 2);
+> ./source/precision/SimpleGeometryPrecisionReducer.cpp:74:       vector<Coordinate> *vc = new vector<Coordinate>(csSize);
+> ./source/planargraph/DirectedEdge.cpp:46:       vector<Edge*> *edges=new vector<Edge*>();
+> ./source/planargraph/PlanarGraph.cpp:128:       vector<Node*> *nodesFound=new vector<Node*>();
+> ./source/planargraph/NodeMap.cpp:70:    vector<Node*> *values=new vector<Node*>();
+
+-- 
+Maxime
+From strk at keybit.net  Mon Nov 23 13:09:44 2009
+From: strk at keybit.net (strk)
+Date: Mon Nov 23 13:09:51 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <4B06D51D.7060103@altribe.org>
+References: <4B042704.1080807@refractions.net> <4B042C53.2050509@altribe.org>
+	<4B04315D.7090506@refractions.net>
+	<4B043239.5000009@refractions.net>
+	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>
+	<4B0444B5.7020606@refractions.net>
+	<20091119155138.GB22298@keybit.net> <4B056F75.4020701@altribe.org>
+	<20091119213207.GD22298@keybit.net> <4B06D51D.7060103@altribe.org>
+Message-ID: <20091123180944.GY22298@keybit.net>
+
+On Fri, Nov 20, 2009 at 06:42:53PM +0100, Maxime van Noppen wrote:
+
+> I looked for any 'new std::something' but I just found there are 'using
+> namespace std;' in the code, and therefore we should also look for 'new
+> something'. I found 120 'new vector' out of 656 'new something' :
+
+Yeah, I knew it :)
+
+> > ./doc/example.cpp:297:  vector<Geometry *> *holes = new vector<Geometry *>;
+> > ./tests/bigtest/bug234.cpp:17: vector< Geometry * > *polys1 = new vector<Geometry*>();
+
+Examples and tests we don't care...
+
+> > ./source/planargraph/NodeMap.cpp:70:    vector<Node*> *values=new vector<Node*>();
+
+Fixed by http://trac.osgeo.org/geos/changeset/2724
+ 
+> > ./source/geom/GeometryFactory.cpp:238:          CoordinateSequence *cl=coordinateListFactory->create(new vector<Coordinate>(1, coordinate));
+
+This is a factory, it's meant to allocate things.
+In the specific cases it create these vectors to transfer
+their ownership to the Geometry objects it constructs.
+
+> > ./source/geom/Geometry.cpp:567:         vector<Geometry *> *v = new vector<Geometry *>();
+
+Same as above, allocated for ownership transfer.
+Optimized allocations for elements by
+http://trac.osgeo.org/geos/changeset/2734
+
+Beside, this is not even used by the C-API ...
+
+Well, a lot of these are likely unused places after all so I stop here :)
+
+I think the correct way to proceed if we want to make GEOS any faster
+would be understanding what's making it slow in the first place.
+
+The Area() timing is interesting because it's obvious where the difference
+between GEOS and GGL is : coordinates access.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From maxime at altribe.org  Tue Nov 24 03:49:37 2009
+From: maxime at altribe.org (Maxime van Noppen)
+Date: Tue Nov 24 03:54:41 2009
+Subject: [geos-devel] Benchmark between various geometry libraries
+In-Reply-To: <20091123180944.GY22298@keybit.net>
+References: <4B042704.1080807@refractions.net>
+	<4B042C53.2050509@altribe.org>	<4B04315D.7090506@refractions.net>	<4B043239.5000009@refractions.net>	<4b043b0f.0e1abc0a.228c.14cf@mx.google.com>	<4B0444B5.7020606@refractions.net>	<20091119155138.GB22298@keybit.net>
+	<4B056F75.4020701@altribe.org>	<20091119213207.GD22298@keybit.net>
+	<4B06D51D.7060103@altribe.org> <20091123180944.GY22298@keybit.net>
+Message-ID: <4B0B9E21.201@altribe.org>
+
+strk wrote:
+> Well, a lot of these are likely unused places after all so I stop here :)
+
+What might be interesting is to grep files that might contain
+performance sensitive code in the list rather than iterating on all the
+results.
+
+> I think the correct way to proceed if we want to make GEOS any faster
+> would be understanding what's making it slow in the first place.
+
+Obviously. I'll try to make a debug build of geos and profile it with
+valgrind.
+
+> The Area() timing is interesting because it's obvious where the difference
+> between GEOS and GGL is : coordinates access.
+
+This sounds like the typical 'virtual' problem. As there is no static
+bounding to a function at compile-time the compiler can't inline
+functions (plus the small cost of virtual table lookup). I'll look in
+that direction during my profiling session.
+
+I will post any numbers I get.
+
+-- 
+Maxime
+From frederik at remote.org  Tue Nov 24 05:53:57 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Tue Nov 24 05:54:05 2009
+Subject: [geos-devel] Holes in holes
+Message-ID: <4B0BBB45.2090503@remote.org>
+
+Hi,
+
+    I'm trying to create a polygon with a hole that has a hole (think: 
+forest with a clearing but a patch of trees in the middle of that 
+clearing).
+
+I must admit that I am slightly insecure on the question whether this is 
+something that the OGC simple features spec supports; their definition 
+of a polygon seems to be "something that has a closed outer ring and 
+0..n interior rings", but I cannot find information on whether those 
+interior rings may contain each other or not.
+
+GEOS is of the opinion that a polygon made of three concentric rings, 
+the inner two being "interior" rings, is invalid, as per this snippet:
+
+     LinearRing *a = (LinearRing *) reader->read("LINEARRING(0 0, 10 0, 
+10 10, 0 10, 0 0)");
+     Geometry *b = reader->read("LINEARRING(1 1, 9 1, 9 9, 1 9, 1 1)");
+     Geometry *c = reader->read("LINEARRING(2 2, 2 8, 8 8, 8 2, 2 2)");
+     vector<Geometry *> v;
+     v.push_back(b);
+     v.push_back(c);
+     Geometry *p = global_factory->createPolygon(a, &v);
+     cout << "valid: " << p->isValid() << endl;
+
+If I modify the above to create a multipolygon, consisting of the 
+"forest with a hole" as polygon #1 and the "patch of trees inside the 
+hole" as polygon #2, GEOS tells me that this geometry is valid:
+
+Is this the correct way to describe what I want - is a polygon with a 
+hole in a hole always a multipolygon? Is the resulting structure really 
+a valid multipolygon?
+
+Bye
+Frederik
+
+
+From strk at keybit.net  Tue Nov 24 10:25:15 2009
+From: strk at keybit.net (Sandro Santilli)
+Date: Tue Nov 24 10:25:20 2009
+Subject: [geos-devel] Holes in holes
+In-Reply-To: <4B0BBB45.2090503@remote.org>
+References: <4B0BBB45.2090503@remote.org>
+Message-ID: <1af0b2b20911240725x6273bbfbua1d1d9300ba2596f@mail.gmail.com>
+
+A polygon with an hole in an hole is a multipolygon formed by a
+polygon with an hole
+and another polygon inside that hole. It is OGC-valid.
+
+--strk;
+
+On Tue, Nov 24, 2009 at 11:53 AM, Frederik Ramm <frederik@remote.org> wrote:
+> Hi,
+>
+> ? I'm trying to create a polygon with a hole that has a hole (think: forest
+> with a clearing but a patch of trees in the middle of that clearing).
+>
+> I must admit that I am slightly insecure on the question whether this is
+> something that the OGC simple features spec supports; their definition of a
+> polygon seems to be "something that has a closed outer ring and 0..n
+> interior rings", but I cannot find information on whether those interior
+> rings may contain each other or not.
+>
+> GEOS is of the opinion that a polygon made of three concentric rings, the
+> inner two being "interior" rings, is invalid, as per this snippet:
+>
+> ? ?LinearRing *a = (LinearRing *) reader->read("LINEARRING(0 0, 10 0, 10 10,
+> 0 10, 0 0)");
+> ? ?Geometry *b = reader->read("LINEARRING(1 1, 9 1, 9 9, 1 9, 1 1)");
+> ? ?Geometry *c = reader->read("LINEARRING(2 2, 2 8, 8 8, 8 2, 2 2)");
+> ? ?vector<Geometry *> v;
+> ? ?v.push_back(b);
+> ? ?v.push_back(c);
+> ? ?Geometry *p = global_factory->createPolygon(a, &v);
+> ? ?cout << "valid: " << p->isValid() << endl;
+>
+> If I modify the above to create a multipolygon, consisting of the "forest
+> with a hole" as polygon #1 and the "patch of trees inside the hole" as
+> polygon #2, GEOS tells me that this geometry is valid:
+>
+> Is this the correct way to describe what I want - is a polygon with a hole
+> in a hole always a multipolygon? Is the resulting structure really a valid
+> multipolygon?
+>
+> Bye
+> Frederik
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+
+
+-- 
+
+ Free GIS & Flash consultant/developer  ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+From strk at keybit.net  Tue Nov 24 13:16:20 2009
+From: strk at keybit.net (strk)
+Date: Tue Nov 24 13:16:24 2009
+Subject: [geos-devel] 3.2.0-rc2 tagged
+Message-ID: <20091124181620.GC22298@keybit.net>
+
+For the sake of heap allocation reductions...
+svn co http://svn.osgeo.org/geos/tags/3.2.0-rc1
+
+--strk; 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From strk at keybit.net  Tue Nov 24 14:29:19 2009
+From: strk at keybit.net (strk)
+Date: Tue Nov 24 14:29:23 2009
+Subject: [geos-devel] 3.2.0-rc2 ready for download/test
+In-Reply-To: <20091124181620.GC22298@keybit.net>
+References: <20091124181620.GC22298@keybit.net>
+Message-ID: <20091124192919.GD22298@keybit.net>
+
+And here's the tarball:
+http://download.osgeo.org/geos/geos-3.2.0rc2.tar.bz2
+
+--strk;
+
+On Tue, Nov 24, 2009 at 07:16:20PM +0100, strk wrote:
+> For the sake of heap allocation reductions...
+> svn co http://svn.osgeo.org/geos/tags/3.2.0-rc1
+> 
+> --strk; 
+> 
+>  Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+>  http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From geos-trac at osgeo.org  Thu Nov 26 02:13:57 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 02:14:01 2009
+Subject: [geos-devel] [GEOS] #300: Testing geos 3.2rc2 under VS 2008 missing
+ parts in download
+Message-ID: <044.73f611c4c53e420eff72515e263040c6@osgeo.org>
+
+#300: Testing geos 3.2rc2 under VS 2008 missing parts in download
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  minor       |   Milestone:  3.2.0                     
+Component:  Default     |     Version:  svn-trunk                 
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ The geos_xmltester VS 2008 project is missing from the msvc90 folder
+ (download) -- this is just a packaging problem since it exists in svn.
+
+ Also I confirmed need autogen.bat even compiling with solution.  So this
+ should be part of the download package and it currently isn't.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/300>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 02:45:05 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 02:45:22 2009
+Subject: [geos-devel] [GEOS] #301: Missing from geos3.2rc2 package
+Message-ID: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+
+#301: Missing from geos3.2rc2 package
+------------------------+---------------------------------------------------
+ Reporter:  robe        |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:  3.2.0                     
+Component:  Default     |     Version:  svn-trunk                 
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ source\geom\CoordinateSequenceFactory.cpp (exists in trunk but not in
+ package and referenced in vc90)
+ source\geom\util\LinearComponentExtracter.cpp (this one is reference in
+ vc90 solution but not in trunk)
+ source\geom\util\PointExtracter.cpp (this one is referenced in vc90
+ solution but not in trunk)
+ source\geom\util\PolygonExtracter.cpp (this one is referenced in vc90
+ solution but not in trunk)
+ source\util\AssertionFailedException.cpp (exists in trunk but not in
+ package and referenced in vc90)
+ source\util\IllegalArgumentException.cpp (exists in trunk but not in
+ package and referenced in vc90)
+ source\util\UnsupportedOperationException.cpp (exists in trunk but not in
+ package and referenced in vc90)
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/301>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 11:33:20 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 11:33:22 2009
+Subject: [geos-devel] Re: [GEOS] #300: Testing geos 3.2rc2 under VS 2008
+ missing parts in download
+In-Reply-To: <044.73f611c4c53e420eff72515e263040c6@osgeo.org>
+References: <044.73f611c4c53e420eff72515e263040c6@osgeo.org>
+Message-ID: <053.3d0570c96ad334dccd9354937306bcd6@osgeo.org>
+
+#300: Testing geos 3.2rc2 under VS 2008 missing parts in download
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  minor       |    Milestone:  3.2.0                     
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:  fixed                     
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by pramsey):
+
+  * status:  new => closed
+  * resolution:  => fixed
+
+Comment:
+
+ Fixed in r2741
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/300#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 11:36:25 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 11:36:27 2009
+Subject: [geos-devel] Re: [GEOS] #301: Missing from geos3.2rc2 package
+In-Reply-To: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+References: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+Message-ID: <053.820b5b4842ebe4bc4ad92bf7e14b6aa5@osgeo.org>
+
+#301: Missing from geos3.2rc2 package
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:  3.2.0                     
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by pramsey):
+
+ I just reviewed these and none of them should be included in the tarball,
+ so it's the vc90 reference that needs to be updated.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/301#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From pramsey at opengeo.org  Thu Nov 26 15:40:29 2009
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Thu Nov 26 15:40:32 2009
+Subject: [geos-devel] platform.h and config.h
+Message-ID: <B4A0E197-8781-4285-9FD8-2ADDA21F7E2B@opengeo.org>
+
+I'm tracking down a build failure in Solaris, which is happening because the code is trying to use an std::isnan() that is not there. It is odd, because ./configure is correctly detecting the presence of a cmath isnan(), but the code isn't using it.
+
+What I am seeing is that platform.h has the proper switches in place to handle the problem, but nowhere is config.h, which contains the results of the configure run included, so the switches never actually move.
+
+Can someone confirm my diagnosis and solution (add config.h into platform.h at the top) before I make this core change to the build?
+
+Paul
+From geos-trac at osgeo.org  Thu Nov 26 16:20:48 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 16:20:49 2009
+Subject: [geos-devel] Re: [GEOS] #301: Missing from geos3.2rc2 package
+In-Reply-To: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+References: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+Message-ID: <053.f5bdca3022435c3c087a2a7939e6fa5f@osgeo.org>
+
+#301: Missing from geos3.2rc2 package
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:  3.2.0                     
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by strk):
+
+ I would keep CoordinateSequenceFactory.cpp reference for now as I'm
+ committing a patch aimed at reducing the problem exposed in ticket #299
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/301#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 16:28:59 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 16:29:01 2009
+Subject: [geos-devel] Re: [GEOS] #301: Missing from geos3.2rc2 package
+In-Reply-To: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+References: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+Message-ID: <053.650e472f81508be67e052e1fd8e9e077@osgeo.org>
+
+#301: Missing from geos3.2rc2 package
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:  3.2.0                     
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by strk):
+
+ Should be fixed in r2746, please test.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/301#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 16:37:02 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 16:37:04 2009
+Subject: [geos-devel] Re: [GEOS] #301: Missing from geos3.2rc2 package
+In-Reply-To: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+References: <044.aaf7680229256b681ed68508ec2a9d5e@osgeo.org>
+Message-ID: <053.1fdce2eb9e682c012bf1ccdec6cf6a69@osgeo.org>
+
+#301: Missing from geos3.2rc2 package
+------------------------+---------------------------------------------------
+ Reporter:  robe        |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:  3.2.0                     
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:  fixed                     
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by strk):
+
+  * status:  new => closed
+  * resolution:  => fixed
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/301#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From strk at keybit.net  Thu Nov 26 16:44:23 2009
+From: strk at keybit.net (strk)
+Date: Thu Nov 26 16:44:27 2009
+Subject: [geos-devel] platform.h and config.h
+In-Reply-To: <B4A0E197-8781-4285-9FD8-2ADDA21F7E2B@opengeo.org>
+References: <B4A0E197-8781-4285-9FD8-2ADDA21F7E2B@opengeo.org>
+Message-ID: <20091126214423.GG12065@keybit.net>
+
+I've added ISNAN detection result in platform.h instead.
+
+config.h seems to be unused except from a profiler.h file
+which probably doesn't need it in turn..
+I'd drop config.h (after release though).
+
+Please test r2748. (./configure sould do, no need to autogen.sh again)
+
+--strk;
+
+On Thu, Nov 26, 2009 at 12:40:29PM -0800, Paul Ramsey wrote:
+> I'm tracking down a build failure in Solaris, which is happening because the code is trying to use an std::isnan() that is not there. It is odd, because ./configure is correctly detecting the presence of a cmath isnan(), but the code isn't using it.
+> 
+> What I am seeing is that platform.h has the proper switches in place to handle the problem, but nowhere is config.h, which contains the results of the configure run included, so the switches never actually move.
+> 
+> Can someone confirm my diagnosis and solution (add config.h into platform.h at the top) before I make this core change to the build?
+> 
+> Paul_______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From geos-trac at osgeo.org  Thu Nov 26 18:17:32 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 18:17:34 2009
+Subject: [geos-devel] [GEOS] #302: trunk build fails
+Message-ID: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+
+#302: trunk build fails
+------------------------+---------------------------------------------------
+ Reporter:  darkblueb   |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:                            
+Component:  Default     |     Version:  svn-trunk                 
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ debian 5.03
+ Linux aced 2.6.26-2-amd64 #1 SMP Thu Nov 5 02:23:12 UTC 2009 x86_64
+ GNU/Linux
+
+ there is something amiss with the overlay dir..
+ make fails saying there is no rule to make FuzzyPointLocator, the first of
+ three files there
+ by creating sym links in the parent dir to the 3 cpp files, you can fool
+ make to complete
+ but then a similar and parallel fail happens with make check
+ --
+ g++ -DHAVE_CONFIG_H -I. -I../../source/headers -I../../source/headers/geos
+ -I../../source/headers -I../../tests/unit/tut -I../../capi    -g -O2
+ -DGEOS_INLINE  -pedantic -Wall -ansi -Wno-long-long  -ffloat-store -MT
+ IsSimpleOpTest.o -MD -MP -MF .deps/IsSimpleOpTest.Tpo -c -o
+ IsSimpleOpTest.o `test -f 'operation/IsSimpleOpTest.cpp' || echo
+ './'`operation/IsSimpleOpTest.cpp
+ mv -f .deps/IsSimpleOpTest.Tpo .deps/IsSimpleOpTest.Po
+ make[3]: *** No rule to make target
+ `operation/overlay/FuzzyPointLocatorTest.cpp', needed by
+ `FuzzyPointLocatorTest.o'.  Stop.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/302>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 20:17:01 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 20:17:03 2009
+Subject: [geos-devel] Re: [GEOS] #302: trunk build fails
+In-Reply-To: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+References: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+Message-ID: <058.04e4ade4fc14218d0af93e7ee45a0bc7@osgeo.org>
+
+#302: trunk build fails
+------------------------+---------------------------------------------------
+ Reporter:  darkblueb   |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:  invalid                   
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by pramsey):
+
+  * status:  new => closed
+  * resolution:  => invalid
+
+Comment:
+
+ Remember to ./autogen and ./configure after updates that touch the build
+ system.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/302#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 20:22:05 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 20:22:07 2009
+Subject: [geos-devel] Re: [GEOS] #302: trunk build fails
+In-Reply-To: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+References: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+Message-ID: <058.b2a30d6b84cb35d0799bbf7f8b922a89@osgeo.org>
+
+#302: trunk build fails
+------------------------+---------------------------------------------------
+ Reporter:  darkblueb   |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  reopened                  
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by darkblueb):
+
+  * status:  closed => reopened
+  * resolution:  invalid =>
+
+Comment:
+
+ Replying to [comment:1 pramsey]:
+ > Remember to ./autogen and ./configure after updates that touch the build
+ system.
+
+ a little premature close there ..
+ this is a new set of sources and I did autogen and configure, thx
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/302#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 20:28:45 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 20:28:47 2009
+Subject: [geos-devel] Re: [GEOS] #302: trunk build fails
+In-Reply-To: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+References: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+Message-ID: <058.7fb0efd5a00c88630d95f7b0b1aeed67@osgeo.org>
+
+#302: trunk build fails
+------------------------+---------------------------------------------------
+ Reporter:  darkblueb   |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  reopened                  
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by pramsey):
+
+ Got nothing for you then, since to confirm current state I did the same
+ thing on my system (checkout, gen, config, build) and everything ran to
+ completion. Can you work back to a commit that caused the state change?
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/302#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Nov 26 20:45:38 2009
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Nov 26 20:45:40 2009
+Subject: [geos-devel] Re: [GEOS] #302: trunk build fails
+In-Reply-To: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+References: <049.5dc7712ca0ebfdf17ad5c76f03822e7f@osgeo.org>
+Message-ID: <058.ee366c81974a82f2f7d5a88aaa68aa61@osgeo.org>
+
+#302: trunk build fails
+------------------------+---------------------------------------------------
+ Reporter:  darkblueb   |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:  worksforme                
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by darkblueb):
+
+  * status:  reopened => closed
+  * resolution:  => worksforme
+
+Comment:
+
+ Replying to [comment:3 pramsey]:
+ > Got nothing for you then, since to confirm current state I did the same
+ thing on my system (checkout, gen, config, build) and everything ran to
+ completion. Can you work back to a commit that caused the state change?
+
+ just when you think you have it, dept.
+ rev. 2748
+ now working...
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/302#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From frederik at remote.org  Thu Nov 26 20:47:17 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Thu Nov 26 20:46:36 2009
+Subject: [geos-devel] Holes in holes
+In-Reply-To: <1af0b2b20911240725x6273bbfbua1d1d9300ba2596f@mail.gmail.com>
+References: <4B0BBB45.2090503@remote.org>
+	<1af0b2b20911240725x6273bbfbua1d1d9300ba2596f@mail.gmail.com>
+Message-ID: <4B0F2FA5.6020100@remote.org>
+
+Sandro,
+
+Sandro Santilli wrote:
+> A polygon with an hole in an hole is a multipolygon formed by a
+> polygon with an hole
+> and another polygon inside that hole. It is OGC-valid.
+
+Thank you.
+
+I have another remotely related question, that concerns the direction of 
+a polygon ring (CW or CCW). When I create a polygon with the 
+createPolygon factory method and pass it a number of rings, do I have to 
+take care that they spin in the right direction, or will GEOS make sure 
+that a correct polygon is created?
+
+If I understand the OGC docs correctly, the actual direction does not 
+matter but they require holes to spin the other way than exterior rings?
+
+Bye
+Frederik
+
+-- 
+Frederik Ramm  ##  eMail frederik@remote.org  ##  N49?00'09" E008?23'33"
+From frederik at remote.org  Fri Nov 27 11:22:22 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Fri Nov 27 11:22:29 2009
+Subject: [geos-devel] Find self-intersections
+Message-ID: <4B0FFCBE.9080504@remote.org>
+
+Hi,
+
+    today I came across the following problem that I tried to solve with 
+GEOS.
+
+I had 3.000 linestrings which together formed one large ring. However, 
+this ring was not simple; it was 8-shaped. I wanted to find out where 
+the intersection point - or perhaps the intersection line! - was.
+
+The best I could come up with was:
+
+for (i=0; i<count; i++)
+{
+    for (j=i+1; j<count; j++)
+    {
+       Geometry *p = linestring[i]->intersection(linestring[j])
+       if (p)
+       {
+          // found something
+       }
+    }
+}
+
+This is of course rather inefficient! I'd better build a LinearRing from 
+the lot of them and then query for self-intersection. I did find some 
+code that does this when looking at how isSimple() is implemented; 
+however, that code would only find self intersection points, not lines.
+
+I wonder if there is some generic way to determine a geometry's "self 
+intersection"?
+
+Bye
+Frederik
+From strk at keybit.net  Fri Nov 27 12:31:42 2009
+From: strk at keybit.net (strk)
+Date: Fri Nov 27 12:31:46 2009
+Subject: [geos-devel] Holes in holes
+In-Reply-To: <4B0F2FA5.6020100@remote.org>
+References: <4B0BBB45.2090503@remote.org>
+	<1af0b2b20911240725x6273bbfbua1d1d9300ba2596f@mail.gmail.com>
+	<4B0F2FA5.6020100@remote.org>
+Message-ID: <20091127173141.GJ12065@keybit.net>
+
+On Fri, Nov 27, 2009 at 02:47:17AM +0100, Frederik Ramm wrote:
+
+> I have another remotely related question, that concerns the direction of 
+> a polygon ring (CW or CCW). When I create a polygon with the 
+> createPolygon factory method and pass it a number of rings, do I have to 
+> take care that they spin in the right direction, or will GEOS make sure 
+> that a correct polygon is created?
+
+The createPolygon method takes an explicit shell and a list of holes.
+You don't need to care about direction.
+
+GEOS won't check validity automatic.
+Use Geometry::isValid() if you want to check that.
+Any ring direction is OGC valid.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From pramsey at opengeo.org  Fri Nov 27 13:48:49 2009
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Fri Nov 27 13:48:52 2009
+Subject: [geos-devel] Snow Leopard Regress (#299)
+Message-ID: <9840A4C4-1E0E-4995-8A37-94BFB4EA1114@opengeo.org>
+
+Anyone else w/ Snow Leopard, do you pass regression?
+
+http://trac.osgeo.org/geos/ticket/299
+
+P.
+From frederik at remote.org  Fri Nov 27 20:18:19 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Fri Nov 27 20:17:35 2009
+Subject: [geos-devel] symDifference, malfunction or misunderstanding?
+Message-ID: <4B107A5B.5060700@remote.org>
+
+Dear all,
+
+    apologies for using up about 95% of bandwidth on this list recently. 
+I hope that my numerous queries, and your answers, will at least help 
+others in my situation in the future through Google et al.
+
+I have a problem with symDifference (in geos-3.0.0 as shipped with 
+Ubuntu jaunty, but using the 3.2.0rc2 doesn't change things). Perhaps it 
+is a misunderstanding on my part.
+
+I have two symmetric linear rings formed like adjoining angular 
+brackets, like this:
+
++------+------+
+|      |(a)   |
+|   +--+--+   |
+|   |     |   |
+|   +--+--+   |
+|      |(b)   |
++------+------+
+
+They touch in the middle. Here's the WKT:
+
+LINEARRING (1 4, 3 4, 3 3, 2 3, 2 2, 3 2, 3 1, 1 1, 1 4)
+LINEARRING (3 4, 5 4, 5 1, 3 1, 3 2, 4 2, 4 3, 3 3, 3 4)
+
+If I compute the intersection between both, using x->intersection(y), 
+then I get what one would expect, namely the two segments labelled "a" 
+and "b" in the above diagram:
+
+MULTILINESTRING ((3.00 4.00, 3.00 3.00), (3.00 2.00, 3.00 1.00))
+
+When I do a "symDifference" between the two, I would expect to get the 
+original shape minus the "a" and "b" segments, something like
+
++------+------+
+|             |
+|   +--+--+   |
+|   |     |   |
+|   +--+--+   |
+|             |
++------+------+
+
+Instead, I get a four-part Multilinestring that contains the original 
+shape minus the segment "b", but including the segment "a":
+
+MULTILINESTRING ((1.00 4.00, 3.00 4.00), (3.00 3.00, 2.00 3.00, 2.00 
+2.00, 3.00 2.00), (3.00 1.00, 1.00 1.00, 1.00 4.00), (3.00 4.00, 5.00 
+4.00, 5.00 1.00, 3.00 1.00), (3.00 2.00, 4.00 2.00, 4.00 3.00, 3.00 3.00))
+
+Just to be on the safe side, I then combined both linear rings into a 
+multilinestring (using Union), and then computed the difference between 
+this union and the intersection - again expecting to get the shape minus 
+"a" and "b", and again getting the shape minus "a" but including "b".
+
+Is this a bug in GEOS, or a bug in my approach?
+
+I'm attaching the full C++ test file.
+
+Bye
+Frederik
+
+#include <stdio.h>
+#include <geos/geom/PrecisionModel.h>
+#include <geos/geom/GeometryFactory.h>
+#include <geos/geom/Geometry.h>
+#include <geos/io/WKTReader.h>
+
+using namespace geos::geom;
+using namespace geos;
+
+GeometryFactory *global_factory;
+
+int main(int argc, char **argv)
+{
+     PrecisionModel *pm = new PrecisionModel(2.0, 0, 0);
+     global_factory = new GeometryFactory(pm, -1);
+     delete pm;
+
+     io::WKTReader *reader = new io::WKTReader(global_factory);
+     Geometry *a = reader->read(
+         "LINEARRING (1 4, 3 4, 3 3, 2 3, 2 2, 3 2, 3 1, 1 1, 1 4)"
+         );
+     Geometry *b = reader->read(
+         "LINEARRING (3 4, 5 4, 5 1, 3 1, 3 2, 4 2, 4 3, 3 3, 3 4)"
+         );
+
+     Geometry *inter = a->intersection(b);
+     Geometry *diff = a->symDifference(b);
+
+     printf("intersection: %s\n", inter->toString().c_str());
+     printf("sym difference: %s\n", diff->toString().c_str());
+}
+
+-- 
+Frederik Ramm  ##  eMail frederik@remote.org  ##  N49?00'09" E008?23'33"
+From pramsey at cleverelephant.ca  Fri Nov 27 20:39:53 2009
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri Nov 27 20:39:57 2009
+Subject: [geos-devel] symDifference, malfunction or misunderstanding?
+In-Reply-To: <4B107A5B.5060700@remote.org>
+References: <4B107A5B.5060700@remote.org>
+Message-ID: <30fe546d0911271739o5e88880cs2034bf0d68566300@mail.gmail.com>
+
+I think you're misinterpreting your output, it includes either a nor
+b, it looks like this. And reading back your multilinestring, it's the
+same as the one JTS is outputting.
+
+P
+
+On Fri, Nov 27, 2009 at 5:18 PM, Frederik Ramm <frederik@remote.org> wrote:
+> Dear all,
+>
+> ? apologies for using up about 95% of bandwidth on this list recently. I
+> hope that my numerous queries, and your answers, will at least help others
+> in my situation in the future through Google et al.
+>
+> I have a problem with symDifference (in geos-3.0.0 as shipped with Ubuntu
+> jaunty, but using the 3.2.0rc2 doesn't change things). Perhaps it is a
+> misunderstanding on my part.
+>
+> I have two symmetric linear rings formed like adjoining angular brackets,
+> like this:
+>
+> +------+------+
+> | ? ? ?|(a) ? |
+> | ? +--+--+ ? |
+> | ? | ? ? | ? |
+> | ? +--+--+ ? |
+> | ? ? ?|(b) ? |
+> +------+------+
+>
+> They touch in the middle. Here's the WKT:
+>
+> LINEARRING (1 4, 3 4, 3 3, 2 3, 2 2, 3 2, 3 1, 1 1, 1 4)
+> LINEARRING (3 4, 5 4, 5 1, 3 1, 3 2, 4 2, 4 3, 3 3, 3 4)
+>
+> If I compute the intersection between both, using x->intersection(y), then I
+> get what one would expect, namely the two segments labelled "a" and "b" in
+> the above diagram:
+>
+> MULTILINESTRING ((3.00 4.00, 3.00 3.00), (3.00 2.00, 3.00 1.00))
+>
+> When I do a "symDifference" between the two, I would expect to get the
+> original shape minus the "a" and "b" segments, something like
+>
+> +------+------+
+> | ? ? ? ? ? ? |
+> | ? +--+--+ ? |
+> | ? | ? ? | ? |
+> | ? +--+--+ ? |
+> | ? ? ? ? ? ? |
+> +------+------+
+>
+> Instead, I get a four-part Multilinestring that contains the original shape
+> minus the segment "b", but including the segment "a":
+>
+> MULTILINESTRING ((1.00 4.00, 3.00 4.00), (3.00 3.00, 2.00 3.00, 2.00 2.00,
+> 3.00 2.00), (3.00 1.00, 1.00 1.00, 1.00 4.00), (3.00 4.00, 5.00 4.00, 5.00
+> 1.00, 3.00 1.00), (3.00 2.00, 4.00 2.00, 4.00 3.00, 3.00 3.00))
+>
+> Just to be on the safe side, I then combined both linear rings into a
+> multilinestring (using Union), and then computed the difference between this
+> union and the intersection - again expecting to get the shape minus "a" and
+> "b", and again getting the shape minus "a" but including "b".
+>
+> Is this a bug in GEOS, or a bug in my approach?
+>
+> I'm attaching the full C++ test file.
+>
+> Bye
+> Frederik
+>
+> #include <stdio.h>
+> #include <geos/geom/PrecisionModel.h>
+> #include <geos/geom/GeometryFactory.h>
+> #include <geos/geom/Geometry.h>
+> #include <geos/io/WKTReader.h>
+>
+> using namespace geos::geom;
+> using namespace geos;
+>
+> GeometryFactory *global_factory;
+>
+> int main(int argc, char **argv)
+> {
+> ? ?PrecisionModel *pm = new PrecisionModel(2.0, 0, 0);
+> ? ?global_factory = new GeometryFactory(pm, -1);
+> ? ?delete pm;
+>
+> ? ?io::WKTReader *reader = new io::WKTReader(global_factory);
+> ? ?Geometry *a = reader->read(
+> ? ? ? ?"LINEARRING (1 4, 3 4, 3 3, 2 3, 2 2, 3 2, 3 1, 1 1, 1 4)"
+> ? ? ? ?);
+> ? ?Geometry *b = reader->read(
+> ? ? ? ?"LINEARRING (3 4, 5 4, 5 1, 3 1, 3 2, 4 2, 4 3, 3 3, 3 4)"
+> ? ? ? ?);
+>
+> ? ?Geometry *inter = a->intersection(b);
+> ? ?Geometry *diff = a->symDifference(b);
+>
+> ? ?printf("intersection: %s\n", inter->toString().c_str());
+> ? ?printf("sym difference: %s\n", diff->toString().c_str());
+> }
+>
+> --
+> Frederik Ramm ?## ?eMail frederik@remote.org ?## ?N49?00'09" E008?23'33"
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: screenshot_01.jpg
+Type: image/jpeg
+Size: 114935 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20091127/6bdd1dda/screenshot_01-0001.jpg
+From frederik at remote.org  Fri Nov 27 21:03:31 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Fri Nov 27 21:02:47 2009
+Subject: [geos-devel] symDifference, malfunction or misunderstanding?
+In-Reply-To: <30fe546d0911271739o5e88880cs2034bf0d68566300@mail.gmail.com>
+References: <4B107A5B.5060700@remote.org>
+	<30fe546d0911271739o5e88880cs2034bf0d68566300@mail.gmail.com>
+Message-ID: <4B1084F3.1080801@remote.org>
+
+Hi,
+
+Paul Ramsey wrote:
+> I think you're misinterpreting your output, it includes either a nor
+> b, it looks like this. And reading back your multilinestring, it's the
+> same as the one JTS is outputting.
+
+You're right. What a blunder. Thanks.
+
+Bye
+Frederik
+
+-- 
+Frederik Ramm  ##  eMail frederik@remote.org  ##  N49?00'09" E008?23'33"
+From geosanak at gmail.com  Sat Nov 28 05:35:39 2009
+From: geosanak at gmail.com (Sanak Goe)
+Date: Sat Nov 28 05:35:43 2009
+Subject: [geos-devel] RE: {SPAM: 40} :Re: autogen.bat
+In-Reply-To: <BD3A1BBF51D14C47B26207A076699482273942867A@XCCMS2.cityhall.boston.cob>
+References: <20091112073157.GA92700@keybit.net>
+	<20091112213210.GE92700@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942865E@XCCMS2.cityhall.boston.cob>
+	<30fe546d0911131344l2e1628a2m6721556287513c17@mail.gmail.com>
+	<BD3A1BBF51D14C47B26207A0766994822739428672@XCCMS2.cityhall.boston.cob>
+	<20091117202408.GH97137@keybit.net>
+	<20091117203228.GI97137@keybit.net> <4B032ECC.8000804@loskot.net>
+	<20091119214126.GF22298@keybit.net>
+	<BD3A1BBF51D14C47B26207A076699482273942867A@XCCMS2.cityhall.boston.cob>
+Message-ID: <5f9be0a0911280235p612af944yb8f50b9556ac8520@mail.gmail.com>
+
+Hi Regina,
+
+I think that the problem is platform.h and version.h are packaged in rc tar
+ball.
+If these files doesn't exist in "source/headers/geos" folder, VS 2008 build
+process will copy from *.h.vc, and build successfully.
+But, I don't now detail of VS 2008 custom build step behavior(property of *.
+h.vc).
+
+Regards,
+
+Sanak.
+2009/11/20 Obe, Regina <robe.dnd@cityofboston.gov>
+
+> Those only work for Linux boxes I think.  So I had to download the
+> autoexec.bat and run that against my tar download to get it to compile under
+> VS 2008 C++ Express.  I'll have to try with the solution files on my other
+> box as I don't recall ever having to do this before.  Then again in prior
+> versions the tar ball was broken so wouldn't compile under VS anyway so I
+> always had to use subversion version.
+>
+> The frustrations of being a citizen of the evil empire :)
+>
+> Thanks,
+> Regina
+>
+> ________________________________________
+> From: strk [strk@keybit.net]
+> Sent: Thursday, November 19, 2009 4:41 PM
+> To: Mateusz Loskot; Obe, Regina
+> Cc: GEOS Development List
+> Subject: {SPAM: 40} :Re: autogen.bat
+>
+> On Tue, Nov 17, 2009 at 11:16:28PM +0000, Mateusz Loskot wrote:
+>
+> > I assumed that GEOS distribution is supposed to already
+> > provide generated and valid version.h and platform.h and geos_c.h
+>
+> Uhm, those are distributed indeed.
+>
+> Regina, do you still need autogen.bat to complete a build out-of-the-box ?
+>
+> --strk;
+>
+>  Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+>  http://foo.keybit.net/~strk/services.html  /\  Keep it simple!
+> -----------------------------------------
+> The substance of this message, including any attachments, may be
+> confidential, legally privileged and/or exempt from disclosure
+> pursuant to Massachusetts law. It is intended
+> solely for the addressee. If you received this in error, please
+> contact the sender and delete the material from any computer.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20091128/87ad0952/attachment.html
+From strk at keybit.net  Sat Nov 28 13:22:48 2009
+From: strk at keybit.net (strk)
+Date: Sat Nov 28 13:22:52 2009
+Subject: [geos-devel] Find self-intersections
+In-Reply-To: <4B0FFCBE.9080504@remote.org>
+References: <4B0FFCBE.9080504@remote.org>
+Message-ID: <20091128182248.GS12065@keybit.net>
+
+What do you really need to do at the end of the day ?
+Want a simple ring ? A polygon ?
+
+--strk;
+
+On Fri, Nov 27, 2009 at 05:22:22PM +0100, Frederik Ramm wrote:
+> Hi,
+> 
+>    today I came across the following problem that I tried to solve with 
+> GEOS.
+> 
+> I had 3.000 linestrings which together formed one large ring. However, 
+> this ring was not simple; it was 8-shaped. I wanted to find out where 
+> the intersection point - or perhaps the intersection line! - was.
+> 
+> The best I could come up with was:
+> 
+> for (i=0; i<count; i++)
+> {
+>    for (j=i+1; j<count; j++)
+>    {
+>       Geometry *p = linestring[i]->intersection(linestring[j])
+>       if (p)
+>       {
+>          // found something
+>       }
+>    }
+> }
+> 
+> This is of course rather inefficient! I'd better build a LinearRing from 
+> the lot of them and then query for self-intersection. I did find some 
+> code that does this when looking at how isSimple() is implemented; 
+> however, that code would only find self intersection points, not lines.
+> 
+> I wonder if there is some generic way to determine a geometry's "self 
+> intersection"?
+> 
+> Bye
+> Frederik
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From frederik at remote.org  Sat Nov 28 18:09:27 2009
+From: frederik at remote.org (Frederik Ramm)
+Date: Sat Nov 28 18:08:40 2009
+Subject: [geos-devel] Find self-intersections
+In-Reply-To: <20091128182248.GS12065@keybit.net>
+References: <4B0FFCBE.9080504@remote.org> <20091128182248.GS12065@keybit.net>
+Message-ID: <4B11ADA7.4040400@remote.org>
+
+Hi,
+
+strk wrote:
+> What do you really need to do at the end of the day ?
+> Want a simple ring ? A polygon ?
+
+I'll happily discuss every last detail of the application, there's 
+nothing secret about it, but I'll try to stick to the relevant stuff!
+
+I'm writing an application that creates multipolygons from OpenStreetMap 
+data. OSM has a somewhat clumsy implementation of multipolygons, where 
+users simply group a number of ways (=linestrings) and then say: These, 
+together, form a forest (or so). Such a group of ways may or may not 
+make up a valid multipolygon - sometimes the linestrings have 
+self-intersections; sometimes they intersect with others; sometimes 
+there are gaps in a ring so that it cannot be closed, etc.
+
+In addition to creating a proper polygon, I also want to emit detailed 
+error messages so people can fix broken things. Initially I thought I 
+could use the Polygonizer, but there were issues. Firstly it didn't to 
+multipolygons. But also, I want to know more about what it does; I want 
+to know exactly which linestrings have gone into which rings of the 
+polygon (above all, whether a certain linestring has become part of an 
+inner or outer ring), and if the Polygonizer cannot do my bidding then I 
+want to know exactly what the problem was. (I know I can ask the 
+Polygonizer for a list of dangles, cut lines, and other brokenness, but 
+there are just too many cases where the Polygonizer will just throw an 
+exception and not tell me where exactly the problem was.)
+
+I have now built code that "manually" assembles a number of rings from 
+the bunch of linestrings, uses GEOS's "contains" method to sort them 
+into outers and inners, then creates a number of polygons from the rings 
+and ultimately a multipolygon from the polygons. That way, I can detect 
+many problems (e.g. gaps) before even trying to make a polygon; but in 
+situations where e.g. two inner rings intersect, I will get an error 
+from createPolygon, and to pinpoint that, I currently have to compute 
+the intersection of almost everything with everything.
+
+Since writing the original e-Mail, I have tried to find out more about 
+how I can use GEOS classes to help me here. The available C++ API docs 
+seem to only scratch the surface of what is possible - does everyone 
+else simply know what to do, or is there a secret bit of documentation I 
+haven't found yet? (Is there perhaps JTS documentation that can be 
+applied to GEOS?) I'm now playing around with this:
+
+GeometryGraph graph(0, all_my_ways);
+LineIntersector li;
+graph.computeSelfNodes(&li, true);
+vector<Edge *> *edges = graph.getEdges();
+for (unsigned int e=0; e<edges->size(); e++)
+{
+     for(EdgeIntersectionList::const_iterator i = 
+edges->at(e)->eiList.begin(); i!= edges->at(e)->eiList.end(); i++)
+     {
+         EdgeIntersection *ei=*i;
+         // ignore intersections at ends of ways
+         if (ei->dist != 0 || (ei->segmentIndex>0 && ei->segmentIndex < 
+edges->at(e)->getNumPoints()-1))
+         {
+             // process ei->coord, it seems to be an
+             // interesting intersection
+         }
+     }
+}
+
+This seems to catch all of the cases I'm interested in (at least all of 
+the testcases that I built), and it is very fast. Whether it is really 
+"correct", I have no clue - especially the bit about only using edge 
+intersections with dist != 0 and not at the ends of ways is more or less 
+a guess.
+
+It seems that I should be able to, instead of iterating over the edges 
+as above, iterate over my input linestrings and use the "findEdge" 
+method in GeometryGraph to retrieve the edge; this would allow me to 
+detect the exact linestring where an intersection has occurred, right?
+
+Bye
+Frederik
+
+-- 
+Frederik Ramm  ##  eMail frederik@remote.org  ##  N49?00'09" E008?23'33"
+From strk at keybit.net  Sun Nov 29 05:20:16 2009
+From: strk at keybit.net (strk)
+Date: Sun Nov 29 05:20:22 2009
+Subject: [geos-devel] 3.2.0-rc3 tagged
+Message-ID: <20091129102016.GW12065@keybit.net>
+
+Packaging and platform support tweaks mostly.
+Please take another loop, this could be final.
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From pramsey at opengeo.org  Sun Nov 29 11:30:20 2009
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Sun Nov 29 11:30:22 2009
+Subject: [geos-devel] 3.2.0-rc3 tagged
+In-Reply-To: <20091129102016.GW12065@keybit.net>
+References: <20091129102016.GW12065@keybit.net>
+Message-ID: <30fe546d0911290830m63e773c1h3350b63159ff5763@mail.gmail.com>
+
+Tarballed and placed on download site.
+
+P
+
+On Sun, Nov 29, 2009 at 2:20 AM, strk <strk@keybit.net> wrote:
+> Packaging and platform support tweaks mostly.
+> Please take another loop, this could be final.
+>
+> --strk;
+>
+> ?Free GIS & Flash consultant/developer ? ? ?() ?ASCII Ribbon Campaign
+> ?http://foo.keybit.net/~strk/services.html ?/\ ?Keep it simple!
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>

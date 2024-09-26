@@ -1,0 +1,199 @@
+From warmerda at h...  Wed Mar  1 16:06:47 2000
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] GDAL Re-engineering
+Message-ID: <38BD8667.E393D405@h...>
+
+Folks,
+
+I am about to start a substantial round of changes to GDAL. My objectives are:
+
+o Bring the GDAL data model into closer alignment with the OpenGIS 
+grid coverages model. 
+
+o Add support for overviews. 
+
+o Add support for metadata / nodata / min / max on a per-band basis. 
+
+o Possibly add color tables. 
+
+o Implement automatic loading of drivers from .so files - plugins. 
+
+As a result of this the GDAL source tree will see substantial activity, and
+disruption. GDAL raster support may be pretty broken in a variety of ways 
+over the next couple of months. 
+
+Currently plans call for the (eventual) addition of the following methods 
+on GDALRasterBand:
+
+const char *GetDescription();
+char **GetCategoryNames();
+CV_ColorInterpretation GetColorInterpretation();
+double GetNoDataValue( int *pbSuccess = NULL );
+double GetMinimum( int *pbSuccess = NULL );
+double GetMaximum(int *pbSuccess = NULL );
+double GetOffset( int *pbSuccess = NULL );
+double GetScale( int *pbSuccess = NULL );
+const char *GetUnitType();
+GDALColorTable *GetColorTable();
+
+int GetHasArbitraryOverviews();
+int GetOverviewCount();
+GDALRasterBand *GetOverview(int);
+
+Points of note:
+
+o Category names are returned as a string list, implying that sparse category
+names (ie. using class numbers like 1000, 2000, and 3000) will work very 
+poorly. This is inherited from the approach in OGC Coverages. 
+
+o Bands have a color interpretation (values like Red, Green, Blue, Greyscale, 
+Unknown, Hue, ...). 
+
+o nodata, min and max are all available, but the methods may indicate the
+underlying datastore doesn't have anything by returning pbSuccess as FALSE.
+
+o Overviews are just GDALRasterBand objects again. In GeoGateway overviews
+were represented as bands on separate datasets. In GDAL I intend for the
+overviews to be "freestanding" GDALRasterBands, and not regular bands on
+any corresponding GDALDataset. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerda@h...
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From craig.miller at b...  Thu Mar 23 13:02:35 2000
+From: craig.miller at b... (Craig Miller)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] GetNoData returning a double?
+Message-ID: <8bdm7r$akan@eGroups.com>
+
+Hi Frank,
+
+I was just wondering why GetNoData would return a double instead of the
+datatype of the band?
+
+Thanks,
+--Craig
+
+
+
+
+From warmerda at h...  Thu Mar 23 13:28:00 2000
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] Re: GetNoData returning a double?
+References: <8bdm7r$akan@eGroups.com>
+Message-ID: <38DA6230.1E17FCC4@h...>
+
+Craig Miller wrote:
+> 
+> Hi Frank,
+> 
+> I was just wondering why GetNoData would return a double instead of the
+> datatype of the band?
+
+Craig,
+
+Since there is only one GDALRasterBand class used for all band types, it is't
+possible to have the GetNoData() method to have a band type specific signature.
+In any event, as double has higher precision than all supported data types it
+seems like a good unifying type to return. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerda@h...
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From warmerda at h...  Fri Mar 31 10:13:35 2000
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] New Features, Future Steps
+Message-ID: <38E4C09F.3A2584EF@h...>
+
+
+Folks, 
+
+I have checked in substantial changes to GDAL, amoung other things:
+
+o Incorporating support for metadata (read), via the GetMetata() API on
+the GDALDataset and GDALRasterBand. For now only TIFF returns a few
+things, but I am expecting to return rich calibration metadata from
+some CEOS datasets.
+
+o Incorporating the ability to read GCPs from a dataset. For now there is
+no code in GDAL to build a polynomial model from this, but I may add this
+at some point. Currently only returned from TIFF, but support will be 
+added for CEOS and some Atlantis formats. 
+
+o I have modified the shared library to be call libgdal.1.1.so so that 
+-lgdal.1.1 can be used to link against it without hardcoded paths. 
+
+I have done a test build on Windows, and after a few fixes it works there too.
+
+Future issues:
+
+o I am thinking about switching to use libtool to build the shared library
+and adding an install target to install libgdal into a fairly standard
+way. I recently incorporated use of automake into PROJ.4, and it worked
+well, but because of the multiple directory nature of GDAL I don't think
+it is well suited to using automake. 
+
+o There is the issue of whether to separate the "OGR" vector support, and
+the GDAL raster support into separate libraries. I have been knashing
+my teeth about this for some time. The problem with separating is that
+substantial components are currently shared, notablely CPL (gdal/port), 
+ISO8211 support for SDTS rasters and vectors, and OGR projections support.
+
+I am currently inclined to merge the GDALDataset with OGRDataset, merge
+driver registration mechanisms, and make it one library with uniform "GDAL"
+naming. The configuration mechanism should include flags to just build in
+raster, or vector support if desired, but it would be in the same vein as
+just selecting a subset of formats. This merge would be a substantial job,
+and would cause substantial disruption for users of OGR stuff, notable 
+Safe Software. 
+
+I am interested in opinions on this, though ultimately I am likely to make
+the decision based on my own predilections. This problem has an erie
+similarity to the discussion of whether to merge "TVP" new style vector
+support back into GeoGateway many years ago at PCI. In the end there we
+decided that having a unified model for accessing all sorts of geospatial
+data look precidence over separability.
+
+Finally, I would like to thank Atlantis Scientific who is currently supporting
+my work on GDAL. I hope to be able to explain more of my work for Atlantis
+in the not to distant future. 
+
+Best regards,
+
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerda@h...
+light and sound - activate the windows | http://members.home.com/warmerda
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+From shadow at d...  Fri Mar 31 10:29:46 2000
+From: shadow at d... (Derrick J Brashear)
+Date: Wed Nov 21 11:49:13 2007
+Subject: [gdal-dev] Re: New Features, Future Steps
+In-Reply-To: <38E4C09F.3A2584EF@h...>
+Message-ID: <ML-1.3.2.954516586.4086.shadow@j...>
+
+> o I have modified the shared library to be call libgdal.1.1.so so that 
+> -lgdal.1.1 can be used to link against it without hardcoded paths. 
+
+Reason why you're embedding the software version into the library name instead
+of the more commonly accepted (except by the libc weasels)
+libname.so.major.minor.tiny, e.g. libgdal.so.1.1?
+
+-D
+
+
+

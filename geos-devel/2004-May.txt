@@ -1,0 +1,1630 @@
+From strk at keybit.net  Mon May  3 06:46:27 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Exception policy
+In-Reply-To: <20040430113730.A32446@freek.keybit.net>;
+	from strk@keybit.net on Fri, Apr 30, 2004 at 11:37:30AM +0200
+References: <5A94289A9268514C8D6C0F1FF44BA0274F51EE@venus.VividSolutions.com>
+	<20040426182042.B94099@freek.keybit.net>
+	<20040427020919.GA32596@vadose.dvg>
+	<20040430113730.A32446@freek.keybit.net>
+Message-ID: <20040503124627.A60575@freek.keybit.net>
+
+Ok, I've read something around (http://www.gotw.ca/publications/mill22.htm).
+Exception specification seems to be considered harmful most of
+the times. I've then left the specifications in the code as comments,
+since I'm still convinced its worth knowing (as far as the mantainer
+can tell) which exceptions could be thrown.
+
+Carl, could you check if you still get all those SIGABORT ?
+
+--strk;
+
+
+On Fri, Apr 30, 2004 at 11:37:30AM +0200, strk wrote:
+> About the SIGABORT, I've found the problem.
+> It's my fault.
+> Trying to make the code strict I've added some throw() specifications
+> and I missed to include some of the possible trhown exceptions,
+> in particular AssertionFailedExceptions.
+> 
+> I've now modified some of the code to specify a GEOSException *,
+> from which AssertionFailedExecption derives.
+> 
+> I did not known that, but I've learned that once you add a throw
+> specificaion you cannot catch exceptions not specified in the
+> list, but you're bound to receive a terminate()->abort() call.
+> 
+> Now. Since it is in theory possible that exceptions other then
+> GEOSException are thrown (out of memory for example), how should
+> GEOS act, being it a library ?
+> Should we completely omit throw specifications ?
+> Is the default abort() acceptable in this case ?
+> Should we add 'exception' to the specification list ?
+> 
+> Comments welcome.
+> 
+> --strk;
+> 
+> 
+> 
+> On Mon, Apr 26, 2004 at 10:09:20PM -0400, Carl Anderson wrote:
+> > On 04/26/2004 12:20:42 PM, strk wrote:
+> > > On Mon, Apr 26, 2004 at 09:11:04AM -0700, Martin Davis wrote:
+> > ...
+> > > > no need to pass it to the toGeometry method.  Really, the  
+> > > toGeometry
+> > > > method is only there to support converting Envelopes to a Geometry  
+> > > -
+> > > > it's not intended for outside use.  Probably should be
+> > > package-private
+> > > > in JTS.
+> > > >
+> > > > Make sense?
+> > > 
+> > > Sure, so the bug is in the comment alone :)
+> > > If that function is not part of the API, what code was trying to use
+> > > it Carl ?
+> > > 
+> > > --strk;
+> > 
+> > in PostGIS-0.8.1
+> > postgis_geos_wrapper.cpp:
+> >     g = geomFactory->toGeometry(envelope,geomFactory-
+> > >getPrecisionModel(), SRID);
+> > 
+> > matches a function in GEOS-1.0 but does not match anything in GEOS-CVS
+> > 
+> > Pls remember that my original email was addressing two seperate issues
+> >    (1) - the API creep
+> >    (2) - the stability of the geos library due to Asserts /
+> >         Exceptions / SegFaults.  Especially in the context of the
+> >         C program Postgres
+> > 
+> > the latter involve bugs, the former with tagging and whether fixes to  
+> > 1.0.0 or CVS would be appropriate.
+> > 
+> > C.
+> > 
+> > --
+> > Carl Anderson
+> > GIS Manager Fulton County Georgia
+> > carl.anderson@vadose.org
+> > carl.anderson@co.fulton.ga.us
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Mon May  3 10:02:17 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] doc/example runnable
+Message-ID: <20040503160217.A61826@freek.keybit.net>
+
+I've fixed a bug in AbstractSTRtree::compareDoubles making all
+sort operations dangerous. It has to return bool, not int.
+See: http://sgi.com/tech/stl/sort.html
+
+With the fix doc/example runs with no memory errors
+(just leaks).
+
+--strk;
+
+
+From strk at keybit.net  Mon May  3 11:07:04 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] AbstractSTRtree::createParentBoundables
+Message-ID: <20040503170704.B61826@freek.keybit.net>
+
+AbstractSTRtree::createParentBoundables cheats on sorting,
+using a fake comparator function to do it (compareAbsBoundables).
+
+JTS uses a subclass-defined comparator obtained with a call
+to getComparator.
+
+This thing seems to be not-so-easy to do in C++. Does anyone have
+hints on the topic ?
+
+--strk;
+
+From strk at keybit.net  Mon May  3 12:29:34 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] AbstractSTRtree::createParentBoundables
+In-Reply-To: <20040503170704.B61826@freek.keybit.net>;
+	from strk@keybit.net on Mon, May 03, 2004 at 05:07:04PM +0200
+References: <20040503170704.B61826@freek.keybit.net>
+Message-ID: <20040503182934.C61826@freek.keybit.net>
+
+Ok. This is what I worked out:
+AbstractSTRtree defines a protected pure virtual sortBoundables().
+STRtree and SIRtree implement it.
+Comparator functions used with sort are statics of STRtree.cpp
+and SIRtree.cpp
+
+--strk;
+
+abstract
+On Mon, May 03, 2004 at 05:07:04PM +0200, strk wrote:
+> AbstractSTRtree::createParentBoundables cheats on sorting,
+> using a fake comparator function to do it (compareAbsBoundables).
+> 
+> JTS uses a subclass-defined comparator obtained with a call
+> to getComparator.
+> 
+> This thing seems to be not-so-easy to do in C++. Does anyone have
+> hints on the topic ?
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From zhengshu.shen at asu.edu  Wed May  5 19:55:57 2004
+From: zhengshu.shen at asu.edu (shen)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] help on using GEOS
+Message-ID: <40997F0D.2F631561@asu.edu>
+
+Hello!
+I am new here, and i am looking for something like GEOS to implement my
+ideas for tolerance analysis.
+Could anybody out there tell me how to use GEOS: intergrate GEOS to
+MSVC-MFC based project? Some simple examples would be helpful as well.
+Thanks a lot.
+
+Shen
+
+
+
+
+From strk at keybit.net  Thu May  6 13:37:40 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] help on using GEOS
+In-Reply-To: <40997F0D.2F631561@asu.edu>;
+	from zhengshu.shen@asu.edu on Wed, May 05, 2004 at 04:55:57PM
+	-0700
+References: <40997F0D.2F631561@asu.edu>
+Message-ID: <20040506193740.A96089@freek.keybit.net>
+
+On Wed, May 05, 2004 at 04:55:57PM -0700, shen wrote:
+> Hello!
+> I am new here, and i am looking for something like GEOS to implement my
+> ideas for tolerance analysis.
+> Could anybody out there tell me how to use GEOS: intergrate GEOS to
+> MSVC-MFC based project? Some simple examples would be helpful as well.
+> Thanks a lot.
+
+doc/example.cpp contains few sample API calls.
+
+--strk;
+
+> 
+> Shen
+> 
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Thu May  6 13:46:42 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+Message-ID: <20040506194642.B96089@freek.keybit.net>
+
+I've got doc/example to run with no leaks.
+Now it's time to get results correct.
+
+In particular here are a the issues I'll approach next:
+
+	o  check for leaks with runs against .xml
+
+	o  doc/example catches "side location conflict"
+	   TopologyExceptions is it an expected behaviour ?
+
+	o  Every attempt to compute a buffer with original
+	   precision (bufferOriginalPrecision) results in a
+	   "depth mismatch" exception.
+
+	o  Buffered geoms starts and end with a point 
+	   from the original geometry.
+
+--strk;
+
+From publiek at home.nl  Fri May  7 07:44:00 2004
+From: publiek at home.nl (Marcel Koopman)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] isvalid info
+Message-ID: <20040507114744.B397B42C1EA@netnation.refractions.net>
+
+Hello,
+
+I want to know when a polygon is considered valid.
+
+I have 696 polygons that are not valid, but 16583 that are.
+
+In mapserver i can draw all polygons.
+These polygons are polygons on postal code level.
+
+Can someone give me some info about isvalid?
+
+Thanks.
+
+Marcel
+
+
+
+From mbdavis at VividSolutions.com  Fri May  7 11:43:34 2004
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] isvalid info
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0274F529C@venus.VividSolutions.com>
+
+Have a look at the JTS specs, available here:
+
+http://www.vividsolutions.com/JTS/JTSHome.htm
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+> -----Original Message-----
+> From: Marcel Koopman [mailto:publiek@home.nl] 
+> Sent: May 7, 2004 4:44 AM
+> To: geos-devel@geos.refractions.net
+> Subject: [geos-devel] isvalid info
+> 
+> 
+> Hello,
+> 
+> I want to know when a polygon is considered valid.
+> 
+> I have 696 polygons that are not valid, but 16583 that are.
+> 
+> In mapserver i can draw all polygons.
+> These polygons are polygons on postal code level.
+> 
+> Can someone give me some info about isvalid?
+> 
+> Thanks.
+> 
+> Marcel
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From mbdavis at VividSolutions.com  Fri May  7 11:47:13 2004
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] isvalid info
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0274F529D@venus.VividSolutions.com>
+
+Or the Open GIS Consortium (OGC) Simple Features for SQL (SFS)
+specification. JTS & GEOS implement the polygon model in that
+specification exactly.
+
+You could also get JUMP or JTS and try your polygons in them, to see why
+they are invalid (they both include a way of validating WKT geometry and
+displaying the location of failures).
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+> -----Original Message-----
+> From: Martin Davis 
+> Sent: May 7, 2004 8:44 AM
+> To: GEOS Development List
+> Subject: RE: [geos-devel] isvalid info
+> 
+> 
+> Have a look at the JTS specs, available here:
+> 
+> http://www.vividsolutions.com/JTS/JTSHome.htm
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> 
+> > -----Original Message-----
+> > From: Marcel Koopman [mailto:publiek@home.nl]
+> > Sent: May 7, 2004 4:44 AM
+> > To: geos-devel@geos.refractions.net
+> > Subject: [geos-devel] isvalid info
+> > 
+> > 
+> > Hello,
+> > 
+> > I want to know when a polygon is considered valid.
+> > 
+> > I have 696 polygons that are not valid, but 16583 that are.
+> > 
+> > In mapserver i can draw all polygons.
+> > These polygons are polygons on postal code level.
+> > 
+> > Can someone give me some info about isvalid?
+> > 
+> > Thanks.
+> > 
+> > Marcel
+> > 
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From strk at keybit.net  Fri May 14 05:15:10 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] PointExtracter::getPoints
+Message-ID: <20040514111510.A18715@freek.keybit.net>
+
+Martin, I've found this in geom/util/PointExtracter.java:
+
+  public static List getPoints(Geometry geom)
+  {
+    List pts = new ArrayList();
+    geom.apply(new PointExtracter(pts));
+    return pts;
+  }
+
+The same has been ported to GEOS.
+Shouldn't the function do something with the given argument ??
+
+--strk;
+
+From strk at keybit.net  Fri May 14 05:22:14 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] PointExtracter::getPoints
+In-Reply-To: <20040514111510.A18715@freek.keybit.net>;
+	from strk@keybit.net on Fri, May 14, 2004 at 11:15:10AM +0200
+References: <20040514111510.A18715@freek.keybit.net>
+Message-ID: <20040514112214.B18715@freek.keybit.net>
+
+On Fri, May 14, 2004 at 11:15:10AM +0200, strk wrote:
+> Martin, I've found this in geom/util/PointExtracter.java:
+> 
+>   public static List getPoints(Geometry geom)
+>   {
+>     List pts = new ArrayList();
+>     geom.apply(new PointExtracter(pts));
+>     return pts;
+>   }
+> 
+> The same has been ported to GEOS.
+> Shouldn't the function do something with the given argument ??
+
+Oops, sorry, it is calling apply() on it :)
+I've fixed a bug in DistanceOp that prevented it to do its job,
+thus unleashing lots of funx never previously called ...
+
+--strk;
+
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Mon May 17 08:32:41 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+In-Reply-To: <20040506194642.B96089@freek.keybit.net>;
+	from strk@keybit.net on Thu, May 06, 2004 at 07:46:42PM +0200
+References: <20040506194642.B96089@freek.keybit.net>
+Message-ID: <20040517143241.A46589@freek.keybit.net>
+
+I've fixed a but in PrecisionModel::makePrecise().
+Now the testLeaksBig.xml test gives the same result in both
+jts-1.4 and geos CVS (5 isValid failures).
+
+I've also run with success all jts-1.4 tests in test/validate.
+Tests in test/vivid with failures are:
+	TestFunctionPLPrec.xml
+	TestSimple.xml
+	TestValid.xml
+	TestValid2-big.xml
+	TestValid2.xml
+	TestWithinDistance.xml
+Other tests succeed.
+
+--strk;
+
+
+On Thu, May 06, 2004 at 07:46:42PM +0200, strk wrote:
+> I've got doc/example to run with no leaks.
+> Now it's time to get results correct.
+> 
+> In particular here are a the issues I'll approach next:
+> 
+> 	o  check for leaks with runs against .xml
+> 
+> 	o  doc/example catches "side location conflict"
+> 	   TopologyExceptions is it an expected behaviour ?
+> 
+> 	o  Every attempt to compute a buffer with original
+> 	   precision (bufferOriginalPrecision) results in a
+> 	   "depth mismatch" exception.
+> 
+> 	o  Buffered geoms starts and end with a point 
+> 	   from the original geometry.
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Mon May 17 08:54:42 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+In-Reply-To: <20040517143241.A46589@freek.keybit.net>;
+	from strk@keybit.net on Mon, May 17, 2004 at 02:32:41PM +0200
+References: <20040506194642.B96089@freek.keybit.net>
+	<20040517143241.A46589@freek.keybit.net>
+Message-ID: <20040517145442.B46589@freek.keybit.net>
+
+On Mon, May 17, 2004 at 02:32:41PM +0200, strk wrote:
+> I've fixed a but in PrecisionModel::makePrecise().
+> Now the testLeaksBig.xml test gives the same result in both
+> jts-1.4 and geos CVS (5 isValid failures).
+> 
+> I've also run with success all jts-1.4 tests in test/validate.
+> Tests in test/vivid with failures are:
+> 	TestFunctionPLPrec.xml
+> 	TestSimple.xml
+> 	TestValid.xml
+> 	TestValid2-big.xml
+> 	TestValid2.xml
+> 	TestWithinDistance.xml
+> Other tests succeed.
+
+Good news: the detected failures were due to bugs in the XML parser.
+No more failures. All JTS-1.4 tests run with success.
+The 5 isValid failures of testLeaksBig might be errors in the XML itself...
+Martin ?
+
+--strk;
+
+> 
+> --strk;
+> 
+> 
+> On Thu, May 06, 2004 at 07:46:42PM +0200, strk wrote:
+> > I've got doc/example to run with no leaks.
+> > Now it's time to get results correct.
+> > 
+> > In particular here are a the issues I'll approach next:
+> > 
+> > 	o  check for leaks with runs against .xml
+> > 
+> > 	o  doc/example catches "side location conflict"
+> > 	   TopologyExceptions is it an expected behaviour ?
+> > 
+> > 	o  Every attempt to compute a buffer with original
+> > 	   precision (bufferOriginalPrecision) results in a
+> > 	   "depth mismatch" exception.
+> > 
+> > 	o  Buffered geoms starts and end with a point 
+> > 	   from the original geometry.
+> > 
+> > --strk;
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From me at yury.ca  Mon May 17 17:15:47 2004
+From: me at yury.ca (Yury A. Bychkov)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+In-Reply-To: <20040517145442.B46589@freek.keybit.net>
+Message-ID: <20040517212150.C46FA42C1B8@netnation.refractions.net>
+
+
+The GEOS code is now completely up to date. It has been synchronized with
+the latest (March 26, 2004) changes to JTS. The changes were minor and
+wouldn't affect any test results.
+
+Yury 
+
+
+From mbdavis at VividSolutions.com  Mon May 17 17:26:47 2004
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0274F5329@venus.VividSolutions.com>
+
+Yury:
+
+I've made one small bug fix to JTS since March.  (It will be in 1.4.1,
+which we haven't quite released yet).  The change is minor - fixes a bug
+which causes some kinds of MultiPolygons to report as invalid.  Seems to
+me you might as well implement this in GEOS as well right now.  I've
+attached the file which changed (let me know if you need help in
+figuring out the exact changes).
+
+Martin
+
+
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+> -----Original Message-----
+> From: Yury A. Bychkov [mailto:me@yury.ca] 
+> Sent: May 17, 2004 2:16 PM
+> To: 'GEOS Development List'
+> Subject: [geos-devel] Current status
+> 
+> 
+> 
+> The GEOS code is now completely up to date. It has been 
+> synchronized with the latest (March 26, 2004) changes to JTS. 
+> The changes were minor and wouldn't affect any test results.
+> 
+> Yury 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: IsValidOp.java
+Type: application/octet-stream
+Size: 17749 bytes
+Desc: IsValidOp.java
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20040517/6724cf77/IsValidOp.obj
+From me at yury.ca  Mon May 17 20:02:16 2004
+From: me at yury.ca (Yury A. Bychkov)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA0274F5329@venus.VividSolutions.com>
+Message-ID: <20040518000817.B1B7442C2FA@netnation.refractions.net>
+
+Fixed and committed. Now GEOS is ahead of JTS ;-)
+
+Yury
+
+> -----Original Message-----
+> From: Martin Davis [mailto:mbdavis@VividSolutions.com]
+> Sent: Monday, May 17, 2004 2:27 PM
+> To: reply@yury.ca; GEOS Development List
+> Subject: RE: [geos-devel] Current status
+> 
+> Yury:
+> 
+> I've made one small bug fix to JTS since March.  (It will be in 1.4.1,
+> which we haven't quite released yet).  The change is minor - fixes a bug
+> which causes some kinds of MultiPolygons to report as invalid.  Seems to
+> me you might as well implement this in GEOS as well right now.  I've
+> attached the file which changed (let me know if you need help in
+> figuring out the exact changes).
+> 
+> Martin
+> 
+> 
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> 
+> > -----Original Message-----
+> > From: Yury A. Bychkov [mailto:me@yury.ca]
+> > Sent: May 17, 2004 2:16 PM
+> > To: 'GEOS Development List'
+> > Subject: [geos-devel] Current status
+> >
+> >
+> >
+> > The GEOS code is now completely up to date. It has been
+> > synchronized with the latest (March 26, 2004) changes to JTS.
+> > The changes were minor and wouldn't affect any test results.
+> >
+> > Yury
+> >
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+
+
+From pramsey at refractions.net  Tue May 18 01:28:53 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+In-Reply-To: <20040518000817.B1B7442C2FA@netnation.refractions.net>
+Message-ID: <4054C21A-A88C-11D8-AFE4-000393D33C2E@refractions.net>
+
+Only if I manage to release before Martin, which is... unlikely. But a 
+challenge! Get in the blocks, Davis!
+P.
+
+On Monday, May 17, 2004, at 05:02 PM, Yury A. Bychkov wrote:
+
+> Fixed and committed. Now GEOS is ahead of JTS ;-)
+>
+> Yury
+>
+>> -----Original Message-----
+>> From: Martin Davis [mailto:mbdavis@VividSolutions.com]
+>> Sent: Monday, May 17, 2004 2:27 PM
+>> To: reply@yury.ca; GEOS Development List
+>> Subject: RE: [geos-devel] Current status
+>>
+>> Yury:
+>>
+>> I've made one small bug fix to JTS since March.  (It will be in 1.4.1,
+>> which we haven't quite released yet).  The change is minor - fixes a 
+>> bug
+>> which causes some kinds of MultiPolygons to report as invalid.  Seems 
+>> to
+>> me you might as well implement this in GEOS as well right now.  I've
+>> attached the file which changed (let me know if you need help in
+>> figuring out the exact changes).
+>>
+>> Martin
+>>
+>>
+>>
+>> Martin Davis, Senior Technical Architect
+>> Vivid Solutions Inc.
+>> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+>> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+>>
+>>
+>>> -----Original Message-----
+>>> From: Yury A. Bychkov [mailto:me@yury.ca]
+>>> Sent: May 17, 2004 2:16 PM
+>>> To: 'GEOS Development List'
+>>> Subject: [geos-devel] Current status
+>>>
+>>>
+>>>
+>>> The GEOS code is now completely up to date. It has been
+>>> synchronized with the latest (March 26, 2004) changes to JTS.
+>>> The changes were minor and wouldn't affect any test results.
+>>>
+>>> Yury
+>>>
+>>> _______________________________________________
+>>> geos-devel mailing list
+>>> geos-devel@geos.refractions.net
+>>> http://geos.refractions.net/mailman/listinfo/geos-devel
+>>>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+>
+      Paul Ramsey
+      Refractions Research
+      Email: pramsey@refractions.net
+      Phone: (250) 885-0632
+
+
+From paul at toolscenter.org  Tue May 18 02:05:53 2004
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Current status
+References: <4054C21A-A88C-11D8-AFE4-000393D33C2E@refractions.net>
+Message-ID: <000901c43c9e$2eecd9b0$700201c0@MAPQUEST.local>
+
+The leader is OTS :-)
+
+Best regards,
+Paul.
+
+----- Original Message ----- 
+From: "Paul Ramsey" <pramsey@refractions.net>
+To: <reply@yury.ca>; "GEOS Development List"
+<geos-devel@geos.refractions.net>
+Sent: Tuesday, May 18, 2004 2:28 PM
+Subject: Re: [geos-devel] Current status
+
+
+> Only if I manage to release before Martin, which is... unlikely. But a
+> challenge! Get in the blocks, Davis!
+> P.
+>
+> On Monday, May 17, 2004, at 05:02 PM, Yury A. Bychkov wrote:
+>
+> > Fixed and committed. Now GEOS is ahead of JTS ;-)
+> >
+> > Yury
+> >
+> >> -----Original Message-----
+> >> From: Martin Davis [mailto:mbdavis@VividSolutions.com]
+> >> Sent: Monday, May 17, 2004 2:27 PM
+> >> To: reply@yury.ca; GEOS Development List
+> >> Subject: RE: [geos-devel] Current status
+> >>
+> >> Yury:
+> >>
+> >> I've made one small bug fix to JTS since March.  (It will be in 1.4.1,
+> >> which we haven't quite released yet).  The change is minor - fixes a
+> >> bug
+> >> which causes some kinds of MultiPolygons to report as invalid.  Seems
+> >> to
+> >> me you might as well implement this in GEOS as well right now.  I've
+> >> attached the file which changed (let me know if you need help in
+> >> figuring out the exact changes).
+> >>
+> >> Martin
+> >>
+> >>
+> >>
+> >> Martin Davis, Senior Technical Architect
+> >> Vivid Solutions Inc.
+> >> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> >> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> >>
+> >>
+> >>> -----Original Message-----
+> >>> From: Yury A. Bychkov [mailto:me@yury.ca]
+> >>> Sent: May 17, 2004 2:16 PM
+> >>> To: 'GEOS Development List'
+> >>> Subject: [geos-devel] Current status
+> >>>
+> >>>
+> >>>
+> >>> The GEOS code is now completely up to date. It has been
+> >>> synchronized with the latest (March 26, 2004) changes to JTS.
+> >>> The changes were minor and wouldn't affect any test results.
+> >>>
+> >>> Yury
+> >>>
+> >>> _______________________________________________
+> >>> geos-devel mailing list
+> >>> geos-devel@geos.refractions.net
+> >>> http://geos.refractions.net/mailman/listinfo/geos-devel
+> >>>
+> >
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+>       Paul Ramsey
+>       Refractions Research
+>       Email: pramsey@refractions.net
+>       Phone: (250) 885-0632
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+>
+>
+
+
+From mbdavis at VividSolutions.com  Tue May 18 14:46:00 2004
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Another bug fix in JTS 1.4.1 for GEOS
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0274F533C@venus.VividSolutions.com>
+
+Yury, attached is a bug fix in JTS for a problem which has just come to
+light.  (Buffers of some polygons with small & large were being computed
+with no holes)
+
+See line 184 - "return" replaced by "continue"
+
+
+
+
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+> -----Original Message-----
+> From: Yury A. Bychkov [mailto:me@yury.ca] 
+> Sent: May 17, 2004 5:02 PM
+> To: 'GEOS Development List'
+> Subject: RE: [geos-devel] Current status
+> 
+> 
+> Fixed and committed. Now GEOS is ahead of JTS ;-)
+> 
+> Yury
+> 
+> > -----Original Message-----
+> > From: Martin Davis [mailto:mbdavis@VividSolutions.com]
+> > Sent: Monday, May 17, 2004 2:27 PM
+> > To: reply@yury.ca; GEOS Development List
+> > Subject: RE: [geos-devel] Current status
+> > 
+> > Yury:
+> > 
+> > I've made one small bug fix to JTS since March.  (It will 
+> be in 1.4.1, 
+> > which we haven't quite released yet).  The change is minor 
+> - fixes a 
+> > bug which causes some kinds of MultiPolygons to report as invalid.  
+> > Seems to me you might as well implement this in GEOS as well right 
+> > now.  I've attached the file which changed (let me know if you need 
+> > help in figuring out the exact changes).
+> > 
+> > Martin
+> > 
+> > 
+> > 
+> > Martin Davis, Senior Technical Architect
+> > Vivid Solutions Inc.
+> > Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> > Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> > 
+> > 
+> > > -----Original Message-----
+> > > From: Yury A. Bychkov [mailto:me@yury.ca]
+> > > Sent: May 17, 2004 2:16 PM
+> > > To: 'GEOS Development List'
+> > > Subject: [geos-devel] Current status
+> > >
+> > >
+> > >
+> > > The GEOS code is now completely up to date. It has been 
+> synchronized 
+> > > with the latest (March 26, 2004) changes to JTS. The changes were 
+> > > minor and wouldn't affect any test results.
+> > >
+> > > Yury
+> > >
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net 
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > >
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: OffsetCurveSetBuilder.java
+Type: application/octet-stream
+Size: 10514 bytes
+Desc: OffsetCurveSetBuilder.java
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20040518/77881b2c/OffsetCurveSetBuilder.obj
+From me at yury.ca  Wed May 19 05:55:42 2004
+From: me at yury.ca (Yury A. Bychkov)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Another bug fix in JTS 1.4.1 for GEOS
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA0274F533C@venus.VividSolutions.com>
+Message-ID: <20040519100150.EE46D42C23A@netnation.refractions.net>
+
+Fixed.
+
+> -----Original Message-----
+> From: geos-devel-bounces@geos.refractions.net [mailto:geos-devel-
+> bounces@geos.refractions.net] On Behalf Of Martin Davis
+> Sent: Tuesday, May 18, 2004 11:46 AM
+> To: reply@yury.ca; GEOS Development List
+> Subject: [geos-devel] Another bug fix in JTS 1.4.1 for GEOS
+> 
+> Yury, attached is a bug fix in JTS for a problem which has just come to
+> light.  (Buffers of some polygons with small & large were being computed
+> with no holes)
+> 
+> See line 184 - "return" replaced by "continue"
+> 
+> 
+> 
+> 
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> 
+> > -----Original Message-----
+> > From: Yury A. Bychkov [mailto:me@yury.ca]
+> > Sent: May 17, 2004 5:02 PM
+> > To: 'GEOS Development List'
+> > Subject: RE: [geos-devel] Current status
+> >
+> >
+> > Fixed and committed. Now GEOS is ahead of JTS ;-)
+> >
+> > Yury
+> >
+> > > -----Original Message-----
+> > > From: Martin Davis [mailto:mbdavis@VividSolutions.com]
+> > > Sent: Monday, May 17, 2004 2:27 PM
+> > > To: reply@yury.ca; GEOS Development List
+> > > Subject: RE: [geos-devel] Current status
+> > >
+> > > Yury:
+> > >
+> > > I've made one small bug fix to JTS since March.  (It will
+> > be in 1.4.1,
+> > > which we haven't quite released yet).  The change is minor
+> > - fixes a
+> > > bug which causes some kinds of MultiPolygons to report as invalid.
+> > > Seems to me you might as well implement this in GEOS as well right
+> > > now.  I've attached the file which changed (let me know if you need
+> > > help in figuring out the exact changes).
+> > >
+> > > Martin
+> > >
+> > >
+> > >
+> > > Martin Davis, Senior Technical Architect
+> > > Vivid Solutions Inc.
+> > > Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> > > Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> > >
+> > >
+> > > > -----Original Message-----
+> > > > From: Yury A. Bychkov [mailto:me@yury.ca]
+> > > > Sent: May 17, 2004 2:16 PM
+> > > > To: 'GEOS Development List'
+> > > > Subject: [geos-devel] Current status
+> > > >
+> > > >
+> > > >
+> > > > The GEOS code is now completely up to date. It has been
+> > synchronized
+> > > > with the latest (March 26, 2004) changes to JTS. The changes were
+> > > > minor and wouldn't affect any test results.
+> > > >
+> > > > Yury
+> > > >
+> > > > _______________________________________________
+> > > > geos-devel mailing list
+> > > > geos-devel@geos.refractions.net
+> > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > > >
+> >
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> >
+
+
+From strk at keybit.net  Wed May 19 13:00:03 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] buffer bug fixed
+Message-ID: <20040519190003.A78102@freek.keybit.net>
+
+I've found and fixed a bug in BufferOp.
+example.cpp runs work now fine on buffers.
+There is an issue left with intersection,
+where side location conflict TopologyException is raised.
+
+Still we have no failures on .xml tests, apart from the
+5 isValid tests also failing with JTS-1.4
+
+Martin, could you provide any new-features .xml tests ?
+
+--strk;
+
+From mbdavis at VividSolutions.com  Wed May 19 20:57:21 2004
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] buffer bug fixed
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0274F534E@venus.VividSolutions.com>
+
+I don't think so...  We've sort of outstripped the ability to express
+tests in .xml format  (e.g. buffer tests are really possible to
+express).
+
+There is a bunch of Junit buffer tests - would those be useful?
+
+By the way, do all the tests which uncovered bugs in GEOS pass in JTS?
+If not, can you send me the tests?
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+> -----Original Message-----
+> From: strk [mailto:strk@keybit.net] 
+> Sent: May 19, 2004 10:00 AM
+> To: geos-devel@geos.refractions.net
+> Cc: Martin Davis; Paul Ramsey
+> Subject: [geos-devel] buffer bug fixed
+> 
+> 
+> I've found and fixed a bug in BufferOp.
+> example.cpp runs work now fine on buffers.
+> There is an issue left with intersection,
+> where side location conflict TopologyException is raised.
+> 
+> Still we have no failures on .xml tests, apart from the
+> 5 isValid tests also failing with JTS-1.4
+> 
+> Martin, could you provide any new-features .xml tests ?
+> 
+> --strk;
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From paul at toolscenter.org  Wed May 19 21:11:31 2004
+From: paul at toolscenter.org (Paul Selormey)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] buffer bug fixed
+References: <5A94289A9268514C8D6C0F1FF44BA0274F534E@venus.VividSolutions.com>
+Message-ID: <007d01c43e07$646fd3c0$700201c0@MAPQUEST.local>
+
+Hello Martin,
+
+> There is a bunch of Junit buffer tests - would those be useful?
+
+I wish to have them too.
+
+Best regards,
+Paul.
+
+
+From strk at keybit.net  Thu May 20 04:54:00 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] buffer bug fixed
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA0274F534E@venus.VividSolutions.com>;
+	from mbdavis@VividSolutions.com on Wed, May 19, 2004 at 05:57:21PM
+	-0700
+References: <5A94289A9268514C8D6C0F1FF44BA0274F534E@venus.VividSolutions.com>
+Message-ID: <20040520105400.A87488@freek.keybit.net>
+
+On Wed, May 19, 2004 at 05:57:21PM -0700, Martin Davis wrote:
+> I don't think so...  We've sort of outstripped the ability to express
+> tests in .xml format  (e.g. buffer tests are really possible to
+> express).
+> 
+> There is a bunch of Junit buffer tests - would those be useful?
+
+Send them out, I'll see what can I do with them.
+
+> 
+> By the way, do all the tests which uncovered bugs in GEOS pass in JTS?
+> If not, can you send me the tests?
+
+The only tests that do not pass yet are the 4 isValid ones 
+contained in testLeaksBig.xml yury or I already sent you.
+
+What about those tests ? Who's right ?
+The 'expected' or the 'real' result ? (I do not know where
+testLeaksBig comes from).
+
+--strk;
+
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> 
+> > -----Original Message-----
+> > From: strk [mailto:strk@keybit.net] 
+> > Sent: May 19, 2004 10:00 AM
+> > To: geos-devel@geos.refractions.net
+> > Cc: Martin Davis; Paul Ramsey
+> > Subject: [geos-devel] buffer bug fixed
+> > 
+> > 
+> > I've found and fixed a bug in BufferOp.
+> > example.cpp runs work now fine on buffers.
+> > There is an issue left with intersection,
+> > where side location conflict TopologyException is raised.
+> > 
+> > Still we have no failures on .xml tests, apart from the
+> > 5 isValid tests also failing with JTS-1.4
+> > 
+> > Martin, could you provide any new-features .xml tests ?
+> > 
+> > --strk;
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net 
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From mbdavis at VividSolutions.com  Thu May 20 11:42:20 2004
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Failures in testLeaksBig.xml
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>
+
+I checked out the 5 failures in the testLeaksBig.xml file.  They're all
+spurious, and due to the fact that JTS 1.4 now allows repeated points in
+geometries, as per the SFS spec.
+
+So these don't indicate any problem with GEOS.  You should fix up your
+testLeaksBig.xml file to change the results of those cases to "true".
+
+Martin Davis, Senior Technical Architect
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+
+
+> -----Original Message-----
+> From: strk [mailto:strk@keybit.net] 
+> Sent: May 17, 2004 5:55 AM
+> To: geos-devel@geos.refractions.net; Paul Ramsey
+> Subject: Re: [geos-devel] Current status
+> 
+> 
+> On Mon, May 17, 2004 at 02:32:41PM +0200, strk wrote:
+> > I've fixed a but in PrecisionModel::makePrecise().
+> > Now the testLeaksBig.xml test gives the same result in both jts-1.4 
+> > and geos CVS (5 isValid failures).
+> > 
+> > I've also run with success all jts-1.4 tests in 
+> test/validate. Tests 
+> > in test/vivid with failures are:
+> > 	TestFunctionPLPrec.xml
+> > 	TestSimple.xml
+> > 	TestValid.xml
+> > 	TestValid2-big.xml
+> > 	TestValid2.xml
+> > 	TestWithinDistance.xml
+> > Other tests succeed.
+> 
+> Good news: the detected failures were due to bugs in the XML 
+> parser. No more failures. All JTS-1.4 tests run with success. 
+> The 5 isValid failures of testLeaksBig might be errors in the 
+> XML itself... Martin ?
+> 
+> --strk;
+> 
+> > 
+> > --strk;
+> > 
+> > 
+> > On Thu, May 06, 2004 at 07:46:42PM +0200, strk wrote:
+> > > I've got doc/example to run with no leaks.
+> > > Now it's time to get results correct.
+> > > 
+> > > In particular here are a the issues I'll approach next:
+> > > 
+> > > 	o  check for leaks with runs against .xml
+> > > 
+> > > 	o  doc/example catches "side location conflict"
+> > > 	   TopologyExceptions is it an expected behaviour ?
+> > > 
+> > > 	o  Every attempt to compute a buffer with original
+> > > 	   precision (bufferOriginalPrecision) results in a
+> > > 	   "depth mismatch" exception.
+> > > 
+> > > 	o  Buffered geoms starts and end with a point 
+> > > 	   from the original geometry.
+> > > 
+> > > --strk;
+> > > _______________________________________________
+> > > geos-devel mailing list
+> > > geos-devel@geos.refractions.net 
+> > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net 
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From pramsey at refractions.net  Thu May 20 11:38:47 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Next Step
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>
+Message-ID: <40ACD107.4080607@refractions.net>
+
+Sounds like the current revision is ready for other testing?
+Does postgis still build cleanly against this new version? Probably some 
+stress testing there would be the next step...
+
+Q: Do the test cases available cover the 
+Intersection/Difference/Symdifference areas well, or are those 
+relatively lightly tested?
+
+-- 
+       __
+      /
+      | Paul Ramsey
+      | Refractions Research
+      | Email: pramsey@refractions.net
+      | Phone: (250) 885-0632
+      \_
+
+From strk at keybit.net  Fri May 21 09:35:50 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Failures in testLeaksBig.xml
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>;
+	from mbdavis@VividSolutions.com on Thu, May 20, 2004 at 08:42:20AM
+	-0700
+References: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>
+Message-ID: <20040521153550.F96670@freek.keybit.net>
+
+On Thu, May 20, 2004 at 08:42:20AM -0700, Martin Davis wrote:
+> I checked out the 5 failures in the testLeaksBig.xml file.  They're all
+> spurious, and due to the fact that JTS 1.4 now allows repeated points in
+> geometries, as per the SFS spec.
+> 
+> So these don't indicate any problem with GEOS.  You should fix up your
+> testLeaksBig.xml file to change the results of those cases to "true".
+
+Thank you Martin.
+I've fixed the 'expected' result and added testLeaksBig.cml file
+to the source/test directory in CVS.
+
+--strk;
+
+> 
+> Martin Davis, Senior Technical Architect
+> Vivid Solutions Inc.
+> Suite #1A-2328 Government Street Victoria, B.C. V8T 5G5
+> Phone: (250) 385 6040 - Local 308 Fax: (250) 385 6046
+> 
+> 
+> > -----Original Message-----
+> > From: strk [mailto:strk@keybit.net] 
+> > Sent: May 17, 2004 5:55 AM
+> > To: geos-devel@geos.refractions.net; Paul Ramsey
+> > Subject: Re: [geos-devel] Current status
+> > 
+> > 
+> > On Mon, May 17, 2004 at 02:32:41PM +0200, strk wrote:
+> > > I've fixed a but in PrecisionModel::makePrecise().
+> > > Now the testLeaksBig.xml test gives the same result in both jts-1.4 
+> > > and geos CVS (5 isValid failures).
+> > > 
+> > > I've also run with success all jts-1.4 tests in 
+> > test/validate. Tests 
+> > > in test/vivid with failures are:
+> > > 	TestFunctionPLPrec.xml
+> > > 	TestSimple.xml
+> > > 	TestValid.xml
+> > > 	TestValid2-big.xml
+> > > 	TestValid2.xml
+> > > 	TestWithinDistance.xml
+> > > Other tests succeed.
+> > 
+> > Good news: the detected failures were due to bugs in the XML 
+> > parser. No more failures. All JTS-1.4 tests run with success. 
+> > The 5 isValid failures of testLeaksBig might be errors in the 
+> > XML itself... Martin ?
+> > 
+> > --strk;
+> > 
+> > > 
+> > > --strk;
+> > > 
+> > > 
+> > > On Thu, May 06, 2004 at 07:46:42PM +0200, strk wrote:
+> > > > I've got doc/example to run with no leaks.
+> > > > Now it's time to get results correct.
+> > > > 
+> > > > In particular here are a the issues I'll approach next:
+> > > > 
+> > > > 	o  check for leaks with runs against .xml
+> > > > 
+> > > > 	o  doc/example catches "side location conflict"
+> > > > 	   TopologyExceptions is it an expected behaviour ?
+> > > > 
+> > > > 	o  Every attempt to compute a buffer with original
+> > > > 	   precision (bufferOriginalPrecision) results in a
+> > > > 	   "depth mismatch" exception.
+> > > > 
+> > > > 	o  Buffered geoms starts and end with a point 
+> > > > 	   from the original geometry.
+> > > > 
+> > > > --strk;
+> > > > _______________________________________________
+> > > > geos-devel mailing list
+> > > > geos-devel@geos.refractions.net 
+> > > > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net 
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Fri May 21 09:46:04 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Next Step
+In-Reply-To: <40ACD107.4080607@refractions.net>;
+	from pramsey@refractions.net on Thu, May 20, 2004 at 08:38:47AM
+	-0700
+References: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>
+	<40ACD107.4080607@refractions.net>
+Message-ID: <20040521154604.G96670@freek.keybit.net>
+
+Postgis builds cleanly.
+All tests from JTS-1.4 tree pass.
+In testLeaksBig.xml there are:
+	59 intersection tests
+	51 difference tests
+	55 sydifference tests
+
+There are a couple of issues left:
+
+	1) Yury is trying what works in PrecisionModel::makePrecise()
+	   to round to nearest integer in a JTS-1.4 compatible way
+	   [ rint() did not work, round() is not JTS-1.4 compatible,
+	     nearbyint() is in test ]
+
+	2) doc/example runs get TopologyException: side location conflict
+	   (0,250) on intersection. I'm working on this.
+
+	3?) BufferSubgraph::computeDepths might be faster then it is
+	     (read comments there)
+
+--strk;
+
+On Thu, May 20, 2004 at 08:38:47AM -0700, Paul Ramsey wrote:
+> Sounds like the current revision is ready for other testing?
+> Does postgis still build cleanly against this new version? Probably some 
+> stress testing there would be the next step...
+> 
+> Q: Do the test cases available cover the 
+> Intersection/Difference/Symdifference areas well, or are those 
+> relatively lightly tested?
+> 
+> -- 
+>        __
+>       /
+>       | Paul Ramsey
+>       | Refractions Research
+>       | Email: pramsey@refractions.net
+>       | Phone: (250) 885-0632
+>       \_
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From strk at keybit.net  Fri May 21 10:17:51 2004
+From: strk at keybit.net (strk)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] Next Step
+In-Reply-To: <20040521154604.G96670@freek.keybit.net>;
+	from strk@keybit.net on Fri, May 21, 2004 at 03:46:04PM +0200
+References: <5A94289A9268514C8D6C0F1FF44BA027225710@venus.VividSolutions.com>
+	<40ACD107.4080607@refractions.net>
+	<20040521154604.G96670@freek.keybit.net>
+Message-ID: <20040521161751.A1495@freek.keybit.net>
+
+On Fri, May 21, 2004 at 03:46:04PM +0200, strk wrote:
+> Postgis builds cleanly.
+> All tests from JTS-1.4 tree pass.
+> In testLeaksBig.xml there are:
+> 	59 intersection tests
+> 	51 difference tests
+> 	55 sydifference tests
+> 
+> There are a couple of issues left:
+> 
+> 	1) Yury is trying what works in PrecisionModel::makePrecise()
+> 	   to round to nearest integer in a JTS-1.4 compatible way
+> 	   [ rint() did not work, round() is not JTS-1.4 compatible,
+> 	     nearbyint() is in test ]
+> 
+> 	2) doc/example runs get TopologyException: side location conflict
+> 	   (0,250) on intersection. I'm working on this.
+
+This was a missing argument check for ::intersection, which
+does not support GEOMETRYCOLLECTION. Fixed.
+
+> 
+> 	3?) BufferSubgraph::computeDepths might be faster then it is
+> 	     (read comments there)
+
+This is basically an HASH which has been implemented with
+a vector and a ::contains function that scans the whole vector.
+I thought it could have been implemented using one of the STL
+templates (map?set?). Any hint on this ? Just need to check
+if an object pointer has already been visited (address-based comparison).
+
+--strk;
+
+> 
+> --strk;
+> 
+> On Thu, May 20, 2004 at 08:38:47AM -0700, Paul Ramsey wrote:
+> > Sounds like the current revision is ready for other testing?
+> > Does postgis still build cleanly against this new version? Probably some 
+> > stress testing there would be the next step...
+> > 
+> > Q: Do the test cases available cover the 
+> > Intersection/Difference/Symdifference areas well, or are those 
+> > relatively lightly tested?
+> > 
+> > -- 
+> >        __
+> >       /
+> >       | Paul Ramsey
+> >       | Refractions Research
+> >       | Email: pramsey@refractions.net
+> >       | Phone: (250) 885-0632
+> >       \_
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+
+From carl.anderson at vadose.org  Sun May 23 13:07:59 2004
+From: carl.anderson at vadose.org (Carl Anderson)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] hourly build link
+Message-ID: <1085332079l.785l.0l@vadose.dvg>
+
+
+the CVS hourly build
+link on http://geos.refractions.net
+
+is pointing to the 1.0 Tagged CVS code, not to HEAD
+
+
+C.
+
+
+Carl Anderson
+
+
+
+From pramsey at refractions.net  Mon May 24 16:56:44 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] hourly build link
+In-Reply-To: <1085332079l.785l.0l@vadose.dvg>
+References: <1085332079l.785l.0l@vadose.dvg>
+Message-ID: <40B2618C.9060309@refractions.net>
+
+Side effect of a CVS change. I bumped the version to 1.4 to coincide 
+with the JTS numbering, but that broke my autobuild script. Should be 
+all fixed up now.
+
+Carl Anderson wrote:
+
+> 
+> the CVS hourly build
+> link on http://geos.refractions.net
+> 
+> is pointing to the 1.0 Tagged CVS code, not to HEAD
+> 
+> 
+> C.
+> 
+> 
+> Carl Anderson
+
+
+-- 
+       __
+      /
+      | Paul Ramsey
+      | Refractions Research
+      | Email: pramsey@refractions.net
+      | Phone: (250) 885-0632
+      \_
+
+From pramsey at refractions.net  Mon May 24 17:21:41 2004
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] hourly build link
+In-Reply-To: <40B2618C.9060309@refractions.net>
+References: <1085332079l.785l.0l@vadose.dvg> <40B2618C.9060309@refractions.net>
+Message-ID: <40B26765.3010000@refractions.net>
+
+And as an added bonus, the doxygen is being properly generated again.
+
+Paul Ramsey wrote:
+
+> Side effect of a CVS change. I bumped the version to 1.4 to coincide 
+> with the JTS numbering, but that broke my autobuild script. Should be 
+> all fixed up now.
+> 
+> Carl Anderson wrote:
+> 
+>>
+>> the CVS hourly build
+>> link on http://geos.refractions.net
+>>
+>> is pointing to the 1.0 Tagged CVS code, not to HEAD
+>>
+
+
+-- 
+       __
+      /
+      | Paul Ramsey
+      | Refractions Research
+      | Email: pramsey@refractions.net
+      | Phone: (250) 885-0632
+      \_
+
+From carl.anderson at vadose.org  Mon May 24 19:16:01 2004
+From: carl.anderson at vadose.org (Carl Anderson)
+Date: Fri Nov  2 20:52:27 2007
+Subject: [geos-devel] hourly build link
+In-Reply-To: <40B26765.3010000@refractions.net> (from
+	pramsey@refractions.net on Mon, May 24, 2004 at 17:21:41 -0400)
+References: <1085332079l.785l.0l@vadose.dvg>
+	<40B2618C.9060309@refractions.net> <40B26765.3010000@refractions.net>
+Message-ID: <1085440561l.3428l.0l@vadose.dvg>
+
+On 05/24/2004 05:21:41 PM, Paul Ramsey wrote:
+> And as an added bonus, the doxygen is being properly generated again.
+> 
+> Paul Ramsey wrote:
+> 
+>> Side effect of a CVS change. I bumped the version to 1.4 to coincide  
+>> with the JTS numbering, but that broke my autobuild script. Should  
+>> be all fixed up now.
+>>
+
+Thanks and double thanks!
+
+C.
+
+

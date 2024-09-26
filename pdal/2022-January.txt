@@ -1,0 +1,2524 @@
+From kirk.waters at noaa.gov  Wed Jan  5 04:43:21 2022
+From: kirk.waters at noaa.gov (Kirk Waters - NOAA Federal)
+Date: Wed, 5 Jan 2022 07:43:21 -0500
+Subject: [pdal] limit reading EPT and writing laz?
+Message-ID: <CADm=QrRT3iiQna+u0Rp1yjaGhAN4Cg_ecJvcWB=KgJ3dfPbUpg@mail.gmail.com>
+
+PDAL folks,
+I have a system set up that normally works well at reading EPT data I need
+and writing it out as laz for further processing. However, I've run across
+a case where pdal consistently dies with a return code of 137 after
+creating a laz file just under 3 Gb. That seems a bit too big to be related
+to a 32-bit limit and too small to be too many points for LAS 1.2 format.
+The pipeline file I'm using is attached. Are there other things I should be
+looking for that might be causing the failure? I'm running pdal version
+2.3.0 from a conda install.
+
+Also, pdal info on the partial file doesn't give much, just:
+PDAL: readers.las: Invalid VLR - exceeds specified file range.
+while lasinfo on that file gives:
+ERROR: header size is 0 but should be at least 227
+So, I expect the header isn't getting filled in until the end, which never
+happens.
+
+Thanks for any suggestions.
+
+Kirk Waters, PhD                     | NOAA Office for Coastal Management
+Applied Sciences Program      | 2234 South Hobson Ave
+843-740-1227 (empty office)   | Charleston, SC 29405
+843-324-2203 (cell during COVID)
+coast.noaa.gov/digitalcoast
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220105/c80129c8/attachment.html>
+-------------- next part --------------
+{"pipeline":[
+
+{
+ "filename": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_NC_Phase4_Mecklenburg_2016_LAS_2019/ept.json", 
+		"type":"readers.ept", 
+		"bounds": "([-9010302.38952617, -8998317.06177951], [4200504.61811429, 4210372.89515954])" 
+}, 
+{ "type": "filters.range", "limits":"Classification[1:1],Classification[2:2],Classification[3:3],Classification[4:4],Classification[5:5],Classification[6:6],Classification[9:9],Classification[10:10],Classification[13:13],Classification[14:14]" },
+{ "type":"filters.reprojection", "out_srs":"EPSG:6318", "in_srs":"EPSG:3857" },
+{ "type":"writers.las", "scale_x":"0.0000001", "scale_y":"0.0000001", 
+		"offset_x":"auto",
+        "offset_y":"auto",
+        "offset_z":"auto",
+        "filename":"extractept0.laz" }
+]}
+
+From andrew.bell.ia at gmail.com  Thu Jan  6 04:11:48 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 6 Jan 2022 07:11:48 -0500
+Subject: [pdal] limit reading EPT and writing laz?
+In-Reply-To: <CADm=QrRT3iiQna+u0Rp1yjaGhAN4Cg_ecJvcWB=KgJ3dfPbUpg@mail.gmail.com>
+References: <CADm=QrRT3iiQna+u0Rp1yjaGhAN4Cg_ecJvcWB=KgJ3dfPbUpg@mail.gmail.com>
+Message-ID: <CACJ51z35ZxqLD0RfHw+0JkeUffkPJMOgtn5b-L1+B6cvpWUDFQ@mail.gmail.com>
+
+On Wed, Jan 5, 2022 at 7:43 AM Kirk Waters - NOAA Federal <
+kirk.waters at noaa.gov> wrote:
+
+> PDAL folks,
+> I have a system set up that normally works well at reading EPT data I need
+> and writing it out as laz for further processing. However, I've run across
+> a case where pdal consistently dies with a return code of 137 after
+> creating a laz file just under 3 Gb.
+>
+
+I ran this pipeline to completion on my OSX laptop, so I think you'll have
+to do some more debugging. I would think you should have some output at the
+command line. You should also provide that command just to make sure you
+did the same thing that I did.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220106/60f63fea/attachment.html>
+
+From kirk.waters at noaa.gov  Thu Jan  6 06:01:36 2022
+From: kirk.waters at noaa.gov (Kirk Waters - NOAA Federal)
+Date: Thu, 6 Jan 2022 09:01:36 -0500
+Subject: [pdal] limit reading EPT and writing laz?
+In-Reply-To: <CACJ51z35ZxqLD0RfHw+0JkeUffkPJMOgtn5b-L1+B6cvpWUDFQ@mail.gmail.com>
+References: <CADm=QrRT3iiQna+u0Rp1yjaGhAN4Cg_ecJvcWB=KgJ3dfPbUpg@mail.gmail.com>
+ <CACJ51z35ZxqLD0RfHw+0JkeUffkPJMOgtn5b-L1+B6cvpWUDFQ@mail.gmail.com>
+Message-ID: <CADm=QrQU2Jv=f1rEf0-8TFNan_aRf76FC_qJEn7auWVyibdn9Q@mail.gmail.com>
+
+Andrew,
+Thanks for testing that. I ran it again with the same result, but this time
+turned on --developer-debug. Here's what I ran:
+(gdal) ocm-s-ares$ pdal pipeline --stdin --developer-debug < pipeline.txt >
+output.txt 2>&1
+Killed
+(gdal) ocm-s-ares$ echo $?
+137
+(gdal) ocm-s-ares$ ls -l extractept0.laz
+-rw-rw-r-- 1 kirk.waters crs 2784906231 Jan  6 07:49 extractept0.laz
+
+The output.txt file contained the same thing I remember seeing before, with
+nothing extra from the debug:
+(pdal pipeline readers.ept Warning) 2598817459 will be downloaded
+(pdal pipeline writers.las Warning) Auto offset for X requested in stream
+mode.  Using value of -80.8347.
+(pdal pipeline writers.las Warning) Auto offset for Y requested in stream
+mode.  Using value of 35.3408.
+(pdal pipeline writers.las Warning) Auto offset for Z requested in stream
+mode.  Using value of 246.85.
+
+All of this is running on RHEL7 in a conda environment with pdal version
+2.3.0 (git-version 0800a2). The "Killed" on the terminal seems odd since
+anything going to stdout or stderr should have landed in output.txt, but
+that didn't. Almost like something external killed it.
+
+Thanks for any suggestion.
+
+Kirk
+
+
+On Thu, Jan 6, 2022 at 7:12 AM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+
+> On Wed, Jan 5, 2022 at 7:43 AM Kirk Waters - NOAA Federal <
+> kirk.waters at noaa.gov> wrote:
+>
+>> PDAL folks,
+>> I have a system set up that normally works well at reading EPT data I
+>> need and writing it out as laz for further processing. However, I've run
+>> across a case where pdal consistently dies with a return code of 137 after
+>> creating a laz file just under 3 Gb.
+>>
+>
+> I ran this pipeline to completion on my OSX laptop, so I think you'll have
+> to do some more debugging. I would think you should have some output at the
+> command line. You should also provide that command just to make sure you
+> did the same thing that I did.
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220106/02918a8b/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Jan  6 06:39:36 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 6 Jan 2022 09:39:36 -0500
+Subject: [pdal] limit reading EPT and writing laz?
+In-Reply-To: <CADm=QrQU2Jv=f1rEf0-8TFNan_aRf76FC_qJEn7auWVyibdn9Q@mail.gmail.com>
+References: <CADm=QrRT3iiQna+u0Rp1yjaGhAN4Cg_ecJvcWB=KgJ3dfPbUpg@mail.gmail.com>
+ <CACJ51z35ZxqLD0RfHw+0JkeUffkPJMOgtn5b-L1+B6cvpWUDFQ@mail.gmail.com>
+ <CADm=QrQU2Jv=f1rEf0-8TFNan_aRf76FC_qJEn7auWVyibdn9Q@mail.gmail.com>
+Message-ID: <CACJ51z0EWaU1FmrS3siWDGFGQoN4_MEYd7S+BAavtYnvX7wTQw@mail.gmail.com>
+
+On Thu, Jan 6, 2022 at 9:02 AM Kirk Waters - NOAA Federal <
+kirk.waters at noaa.gov> wrote:
+
+> Andrew,
+> Thanks for testing that. I ran it again with the same result, but this
+> time turned on --developer-debug. Here's what I ran:
+> (gdal) ocm-s-ares$ pdal pipeline --stdin --developer-debug < pipeline.txt
+> > output.txt 2>&1
+> Killed
+> (gdal) ocm-s-ares$ echo $?
+> 137
+> (gdal) ocm-s-ares$ ls -l extractept0.laz
+> -rw-rw-r-- 1 kirk.waters crs 2784906231 Jan  6 07:49 extractept0.laz
+>
+> The output.txt file contained the same thing I remember seeing before,
+> with nothing extra from the debug:
+> (pdal pipeline readers.ept Warning) 2598817459 will be downloaded
+> (pdal pipeline writers.las Warning) Auto offset for X requested in stream
+> mode.  Using value of -80.8347.
+> (pdal pipeline writers.las Warning) Auto offset for Y requested in stream
+> mode.  Using value of 35.3408.
+> (pdal pipeline writers.las Warning) Auto offset for Z requested in stream
+> mode.  Using value of 246.85.
+>
+> All of this is running on RHEL7 in a conda environment with pdal version
+> 2.3.0 (git-version 0800a2). The "Killed" on the terminal seems odd since
+> anything going to stdout or stderr should have landed in output.txt, but
+> that didn't. Almost like something external killed it.
+>
+
+I'm guessing you ran out of memory. That's almost always what it means when
+your process is "killed" by the operating system. This can happen if you
+are able to download data faster than you can consume it. You might try
+setting the number of threads *lower*, as this will reduce the number of
+outstanding requests for data. I have made an adjustment in the copc reader
+for this issue, but it hasn't made it into the ept reader at this time. On
+*nix, run top and watch the memory for your process.
+
+Hope that helps,
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220106/74d23bce/attachment.html>
+
+From kirk.waters at noaa.gov  Thu Jan  6 06:47:37 2022
+From: kirk.waters at noaa.gov (Kirk Waters - NOAA Federal)
+Date: Thu, 6 Jan 2022 09:47:37 -0500
+Subject: [pdal] limit reading EPT and writing laz?
+In-Reply-To: <CACJ51z0EWaU1FmrS3siWDGFGQoN4_MEYd7S+BAavtYnvX7wTQw@mail.gmail.com>
+References: <CADm=QrRT3iiQna+u0Rp1yjaGhAN4Cg_ecJvcWB=KgJ3dfPbUpg@mail.gmail.com>
+ <CACJ51z35ZxqLD0RfHw+0JkeUffkPJMOgtn5b-L1+B6cvpWUDFQ@mail.gmail.com>
+ <CADm=QrQU2Jv=f1rEf0-8TFNan_aRf76FC_qJEn7auWVyibdn9Q@mail.gmail.com>
+ <CACJ51z0EWaU1FmrS3siWDGFGQoN4_MEYd7S+BAavtYnvX7wTQw@mail.gmail.com>
+Message-ID: <CADm=QrSCNbOtGBD1x91pZj2O9D+OdyrG--kZAYZn=1Bbmci-=g@mail.gmail.com>
+
+Thanks. I wouldn't have guessed it would chew through the memory on a
+machine with 80Gb of RAM, but I see it's already at 18Gb after a few
+minutes and still climbing. Thanks for the tip on the threads.
+
+Kirk
+
+
+On Thu, Jan 6, 2022 at 9:39 AM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+
+> On Thu, Jan 6, 2022 at 9:02 AM Kirk Waters - NOAA Federal <
+> kirk.waters at noaa.gov> wrote:
+>
+>> Andrew,
+>> Thanks for testing that. I ran it again with the same result, but this
+>> time turned on --developer-debug. Here's what I ran:
+>> (gdal) ocm-s-ares$ pdal pipeline --stdin --developer-debug < pipeline.txt
+>> > output.txt 2>&1
+>> Killed
+>> (gdal) ocm-s-ares$ echo $?
+>> 137
+>> (gdal) ocm-s-ares$ ls -l extractept0.laz
+>> -rw-rw-r-- 1 kirk.waters crs 2784906231 Jan  6 07:49 extractept0.laz
+>>
+>> The output.txt file contained the same thing I remember seeing before,
+>> with nothing extra from the debug:
+>> (pdal pipeline readers.ept Warning) 2598817459 will be downloaded
+>> (pdal pipeline writers.las Warning) Auto offset for X requested in stream
+>> mode.  Using value of -80.8347.
+>> (pdal pipeline writers.las Warning) Auto offset for Y requested in stream
+>> mode.  Using value of 35.3408.
+>> (pdal pipeline writers.las Warning) Auto offset for Z requested in stream
+>> mode.  Using value of 246.85.
+>>
+>> All of this is running on RHEL7 in a conda environment with pdal version
+>> 2.3.0 (git-version 0800a2). The "Killed" on the terminal seems odd since
+>> anything going to stdout or stderr should have landed in output.txt, but
+>> that didn't. Almost like something external killed it.
+>>
+>
+> I'm guessing you ran out of memory. That's almost always what it means
+> when your process is "killed" by the operating system. This can happen if
+> you are able to download data faster than you can consume it. You might try
+> setting the number of threads *lower*, as this will reduce the number of
+> outstanding requests for data. I have made an adjustment in the copc reader
+> for this issue, but it hasn't made it into the ept reader at this time. On
+> *nix, run top and watch the memory for your process.
+>
+> Hope that helps,
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220106/3ca3fb5b/attachment.html>
+
+From howard at hobu.co  Mon Jan 10 10:03:06 2022
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 10 Jan 2022 12:03:06 -0600
+Subject: [pdal] Cloud Optimized Point Cloud Information
+Message-ID: <7065AC71-A460-4BA2-8539-96644AB06545@hobu.co>
+
+All,
+
+I just wanted to provide some updates on the COPC effort that we have underway. 
+
+First, COPC reader support will be available in PDAL in the form of readers.copc. This driver will mimic the behavior of readers.ept and allow you to limit resolution window and provide filtering geometries to select and process data with PDAL.
+
+Second, I wrote an article for the next issue of LiDAR Magazine that is now online. You can read it at 
+https://lidarmag.com/2021/12/27/cloud-native-geospatial-lidar-with-the-cloud-optimized-point-cloud/ <https://lidarmag.com/2021/12/27/cloud-native-geospatial-lidar-with-the-cloud-optimized-point-cloud/>
+
+Finally, I gave a ten minute presentation at the Analysis Ready Data workshop a few months ago that provides some background and motivation for our creation of COPC. You can watch it at https://www.youtube.com/watch?v=-EmcW2UWD4k&t=5591s <https://www.youtube.com/watch?v=-EmcW2UWD4k&t=5591s>
+
+Howard
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220110/fded425e/attachment.html>
+
+From klassen.js at gmail.com  Tue Jan 11 07:50:06 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Tue, 11 Jan 2022 09:50:06 -0600
+Subject: [pdal] entwine error with PDAL with lasperf and no laszip
+Message-ID: <ad007082-d6aa-a056-3b7f-1d3af4401e0b@gmail.com>
+
+If PDAL is built with lasperf but without laszip then entwine gives the error:
+
+     Exception in pool task: writers.las: Can't write LAZ output. PDAL not built with LASzip.
+
+Tested with entwine commit cd22b9f843badcbd236999c7dd75400a7237c0df   Thu Sep 23 14:58:28 2021 -0500
+
+The following patch "fixes" it but is less than ideal because then it requires lasperf.  Maybe using "compression": "true" would be better to let PDAL pick the implementation?  Or maybe choosing based on cmake settings?
+
+diff --git a/entwine/io/laszip.cpp b/entwine/io/laszip.cpp
+index a94d0e2..ea90be4 100644
+--- a/entwine/io/laszip.cpp
++++ b/entwine/io/laszip.cpp
+@@ -56,7 +56,7 @@ void write(
+      options.add("minor_version", 2);
+      options.add("extra_dims", "all");
+      options.add("software_id", "Entwine " + currentEntwineVersion().toString());
+-    options.add("compression", "laszip");
++    options.add("compression", "lasperf");
+      options.add("dataformat_id", timeMask | colorMask);
+  
+      const auto so = getScaleOffset(metadata.schema);
+
+
+From howard at hobu.co  Tue Jan 11 08:11:38 2022
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 11 Jan 2022 10:11:38 -0600
+Subject: [pdal] entwine error with PDAL with lasperf and no laszip
+In-Reply-To: <ad007082-d6aa-a056-3b7f-1d3af4401e0b@gmail.com>
+References: <ad007082-d6aa-a056-3b7f-1d3af4401e0b@gmail.com>
+Message-ID: <A5AF82FD-5EBF-4163-99E8-2807F3021FF8@hobu.co>
+
+
+
+> On Jan 11, 2022, at 9:50 AM, Jim Klassen <klassen.js at gmail.com> wrote:
+> 
+> If PDAL is built with lasperf but without laszip then entwine gives the error:
+> 
+>    Exception in pool task: writers.las: Can't write LAZ output. PDAL not built with LASzip.
+> 
+> Tested with entwine commit cd22b9f843badcbd236999c7dd75400a7237c0df   Thu Sep 23 14:58:28 2021 -0500
+> 
+> The following patch "fixes" it but is less than ideal because then it requires lasperf.  Maybe using "compression": "true" would be better to let PDAL pick the implementation?  Or maybe choosing based on cmake settings?
+> 
+> diff --git a/entwine/io/laszip.cpp b/entwine/io/laszip.cpp
+> index a94d0e2..ea90be4 100644
+> --- a/entwine/io/laszip.cpp
+> +++ b/entwine/io/laszip.cpp
+> @@ -56,7 +56,7 @@ void write(
+>     options.add("minor_version", 2);
+>     options.add("extra_dims", "all");
+>     options.add("software_id", "Entwine " + currentEntwineVersion().toString());
+> -    options.add("compression", "laszip");
+> +    options.add("compression", "lasperf");
+>     options.add("dataformat_id", timeMask | colorMask);
+>      const auto so = getScaleOffset(metadata.schema);
+
+A better fix would be for Entwine to use pdal::Config::hasFeature(Feature::LAZPERF) to condition this.
+
+
+
+
+From klassen.js at gmail.com  Tue Jan 11 13:30:03 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Tue, 11 Jan 2022 15:30:03 -0600
+Subject: [pdal] entwine error with PDAL with lasperf and no laszip
+In-Reply-To: <A5AF82FD-5EBF-4163-99E8-2807F3021FF8@hobu.co>
+References: <ad007082-d6aa-a056-3b7f-1d3af4401e0b@gmail.com>
+ <A5AF82FD-5EBF-4163-99E8-2807F3021FF8@hobu.co>
+Message-ID: <6998b39f-b37b-e899-269f-7b443e17b3c3@gmail.com>
+
+
+
+On 1/11/22 10:11, Howard Butler wrote:
+> 
+> 
+>> On Jan 11, 2022, at 9:50 AM, Jim Klassen <klassen.js at gmail.com> wrote:
+>>
+>> If PDAL is built with lasperf but without laszip then entwine gives the error:
+>>
+>>     Exception in pool task: writers.las: Can't write LAZ output. PDAL not built with LASzip.
+>>
+>> Tested with entwine commit cd22b9f843badcbd236999c7dd75400a7237c0df   Thu Sep 23 14:58:28 2021 -0500
+>>
+>> The following patch "fixes" it but is less than ideal because then it requires lasperf.  Maybe using "compression": "true" would be better to let PDAL pick the implementation?  Or maybe choosing based on cmake settings?
+>>
+>> diff --git a/entwine/io/laszip.cpp b/entwine/io/laszip.cpp
+>> index a94d0e2..ea90be4 100644
+>> --- a/entwine/io/laszip.cpp
+>> +++ b/entwine/io/laszip.cpp
+>> @@ -56,7 +56,7 @@ void write(
+>>      options.add("minor_version", 2);
+>>      options.add("extra_dims", "all");
+>>      options.add("software_id", "Entwine " + currentEntwineVersion().toString());
+>> -    options.add("compression", "laszip");
+>> +    options.add("compression", "lasperf");
+>>      options.add("dataformat_id", timeMask | colorMask);
+>>       const auto so = getScaleOffset(metadata.schema);
+> 
+> A better fix would be for Entwine to use pdal::Config::hasFeature(Feature::LAZPERF) to condition this.
+> 
+> 
+> 
+
+Thanks!  Is it worth checking for Feature::LASZIP too and failing out somehow if neither are available or just leaving the current behavior in place?
+
+Should I make a PR?
+
+
+diff --git a/entwine/io/laszip.cpp b/entwine/io/laszip.cpp
+index ea90be4..20b8ffd 100644
+--- a/entwine/io/laszip.cpp
++++ b/entwine/io/laszip.cpp
+@@ -14,6 +14,7 @@
+  #include <pdal/io/BufferReader.hpp>
+  #include <pdal/io/LasReader.hpp>
+  #include <pdal/io/LasWriter.hpp>
++#include <pdal/pdal_config.hpp>
+  
+  #include <entwine/types/metadata.hpp>
+  #include <entwine/util/io.hpp>
+@@ -56,7 +57,11 @@ void write(
+      options.add("minor_version", 2);
+      options.add("extra_dims", "all");
+      options.add("software_id", "Entwine " + currentEntwineVersion().toString());
+-    options.add("compression", "lasperf");
++    if (pdal::Config::hasFeature(pdal::Config::Feature::LAZPERF)) {
++        options.add("compression", "lazperf");
++    } else {
++        options.add("compression", "laszip");
++    }
+      options.add("dataformat_id", timeMask | colorMask);
+  
+      const auto so = getScaleOffset(metadata.schema);
+
+
+
+From klassen.js at gmail.com  Tue Jan 18 06:47:20 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Tue, 18 Jan 2022 08:47:20 -0600
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+Message-ID: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+
+It appears there is a seg-fault in pdal when compressing a file with zero points with lazperf.? Using laszip correctly creates an empty laz file.? With at least one point into the source file both laszip and lazperf work as expected.
+
+My guess is LazPerfVlrCompressorImpl::compress() is never getting called, so m_compressor is null, but that condition isn't being checked in LazPerfVlrCompressorImpl::done() before calling m_compress->done().? I'm not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if m_compressor is null (there were no points to process).
+
+
+liblaszip: 3.4.1-6-gc7b67ca
+laz-perf: 3.0.0-1-g03ed832
+pdal: ac8068c7d
+
+
+$ cat lasperf.fail.txt
+X,Y,Z
+
+$ pdal info lasperf.fail.txt
+{
+ ? "file_size": 7,
+ ? "filename": "lasperf.fail.txt",
+ ? "now": "2022-01-18T08:19:08-0600",
+ ? "pdal_version": "2.3.0 (git-version: ac8068)",
+ ? "reader": "readers.text",
+ ? "stats":
+ ? {
+ ??? "statistic":
+ ??? [
+ ????? {
+ ??????? "average": 0,
+ ??????? "count": 0,
+ ??????? "maximum": -1.797693135e+308,
+ ??????? "minimum": 1.797693135e+308,
+ ??????? "name": "X",
+ ??????? "position": 0,
+ ??????? "stddev": 0,
+ ??????? "variance": 0
+ ????? },
+ ????? {
+ ??????? "average": 0,
+ ??????? "count": 0,
+ ??????? "maximum": -1.797693135e+308,
+ ??????? "minimum": 1.797693135e+308,
+ ??????? "name": "Y",
+ ??????? "position": 1,
+ ??????? "stddev": 0,
+ ??????? "variance": 0
+ ????? },
+ ????? {
+ ??????? "average": 0,
+ ??????? "count": 0,
+ ??????? "maximum": -1.797693135e+308,
+ ??????? "minimum": 1.797693135e+308,
+ ??????? "name": "Z",
+ ??????? "position": 2,
+ ??????? "stddev": 0,
+ ??????? "variance": 0
+ ????? }
+ ??? ]
+ ? }
+}
+$ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=laszip
+$ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+Segmentation fault
+$ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+Copyright (C) 2021 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+ ??? <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from pdal...
+(No debugging symbols found in pdal)
+(gdb) run
+Starting program: /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done (this=0x4c2ea0)
+ ??? at /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+101??? ??????? m_compressor->done();
+(gdb) print m_compressor
+$1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+(gdb) quit
+A debugging session is active.
+
+ ?? ?Inferior 1 [process 283225] will be killed.
+
+Quit anyway? (y or n) y
+$
+
+
+From andrew.bell.ia at gmail.com  Tue Jan 18 06:52:49 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Tue, 18 Jan 2022 09:52:49 -0500
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+In-Reply-To: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+References: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+Message-ID: <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+
+I've already fixed this, but I can't locate the PR right now. I'll write
+again when I find it.
+
+On Tue, Jan 18, 2022 at 9:48 AM Jim Klassen <klassen.js at gmail.com> wrote:
+
+> It appears there is a seg-fault in pdal when compressing a file with zero
+> points with lazperf.  Using laszip correctly creates an empty laz file.
+> With at least one point into the source file both laszip and lazperf work
+> as expected.
+>
+> My guess is LazPerfVlrCompressorImpl::compress() is never getting called,
+> so m_compressor is null, but that condition isn't being checked in
+> LazPerfVlrCompressorImpl::done() before calling m_compress->done().  I'm
+> not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if
+> m_compressor is null (there were no points to process).
+>
+>
+> liblaszip: 3.4.1-6-gc7b67ca
+> laz-perf: 3.0.0-1-g03ed832
+> pdal: ac8068c7d
+>
+>
+> $ cat lasperf.fail.txt
+> X,Y,Z
+>
+> $ pdal info lasperf.fail.txt
+> {
+>    "file_size": 7,
+>    "filename": "lasperf.fail.txt",
+>    "now": "2022-01-18T08:19:08-0600",
+>    "pdal_version": "2.3.0 (git-version: ac8068)",
+>    "reader": "readers.text",
+>    "stats":
+>    {
+>      "statistic":
+>      [
+>        {
+>          "average": 0,
+>          "count": 0,
+>          "maximum": -1.797693135e+308,
+>          "minimum": 1.797693135e+308,
+>          "name": "X",
+>          "position": 0,
+>          "stddev": 0,
+>          "variance": 0
+>        },
+>        {
+>          "average": 0,
+>          "count": 0,
+>          "maximum": -1.797693135e+308,
+>          "minimum": 1.797693135e+308,
+>          "name": "Y",
+>          "position": 1,
+>          "stddev": 0,
+>          "variance": 0
+>        },
+>        {
+>          "average": 0,
+>          "count": 0,
+>          "maximum": -1.797693135e+308,
+>          "minimum": 1.797693135e+308,
+>          "name": "Z",
+>          "position": 2,
+>          "stddev": 0,
+>          "variance": 0
+>        }
+>      ]
+>    }
+> }
+> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+> --writers.las.compression=laszip
+> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+> --writers.las.compression=lazperf
+> Segmentation fault
+> $ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz
+> --writers.las.compression=lazperf
+> GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+> Copyright (C) 2021 Free Software Foundation, Inc.
+> License GPLv3+: GNU GPL version 3 or later <
+> http://gnu.org/licenses/gpl.html>
+> This is free software: you are free to change and redistribute it.
+> There is NO WARRANTY, to the extent permitted by law.
+> Type "show copying" and "show warranty" for details.
+> This GDB was configured as "x86_64-linux-gnu".
+> Type "show configuration" for configuration details.
+> For bug reporting instructions, please see:
+> <https://www.gnu.org/software/gdb/bugs/>.
+> Find the GDB manual and other documentation resources online at:
+>      <http://www.gnu.org/software/gdb/documentation/>.
+>
+> For help, type "help".
+> Type "apropos word" to search for commands related to "word"...
+> Reading symbols from pdal...
+> (No debugging symbols found in pdal)
+> (gdb) run
+> Starting program: /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal
+> translate lasperf.fail.txt lasperf.fail.laz
+> --writers.las.compression=lazperf
+> [Thread debugging using libthread_db enabled]
+> Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+>
+> Program received signal SIGSEGV, Segmentation fault.
+> 0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done (this=0x4c2ea0)
+>      at
+> /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+> 101            m_compressor->done();
+> (gdb) print m_compressor
+> $1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+> (gdb) quit
+> A debugging session is active.
+>
+>      Inferior 1 [process 283225] will be killed.
+>
+> Quit anyway? (y or n) y
+> $
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220118/431a93cd/attachment.html>
+
+From andrew.bell.ia at gmail.com  Tue Jan 18 06:54:23 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Tue, 18 Jan 2022 09:54:23 -0500
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+In-Reply-To: <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+References: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+ <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+Message-ID: <CACJ51z0Uxf56jN=Jy2pV4ZVV5xnhPJaBE=MQATy+0fnzkiY0og@mail.gmail.com>
+
+Here's the ticket...
+
+On Tue, Jan 18, 2022 at 9:52 AM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+> I've already fixed this, but I can't locate the PR right now. I'll write
+> again when I find it.
+>
+> On Tue, Jan 18, 2022 at 9:48 AM Jim Klassen <klassen.js at gmail.com> wrote:
+>
+>> It appears there is a seg-fault in pdal when compressing a file with zero
+>> points with lazperf.  Using laszip correctly creates an empty laz file.
+>> With at least one point into the source file both laszip and lazperf work
+>> as expected.
+>>
+>> My guess is LazPerfVlrCompressorImpl::compress() is never getting called,
+>> so m_compressor is null, but that condition isn't being checked in
+>> LazPerfVlrCompressorImpl::done() before calling m_compress->done().  I'm
+>> not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if
+>> m_compressor is null (there were no points to process).
+>>
+>>
+>> liblaszip: 3.4.1-6-gc7b67ca
+>> laz-perf: 3.0.0-1-g03ed832
+>> pdal: ac8068c7d
+>>
+>>
+>> $ cat lasperf.fail.txt
+>> X,Y,Z
+>>
+>> $ pdal info lasperf.fail.txt
+>> {
+>>    "file_size": 7,
+>>    "filename": "lasperf.fail.txt",
+>>    "now": "2022-01-18T08:19:08-0600",
+>>    "pdal_version": "2.3.0 (git-version: ac8068)",
+>>    "reader": "readers.text",
+>>    "stats":
+>>    {
+>>      "statistic":
+>>      [
+>>        {
+>>          "average": 0,
+>>          "count": 0,
+>>          "maximum": -1.797693135e+308,
+>>          "minimum": 1.797693135e+308,
+>>          "name": "X",
+>>          "position": 0,
+>>          "stddev": 0,
+>>          "variance": 0
+>>        },
+>>        {
+>>          "average": 0,
+>>          "count": 0,
+>>          "maximum": -1.797693135e+308,
+>>          "minimum": 1.797693135e+308,
+>>          "name": "Y",
+>>          "position": 1,
+>>          "stddev": 0,
+>>          "variance": 0
+>>        },
+>>        {
+>>          "average": 0,
+>>          "count": 0,
+>>          "maximum": -1.797693135e+308,
+>>          "minimum": 1.797693135e+308,
+>>          "name": "Z",
+>>          "position": 2,
+>>          "stddev": 0,
+>>          "variance": 0
+>>        }
+>>      ]
+>>    }
+>> }
+>> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+>> --writers.las.compression=laszip
+>> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+>> --writers.las.compression=lazperf
+>> Segmentation fault
+>> $ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz
+>> --writers.las.compression=lazperf
+>> GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+>> Copyright (C) 2021 Free Software Foundation, Inc.
+>> License GPLv3+: GNU GPL version 3 or later <
+>> http://gnu.org/licenses/gpl.html>
+>> This is free software: you are free to change and redistribute it.
+>> There is NO WARRANTY, to the extent permitted by law.
+>> Type "show copying" and "show warranty" for details.
+>> This GDB was configured as "x86_64-linux-gnu".
+>> Type "show configuration" for configuration details.
+>> For bug reporting instructions, please see:
+>> <https://www.gnu.org/software/gdb/bugs/>.
+>> Find the GDB manual and other documentation resources online at:
+>>      <http://www.gnu.org/software/gdb/documentation/>.
+>>
+>> For help, type "help".
+>> Type "apropos word" to search for commands related to "word"...
+>> Reading symbols from pdal...
+>> (No debugging symbols found in pdal)
+>> (gdb) run
+>> Starting program: /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal
+>> translate lasperf.fail.txt lasperf.fail.laz
+>> --writers.las.compression=lazperf
+>> [Thread debugging using libthread_db enabled]
+>> Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+>>
+>> Program received signal SIGSEGV, Segmentation fault.
+>> 0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done (this=0x4c2ea0)
+>>      at
+>> /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+>> 101            m_compressor->done();
+>> (gdb) print m_compressor
+>> $1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+>> (gdb) quit
+>> A debugging session is active.
+>>
+>>      Inferior 1 [process 283225] will be killed.
+>>
+>> Quit anyway? (y or n) y
+>> $
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220118/3b2f61f8/attachment-0001.html>
+
+From andrew.bell.ia at gmail.com  Tue Jan 18 06:54:49 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Tue, 18 Jan 2022 09:54:49 -0500
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+In-Reply-To: <CACJ51z0Uxf56jN=Jy2pV4ZVV5xnhPJaBE=MQATy+0fnzkiY0og@mail.gmail.com>
+References: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+ <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+ <CACJ51z0Uxf56jN=Jy2pV4ZVV5xnhPJaBE=MQATy+0fnzkiY0og@mail.gmail.com>
+Message-ID: <CACJ51z0WV_fCGN9nZadUkYsv-+G4B8i4fTYq-jcHEeZQ4tFX_g@mail.gmail.com>
+
+Trying again... here's the ticket...
+https://github.com/PDAL/PDAL/issues/3652
+
+On Tue, Jan 18, 2022 at 9:54 AM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+> Here's the ticket...
+>
+> On Tue, Jan 18, 2022 at 9:52 AM Andrew Bell <andrew.bell.ia at gmail.com>
+> wrote:
+>
+>> I've already fixed this, but I can't locate the PR right now. I'll write
+>> again when I find it.
+>>
+>> On Tue, Jan 18, 2022 at 9:48 AM Jim Klassen <klassen.js at gmail.com> wrote:
+>>
+>>> It appears there is a seg-fault in pdal when compressing a file with
+>>> zero points with lazperf.  Using laszip correctly creates an empty laz
+>>> file.  With at least one point into the source file both laszip and lazperf
+>>> work as expected.
+>>>
+>>> My guess is LazPerfVlrCompressorImpl::compress() is never getting
+>>> called, so m_compressor is null, but that condition isn't being checked in
+>>> LazPerfVlrCompressorImpl::done() before calling m_compress->done().  I'm
+>>> not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if
+>>> m_compressor is null (there were no points to process).
+>>>
+>>>
+>>> liblaszip: 3.4.1-6-gc7b67ca
+>>> laz-perf: 3.0.0-1-g03ed832
+>>> pdal: ac8068c7d
+>>>
+>>>
+>>> $ cat lasperf.fail.txt
+>>> X,Y,Z
+>>>
+>>> $ pdal info lasperf.fail.txt
+>>> {
+>>>    "file_size": 7,
+>>>    "filename": "lasperf.fail.txt",
+>>>    "now": "2022-01-18T08:19:08-0600",
+>>>    "pdal_version": "2.3.0 (git-version: ac8068)",
+>>>    "reader": "readers.text",
+>>>    "stats":
+>>>    {
+>>>      "statistic":
+>>>      [
+>>>        {
+>>>          "average": 0,
+>>>          "count": 0,
+>>>          "maximum": -1.797693135e+308,
+>>>          "minimum": 1.797693135e+308,
+>>>          "name": "X",
+>>>          "position": 0,
+>>>          "stddev": 0,
+>>>          "variance": 0
+>>>        },
+>>>        {
+>>>          "average": 0,
+>>>          "count": 0,
+>>>          "maximum": -1.797693135e+308,
+>>>          "minimum": 1.797693135e+308,
+>>>          "name": "Y",
+>>>          "position": 1,
+>>>          "stddev": 0,
+>>>          "variance": 0
+>>>        },
+>>>        {
+>>>          "average": 0,
+>>>          "count": 0,
+>>>          "maximum": -1.797693135e+308,
+>>>          "minimum": 1.797693135e+308,
+>>>          "name": "Z",
+>>>          "position": 2,
+>>>          "stddev": 0,
+>>>          "variance": 0
+>>>        }
+>>>      ]
+>>>    }
+>>> }
+>>> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+>>> --writers.las.compression=laszip
+>>> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+>>> --writers.las.compression=lazperf
+>>> Segmentation fault
+>>> $ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz
+>>> --writers.las.compression=lazperf
+>>> GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+>>> Copyright (C) 2021 Free Software Foundation, Inc.
+>>> License GPLv3+: GNU GPL version 3 or later <
+>>> http://gnu.org/licenses/gpl.html>
+>>> This is free software: you are free to change and redistribute it.
+>>> There is NO WARRANTY, to the extent permitted by law.
+>>> Type "show copying" and "show warranty" for details.
+>>> This GDB was configured as "x86_64-linux-gnu".
+>>> Type "show configuration" for configuration details.
+>>> For bug reporting instructions, please see:
+>>> <https://www.gnu.org/software/gdb/bugs/>.
+>>> Find the GDB manual and other documentation resources online at:
+>>>      <http://www.gnu.org/software/gdb/documentation/>.
+>>>
+>>> For help, type "help".
+>>> Type "apropos word" to search for commands related to "word"...
+>>> Reading symbols from pdal...
+>>> (No debugging symbols found in pdal)
+>>> (gdb) run
+>>> Starting program: /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal
+>>> translate lasperf.fail.txt lasperf.fail.laz
+>>> --writers.las.compression=lazperf
+>>> [Thread debugging using libthread_db enabled]
+>>> Using host libthread_db library
+>>> "/lib/x86_64-linux-gnu/libthread_db.so.1".
+>>>
+>>> Program received signal SIGSEGV, Segmentation fault.
+>>> 0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done
+>>> (this=0x4c2ea0)
+>>>      at
+>>> /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+>>> 101            m_compressor->done();
+>>> (gdb) print m_compressor
+>>> $1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+>>> (gdb) quit
+>>> A debugging session is active.
+>>>
+>>>      Inferior 1 [process 283225] will be killed.
+>>>
+>>> Quit anyway? (y or n) y
+>>> $
+>>>
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>
+>>
+>> --
+>> Andrew Bell
+>> andrew.bell.ia at gmail.com
+>>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220118/cd3c389a/attachment.html>
+
+From klassen.js at gmail.com  Tue Jan 18 12:05:25 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Tue, 18 Jan 2022 14:05:25 -0600
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+In-Reply-To: <CACJ51z0WV_fCGN9nZadUkYsv-+G4B8i4fTYq-jcHEeZQ4tFX_g@mail.gmail.com>
+References: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+ <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+ <CACJ51z0Uxf56jN=Jy2pV4ZVV5xnhPJaBE=MQATy+0fnzkiY0og@mail.gmail.com>
+ <CACJ51z0WV_fCGN9nZadUkYsv-+G4B8i4fTYq-jcHEeZQ4tFX_g@mail.gmail.com>
+Message-ID: <b29d3673-56a6-75de-65c6-f8141375185b@gmail.com>
+
+I noticed another related but likely different issue too.? It looks like zero point laz files made with pdal are invalid (compressed with laszip or lazperf w/patch).? Zero point las files appear OK.
+
+$ pdal translate lasperf.fail.txt lasperf.fail.las
+$ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=laszip
+
+$ ls -l lasperf.fail.la?
+-rw-r--r-- 1 jimk jimk 227 Jan 18 08:53 lasperf.fail.las
+-rw-r--r-- 1 jimk jimk 349 Jan 18 08:54 lasperf.fail.laz
+
+$ pdal info lasperf.fail.laz
+PDAL: Unexpected end of file.
+
+$ pdal info lasperf.fail.las
+{
+ ? "file_size": 227,
+ ? "filename": "lasperf.fail.las",
+ ? "now": "2022-01-18T08:53:14-0600",
+ ? "pdal_version": "2.3.0 (git-version: ac8068)",
+ ? "reader": "readers.las",
+ ? "stats":
+ ? {
+ ??? "statistic":
+ ??? [
+ ????? {
+ ??????? "average": 0,
+ ??????? "count": 0,
+ ??????? "maximum": -1.797693135e+308,
+ ??????? "minimum": 1.797693135e+308,
+ ??????? "name": "X",
+ ??????? "position": 0,
+ ??????? "stddev": 0,
+ ??????? "variance": 0
+ ????? },
+...
+
+On 1/18/22 08:54, Andrew Bell wrote:
+> Trying again... here's the ticket... https://github.com/PDAL/PDAL/issues/3652
+>
+> On Tue, Jan 18, 2022 at 9:54 AM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>
+>     Here's the ticket...
+>
+>     On Tue, Jan 18, 2022 at 9:52 AM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>
+>         I've already fixed this, but I can't locate the PR right now. I'll write again when I find it.
+>
+>         On Tue, Jan 18, 2022 at 9:48 AM Jim Klassen <klassen.js at gmail.com> wrote:
+>
+>             It appears there is a seg-fault in pdal when compressing a file with zero points with lazperf.? Using laszip correctly creates an empty laz file.? With at least one point into the source file both laszip and lazperf work as expected.
+>
+>             My guess is LazPerfVlrCompressorImpl::compress() is never getting called, so m_compressor is null, but that condition isn't being checked in LazPerfVlrCompressorImpl::done() before calling m_compress->done().? I'm not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if m_compressor is null (there were no points to process).
+>
+>
+>             liblaszip: 3.4.1-6-gc7b67ca
+>             laz-perf: 3.0.0-1-g03ed832
+>             pdal: ac8068c7d
+>
+>
+>             $ cat lasperf.fail.txt
+>             X,Y,Z
+>
+>             $ pdal info lasperf.fail.txt
+>             {
+>             ?? "file_size": 7,
+>             ?? "filename": "lasperf.fail.txt",
+>             ?? "now": "2022-01-18T08:19:08-0600",
+>             ?? "pdal_version": "2.3.0 (git-version: ac8068)",
+>             ?? "reader": "readers.text",
+>             ?? "stats":
+>             ?? {
+>             ???? "statistic":
+>             ???? [
+>             ?????? {
+>             ???????? "average": 0,
+>             ???????? "count": 0,
+>             ???????? "maximum": -1.797693135e+308,
+>             ???????? "minimum": 1.797693135e+308,
+>             ???????? "name": "X",
+>             ???????? "position": 0,
+>             ???????? "stddev": 0,
+>             ???????? "variance": 0
+>             ?????? },
+>             ?????? {
+>             ???????? "average": 0,
+>             ???????? "count": 0,
+>             ???????? "maximum": -1.797693135e+308,
+>             ???????? "minimum": 1.797693135e+308,
+>             ???????? "name": "Y",
+>             ???????? "position": 1,
+>             ???????? "stddev": 0,
+>             ???????? "variance": 0
+>             ?????? },
+>             ?????? {
+>             ???????? "average": 0,
+>             ???????? "count": 0,
+>             ???????? "maximum": -1.797693135e+308,
+>             ???????? "minimum": 1.797693135e+308,
+>             ???????? "name": "Z",
+>             ???????? "position": 2,
+>             ???????? "stddev": 0,
+>             ???????? "variance": 0
+>             ?????? }
+>             ???? ]
+>             ?? }
+>             }
+>             $ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=laszip
+>             $ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>             Segmentation fault
+>             $ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>             GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+>             Copyright (C) 2021 Free Software Foundation, Inc.
+>             License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+>             This is free software: you are free to change and redistribute it.
+>             There is NO WARRANTY, to the extent permitted by law.
+>             Type "show copying" and "show warranty" for details.
+>             This GDB was configured as "x86_64-linux-gnu".
+>             Type "show configuration" for configuration details.
+>             For bug reporting instructions, please see:
+>             <https://www.gnu.org/software/gdb/bugs/>.
+>             Find the GDB manual and other documentation resources online at:
+>             ???? <http://www.gnu.org/software/gdb/documentation/>.
+>
+>             For help, type "help".
+>             Type "apropos word" to search for commands related to "word"...
+>             Reading symbols from pdal...
+>             (No debugging symbols found in pdal)
+>             (gdb) run
+>             Starting program: /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>             [Thread debugging using libthread_db enabled]
+>             Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+>
+>             Program received signal SIGSEGV, Segmentation fault.
+>             0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done (this=0x4c2ea0)
+>             ???? at /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+>             101??? ??????? m_compressor->done();
+>             (gdb) print m_compressor
+>             $1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+>             (gdb) quit
+>             A debugging session is active.
+>
+>             ??? ?Inferior 1 [process 283225] will be killed.
+>
+>             Quit anyway? (y or n) y
+>             $
+>
+>             _______________________________________________
+>             pdal mailing list
+>             pdal at lists.osgeo.org
+>             https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+>         -- 
+>         Andrew Bell
+>         andrew.bell.ia at gmail.com
+>
+>
+>
+>     -- 
+>     Andrew Bell
+>     andrew.bell.ia at gmail.com
+>
+>
+>
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220118/84100f17/attachment.html>
+
+From andrew.bell.ia at gmail.com  Wed Jan 19 12:31:19 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Wed, 19 Jan 2022 15:31:19 -0500
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+In-Reply-To: <b29d3673-56a6-75de-65c6-f8141375185b@gmail.com>
+References: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+ <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+ <CACJ51z0Uxf56jN=Jy2pV4ZVV5xnhPJaBE=MQATy+0fnzkiY0og@mail.gmail.com>
+ <CACJ51z0WV_fCGN9nZadUkYsv-+G4B8i4fTYq-jcHEeZQ4tFX_g@mail.gmail.com>
+ <b29d3673-56a6-75de-65c6-f8141375185b@gmail.com>
+Message-ID: <CACJ51z0dFW1CnR8PZ6zoL8kO0iMTj7RFeTPdQugx_=8twMUaOw@mail.gmail.com>
+
+I think this is now fixed in master. If you're still having issues, you
+should create an issue. thanks.
+
+On Tue, Jan 18, 2022 at 3:05 PM Jim Klassen <klassen.js at gmail.com> wrote:
+
+> I noticed another related but likely different issue too.  It looks like
+> zero point laz files made with pdal are invalid (compressed with laszip or
+> lazperf w/patch).  Zero point las files appear OK.
+>
+> $ pdal translate lasperf.fail.txt lasperf.fail.las
+> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+> --writers.las.compression=laszip
+>
+> $ ls -l lasperf.fail.la?
+> -rw-r--r-- 1 jimk jimk 227 Jan 18 08:53 lasperf.fail.las
+> -rw-r--r-- 1 jimk jimk 349 Jan 18 08:54 lasperf.fail.laz
+>
+> $ pdal info lasperf.fail.laz
+> PDAL: Unexpected end of file.
+>
+> $ pdal info lasperf.fail.las
+> {
+>   "file_size": 227,
+>   "filename": "lasperf.fail.las",
+>   "now": "2022-01-18T08:53:14-0600",
+>   "pdal_version": "2.3.0 (git-version: ac8068)",
+>   "reader": "readers.las",
+>   "stats":
+>   {
+>     "statistic":
+>     [
+>       {
+>         "average": 0,
+>         "count": 0,
+>         "maximum": -1.797693135e+308,
+>         "minimum": 1.797693135e+308,
+>         "name": "X",
+>         "position": 0,
+>         "stddev": 0,
+>         "variance": 0
+>       },
+> ...
+>
+> On 1/18/22 08:54, Andrew Bell wrote:
+>
+> Trying again... here's the ticket...
+> https://github.com/PDAL/PDAL/issues/3652
+>
+> On Tue, Jan 18, 2022 at 9:54 AM Andrew Bell <andrew.bell.ia at gmail.com>
+> wrote:
+>
+>> Here's the ticket...
+>>
+>> On Tue, Jan 18, 2022 at 9:52 AM Andrew Bell <andrew.bell.ia at gmail.com>
+>> wrote:
+>>
+>>> I've already fixed this, but I can't locate the PR right now. I'll write
+>>> again when I find it.
+>>>
+>>> On Tue, Jan 18, 2022 at 9:48 AM Jim Klassen <klassen.js at gmail.com>
+>>> wrote:
+>>>
+>>>> It appears there is a seg-fault in pdal when compressing a file with
+>>>> zero points with lazperf.  Using laszip correctly creates an empty laz
+>>>> file.  With at least one point into the source file both laszip and lazperf
+>>>> work as expected.
+>>>>
+>>>> My guess is LazPerfVlrCompressorImpl::compress() is never getting
+>>>> called, so m_compressor is null, but that condition isn't being checked in
+>>>> LazPerfVlrCompressorImpl::done() before calling m_compress->done().  I'm
+>>>> not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if
+>>>> m_compressor is null (there were no points to process).
+>>>>
+>>>>
+>>>> liblaszip: 3.4.1-6-gc7b67ca
+>>>> laz-perf: 3.0.0-1-g03ed832
+>>>> pdal: ac8068c7d
+>>>>
+>>>>
+>>>> $ cat lasperf.fail.txt
+>>>> X,Y,Z
+>>>>
+>>>> $ pdal info lasperf.fail.txt
+>>>> {
+>>>>    "file_size": 7,
+>>>>    "filename": "lasperf.fail.txt",
+>>>>    "now": "2022-01-18T08:19:08-0600",
+>>>>    "pdal_version": "2.3.0 (git-version: ac8068)",
+>>>>    "reader": "readers.text",
+>>>>    "stats":
+>>>>    {
+>>>>      "statistic":
+>>>>      [
+>>>>        {
+>>>>          "average": 0,
+>>>>          "count": 0,
+>>>>          "maximum": -1.797693135e+308,
+>>>>          "minimum": 1.797693135e+308,
+>>>>          "name": "X",
+>>>>          "position": 0,
+>>>>          "stddev": 0,
+>>>>          "variance": 0
+>>>>        },
+>>>>        {
+>>>>          "average": 0,
+>>>>          "count": 0,
+>>>>          "maximum": -1.797693135e+308,
+>>>>          "minimum": 1.797693135e+308,
+>>>>          "name": "Y",
+>>>>          "position": 1,
+>>>>          "stddev": 0,
+>>>>          "variance": 0
+>>>>        },
+>>>>        {
+>>>>          "average": 0,
+>>>>          "count": 0,
+>>>>          "maximum": -1.797693135e+308,
+>>>>          "minimum": 1.797693135e+308,
+>>>>          "name": "Z",
+>>>>          "position": 2,
+>>>>          "stddev": 0,
+>>>>          "variance": 0
+>>>>        }
+>>>>      ]
+>>>>    }
+>>>> }
+>>>> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+>>>> --writers.las.compression=laszip
+>>>> $ pdal translate lasperf.fail.txt lasperf.fail.laz
+>>>> --writers.las.compression=lazperf
+>>>> Segmentation fault
+>>>> $ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz
+>>>> --writers.las.compression=lazperf
+>>>> GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+>>>> Copyright (C) 2021 Free Software Foundation, Inc.
+>>>> License GPLv3+: GNU GPL version 3 or later <
+>>>> http://gnu.org/licenses/gpl.html>
+>>>> This is free software: you are free to change and redistribute it.
+>>>> There is NO WARRANTY, to the extent permitted by law.
+>>>> Type "show copying" and "show warranty" for details.
+>>>> This GDB was configured as "x86_64-linux-gnu".
+>>>> Type "show configuration" for configuration details.
+>>>> For bug reporting instructions, please see:
+>>>> <https://www.gnu.org/software/gdb/bugs/>.
+>>>> Find the GDB manual and other documentation resources online at:
+>>>>      <http://www.gnu.org/software/gdb/documentation/>.
+>>>>
+>>>> For help, type "help".
+>>>> Type "apropos word" to search for commands related to "word"...
+>>>> Reading symbols from pdal...
+>>>> (No debugging symbols found in pdal)
+>>>> (gdb) run
+>>>> Starting program:
+>>>> /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal translate
+>>>> lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>>>> [Thread debugging using libthread_db enabled]
+>>>> Using host libthread_db library
+>>>> "/lib/x86_64-linux-gnu/libthread_db.so.1".
+>>>>
+>>>> Program received signal SIGSEGV, Segmentation fault.
+>>>> 0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done
+>>>> (this=0x4c2ea0)
+>>>>      at
+>>>> /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+>>>> 101            m_compressor->done();
+>>>> (gdb) print m_compressor
+>>>> $1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+>>>> (gdb) quit
+>>>> A debugging session is active.
+>>>>
+>>>>      Inferior 1 [process 283225] will be killed.
+>>>>
+>>>> Quit anyway? (y or n) y
+>>>> $
+>>>>
+>>>> _______________________________________________
+>>>> pdal mailing list
+>>>> pdal at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>>>
+>>>
+>>>
+>>> --
+>>> Andrew Bell
+>>> andrew.bell.ia at gmail.com
+>>>
+>>
+>>
+>> --
+>> Andrew Bell
+>> andrew.bell.ia at gmail.com
+>>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+>
+>
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220119/143cf186/attachment.html>
+
+From klassen.js at gmail.com  Thu Jan 20 12:15:10 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Thu, 20 Jan 2022 14:15:10 -0600
+Subject: [pdal] seg-fault when compressing zero points with lazperf
+In-Reply-To: <CACJ51z0dFW1CnR8PZ6zoL8kO0iMTj7RFeTPdQugx_=8twMUaOw@mail.gmail.com>
+References: <b99181d2-22b9-26e7-a0cb-5ba125c95491@gmail.com>
+ <CACJ51z3dXg91YvcDe_hqVzvEze8hzj=EkBXrd6C1OoqMtmNqcQ@mail.gmail.com>
+ <CACJ51z0Uxf56jN=Jy2pV4ZVV5xnhPJaBE=MQATy+0fnzkiY0og@mail.gmail.com>
+ <CACJ51z0WV_fCGN9nZadUkYsv-+G4B8i4fTYq-jcHEeZQ4tFX_g@mail.gmail.com>
+ <b29d3673-56a6-75de-65c6-f8141375185b@gmail.com>
+ <CACJ51z0dFW1CnR8PZ6zoL8kO0iMTj7RFeTPdQugx_=8twMUaOw@mail.gmail.com>
+Message-ID: <a889f45e-62e2-ee28-d003-87ee6e1dcc7d@gmail.com>
+
+The seg-fault is fixed.
+
+The second issue still exists.? I'll make a github issue for it.
+
+Thanks!
+
+On 1/19/22 14:31, Andrew Bell wrote:
+> I think this is now fixed in master. If you're still having issues, you should create an issue. thanks.
+>
+> On Tue, Jan 18, 2022 at 3:05 PM Jim Klassen <klassen.js at gmail.com> wrote:
+>
+>     I noticed another related but likely different issue too.? It looks like zero point laz files made with pdal are invalid (compressed with laszip or lazperf w/patch).? Zero point las files appear OK.
+>
+>     $ pdal translate lasperf.fail.txt lasperf.fail.las
+>     $ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=laszip
+>
+>     $ ls -l lasperf.fail.la <http://lasperf.fail.la>?
+>     -rw-r--r-- 1 jimk jimk 227 Jan 18 08:53 lasperf.fail.las
+>     -rw-r--r-- 1 jimk jimk 349 Jan 18 08:54 lasperf.fail.laz
+>
+>     $ pdal info lasperf.fail.laz
+>     PDAL: Unexpected end of file.
+>
+>     $ pdal info lasperf.fail.las
+>     {
+>     ? "file_size": 227,
+>     ? "filename": "lasperf.fail.las",
+>     ? "now": "2022-01-18T08:53:14-0600",
+>     ? "pdal_version": "2.3.0 (git-version: ac8068)",
+>     ? "reader": "readers.las",
+>     ? "stats":
+>     ? {
+>     ??? "statistic":
+>     ??? [
+>     ????? {
+>     ??????? "average": 0,
+>     ??????? "count": 0,
+>     ??????? "maximum": -1.797693135e+308,
+>     ??????? "minimum": 1.797693135e+308,
+>     ??????? "name": "X",
+>     ??????? "position": 0,
+>     ??????? "stddev": 0,
+>     ??????? "variance": 0
+>     ????? },
+>     ...
+>
+>     On 1/18/22 08:54, Andrew Bell wrote:
+>>     Trying again... here's the ticket... https://github.com/PDAL/PDAL/issues/3652
+>>
+>>     On Tue, Jan 18, 2022 at 9:54 AM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>>
+>>         Here's the ticket...
+>>
+>>         On Tue, Jan 18, 2022 at 9:52 AM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>>
+>>             I've already fixed this, but I can't locate the PR right now. I'll write again when I find it.
+>>
+>>             On Tue, Jan 18, 2022 at 9:48 AM Jim Klassen <klassen.js at gmail.com> wrote:
+>>
+>>                 It appears there is a seg-fault in pdal when compressing a file with zero points with lazperf.? Using laszip correctly creates an empty laz file. With at least one point into the source file both laszip and lazperf work as expected.
+>>
+>>                 My guess is LazPerfVlrCompressorImpl::compress() is never getting called, so m_compressor is null, but that condition isn't being checked in LazPerfVlrCompressorImpl::done() before calling m_compress->done().? I'm not sure how much of LazPerfVlrCompressorImpl::done() should be skipped if m_compressor is null (there were no points to process).
+>>
+>>
+>>                 liblaszip: 3.4.1-6-gc7b67ca
+>>                 laz-perf: 3.0.0-1-g03ed832
+>>                 pdal: ac8068c7d
+>>
+>>
+>>                 $ cat lasperf.fail.txt
+>>                 X,Y,Z
+>>
+>>                 $ pdal info lasperf.fail.txt
+>>                 {
+>>                 ?? "file_size": 7,
+>>                 ?? "filename": "lasperf.fail.txt",
+>>                 ?? "now": "2022-01-18T08:19:08-0600",
+>>                 ?? "pdal_version": "2.3.0 (git-version: ac8068)",
+>>                 ?? "reader": "readers.text",
+>>                 ?? "stats":
+>>                 ?? {
+>>                 ???? "statistic":
+>>                 ???? [
+>>                 ?????? {
+>>                 ???????? "average": 0,
+>>                 ???????? "count": 0,
+>>                 ???????? "maximum": -1.797693135e+308,
+>>                 ???????? "minimum": 1.797693135e+308,
+>>                 ???????? "name": "X",
+>>                 ???????? "position": 0,
+>>                 ???????? "stddev": 0,
+>>                 ???????? "variance": 0
+>>                 ?????? },
+>>                 ?????? {
+>>                 ???????? "average": 0,
+>>                 ???????? "count": 0,
+>>                 ???????? "maximum": -1.797693135e+308,
+>>                 ???????? "minimum": 1.797693135e+308,
+>>                 ???????? "name": "Y",
+>>                 ???????? "position": 1,
+>>                 ???????? "stddev": 0,
+>>                 ???????? "variance": 0
+>>                 ?????? },
+>>                 ?????? {
+>>                 ???????? "average": 0,
+>>                 ???????? "count": 0,
+>>                 ???????? "maximum": -1.797693135e+308,
+>>                 ???????? "minimum": 1.797693135e+308,
+>>                 ???????? "name": "Z",
+>>                 ???????? "position": 2,
+>>                 ???????? "stddev": 0,
+>>                 ???????? "variance": 0
+>>                 ?????? }
+>>                 ???? ]
+>>                 ?? }
+>>                 }
+>>                 $ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=laszip
+>>                 $ pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>>                 Segmentation fault
+>>                 $ gdb --args pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>>                 GNU gdb (Debian 10.1-1.7) 10.1.90.20210103-git
+>>                 Copyright (C) 2021 Free Software Foundation, Inc.
+>>                 License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+>>                 This is free software: you are free to change and redistribute it.
+>>                 There is NO WARRANTY, to the extent permitted by law.
+>>                 Type "show copying" and "show warranty" for details.
+>>                 This GDB was configured as "x86_64-linux-gnu".
+>>                 Type "show configuration" for configuration details.
+>>                 For bug reporting instructions, please see:
+>>                 <https://www.gnu.org/software/gdb/bugs/>.
+>>                 Find the GDB manual and other documentation resources online at:
+>>                 ???? <http://www.gnu.org/software/gdb/documentation/>.
+>>
+>>                 For help, type "help".
+>>                 Type "apropos word" to search for commands related to "word"...
+>>                 Reading symbols from pdal...
+>>                 (No debugging symbols found in pdal)
+>>                 (gdb) run
+>>                 Starting program: /apps/PointClouds/pdal/2.3.0-ac8068c7d-laszip/bin/pdal translate lasperf.fail.txt lasperf.fail.laz --writers.las.compression=lazperf
+>>                 [Thread debugging using libthread_db enabled]
+>>                 Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+>>
+>>                 Program received signal SIGSEGV, Segmentation fault.
+>>                 0x00007ffff7e0c4d9 in pdal::LazPerfVlrCompressorImpl::done (this=0x4c2ea0)
+>>                 ???? at /apps/PointClouds/pdal/src/pdal/pdal/compression/LazPerfVlrCompression.cpp:101
+>>                 101??? ??????? m_compressor->done();
+>>                 (gdb) print m_compressor
+>>                 $1 = std::shared_ptr<lazperf::las_compressor> (empty) = {get() = 0x0}
+>>                 (gdb) quit
+>>                 A debugging session is active.
+>>
+>>                 ??? ?Inferior 1 [process 283225] will be killed.
+>>
+>>                 Quit anyway? (y or n) y
+>>                 $
+>>
+>>                 _______________________________________________
+>>                 pdal mailing list
+>>                 pdal at lists.osgeo.org
+>>                 https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>>
+>>             -- 
+>>             Andrew Bell
+>>             andrew.bell.ia at gmail.com
+>>
+>>
+>>
+>>         -- 
+>>         Andrew Bell
+>>         andrew.bell.ia at gmail.com
+>>
+>>
+>>
+>>     -- 
+>>     Andrew Bell
+>>     andrew.bell.ia at gmail.com
+>
+>
+>
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220120/f9a7398d/attachment.html>
+
+From klassen.js at gmail.com  Thu Jan 20 12:22:29 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Thu, 20 Jan 2022 14:22:29 -0600
+Subject: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+Message-ID: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+
+The recent changes to the LAS code broke the entwine build in entwine/util/pipeline.cpp.? It looks like things like `scaleX()` need to be updated to `scale.x`.? I also suspect these changes probably also impact the CloudCompare PDAL plugin.
+
+However, I'm not sure where the fix should be:
+
+Is this a bug in entwine (and likely CloudCompare) for using a pdal API that is intended to be private (and they should be using entirely other means for accessing this information)?
+
+Is this an issue where entwine needs to be updated to match the current pdal API?
+
+Is this an issue in pdal for changing the existing API?
+
+Some/all/none of the above?
+
+From jrmorreale_ml at enoreth.net  Fri Jan 21 01:34:41 2022
+From: jrmorreale_ml at enoreth.net (Jean-Roc Morreale (ml))
+Date: Fri, 21 Jan 2022 10:34:41 +0100
+Subject: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+In-Reply-To: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+References: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+Message-ID: <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+
+Hi,
+
+For CloudCompare, the PDAL plugin is being rewritten :
+https://github.com/CloudCompare/CloudCompare/pull/1561
+
+as the plugin does not compile against current PDAL :
+https://github.com/CloudCompare/CloudCompare/issues/1573
+
+Le jeudi 20 janvier 2022 ? 14:22 -0600, Jim Klassen a ?crit?:
+> The recent changes to the LAS code broke the entwine build in
+> entwine/util/pipeline.cpp.? It looks like things like `scaleX()` need
+> to be updated to `scale.x`.? I also suspect these changes probably
+> also impact the CloudCompare PDAL plugin.
+> 
+> However, I'm not sure where the fix should be:
+> 
+> Is this a bug in entwine (and likely CloudCompare) for using a pdal
+> API that is intended to be private (and they should be using entirely
+> other means for accessing this information)?
+> 
+> Is this an issue where entwine needs to be updated to match the
+> current pdal API?
+> 
+> Is this an issue in pdal for changing the existing API?
+> 
+> Some/all/none of the above?
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From thomas.montaigu at laposte.net  Fri Jan 21 02:34:57 2022
+From: thomas.montaigu at laposte.net (thomas.montaigu at laposte.net)
+Date: Fri, 21 Jan 2022 11:34:57 +0100
+Subject: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+In-Reply-To: <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+References: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+ <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+Message-ID: <015d01d80eb2$89be7e80$9d3b7b80$@laposte.net>
+
+To clarify, the CloudCompare plugin is not being rewritten because of changes in PDAL, but to fix issues the plugin has and extend its functionalities.
+I don't know if this rewritten plugin compiles with PDAL's master (it compiles with 2.3).
+
+-----Message d'origine-----
+De : pdal <pdal-bounces at lists.osgeo.org> De la part de Jean-Roc Morreale (ml)
+Envoy? : vendredi 21 janvier 2022 10:35
+? : pdal <pdal at lists.osgeo.org>
+Objet : Re: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+
+Hi,
+
+For CloudCompare, the PDAL plugin is being rewritten :
+https://github.com/CloudCompare/CloudCompare/pull/1561
+
+as the plugin does not compile against current PDAL :
+https://github.com/CloudCompare/CloudCompare/issues/1573
+
+Le jeudi 20 janvier 2022 ? 14:22 -0600, Jim Klassen a ?crit :
+> The recent changes to the LAS code broke the entwine build in 
+> entwine/util/pipeline.cpp.  It looks like things like `scaleX()` need 
+> to be updated to `scale.x`.  I also suspect these changes probably 
+> also impact the CloudCompare PDAL plugin.
+> 
+> However, I'm not sure where the fix should be:
+> 
+> Is this a bug in entwine (and likely CloudCompare) for using a pdal 
+> API that is intended to be private (and they should be using entirely 
+> other means for accessing this information)?
+> 
+> Is this an issue where entwine needs to be updated to match the 
+> current pdal API?
+> 
+> Is this an issue in pdal for changing the existing API?
+> 
+> Some/all/none of the above?
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+_______________________________________________
+pdal mailing list
+pdal at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From howard at hobu.co  Fri Jan 21 07:12:42 2022
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 21 Jan 2022 09:12:42 -0600
+Subject: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+In-Reply-To: <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+References: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+ <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+Message-ID: <58C896EC-B75C-47CD-AC5A-E5E2257C6C6C@hobu.co>
+
+Indeed, the LAS code was refactored to bring together COPC/EPT and LAS/LAZ common components. The LAS code was pseudo-private to PDAL, and so we reserved the right to change it as needed given PDAL's more public interfaces. 
+
+We hope and expect that these changes weren't too disruptive, but we would much rather add missing things that are needed instead of supporting the previous behaviors and classes. Please reach out if there is something that cannot be done with the new pseudo-internal API that was available before.
+
+
+
+> On Jan 21, 2022, at 3:34 AM, Jean-Roc Morreale (ml) <jrmorreale_ml at enoreth.net> wrote:
+> 
+> Hi,
+> 
+> For CloudCompare, the PDAL plugin is being rewritten :
+> https://github.com/CloudCompare/CloudCompare/pull/1561
+> 
+> as the plugin does not compile against current PDAL :
+> https://github.com/CloudCompare/CloudCompare/issues/1573
+> 
+> Le jeudi 20 janvier 2022 ? 14:22 -0600, Jim Klassen a ?crit :
+>> The recent changes to the LAS code broke the entwine build in
+>> entwine/util/pipeline.cpp.  It looks like things like `scaleX()` need
+>> to be updated to `scale.x`.  I also suspect these changes probably
+>> also impact the CloudCompare PDAL plugin.
+>> 
+>> However, I'm not sure where the fix should be:
+>> 
+>> Is this a bug in entwine (and likely CloudCompare) for using a pdal
+>> API that is intended to be private (and they should be using entirely
+>> other means for accessing this information)?
+>> 
+>> Is this an issue where entwine needs to be updated to match the
+>> current pdal API?
+>> 
+>> Is this an issue in pdal for changing the existing API?
+>> 
+>> Some/all/none of the above?
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From andrew.bell.ia at gmail.com  Wed Jan 26 05:28:24 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Wed, 26 Jan 2022 08:28:24 -0500
+Subject: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+In-Reply-To: <58C896EC-B75C-47CD-AC5A-E5E2257C6C6C@hobu.co>
+References: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+ <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+ <58C896EC-B75C-47CD-AC5A-E5E2257C6C6C@hobu.co>
+Message-ID: <CACJ51z3bhGus622mBSRMhHhMT4i2YtxvWfTKCFggjEGX=-c7=Q@mail.gmail.com>
+
+There may still be changes before release. I've tried to maintain API in
+the past and it may be worth sticking a layer on top of what''s in master
+to support users who have already made PDAL part of their code.
+Unfortunately, our API became everything, because there was no line drawn
+between private code and public code from the library's outset. I've tried
+to correct some of that, but haven't been terribly successful.
+
+On Fri, Jan 21, 2022 at 10:12 AM Howard Butler <howard at hobu.co> wrote:
+
+> Indeed, the LAS code was refactored to bring together COPC/EPT and LAS/LAZ
+> common components. The LAS code was pseudo-private to PDAL, and so we
+> reserved the right to change it as needed given PDAL's more public
+> interfaces.
+>
+> We hope and expect that these changes weren't too disruptive, but we would
+> much rather add missing things that are needed instead of supporting the
+> previous behaviors and classes. Please reach out if there is something that
+> cannot be done with the new pseudo-internal API that was available before.
+>
+>
+>
+> > On Jan 21, 2022, at 3:34 AM, Jean-Roc Morreale (ml) <
+> jrmorreale_ml at enoreth.net> wrote:
+> >
+> > Hi,
+> >
+> > For CloudCompare, the PDAL plugin is being rewritten :
+> > https://github.com/CloudCompare/CloudCompare/pull/1561
+> >
+> > as the plugin does not compile against current PDAL :
+> > https://github.com/CloudCompare/CloudCompare/issues/1573
+> >
+> > Le jeudi 20 janvier 2022 ? 14:22 -0600, Jim Klassen a ?crit :
+> >> The recent changes to the LAS code broke the entwine build in
+> >> entwine/util/pipeline.cpp.  It looks like things like `scaleX()` need
+> >> to be updated to `scale.x`.  I also suspect these changes probably
+> >> also impact the CloudCompare PDAL plugin.
+> >>
+> >> However, I'm not sure where the fix should be:
+> >>
+> >> Is this a bug in entwine (and likely CloudCompare) for using a pdal
+> >> API that is intended to be private (and they should be using entirely
+> >> other means for accessing this information)?
+> >>
+> >> Is this an issue where entwine needs to be updated to match the
+> >> current pdal API?
+> >>
+> >> Is this an issue in pdal for changing the existing API?
+> >>
+> >> Some/all/none of the above?
+> >> _______________________________________________
+> >> pdal mailing list
+> >> pdal at lists.osgeo.org
+> >> https://lists.osgeo.org/mailman/listinfo/pdal
+> >
+> > _______________________________________________
+> > pdal mailing list
+> > pdal at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/pdal
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220126/14d01357/attachment.html>
+
+From klassen.js at gmail.com  Wed Jan 26 08:21:57 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Wed, 26 Jan 2022 10:21:57 -0600
+Subject: [pdal] Entwine fails to build after recent PDAL LAS refactoring
+In-Reply-To: <CACJ51z3bhGus622mBSRMhHhMT4i2YtxvWfTKCFggjEGX=-c7=Q@mail.gmail.com>
+References: <23f335e1-89c6-c7fe-b58f-9abb9f811cea@gmail.com>
+ <7227696439cdd15b5f495d99da845d2bebe2f3bb.camel@enoreth.net>
+ <58C896EC-B75C-47CD-AC5A-E5E2257C6C6C@hobu.co>
+ <CACJ51z3bhGus622mBSRMhHhMT4i2YtxvWfTKCFggjEGX=-c7=Q@mail.gmail.com>
+Message-ID: <5d63c46a-ed85-5345-01ed-005f265ac481@gmail.com>
+
+A compatibility layer would be nice where practical, maybe marked with the [[deprecated]] attribute.? I'm not sure that all the refactoring that has been done is amenable to that.? I also don't want PDAL to be held back or code quality to suffer from not refactoring when appropriate.
+
+A minimal solution might be to call the next PDAL release version 3.0 to call attention to the API incompatibility.? That way projects can either specify they need 2.3 or test for 2.3 vs 3.0 and behave accordingly.? And then packagers will also get a heads up that something changed where they need to pay extra attention.
+
+That's my 2 cents.
+
+On 1/26/22 07:28, Andrew Bell wrote:
+> There may still be changes before release. I've tried to maintain API in the past and it may be worth sticking a layer on top of what''s in master to support users who have already made PDAL part of their code. Unfortunately, our API became everything, because there was no line drawn between private code and public code from the library's outset. I've tried to correct some of that, but haven't been terribly successful.
+>
+> On Fri, Jan 21, 2022 at 10:12 AM Howard Butler <howard at hobu.co> wrote:
+>
+>     Indeed, the LAS code was refactored to bring together COPC/EPT and LAS/LAZ common components. The LAS code was pseudo-private to PDAL, and so we reserved the right to change it as needed given PDAL's more public interfaces.
+>
+>     We hope and expect that these changes weren't too disruptive, but we would much rather add missing things that are needed instead of supporting the previous behaviors and classes. Please reach out if there is something that cannot be done with the new pseudo-internal API that was available before.
+>
+>
+>
+>     > On Jan 21, 2022, at 3:34 AM, Jean-Roc Morreale (ml) <jrmorreale_ml at enoreth.net> wrote:
+>     >
+>     > Hi,
+>     >
+>     > For CloudCompare, the PDAL plugin is being rewritten :
+>     > https://github.com/CloudCompare/CloudCompare/pull/1561
+>     >
+>     > as the plugin does not compile against current PDAL :
+>     > https://github.com/CloudCompare/CloudCompare/issues/1573
+>     >
+>     > Le jeudi 20 janvier 2022 ? 14:22 -0600, Jim Klassen a ?crit :
+>     >> The recent changes to the LAS code broke the entwine build in
+>     >> entwine/util/pipeline.cpp.? It looks like things like `scaleX()` need
+>     >> to be updated to `scale.x`.? I also suspect these changes probably
+>     >> also impact the CloudCompare PDAL plugin.
+>     >>
+>     >> However, I'm not sure where the fix should be:
+>     >>
+>     >> Is this a bug in entwine (and likely CloudCompare) for using a pdal
+>     >> API that is intended to be private (and they should be using entirely
+>     >> other means for accessing this information)?
+>     >>
+>     >> Is this an issue where entwine needs to be updated to match the
+>     >> current pdal API?
+>     >>
+>     >> Is this an issue in pdal for changing the existing API?
+>     >>
+>     >> Some/all/none of the above?
+>     >> _______________________________________________
+>     >> pdal mailing list
+>     >> pdal at lists.osgeo.org
+>     >> https://lists.osgeo.org/mailman/listinfo/pdal
+>     >
+>     > _______________________________________________
+>     > pdal mailing list
+>     > pdal at lists.osgeo.org
+>     > https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>     _______________________________________________
+>     pdal mailing list
+>     pdal at lists.osgeo.org
+>     https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220126/b7f87842/attachment.html>
+
+From klassen.js at gmail.com  Fri Jan 28 11:30:11 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Fri, 28 Jan 2022 13:30:11 -0600
+Subject: [pdal] writers.gdal: counting all points in a cell
+Message-ID: <e3e6ec81-f167-c3df-1e39-18488a12cd4b@gmail.com>
+
+There is a comment in GDALGrid.cpp about counting all points if they are in a cell, ignoring the radius for that cell.
+
+ ??? // This is a questionable case.? If a point is in a cell, shouldn't
+ ??? // it just be counted?
+
+My experience is that there are times when I want this behavior when I want to know every point is assigned to one and only one cell. Currently, the only options are to set radius so that the circle includes the whole cell (but also includes area outside the cell) or the circle only includes area in the cell, but also skips some area of the cell.
+
+There are also times, I want radius to act exactly as it does now, viewing the cell as sampling an area around the centroid of the cell.? I can imagine cases (ex. large cell size with high point density) where a radius smaller than the cell size makes sense. This existing mode also seems to me like it is more representative of the physics of sampling a surface with a laser pulse which has a non-zero cross section than the "just count everything that falls in the cell" mode.
+
+So, I want to be able to choose the behavior depending on the my current situation.
+
+I propose choosing the "count all points that fall in the cell" mode if the user supplies a radius that is negative and maintaining the current behavior if the radius is 0 or positive?? I'm not sure a zero radius is useful, it is currently supported and potentially could select points exactly aligned with the center of the cell.? A negative radius currently would never select any points (since distance is always >= 0).
+
+As a potential optimization, since radius is negative, the updateXXXQuadrant() calls don't select any cells, but do take minimal time in this case.? I'm not sure if there would be an overall benefit of guarding the updateXXXQuadrant() calls with a:
+ ??? if (m_radius >= 0)
+for this new case vs the existing case. It probably depends highly on the CPU branch predictor.
+
+The following patch implements this idea:
+
+diff --git a/io/private/GDALGrid.cpp b/io/private/GDALGrid.cpp
+index dade8f792..4f319f4ee 100644
+--- a/io/private/GDALGrid.cpp
++++ b/io/private/GDALGrid.cpp
+@@ -232,8 +232,9 @@ void GDALGrid::addPoint(double x, double y, double z)
+
+ ???? // This is a questionable case.? If a point is in a cell, shouldn't
+ ???? // it just be counted?
++??? // Just count points in the cell if m_radius is < 0, otherwise act normally
+ ???? double d = distance(iOrigin, jOrigin, x, y);
+-??? if (d < m_radius &&
++??? if ((m_radius < 0 || d < m_radius) &&
+ ???????? iOrigin >= 0 && jOrigin >= 0 &&
+ ???????? iOrigin < width() && jOrigin < height())
+ ???????? update(iOrigin, jOrigin, z, d);
+
+
+From howard at hobu.co  Fri Jan 28 11:35:25 2022
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 28 Jan 2022 13:35:25 -0600
+Subject: [pdal] writers.gdal: counting all points in a cell
+In-Reply-To: <e3e6ec81-f167-c3df-1e39-18488a12cd4b@gmail.com>
+References: <e3e6ec81-f167-c3df-1e39-18488a12cd4b@gmail.com>
+Message-ID: <02F464FF-6FAB-4253-8AB3-140C3D76678B@hobu.co>
+
+
+
+> On Jan 28, 2022, at 1:30 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+> 
+> There is a comment in GDALGrid.cpp about counting all points if they are in a cell, ignoring the radius for that cell.
+> 
+>     // This is a questionable case.  If a point is in a cell, shouldn't
+>     // it just be counted?
+> 
+> My experience is that there are times when I want this behavior when I want to know every point is assigned to one and only one cell. Currently, the only options are to set radius so that the circle includes the whole cell (but also includes area outside the cell) or the circle only includes area in the cell, but also skips some area of the cell.
+> 
+> There are also times, I want radius to act exactly as it does now, viewing the cell as sampling an area around the centroid of the cell.  I can imagine cases (ex. large cell size with high point density) where a radius smaller than the cell size makes sense. This existing mode also seems to me like it is more representative of the physics of sampling a surface with a laser pulse which has a non-zero cross section than the "just count everything that falls in the cell" mode.
+> 
+> So, I want to be able to choose the behavior depending on the my current situation.
+> 
+> I propose choosing the "count all points that fall in the cell" mode if the user supplies a radius that is negative and maintaining the current behavior if the radius is 0 or positive?  I'm not sure a zero radius is useful, it is currently supported and potentially could select points exactly aligned with the center of the cell.  A negative radius currently would never select any points (since distance is always >= 0).
+> 
+> As a potential optimization, since radius is negative, the updateXXXQuadrant() calls don't select any cells, but do take minimal time in this case.  I'm not sure if there would be an overall benefit of guarding the updateXXXQuadrant() calls with a:
+>     if (m_radius >= 0)
+> for this new case vs the existing case. It probably depends highly on the CPU branch predictor.
+> 
+> The following patch implements this idea:
+> 
+> diff --git a/io/private/GDALGrid.cpp b/io/private/GDALGrid.cpp
+> index dade8f792..4f319f4ee 100644
+> --- a/io/private/GDALGrid.cpp
+> +++ b/io/private/GDALGrid.cpp
+> @@ -232,8 +232,9 @@ void GDALGrid::addPoint(double x, double y, double z)
+> 
+>      // This is a questionable case.  If a point is in a cell, shouldn't
+>      // it just be counted?
+> +    // Just count points in the cell if m_radius is < 0, otherwise act normally
+>      double d = distance(iOrigin, jOrigin, x, y);
+> -    if (d < m_radius &&
+> +    if ((m_radius < 0 || d < m_radius) &&
+>          iOrigin >= 0 && jOrigin >= 0 &&
+>          iOrigin < width() && jOrigin < height())
+>          update(iOrigin, jOrigin, z, d);
+
+Jim,
+
+I wanted this just the other day too. If you make a PR with this that also includes an option to writers.gdal that defaults to the old behavior for count but allows the user to switch to this one, I would be excited to merge it.
+
+Thanks!
+
+Howard
+
+https://github.com/PDAL/PDAL/issues/3215
+
+From klassen.js at gmail.com  Fri Jan 28 15:32:10 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Fri, 28 Jan 2022 17:32:10 -0600
+Subject: [pdal] writers.gdal: counting all points in a cell
+In-Reply-To: <02F464FF-6FAB-4253-8AB3-140C3D76678B@hobu.co>
+References: <e3e6ec81-f167-c3df-1e39-18488a12cd4b@gmail.com>
+ <02F464FF-6FAB-4253-8AB3-140C3D76678B@hobu.co>
+Message-ID: <1e8f8609-5dfa-9c50-6b17-28b34533c9bb@gmail.com>
+
+
+
+On 1/28/22 13:35, Howard Butler wrote:
+>
+>> On Jan 28, 2022, at 1:30 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+>>
+>> There is a comment in GDALGrid.cpp about counting all points if they are in a cell, ignoring the radius for that cell.
+>>
+>>      // This is a questionable case.  If a point is in a cell, shouldn't
+>>      // it just be counted?
+>>
+>> My experience is that there are times when I want this behavior when I want to know every point is assigned to one and only one cell. Currently, the only options are to set radius so that the circle includes the whole cell (but also includes area outside the cell) or the circle only includes area in the cell, but also skips some area of the cell.
+>>
+>> There are also times, I want radius to act exactly as it does now, viewing the cell as sampling an area around the centroid of the cell.  I can imagine cases (ex. large cell size with high point density) where a radius smaller than the cell size makes sense. This existing mode also seems to me like it is more representative of the physics of sampling a surface with a laser pulse which has a non-zero cross section than the "just count everything that falls in the cell" mode.
+>>
+>> So, I want to be able to choose the behavior depending on the my current situation.
+>>
+>> I propose choosing the "count all points that fall in the cell" mode if the user supplies a radius that is negative and maintaining the current behavior if the radius is 0 or positive?  I'm not sure a zero radius is useful, it is currently supported and potentially could select points exactly aligned with the center of the cell.  A negative radius currently would never select any points (since distance is always >= 0).
+>>
+>> As a potential optimization, since radius is negative, the updateXXXQuadrant() calls don't select any cells, but do take minimal time in this case.  I'm not sure if there would be an overall benefit of guarding the updateXXXQuadrant() calls with a:
+>>      if (m_radius >= 0)
+>> for this new case vs the existing case. It probably depends highly on the CPU branch predictor.
+>>
+>> The following patch implements this idea:
+>>
+>> diff --git a/io/private/GDALGrid.cpp b/io/private/GDALGrid.cpp
+>> index dade8f792..4f319f4ee 100644
+>> --- a/io/private/GDALGrid.cpp
+>> +++ b/io/private/GDALGrid.cpp
+>> @@ -232,8 +232,9 @@ void GDALGrid::addPoint(double x, double y, double z)
+>>
+>>       // This is a questionable case.  If a point is in a cell, shouldn't
+>>       // it just be counted?
+>> +    // Just count points in the cell if m_radius is < 0, otherwise act normally
+>>       double d = distance(iOrigin, jOrigin, x, y);
+>> -    if (d < m_radius &&
+>> +    if ((m_radius < 0 || d < m_radius) &&
+>>           iOrigin >= 0 && jOrigin >= 0 &&
+>>           iOrigin < width() && jOrigin < height())
+>>           update(iOrigin, jOrigin, z, d);
+> Jim,
+>
+> I wanted this just the other day too. If you make a PR with this that also includes an option to writers.gdal that defaults to the old behavior for count but allows the user to switch to this one, I would be excited to merge it.
+>
+> Thanks!
+>
+> Howard
+>
+> https://github.com/PDAL/PDAL/issues/3215
+
+I'm happy to make a PR, but I'm not sure I understand.? This doesn't change the default behavior.? Radius defaults to resolution * sqrt(2) which is >= 0 so it will behave as it does currently unless the user explicitly sets a radius to be < 0.? Any positive radius a user sets would also behave as it does now.? My understanding is that min/max/mean/idw/count/stdev all work off the same set of points (determined by the radius).
+
+Looking at the issue referenced, my understanding is count currently reflects the number of points considered in the stats for that pixel (which makes perfect sense to me).? With this change, if radius is set < 0 then count will be the number of points that fall within the cell.? Does that solve the issue or are you asking for a second metric that always just counts the number of points that falls within the cell as opposed to the number of points that are used for the statistic (which is the same as the number of points in the cell in the latter case)?
+
+The one sticky bit would be if someone wanted different radius settings for the different metrics.? That would be more complicated to implement.? (Or I guess they could just chain multiple writers.gdal stages if they want to use different radius settings).
+
+
+
+From klassen.js at gmail.com  Fri Jan 28 16:23:59 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Fri, 28 Jan 2022 18:23:59 -0600
+Subject: [pdal] writers.gdal: median
+Message-ID: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+
+Is there any interest in adding a median (and possibly Q1 and Q3) statistic to writers.gdal?
+
+I was curious how median would look so I made a naive implementation based on storing each point that applies to each cell using Raster<std::vector<double> > instead of Raster<double> and then sorting and then picking the middle (or mean of the two middle) elements.? It appears to work correctly as far as I can tell, but there is a big caveat in that memory usage easily becomes enormous (a 18MB LAZ required about 1GB of RAM to process with median that only took about 70MB with mean).? Since with the default radius is resolution * sqrt(2), points by default are counted in multiple pixel cells, so it can need to store significantly more "Z" values (across all cells) than were in the original point cloud.? The existing statistics where memory usage scales by # of bands written and number of pixels, this also scales with the number of times a point is considered for a cell (and so number of points, radius, and resolution).
+
+I'm not sure this memory limitation would be easy to document clearly and I presume this is why median isn't already implemented. I certainly would not include it by default in the "all" mode.
+
+There may be ways to make this more memory friendly if multiple passes through the point cloud would be allowed, but this is counter to how the existing writers.gdal stage is structured.
+
+Is there a better way to go about implementing this?
+
+https://github.com/klassenjs/PDAL/commit/a4786ff8aa0063ca531eea7dc58a3288516c768e
+
+From charles.karney at gmail.com  Fri Jan 28 21:03:56 2022
+From: charles.karney at gmail.com (Charles Karney)
+Date: Sat, 29 Jan 2022 00:03:56 -0500
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+Message-ID: <c95c1d8c-438f-9671-a4a3-7864b44a38ef@karney.com>
+
+To find the median use nth_element, O(n), instead of sorting, O(n*log(n)).
+
+On 1/28/22 19:23, Jim Klassen wrote:
+> Is there any interest in adding a median (and possibly Q1 and Q3) 
+> statistic to writers.gdal?
+> 
+> I was curious how median would look so I made a naive implementation 
+> based on storing each point that applies to each cell using 
+> Raster<std::vector<double> > instead of Raster<double> and then sorting 
+> and then picking the middle (or mean of the two middle) elements.? It 
+> appears to work correctly as far as I can tell, but there is a big 
+> caveat in that memory usage easily becomes enormous (a 18MB LAZ required 
+> about 1GB of RAM to process with median that only took about 70MB with 
+> mean).? Since with the default radius is resolution * sqrt(2), points by 
+> default are counted in multiple pixel cells, so it can need to store 
+> significantly more "Z" values (across all cells) than were in the 
+> original point cloud.? The existing statistics where memory usage scales 
+> by # of bands written and number of pixels, this also scales with the 
+> number of times a point is considered for a cell (and so number of 
+> points, radius, and resolution).
+> 
+> I'm not sure this memory limitation would be easy to document clearly 
+> and I presume this is why median isn't already implemented. I certainly 
+> would not include it by default in the "all" mode.
+> 
+> There may be ways to make this more memory friendly if multiple passes 
+> through the point cloud would be allowed, but this is counter to how the 
+> existing writers.gdal stage is structured.
+> 
+> Is there a better way to go about implementing this?
+> 
+> https://github.com/klassenjs/PDAL/commit/a4786ff8aa0063ca531eea7dc58a3288516c768e 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From howard at hobu.co  Mon Jan 31 07:14:17 2022
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 31 Jan 2022 09:14:17 -0600
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+Message-ID: <5FF152F4-E039-4E9A-8356-F27818CD220B@hobu.co>
+
+
+
+> On Jan 28, 2022, at 6:23 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+> 
+> Is there any interest in adding a median (and possibly Q1 and Q3) statistic to writers.gdal?
+
+As long as the overhead associated with computing it is opt-in, I think this would a very useful addition. 
+
+> I'm not sure this memory limitation would be easy to document clearly and I presume this is why median isn't already implemented. I certainly would not include it by default in the "all" mode.
+> 
+> There may be ways to make this more memory friendly if multiple passes through the point cloud would be allowed, but this is counter to how the existing writers.gdal stage is structured.
+
+Related to earlier traffic, I think the distinction in behavior between "cell count" and "search window" count has some value for some applications. It would be nice to support both behaviors.
+
+
+From andrew.bell.ia at gmail.com  Mon Jan 31 07:28:49 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 31 Jan 2022 10:28:49 -0500
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <5FF152F4-E039-4E9A-8356-F27818CD220B@hobu.co>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+ <5FF152F4-E039-4E9A-8356-F27818CD220B@hobu.co>
+Message-ID: <CACJ51z1b=y_tPCHSBTu73qRtdS3sf0P3fQFC4dEFeyEv5Sh3Kw@mail.gmail.com>
+
+My concern would be that this computation is crazy-expensive WRT memory.
+The default `output_type` is all, and people might be in for quite a
+surprise if this gets added. Some users are very sensitive about memory
+use. One could change things such that the rasters themselves were, say,
+memory-mapped files, but this gets pretty difficult with this addition,
+where you don't know how many items are in each cell.
+
+I think this is pretty hard to do well without writing quite a bit of code.
+
+On Mon, Jan 31, 2022 at 10:14 AM Howard Butler <howard at hobu.co> wrote:
+
+>
+>
+> > On Jan 28, 2022, at 6:23 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+> >
+> > Is there any interest in adding a median (and possibly Q1 and Q3)
+> statistic to writers.gdal?
+>
+> As long as the overhead associated with computing it is opt-in, I think
+> this would a very useful addition.
+>
+> > I'm not sure this memory limitation would be easy to document clearly
+> and I presume this is why median isn't already implemented. I certainly
+> would not include it by default in the "all" mode.
+> >
+> > There may be ways to make this more memory friendly if multiple passes
+> through the point cloud would be allowed, but this is counter to how the
+> existing writers.gdal stage is structured.
+>
+> Related to earlier traffic, I think the distinction in behavior between
+> "cell count" and "search window" count has some value for some
+> applications. It would be nice to support both behaviors.
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220131/9f45ce6e/attachment.html>
+
+From klassen.js at gmail.com  Mon Jan 31 08:06:32 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Mon, 31 Jan 2022 10:06:32 -0600
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <c95c1d8c-438f-9671-a4a3-7864b44a38ef@karney.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+ <c95c1d8c-438f-9671-a4a3-7864b44a38ef@karney.com>
+Message-ID: <fb392925-c5c6-6ffe-6b11-9acbbbd49881@gmail.com>
+
+Thanks, nth_element does speed it up. The 18MB laz file that uses 1GB of memory for this completed in 9.9 seconds on my machine so CPU use wasn't my main concern.? But, switching to nth_element drops that to 9.4 seconds.? This is for 967311 cells (raster pixels with data) and 63269486 total points (across all cells), so on average sort is looking at 65 pts/cell. When I tried mean instead of median, it takes 7.5 seconds, so the median code with sort adds 2.4 seconds and the median code with nth_element adds 1.9 seconds.? So nth_element is significantly faster than sort for that block, but it doesn't make a huge difference overall in performance.? I suspect most of the time is spent in laz decompression and/or output image compression.
+
+
+However, memory use is by far my main concern.
+
+A hack to save half the memory would be to use std::vector<float> instead of std::vector<double>.? The data I am working with is fine with 6 decimal digits of vertical precision (1cm at 1000m).? I'd might feel differently about that if I was working in mountainous areas.
+
+On the memory use front all the bounded memory median algorithms I have found either produce estimates of the median which can be wildly off for worst case datasets or follow a guess and check strategy where they only store a certain number of the values around the guessed median and only keep track of the counts of values that fall above and below the stored array.? At the end the hope is the median is one of the numbers that was stored, but if it isn't then a new guess is made and it is restarted with another pass though the data.? That is likely slower but more memory efficient than the naive implementation which potentially stores the same point multiple times (one point can be part of multiple cells depending on the radius chosen), but to support allowing additional passes through the points the stage couldn't be streamable anymore.? And it seems to me that if the whole point cloud is in memory anyway (because the stage becomes non-streamable) that something more 
+efficient could be constructed by sorting the whole point cloud first than using one of the bounded memory median algorithms.? Of course, writers.gdal should clearly remain streamable for the current use cases, so this would involve making this into a separate stage.
+
+On 1/28/22 23:03, Charles Karney wrote:
+> To find the median use nth_element, O(n), instead of sorting, O(n*log(n)).
+>
+> On 1/28/22 19:23, Jim Klassen wrote:
+>> Is there any interest in adding a median (and possibly Q1 and Q3) statistic to writers.gdal?
+>>
+>> I was curious how median would look so I made a naive implementation based on storing each point that applies to each cell using Raster<std::vector<double> > instead of Raster<double> and then sorting and then picking the middle (or mean of the two middle) elements.? It appears to work correctly as far as I can tell, but there is a big caveat in that memory usage easily becomes enormous (a 18MB LAZ required about 1GB of RAM to process with median that only took about 70MB with mean).? Since with the default radius is resolution * sqrt(2), points by default are counted in multiple pixel cells, so it can need to store significantly more "Z" values (across all cells) than were in the original point cloud.? The existing statistics where memory usage scales by # of bands written and number of pixels, this also scales with the number of times a point is considered for a cell (and so number of points, radius, and resolution).
+>>
+>> I'm not sure this memory limitation would be easy to document clearly and I presume this is why median isn't already implemented. I certainly would not include it by default in the "all" mode.
+>>
+>> There may be ways to make this more memory friendly if multiple passes through the point cloud would be allowed, but this is counter to how the existing writers.gdal stage is structured.
+>>
+>> Is there a better way to go about implementing this?
+>>
+>> https://github.com/klassenjs/PDAL/commit/a4786ff8aa0063ca531eea7dc58a3288516c768e
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+
+
+From andrew.bell.ia at gmail.com  Mon Jan 31 08:29:30 2022
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 31 Jan 2022 11:29:30 -0500
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <fb392925-c5c6-6ffe-6b11-9acbbbd49881@gmail.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+ <c95c1d8c-438f-9671-a4a3-7864b44a38ef@karney.com>
+ <fb392925-c5c6-6ffe-6b11-9acbbbd49881@gmail.com>
+Message-ID: <CACJ51z1zrpzphUJxv5JtBm5tMkuij9oVQV5RrrVRYrWyiNgCZg@mail.gmail.com>
+
+On Mon, Jan 31, 2022 at 11:06 AM Jim Klassen <klassen.js at gmail.com> wrote:
+
+>
+> A hack to save half the memory would be to use std::vector<float> instead
+> of std::vector<double>.  The data I am working with is fine with 6 decimal
+> digits of vertical precision (1cm at 1000m).  I'd might feel differently
+> about that if I was working in mountainous areas.
+>
+
+If you're going to pursue this, I would recommend writing a separate
+filter. You can now write rasters with writers.raster, so the filter can do
+whatever and just pass the raster on to the writer. You might also look at
+filters.zsmooth (which seems to be missing from the doc index). It's not
+exactly what you're looking for, but it could be modified to do something
+quite similar with not much effort. It only runs in standard mode.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220131/f21b97fe/attachment.html>
+
+From klassen.js at gmail.com  Mon Jan 31 08:34:37 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Mon, 31 Jan 2022 10:34:37 -0600
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <CACJ51z1b=y_tPCHSBTu73qRtdS3sf0P3fQFC4dEFeyEv5Sh3Kw@mail.gmail.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+ <5FF152F4-E039-4E9A-8356-F27818CD220B@hobu.co>
+ <CACJ51z1b=y_tPCHSBTu73qRtdS3sf0P3fQFC4dEFeyEv5Sh3Kw@mail.gmail.com>
+Message-ID: <1f5d8000-3e4f-4e62-9edd-18d871b93d16@gmail.com>
+
+I would not propose to include this in all (and the commit I linked to requires it to be explicitly selected).
+
+I don't think one has to be "very sensitive" about memory use for memory use to be a problem.? I would say that as implemented that one has to be very careful about memory use (point cloud size, raster output size, raster radius and resolution parameters) to be successful even with 128 GB available to (a single core) for PDAL.
+
+I think the best way to go if going forward with this would be to put median in a non-streamable stage so it can take multiple passes through the point cloud.? Keeping the point cloud in memory (or even writing the point cloud to a temp LAS) plus a bounded array for each cell is likely going to be smaller than storing multiple copies of the "Z" attribute for each point (as in the default case where radius selects points outside the cell boundary).? And the infrastructure already exists in PDAL for non-streamable stages, vs needing to come up with something new.
+
+On 1/31/22 09:28, Andrew Bell wrote:
+> My concern would be that this computation is crazy-expensive WRT memory. The default `output_type` is all, and people might be in for quite a surprise if this gets added. Some users are very sensitive about memory use. One could change things such that the rasters themselves were, say, memory-mapped files, but this gets pretty difficult with this addition, where you don't know how many items are in each cell.
+>
+> I think this is pretty hard to do well without writing quite a bit of code.
+>
+> On Mon, Jan 31, 2022 at 10:14 AM Howard Butler <howard at hobu.co> wrote:
+>
+>
+>
+>     > On Jan 28, 2022, at 6:23 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+>     >
+>     > Is there any interest in adding a median (and possibly Q1 and Q3) statistic to writers.gdal?
+>
+>     As long as the overhead associated with computing it is opt-in, I think this would a very useful addition.
+>
+>     > I'm not sure this memory limitation would be easy to document clearly and I presume this is why median isn't already implemented. I certainly would not include it by default in the "all" mode.
+>     >
+>     > There may be ways to make this more memory friendly if multiple passes through the point cloud would be allowed, but this is counter to how the existing writers.gdal stage is structured.
+>
+>     Related to earlier traffic, I think the distinction in behavior between "cell count" and "search window" count has some value for some applications. It would be nice to support both behaviors.
+>
+>     _______________________________________________
+>     pdal mailing list
+>     pdal at lists.osgeo.org
+>     https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220131/7f154baf/attachment-0001.html>
+
+From klassen.js at gmail.com  Mon Jan 31 08:35:15 2022
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Mon, 31 Jan 2022 10:35:15 -0600
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <CACJ51z1zrpzphUJxv5JtBm5tMkuij9oVQV5RrrVRYrWyiNgCZg@mail.gmail.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+ <c95c1d8c-438f-9671-a4a3-7864b44a38ef@karney.com>
+ <fb392925-c5c6-6ffe-6b11-9acbbbd49881@gmail.com>
+ <CACJ51z1zrpzphUJxv5JtBm5tMkuij9oVQV5RrrVRYrWyiNgCZg@mail.gmail.com>
+Message-ID: <5f3aabf5-a058-8744-230e-1f995d0aa0bf@gmail.com>
+
+
+
+On 1/31/22 10:29, Andrew Bell wrote:
+>
+>
+> On Mon, Jan 31, 2022 at 11:06 AM Jim Klassen <klassen.js at gmail.com> wrote:
+>
+>
+>     A hack to save half the memory would be to use std::vector<float> instead of std::vector<double>.? The data I am working with is fine with 6 decimal digits of vertical precision (1cm at 1000m).? I'd might feel differently about that if I was working in mountainous areas.
+>
+>
+> If you're going to pursue this, I would recommend writing a separate filter. You can now write rasters with writers.raster, so the filter can do whatever and just pass the raster on to the writer. You might also look at filters.zsmooth?(which seems to be missing from the doc index). It's not exactly what you're looking for, but it could be modified to do something quite similar with not much effort. It only?runs in standard mode.
+>
+> -- 
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+
+That's interesting.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20220131/e895b85e/attachment.html>
+
+From Peder.Axensten at slu.se  Mon Jan 31 09:44:15 2022
+From: Peder.Axensten at slu.se (Peder Axensten)
+Date: Mon, 31 Jan 2022 17:44:15 +0000
+Subject: [pdal] writers.gdal: median
+In-Reply-To: <1f5d8000-3e4f-4e62-9edd-18d871b93d16@gmail.com>
+References: <f277f4cb-ebb2-ddf3-c749-5118a77be7c4@gmail.com>
+ <5FF152F4-E039-4E9A-8356-F27818CD220B@hobu.co>
+ <CACJ51z1b=y_tPCHSBTu73qRtdS3sf0P3fQFC4dEFeyEv5Sh3Kw@mail.gmail.com>
+ <1f5d8000-3e4f-4e62-9edd-18d871b93d16@gmail.com>
+Message-ID: <CD17AFD5-6EE0-42F6-AD72-515D5DD2754A@slu.se>
+
+I don?t know if it is of use for you, but we estimate forrest variables across Sweden based on metrics (including percentiles) calculated from the national laser scanning. You can download our tools as a Docker here:
+https://hub.docker.com/r/axensten/slu
+
+The tools are for our internal use and only so-so documented, but you may use them if you find them useful. The system consists of a number of tools, among which one is for calculating raster metrics and another is for circular plots. Raster metrics is implemented as a pdal plugin, pdal_plugin_filter_raster_metrics. Plot metrics is a specific command line tool, pax-plots. Presently the following metrics are implemented (listed from pax-plots ?help):
+
+--metrics              You may choose one or more from the metrics and metric sets:
+                         --- Metrics -------------
+                         count               number of all values
+                         count_1ret          number of first returns
+                         count_gel           number of all values >= given level
+                         count_1ret_gel      number of first returns >= given level
+                         prop_gel            proportion of all values >= given level by all values
+                         prop_1ret_gel       proportion of first returns >= given level by first returns
+                         mean_gel            sum/N of all values >= given level
+                         mean2_gel           sum^2/N of all values >= given level
+                         mean3_gel           sum^3/N of all values >= given level
+                         rootmean2_gel       mean2^(1/2) of all values >= given level
+                         rootmean3_gel       mean3^(1/3) of all values >= given level
+                         sample_std_dev_gel  sample standard deviation of all values >= given level
+                         sample_variance_gel sample variance of all values >= given level
+                         sample_skewness_gel sample skewness of all values >= given level
+                         sample_kurtosis_gel sample kurtosis of all values >= given level
+                         count_ge#cm_gel     number of all values >= # cm, where # is any integer of all values >= given level
+                         p#_gel              percentile # of all values >= given level , where # is integer in [0, 100]
+                         L1_gel              L1-moment (L-mean) of all values >= given level
+                         L2_gel              L2-moment (L-scale) of all values >= given level
+                         L3_gel              L3-moment (L-scewness) of all values >= given level
+                         L4_gel              L4-moment (L-kurtosis) of all values >= given level
+                         L3_ratio_gel        L3-moment ratio (L3/L2) of all values >= given level
+                         L4_ratio_gel        L4-moment ratio (L4/L2) of all values >= given level
+                         mad_gel             median absolute deviation (MAD) of all values >= given level
+--nilsson_level        For most metrics, ignore z-values below this. [scalar value='0.0']
+
+To run pdal for raster metrics we use (copied from the make script that runs it all):
+{"pipeline":[
+{
+"type":"filters.raster_metrics",
+"resolution?:?12.5",
+"metrics":"$(strip $(metrics_set))",
+"nilsson_level?:?2.0",
+"gdalopts":"BIGTIFF=IF_SAFER,COMPRESS=DEFLATE",
+"data_type":"float"
+}
+] }
+
+And with pdal arguments:
+--input=?<source>"
+--output=?<temporary_dir>/null.bull"
+--writer="writers.null"
+--filters.raster_metrics.dest=?<metric_dest>"
+--metadata=?<metric_metadata_dest>.json"
+
+
+Best regards,
+
+Peder Axensten
+Systems Developer
+
+Remote Sensing
+Department of Forest Resource Management
+Swedish University of Agricultural Sciences
+SE-901 83 Ume?
+Visiting address: Skogsmarksgr?nd
+Phone: +46 90 786 85 00
+peder.axensten at slu.se, www.slu.se/srh
+
+The Department of Forest Resource Management is environmentally certified in accordance with ISO 14001.
+
+> On 31 Jan 2022, at 17:34, Jim Klassen <klassen.js at gmail.com> wrote:
+>
+> I would not propose to include this in all (and the commit I linked to requires it to be explicitly selected).
+>
+> I don't think one has to be "very sensitive" about memory use for memory use to be a problem.  I would say that as implemented that one has to be very careful about memory use (point cloud size, raster output size, raster radius and resolution parameters) to be successful even with 128 GB available to (a single core) for PDAL.
+>
+> I think the best way to go if going forward with this would be to put median in a non-streamable stage so it can take multiple passes through the point cloud.  Keeping the point cloud in memory (or even writing the point cloud to a temp LAS) plus a bounded array for each cell is likely going to be smaller than storing multiple copies of the "Z" attribute for each point (as in the default case where radius selects points outside the cell boundary).  And the infrastructure already exists in PDAL for non-streamable stages, vs needing to come up with something new.
+>
+> On 1/31/22 09:28, Andrew Bell wrote:
+>> My concern would be that this computation is crazy-expensive WRT memory. The default `output_type` is all, and people might be in for quite a surprise if this gets added. Some users are very sensitive about memory use. One could change things such that the rasters themselves were, say, memory-mapped files, but this gets pretty difficult with this addition, where you don't know how many items are in each cell.
+>>
+>> I think this is pretty hard to do well without writing quite a bit of code.
+>>
+>> On Mon, Jan 31, 2022 at 10:14 AM Howard Butler <howard at hobu.co> wrote:
+>>
+>>
+>> > On Jan 28, 2022, at 6:23 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+>> >
+>> > Is there any interest in adding a median (and possibly Q1 and Q3) statistic to writers.gdal?
+>>
+>> As long as the overhead associated with computing it is opt-in, I think this would a very useful addition.
+>>
+>> > I'm not sure this memory limitation would be easy to document clearly and I presume this is why median isn't already implemented. I certainly would not include it by default in the "all" mode.
+>> >
+>> > There may be ways to make this more memory friendly if multiple passes through the point cloud would be allowed, but this is counter to how the existing writers.gdal stage is structured.
+>>
+>> Related to earlier traffic, I think the distinction in behavior between "cell count" and "search window" count has some value for some applications. It would be nice to support both behaviors.
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>> --
+>> Andrew Bell
+>> andrew.bell.ia at gmail.com
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+---
+N?r du skickar e-post till SLU s? inneb?r detta att SLU behandlar dina personuppgifter. F?r att l?sa mer om hur detta g?r till, klicka h?r <https://www.slu.se/om-slu/kontakta-slu/personuppgifter/>
+E-mailing SLU will result in SLU processing your personal data. For more information on how this is done, click here <https://www.slu.se/en/about-slu/contact-slu/personal-data/>
+

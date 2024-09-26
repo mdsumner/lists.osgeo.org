@@ -1,0 +1,612 @@
+From geos-trac at osgeo.org  Wed Jun 10 22:14:02 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 11 Jun 2020 05:14:02 -0000
+Subject: [geos-devel] [GEOS] #737: TopologyException for Valid geoemtries
+In-Reply-To: <052.fa7d997ed8bb4b3b3ed759cc9cc5ef85@osgeo.org>
+References: <052.fa7d997ed8bb4b3b3ed759cc9cc5ef85@osgeo.org>
+Message-ID: <067.428a18a860420c8842ade47e040cc781@osgeo.org>
+
+#737: TopologyException for Valid geoemtries
+----------------------------+---------------------------
+ Reporter:  bladeoflight16  |       Owner:  geos-devel@…
+     Type:  defect          |      Status:  new
+ Priority:  major           |   Milestone:  3.6.4
+Component:  Default         |     Version:  3.4.2
+ Severity:  Unassigned      |  Resolution:
+ Keywords:                  |
+----------------------------+---------------------------
+
+Comment (by mdavis):
+
+ Using the original geometries in full precision (see below for WKT), JTS
+ reports both geometries as valid, and is able to compute the difference
+ correctly.  The forthcoming OverlayNG should solve this issue in GEOS.
+
+ {{{
+ 010600002023690000030000000103000000010000000900000076F3F2966BDA1641278F5DF376435241AAB538446EDA1641A4B08AFF7F435241ACF12E9A6BDA16411B1F4CFE76435241A1D4649C6BDA1641F7E706FE764352413CAC11E76BDA164118E81EF87643524136D0BE426CDA1641DD0D3DF376435241C5B8DD446CDA16415C1A2AF376435241828AECC62DDB1641FD73E9B97643524176F3F2966BDA1641278F5DF3764352410103000000010000000D0000002AED990373DA16416B2B720B904352417538D10673DA164196D95016904352418BD8FF3505DC16415F2B529F8F43524100DEC33205DC16414F9D63948F4352415A048E3005DC16414FD3A8948F435241732EE1E504DC164108D3909A8F435241FA0C348A04DC16412AAD729F8F4352416B2D158804DC16415BA0859F8F435241A459BAB573DA164150191D1690435241D4D266B173DA16417ABAF9159043524155D1E65273DA1641F3EC4E1190435241DB2AC90473DA1641951A940B904352412AED990373DA16416B2B720B9043524101030000000100000007000000EA2660C9FDDB1641D30F3E8776435241BEDE28C6FDDB1641C3615F7C764352418DBF3F17FDDB1641CF21937C764352411B45931BFDDB16419D80B67C764352410345137AFDDB16413F4E618176435241A1E930C8FDDB1641B3201C8776435241EA2660C9FDDB1641D30F3E8776435241
+
+ }}}
+
+ {{{
+ 0103000020236900000100000015000000ACFDBBB473DA164192641D16904352412C159DB273DA16411358301690435241C9F2EF5673DA16416C32121B904352411A1D430C73DA16416432FA20904352413A3A0D0A73DA164189693F2190435241307280737ADA1641FFB3652EA9435241EAAFAF747ADA164128A3872EA94352414258CDC27ADA16416D754234A9435241455B4D217BDA1641D542ED38A943524118E2A0257BDA1641A9A11039A94352417366F4F70BDC164156A878C2A8435241F34513FA0BDC164125B565C2A8435241D565C0550CDC1641E5DA83BDA8435241D0396DA00CDC164113DB9BB7A84352415A13A3A20CDC164113A556B7A84352413F24373905DC16416DD930AA8F435241E9E6073805DC16414DEA0EAA8F4352416D40EAE904DC1641F31754A48F435241003F6A8B04DC1641704AA99F8F43524162B9168704DC1641A4EB859F8F435241ACFDBBB473DA164192641D1690435241
+
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/737#comment:8>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From nyall.dawson at gmail.com  Wed Jun 24 23:55:24 2020
+From: nyall.dawson at gmail.com (Nyall Dawson)
+Date: Thu, 25 Jun 2020 16:55:24 +1000
+Subject: [geos-devel] millions of lines intersection against single polygon
+Message-ID: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+
+Hi list!
+
+I've a situation where I've got ~millions of lines (each consisting of
+a single segment only) which I need to intersect against a complex
+polygon.
+
+Trying the naive way of multiple calls to GEOSIntersection_r gives
+predictably horrendous performance. Is there a better way I can
+approach this situation using the GEOS c api?
+
+Thanks,
+Nyall
+
+From mtnclimb at gmail.com  Thu Jun 25 08:58:34 2020
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Thu, 25 Jun 2020 08:58:34 -0700
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+Message-ID: <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+
+That's an interesting problem.
+
+Are the line segments in fully general position relative to the polygon?
+I.e. they range from just touching it to fully crossing it, and may
+intersect the boundary multiple times?
+
+It would be faster to simply scan all the edges of the polygon and find the
+ones which intersect the line segment. Then you would have to determine the
+inside/outside relationship of the portions of the line segment to see
+which ones to keep.  This could potentially be done with a Point-In-Polygon
+check on the midpoint of each edge.  I'm not sure if the C API exposes an
+indexed version of that.
+
+The pending OverlayNG will improve things somewhat, since it can optimize
+cases where the envelope of the line is significantly smaller than the
+envelope of the polygon.
+
+But there's room for further improvement.  Reusing the index of the polygon
+edges would be improve performance.  And given the simplicity of the single
+line segment, there might be a way to further reduce the number of edges of
+the polygon in a general way.
+
+On Wed, Jun 24, 2020 at 11:55 PM Nyall Dawson <nyall.dawson at gmail.com>
+wrote:
+
+> Hi list!
+>
+> I've a situation where I've got ~millions of lines (each consisting of
+> a single segment only) which I need to intersect against a complex
+> polygon.
+>
+> Trying the naive way of multiple calls to GEOSIntersection_r gives
+> predictably horrendous performance. Is there a better way I can
+> approach this situation using the GEOS c api?
+>
+> Thanks,
+> Nyall
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200625/71c7ac9c/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Jun 25 10:03:04 2020
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 25 Jun 2020 13:03:04 -0400
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+Message-ID: <CACJ51z0w0y76yjgXzBNmCy79h6f-P_kLbuF=OiA-iJf66JrmBw@mail.gmail.com>
+
+On Thu, Jun 25, 2020 at 2:55 AM Nyall Dawson <nyall.dawson at gmail.com> wrote:
+
+> Hi list!
+>
+> I've a situation where I've got ~millions of lines (each consisting of
+> a single segment only) which I need to intersect against a complex
+> polygon.
+>
+> Trying the naive way of multiple calls to GEOSIntersection_r gives
+> predictably horrendous performance. Is there a better way I can
+> approach this situation using the GEOS c api?
+>
+
+There's an algorithm in PDAL that does this for point-in-polygon, but all
+the guts are there to do segment intersections. You're welcome to take it
+and modify to your liking:
+
+https://github.com/PDAL/PDAL/tree/master/filters/private/pnp
+
+How much better it would from a more brute-force approach depends a lot on
+the data.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200625/76ed0d8a/attachment.html>
+
+From nyall.dawson at gmail.com  Thu Jun 25 15:46:55 2020
+From: nyall.dawson at gmail.com (Nyall Dawson)
+Date: Fri, 26 Jun 2020 08:46:55 +1000
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+Message-ID: <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+
+On Fri, 26 Jun 2020 at 01:57, Martin Davis <mtnclimb at gmail.com> wrote:
+>
+> That's an interesting problem.
+>
+> Are the line segments in fully general position relative to the polygon? I.e. they range from just touching it to fully crossing it, and may intersect the boundary multiple times?
+
+They are actually "rays", possibly extending to infinity. But for the
+simplicity I've restricted them to fall inside the polygon's bounding
+box, since I only care about portion of the line within the polygon.
+So they:
+1. Will always intersect at least twice with the polygon exterior
+2. May possibly coincide exactly with one or more exterior/interior segments
+
+> It would be faster to simply scan all the edges of the polygon and find the ones which intersect the line segment.
+
+Thanks -- this is what I was suspecting, and somewhat fearful of! I
+was hoping to avoid as much downstream logic as possible...
+
+> Then you would have to determine the inside/outside relationship of the portions of the line segment to see which ones to keep.  This could potentially be done with a Point-In-Polygon check on the midpoint of each edge.  I'm not sure if the C API exposes an indexed version of that.
+
+GEOSPreparedIntersects_r will handle that nicely!
+
+Nyall
+
+>
+> The pending OverlayNG will improve things somewhat, since it can optimize cases where the envelope of the line is significantly smaller than the envelope of the polygon.
+>
+> But there's room for further improvement.  Reusing the index of the polygon edges would be improve performance.  And given the simplicity of the single line segment, there might be a way to further reduce the number of edges of the polygon in a general way.
+>
+> On Wed, Jun 24, 2020 at 11:55 PM Nyall Dawson <nyall.dawson at gmail.com> wrote:
+>>
+>> Hi list!
+>>
+>> I've a situation where I've got ~millions of lines (each consisting of
+>> a single segment only) which I need to intersect against a complex
+>> polygon.
+>>
+>> Trying the naive way of multiple calls to GEOSIntersection_r gives
+>> predictably horrendous performance. Is there a better way I can
+>> approach this situation using the GEOS c api?
+>>
+>> Thanks,
+>> Nyall
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From mariopettinati at gmail.com  Thu Jun 25 15:56:01 2020
+From: mariopettinati at gmail.com (=?UTF-8?Q?M=C3=A1rio_Rocco_Pettinati?=)
+Date: Thu, 25 Jun 2020 19:56:01 -0300
+Subject: [geos-devel] CMake in Geos 3.8.1 - Change runtime install directory
+Message-ID: <CAFFyWHZLVZ4SHS8jPn1ehTDo2KFQW45SFR6QzLbMWm-o4_Zo_w@mail.gmail.com>
+
+Good Afternoon,
+
+My name is Mário and I'm a Terralib/TerraAmazon developer, and we use GEOS
+in our opensource projects.
+
+I have a question. I don't know if this mailing list is the best place to
+ask, but If it is not someone can guide me and I can follow the right steps.
+
+The question is related to CMake. We are building GEOS from source in
+Windows 10 using VS 2017 64bits. Everything works perfectly with the
+default build and installation, but we need to output the DLLs into the LIB
+folder and not the BIN folder during the installation. Obviously I could
+just copy the installed files to the folder LIB, but this would let the
+files "lib/cmake/GEOS/geos-targets-debug.cmake" and
+"lib/cmake/GEOS/geos-targets-release.cmake" pointing to DLLs files that
+will not exist anymore in the BIN folder, invalidating the use of
+"geos-config.cmake". This force us to create our custom "FindGEOS.cmake" to
+locate GEOS in our custom paths.
+
+Some libraries such as Proj4 and Curl allows us to define the custom the
+folder to binaries using CMake tags such as: -DBINDIR:PATH=lib
+or -DCMAKE_INSTALL_BINDIR:PATH=lib
+
+When analysing the CMake for GEOS,  in the line 71 of the CMakeLists.txt
+seems to explicit define the runtimes output to the BIN folder:
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
+Is there any way to change the folder of the binaries? Maybe I'm doing
+something wrong.
+
+Thanks in advance for the time taken to read my issue.
+
+Best regards to you all
+
+Mário
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200625/4bb87fc3/attachment.html>
+
+From mtnclimb at gmail.com  Thu Jun 25 16:03:06 2020
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Thu, 25 Jun 2020 16:03:06 -0700
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+ <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+Message-ID: <CAK2ens29WDqJBTQs_HyGnCkPEvx_jy0D2GswqF02tT5=Q1kVPQ@mail.gmail.com>
+
+On Thu, Jun 25, 2020 at 3:47 PM Nyall Dawson <nyall.dawson at gmail.com> wrote:
+
+> > Are the line segments in fully general position relative to the polygon?
+> I.e. they range from just touching it to fully crossing it, and may
+> intersect the boundary multiple times?
+>
+> They are actually "rays", possibly extending to infinity. But for the
+> simplicity I've restricted them to fall inside the polygon's bounding
+> box, since I only care about portion of the line within the polygon.
+> So they:
+> 1. Will always intersect at least twice with the polygon exterior
+> 2. May possibly coincide exactly with one or more exterior/interior
+> segments
+>
+> I've been thinking about this a bit more, and realized that lines being
+coincident with polygon segments makes this a bit harder.  What's needed is
+a simple "graph" structure along the line, which can determine which
+portions of the line are inside, outside or coincident.  Then the overlay
+result can be extracted from that.  There probably also needs to be a
+little bit of snapping done, in case intersections lie very close together
+(in which case they might reverse position along the line, causing
+mislabelled topology).
+
+Also, rather than a linear scan of the polygon edges a spatial index can be
+used on the polygon (which can be reused).
+
+All this suggests the possiblity of a new "OverlayPolygonLine" algorithm.
+Even given the above, it will be quite a bit simpler than full overlay, and
+should be a lot faster too.  I am planning to prototype this in JTS to see
+how it works out.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200625/7ad07b6d/attachment.html>
+
+From andrew.bell.ia at gmail.com  Thu Jun 25 18:02:27 2020
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Thu, 25 Jun 2020 21:02:27 -0400
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+ <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+Message-ID: <CACJ51z36uB=VxFmxd2TkpCzH-9KX7gSYqyJWgiy8k+yWBfOpug@mail.gmail.com>
+
+On Thu, Jun 25, 2020 at 6:47 PM Nyall Dawson <nyall.dawson at gmail.com> wrote:
+
+> On Fri, 26 Jun 2020 at 01:57, Martin Davis <mtnclimb at gmail.com> wrote:
+> >
+> > That's an interesting problem.
+> >
+> > Are the line segments in fully general position relative to the polygon?
+> I.e. they range from just touching it to fully crossing it, and may
+> intersect the boundary multiple times?
+>
+> They are actually "rays", possibly extending to infinity. But for the
+> simplicity I've restricted them to fall inside the polygon's bounding
+> box, since I only care about portion of the line within the polygon.
+> So they:
+> 1. Will always intersect at least twice with the polygon exterior
+> 2. May possibly coincide exactly with one or more exterior/interior
+> segments
+>
+
+What is the real-life use-case for this? Are the lines that you're
+projecting related to one another in some way? Related to the polygon in
+any way?
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200625/3833930d/attachment.html>
+
+From mtnclimb at gmail.com  Thu Jun 25 18:55:34 2020
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Thu, 25 Jun 2020 18:55:34 -0700
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CACJ51z36uB=VxFmxd2TkpCzH-9KX7gSYqyJWgiy8k+yWBfOpug@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+ <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+ <CACJ51z36uB=VxFmxd2TkpCzH-9KX7gSYqyJWgiy8k+yWBfOpug@mail.gmail.com>
+Message-ID: <CAK2ens3gn_4cFoKzzeQ3NQ2Lyd5+NqBjK9BhycBtFn=M+x-W-g@mail.gmail.com>
+
+On Thu, Jun 25, 2020 at 6:02 PM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+> What is the real-life use-case for this? Are the lines that you're
+> projecting related to one another in some way? Related to the polygon in
+> any way?
+>
+
+I'm curious about this as well.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200625/6dfcb1da/attachment.html>
+
+From nyall.dawson at gmail.com  Thu Jun 25 23:25:16 2020
+From: nyall.dawson at gmail.com (Nyall Dawson)
+Date: Fri, 26 Jun 2020 16:25:16 +1000
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAK2ens3gn_4cFoKzzeQ3NQ2Lyd5+NqBjK9BhycBtFn=M+x-W-g@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+ <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+ <CACJ51z36uB=VxFmxd2TkpCzH-9KX7gSYqyJWgiy8k+yWBfOpug@mail.gmail.com>
+ <CAK2ens3gn_4cFoKzzeQ3NQ2Lyd5+NqBjK9BhycBtFn=M+x-W-g@mail.gmail.com>
+Message-ID: <CAB28AshSW_sOuKp4k1RpQwGgskDA6H6ps95d+JVexMb734JNyg@mail.gmail.com>
+
+On Fri, 26 Jun 2020 at 11:54, Martin Davis <mtnclimb at gmail.com> wrote:
+>
+>
+>
+> On Thu, Jun 25, 2020 at 6:02 PM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>>
+>> What is the real-life use-case for this? Are the lines that you're projecting related to one another in some way? Related to the polygon in any way?
+>
+>
+> I'm curious about this as well.
+
+I probably should have started with that!
+
+I'm trying to write an algorithm which calculates polygon fetch lines
+(longest possible straight line inside a polygon). The general
+approach is to create rays which connect each pair of vertices, clip
+these to the polygon, and then find the longest one. It's horribly
+inefficient for complex polygons, and I've only been able to find very
+small optimisations to allow skipping the clip operation for some
+pairs (e.g. calculate the length of the ray which is inside the
+polygon's bounding box, if it's shorter than the current maximum
+length candidate then discard the pair immediately, ditto with the
+oriented minimum bounding box and convex hull).
+
+Nyall
+
+
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From andrew.bell.ia at gmail.com  Fri Jun 26 06:35:00 2020
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Fri, 26 Jun 2020 09:35:00 -0400
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CAB28AshSW_sOuKp4k1RpQwGgskDA6H6ps95d+JVexMb734JNyg@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+ <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+ <CACJ51z36uB=VxFmxd2TkpCzH-9KX7gSYqyJWgiy8k+yWBfOpug@mail.gmail.com>
+ <CAK2ens3gn_4cFoKzzeQ3NQ2Lyd5+NqBjK9BhycBtFn=M+x-W-g@mail.gmail.com>
+ <CAB28AshSW_sOuKp4k1RpQwGgskDA6H6ps95d+JVexMb734JNyg@mail.gmail.com>
+Message-ID: <CACJ51z23UOKz0KJs1o4RY3r3GoR4Rt7c_5nsSqAH6Go2CUHyLw@mail.gmail.com>
+
+On Fri, Jun 26, 2020 at 2:25 AM Nyall Dawson <nyall.dawson at gmail.com> wrote:
+
+> On Fri, 26 Jun 2020 at 11:54, Martin Davis <mtnclimb at gmail.com> wrote:
+> >
+> >
+> >
+> > On Thu, Jun 25, 2020 at 6:02 PM Andrew Bell <andrew.bell.ia at gmail.com>
+> wrote:
+> >>
+> >> What is the real-life use-case for this? Are the lines that you're
+> projecting related to one another in some way? Related to the polygon in
+> any way?
+> >
+> >
+> > I'm curious about this as well.
+>
+> I probably should have started with that!
+>
+> I'm trying to write an algorithm which calculates polygon fetch lines
+> (longest possible straight line inside a polygon). The general
+> approach is to create rays which connect each pair of vertices, clip
+> these to the polygon, and then find the longest one. It's horribly
+> inefficient for complex polygons, and I've only been able to find very
+> small optimisations to allow skipping the clip operation for some
+> pairs (e.g. calculate the length of the ray which is inside the
+> polygon's bounding box, if it's shorter than the current maximum
+> length candidate then discard the pair immediately, ditto with the
+> oriented minimum bounding box and convex hull).
+>
+
+1) This is not really the same problem as the one you posed.
+2) There are definitely optimizations to be made.  You certainly don't need
+to test every pair.
+3) This may well be a solved problem. A literature. search is probably in
+order. Sadly, line-of-sight comes up when people want to shoot things at
+other people, though the problem may be a little different since the
+shooter usually knows where the shootee is located.
+4) Can the poly contain holes? If so, the problem seems harder.
+
+Still scratching my head wondering why you'd want this number, but my
+imagination is sometimes weak.
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20200626/9dd2ca66/attachment.html>
+
+From geos-trac at osgeo.org  Sat Jun 27 11:03:54 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat, 27 Jun 2020 18:03:54 -0000
+Subject: [geos-devel] [GEOS] #1033: Add berrie64 to jenkins bot chain
+Message-ID: <042.4a0abd209a712c82e1bb06dcb8e06e0c@osgeo.org>
+
+#1033: Add berrie64 to jenkins bot chain
+-------------------------+--------------------------
+ Reporter:  robe         |      Owner:  geos-devel@…
+     Type:  enhancement  |     Status:  new
+ Priority:  major        |  Milestone:  3.8.2
+Component:  Default      |    Version:  3.6.2
+ Severity:  Unassigned   |   Keywords:
+-------------------------+--------------------------
+ We have a new bot berrie64 courtesy of Bruce Rindahl.
+
+ This is an ARM chip Raspberry Pi 64-bit running Debian 10 buster.
+
+ Going to check if this one runs into same issues as the 32-bit ARM
+ raspberry pi we have.
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1033>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Sat Jun 27 11:07:50 2020
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat, 27 Jun 2020 18:07:50 -0000
+Subject: [geos-devel] [GEOS] #1033: Add berrie64 to jenkins bot chain
+In-Reply-To: <042.4a0abd209a712c82e1bb06dcb8e06e0c@osgeo.org>
+References: <042.4a0abd209a712c82e1bb06dcb8e06e0c@osgeo.org>
+Message-ID: <057.ef7f7fc75682a6855f34ce430fc608a5@osgeo.org>
+
+#1033: Add berrie64 to jenkins bot chain
+-------------------------+---------------------------
+ Reporter:  robe         |       Owner:  geos-devel@…
+     Type:  enhancement  |      Status:  new
+ Priority:  major        |   Milestone:  3.8.2
+Component:  Default      |     Version:  3.6.2
+ Severity:  Unassigned   |  Resolution:
+ Keywords:               |
+-------------------------+---------------------------
+
+Comment (by Regina Obe <lr@…>):
+
+ In [changeset:"0f938979b58f9a451670032a7199ece23d52c3c1/git" 0f93897/git]:
+ {{{
+ #!CommitTicketReference repository="git"
+ revision="0f938979b58f9a451670032a7199ece23d52c3c1"
+ Add berrie64 to jenkins bot chain. References #1033
+ }}}
+
+-- 
+Ticket URL: <https://trac.osgeo.org/geos/ticket/1033#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From nyall.dawson at gmail.com  Tue Jun 30 22:42:22 2020
+From: nyall.dawson at gmail.com (Nyall Dawson)
+Date: Wed, 1 Jul 2020 15:42:22 +1000
+Subject: [geos-devel] millions of lines intersection against single
+	polygon
+In-Reply-To: <CACJ51z23UOKz0KJs1o4RY3r3GoR4Rt7c_5nsSqAH6Go2CUHyLw@mail.gmail.com>
+References: <CAB28Ash9wdddL2m9JGRChvspkcSDsXy-h58E34FYS_yY_XceGA@mail.gmail.com>
+ <CAK2ens1ip=UPe9M2Nt5bMpGF7LYbv6_zeGWuOFFvNHEgSoWA6g@mail.gmail.com>
+ <CAB28Asi9ACM-fgDOosF+M4v=iRh8DGRHCD4rxEx+XLD2OBdW5A@mail.gmail.com>
+ <CACJ51z36uB=VxFmxd2TkpCzH-9KX7gSYqyJWgiy8k+yWBfOpug@mail.gmail.com>
+ <CAK2ens3gn_4cFoKzzeQ3NQ2Lyd5+NqBjK9BhycBtFn=M+x-W-g@mail.gmail.com>
+ <CAB28AshSW_sOuKp4k1RpQwGgskDA6H6ps95d+JVexMb734JNyg@mail.gmail.com>
+ <CACJ51z23UOKz0KJs1o4RY3r3GoR4Rt7c_5nsSqAH6Go2CUHyLw@mail.gmail.com>
+Message-ID: <CAB28AshZ0KqvXER6YmmQy+SjWkE2gT0hOcHxSMDYDnajX7aD6g@mail.gmail.com>
+
+On Fri, 26 Jun 2020 at 23:35, Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>
+> On Fri, Jun 26, 2020 at 2:25 AM Nyall Dawson <nyall.dawson at gmail.com> wrote:
+>>
+>> On Fri, 26 Jun 2020 at 11:54, Martin Davis <mtnclimb at gmail.com> wrote:
+>> >
+>> >
+>> >
+>> > On Thu, Jun 25, 2020 at 6:02 PM Andrew Bell <andrew.bell.ia at gmail.com> wrote:
+>> >>
+>> >> What is the real-life use-case for this? Are the lines that you're projecting related to one another in some way? Related to the polygon in any way?
+>> >
+>> >
+>> > I'm curious about this as well.
+>>
+>> I probably should have started with that!
+>>
+>> I'm trying to write an algorithm which calculates polygon fetch lines
+>> (longest possible straight line inside a polygon). The general
+>> approach is to create rays which connect each pair of vertices, clip
+>> these to the polygon, and then find the longest one. It's horribly
+>> inefficient for complex polygons, and I've only been able to find very
+>> small optimisations to allow skipping the clip operation for some
+>> pairs (e.g. calculate the length of the ray which is inside the
+>> polygon's bounding box, if it's shorter than the current maximum
+>> length candidate then discard the pair immediately, ditto with the
+>> oriented minimum bounding box and convex hull).
+>
+>
+> 1) This is not really the same problem as the one you posed.
+
+Well, it boils down to the same issue -- clipping thousands/millions
+of lines against a single polygon, in order to measure the length of
+each inside the polygon.
+
+> 2) There are definitely optimizations to be made.  You certainly don't need to test every pair.
+> 3) This may well be a solved problem. A literature. search is probably in order. Sadly, line-of-sight comes up when people want to shoot things at other people, though the problem may be a little different since the shooter usually knows where the shootee is located.
+> 4) Can the poly contain holes? If so, the problem seems harder.
+
+Holes are actually the problem -- I've only found optimised approaches
+for polygons without holes in my literature scan. And yes, the polygon
+can contain holes.
+
+> Still scratching my head wondering why you'd want this number, but my imagination is sometimes weak.
+
+It's inspired by this question:
+https://gis.stackexchange.com/questions/365901/finding-longest-straight-line-within-polygon-in-qgis
+The routine is used for calculations like "what's the optimal
+placement for a airplane runway" in this polygon.
+
+Nyall
+
+
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+

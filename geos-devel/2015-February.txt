@@ -1,0 +1,183 @@
+From s.w.beckert at gmail.com  Thu Feb 12 07:30:16 2015
+From: s.w.beckert at gmail.com (Steven Beckert)
+Date: Thu, 12 Feb 2015 15:30:16 +0000
+Subject: [geos-devel] Link dependency with libc_nonshared.a
+Message-ID: <CADVDwjQdLuD4t-1kgBu+HpQA2=CBP8AJdC4VYeZ0xysYAFE4SQ@mail.gmail.com>
+
+In an attempt to upgrade my Linux build of GEOS from major version 3 to 4,
+I noticed a new build dependency on libc_nonshared.a contained in package
+libc6-dev.
+Is this an optional build item and does linking against this static library
+affect licensing? Thank you in advance.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20150212/18581a37/attachment.html>
+
+From strk at keybit.net  Thu Feb 12 07:35:38 2015
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu, 12 Feb 2015 16:35:38 +0100
+Subject: [geos-devel] Memory Leak In GEOSIntersection_r
+In-Reply-To: <54C2EA38.4080806@gismosoftware.co.uk>
+References: <54C2EA38.4080806@gismosoftware.co.uk>
+Message-ID: <20150212153538.GA27108@localhost>
+
+On Sat, Jan 24, 2015 at 12:41:28AM +0000, Mick Orridge wrote:
+> This is my first post here, so feel free to let me know if I should
+> be doing things differently.
+> 
+> I've been using the nightly snapshot from 4/1/2015 to generate
+> Voronoi polygons and then clip them to the UK coastline on Windows
+> 8.1 with VS2013. After processing several 100,000 polygons with
+> GEOSIntersection_r my laptop was running out of memory.
+> 
+> I've investigated further and it looks like the Edges rejected by
+> OverlayOp::insertUniqueEdges in OverlayOp.cpp are not being deleted.
+
+I think they are deleted later. If you hadn't seen this yet please
+provide a testcase showing the leak. See tests/unit/capi/ for a good
+start.
+
+> There is also a small memory leak of a geomFactory in
+> init/finishGEOS(). The only way I can see to fix this is to
+> introduce a reference count and then null the static pointer when it
+> reaches 0. Happy to have a look at fixing this if this seems a
+> reasonable approach.
+
+I think that one is not important. IIRC it once was a class-static
+and could be deleted by the Unload class, not sure if that's still the case.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+
+From m.orridge at gismosoftware.co.uk  Thu Feb 26 10:54:15 2015
+From: m.orridge at gismosoftware.co.uk (Mick Orridge)
+Date: Thu, 26 Feb 2015 18:54:15 +0000
+Subject: [geos-devel] Memory Leak In GEOSIntersection_r
+In-Reply-To: <20150212153538.GA27108@localhost>
+References: <54C2EA38.4080806@gismosoftware.co.uk>
+	<20150212153538.GA27108@localhost>
+Message-ID: <CAENuTUj9TnSnfZhj6TShcXMiffU8M=aQ2CgPJJEcAcHsnK+4mQ@mail.gmail.com>
+
+On Thu, Feb 12, 2015 at 3:35 PM, Sandro Santilli <strk at keybit.net> wrote:
+
+> On Sat, Jan 24, 2015 at 12:41:28AM +0000, Mick Orridge wrote:
+> > This is my first post here, so feel free to let me know if I should
+> > be doing things differently.
+> >
+> > I've been using the nightly snapshot from 4/1/2015 to generate
+> > Voronoi polygons and then clip them to the UK coastline on Windows
+> > 8.1 with VS2013. After processing several 100,000 polygons with
+> > GEOSIntersection_r my laptop was running out of memory.
+> >
+> > I've investigated further and it looks like the Edges rejected by
+> > OverlayOp::insertUniqueEdges in OverlayOp.cpp are not being deleted.
+>
+> I think they are deleted later. If you hadn't seen this yet please
+> provide a testcase showing the leak. See tests/unit/capi/ for a good
+> start.
+>
+
+Finally found some time to look at this. I have a testcase that can be
+added to test/unit/capi and it can be downloaded here:-
+http://www.gismosoftware.co.uk/download.php. I can post it to the list if
+that's better (either as an attachment or in-line). The problem occurs in
+test 4; when you have a multipolygon and a polygon within it where it's
+envelope  doesn't intersect the other other polygon
+
+eg.
+
+geom1_ = GEOSGeomFromWKT("MULTIPOLYGON(((0 0,5 10,10 0,0 0),(1 1,1 2,2 2,2
+1,1 1),(100 100,100 102,102 102,102 100,100 100)))");
+geom2_ = GEOSGeomFromWKT("POLYGON((0 1,0 2,10 2,10 1,0 1))");
+
+geom3_ = GEOSIntersection(geom1_, geom2_);
+
+This causes the continue statement in OverlayOp::insertUniqueEdges to be
+hit and then these edges are never deleted.
+
+Here's the object dump from Visual Studio:-
+
+Detected memory leaks!
+Dumping objects ->
+D:\src\Lib\Geos\geos-20141225\src\geomgraph\Edge.cpp(305) : {10223} normal
+block at 0x000000469FEE2670, 32 bytes long.
+ Data: <      Y@      Y@> 00 00 00 00 00 00 59 40 00 00 00 00 00 80 59 40
+{10055} normal block at 0x000000469FED8E60, 16 bytes long.
+ Data: <    F           > E0 8A ED 9F 46 00 00 00 00 00 00 00 00 00 00 00
+{10054} normal block at 0x000000469FED8DD0, 40 bytes long.
+ Data: <    F       F   > D0 8D ED 9F 46 00 00 00 D0 8D ED 9F 46 00 00 00
+{10053} normal block at 0x000000469FED8C70, 16 bytes long.
+ Data: <p   F           > 70 8A ED 9F 46 00 00 00 00 00 00 00 00 00 00 00
+{10052} normal block at 0x000000469FED8D60, 12 bytes long.
+ Data: <            > FF FF FF FF FF FF FF FF FF FF FF FF
+{10049} normal block at 0x000000469FED8CF0, 12 bytes long.
+ Data: <            > 01 00 00 00 00 00 00 00 02 00 00 00
+{10046} normal block at 0x000000469FED8BF0, 16 bytes long.
+ Data: <H   F           > 48 8A ED 9F 46 00 00 00 00 00 00 00 00 00 00 00
+{10045} normal block at 0x000000469FED8B70, 16 bytes long.
+ Data: <(   F           > 28 8A ED 9F 46 00 00 00 00 00 00 00 00 00 00 00
+D:\src\Lib\Geos\geos-20141225\src\geomgraph\EdgeIntersectionList.cpp(220) :
+{10044} normal block at 0x000000469FED8A20, 224 bytes long.
+ Data: <`a3H    p   F   > 60 61 33 48 F9 7F 00 00 70 8B ED 9F 46 00 00 00
+D:\src\Lib\Geos\geos-20141225\src\geomgraph\EdgeIntersectionList.cpp(211) :
+{10043} normal block at 0x000000469FED89A0, 24 bytes long.
+ Data: <  1H        F   > D0 EA 31 48 F9 7F 00 00 B0 87 ED 9F 46 00 00 00
+{10042} normal block at 0x000000469FED88C0, 120 bytes long.
+ Data: <      Y@      Y@> 00 00 00 00 00 00 59 40 00 00 00 00 00 00 59 40
+{10041} normal block at 0x000000469FED8840, 16 bytes long.
+ Data: <    F           > B0 87 ED 9F 46 00 00 00 00 00 00 00 00 00 00 00
+D:\src\Lib\Geos\geos-20141225\src\geomgraph\EdgeIntersectionList.cpp(190) :
+{10040} normal block at 0x000000469FED87B0, 32 bytes long.
+ Data: <@   F       F   > 40 88 ED 9F 46 00 00 00 C0 88 ED 9F 46 00 00 00
+D:\src\Lib\Geos\geos-20141225\src\geom\GeometryFactory.cpp(96) : {6995}
+normal block at 0x000000469FECF060, 16 bytes long.
+ Data: <                > 01 00 00 00 CD CD CD CD 00 00 00 00 00 00 00 00
+D:\src\Lib\Geos\geos-20141225\src\geom\GeometryFactory.cpp(740) : {6994}
+normal block at 0x000000469FECEFD0, 32 bytes long.
+ Data: <  2H    `   F   > 90 AC 32 48 F9 7F 00 00 60 F0 EC 9F 46 00 00 00
+Object dump complete.
+
+
+The "Data:" memory blocks are owned by the leaked Edge but I haven't add
+the code to trace them (but they do get deleted if you delete the edge as
+per the deleteOrphanedEdges described in my original e-mail)
+
+If you remove the ",(100 100,100 102,102 102,102 100,100 100)" from the
+MULTIPOLYGON all but the GeometryFactory.cpp leaks disappear.
+
+
+The fix I suggested with deleteOrphanedEdges breaks the GEOSPointOnSurface
+test 4. This is because the 4th edge is collapsed in
+OverlayOp::replaceCollapsedEdges (in OverlayOp::computeOverlay) which then
+deletes the old edge, but it does not reset the pointer to null
+for baseSplitEdges so this is left pointing at the deleted edge (which
+causes an access violation for env->intersects(...)  in
+deleteOrphanedEdges). I don't understand the relationship between
+baseSplitEdges and the member variable edgeList so I don't really know what
+to suggest here.
+
+
+> > There is also a small memory leak of a geomFactory in
+> > init/finishGEOS(). The only way I can see to fix this is to
+> > introduce a reference count and then null the static pointer when it
+> > reaches 0. Happy to have a look at fixing this if this seems a
+> > reasonable approach.
+>
+> I think that one is not important. IIRC it once was a class-static
+> and could be deleted by the Unload class, not sure if that's still the
+> case.
+>
+
+ Agreed that it's not important.
+
+Regards,
+
+Mick Orridge
+
+http://www.gismosoftware.co.uk
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20150226/63e04f21/attachment.html>
+

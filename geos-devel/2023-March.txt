@@ -1,0 +1,635 @@
+From gtoal at gtoal.com  Sun Mar  5 14:37:49 2023
+From: gtoal at gtoal.com (Graham Toal)
+Date: Sun, 5 Mar 2023 16:37:49 -0600
+Subject: [geos-devel] Writing a wrapper around LibGEOS
+In-Reply-To: <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+References: <CABwQhLnUPYvjiFoLq6yneRD42nM4W0HaBPW4Vt2gkfLE3+e6dQ@mail.gmail.com>
+ <000301d933aa$565aabe0$031003a0$@pcorp.us>
+ <eabfcf35-73c4-6956-f403-972643a2f585@spatialys.com>
+ <000101d933e4$63b92b60$2b2b8220$@pcorp.us>
+ <CAB28Asi+3=wCcxJxgbhZnSJQuYwkOLC6aDv+J_di6UkOg5XJQw@mail.gmail.com>
+ <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+Message-ID: <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+
+On Mon, Jan 30, 2023 at 9:09?AM Regina Obe <lr at pcorp.us> wrote:
+
+> Nyall,
+>
+> Thanks for the input.  I got to check out QGIS more closely with PostGIS
+> curved geometries.  I admit to being a closeted Server/Database Admin
+> person, not paying much attention to UIs beyond pgAdmin.  It's good to know
+> there is so much interest in curves in the GIS community.
+>
+
+I'ld like to follow up on these comments from a month or two back.  I've
+been looking into the use of curves in polygon operations a bit since then,
+for my own purposes. Here's what I've learned.
+
+Most packages use quadratic and cubic Beziers as their basic primitive, but
+not higher orders.  More complex curves are usually approximated by
+stitching together cubic curves into a path.
+
+Quadratic curves can be easily converted into cubic curves if you don't
+want to duplicate code by implementing both quadratic and cubic curves
+everywhere.  Some operations that are mathematically exact when done with
+quadratic curves cannot be done exactly with cubic curves.
+
+Several operations on cubic curves cannot be done mathematically exactly,
+*but* the approximations available are so close that they are acceptable in
+almost all real-world circumstances.
+
+Circles and arcs can be represented very accurately by Bezier
+approximations.  Consequently so can ellipses.
+
+Any single Bezier curve can be easily split into two adjoining Bezier
+curves.
+
+Flattening a curve to line segments (or even individual pixels on a raster
+display) is trivial.  Reversing a flattened curve, even after
+transformations and clipping, back to its Bezier representation, is
+doable.  But most (not all) transformations can be done simply by
+transforming the Bezier control points.  The main exception is offsetting,
+where the exact mathematical solution is not tractable, but very good
+approximations are available.
+
+All the polygon and geometry operations that we do with line segments are
+doable with curves.  Any that cannot be done optimally at a high level can
+be approximated by flattening the curve to line segments and unflattening
+the results back to Beziers.
+
+Just about every operation that GEOS might need to implement in order to
+add curves is well documented and implementations exist, although commonly
+in Javascript rather than C or C++ - the packages paper.js and bezierjs are
+two very good places to start.
+http://paperjs.org/ and http://pomax.github.io/bezierjs/ (or WIP
+https://pomax.github.io/BezierInfo-2/ ) I have bookmarks now for a *lot* of
+other relevant pages.
+
+The two packages above go hand-in-hand with SVG graphics but are not
+synonymous with SVG.  Most (if not all - I haven't found a counterexample
+yet) SVG implementations delay many of their operations until they get to
+the bitmap rendering stage - a good polygon package ought to be able to do
+everything that supports SVG but at the data structure level.
+
+For the moment, for my own benefit, I've added loading and saving of SVG
+files to the interface layer that I've built on top of LibGEOS.
+
+What I am currently working on is a hack to add curves to GEOS - I will
+flatten any curves from SVG paths on loading, work with the large
+straight-line paths using GEOS, but reconstitute and write out Bezier
+curves from the results as I save back to SVG files.  (I've got
+proof-of-concept code for the re-constitution of Bezier curves from
+flattened paths but have not yet built that back into SVG data
+structures).  My hope is that if I can get a demonstration working of a
+GEOS with curves by using this approximation, it might serve as a starting
+point for adding curves (and the corresponding operations) to GEOS properly
+within the data structure.
+
+regards,
+
+Graham
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230305/8bf9d4a0/attachment.htm>
+
+From mtnclimb at gmail.com  Wed Mar  8 11:11:57 2023
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 8 Mar 2023 11:11:57 -0800
+Subject: [geos-devel] Writing a wrapper around LibGEOS
+In-Reply-To: <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+References: <CABwQhLnUPYvjiFoLq6yneRD42nM4W0HaBPW4Vt2gkfLE3+e6dQ@mail.gmail.com>
+ <000301d933aa$565aabe0$031003a0$@pcorp.us>
+ <eabfcf35-73c4-6956-f403-972643a2f585@spatialys.com>
+ <000101d933e4$63b92b60$2b2b8220$@pcorp.us>
+ <CAB28Asi+3=wCcxJxgbhZnSJQuYwkOLC6aDv+J_di6UkOg5XJQw@mail.gmail.com>
+ <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+ <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+Message-ID: <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+
+As others have said on this thread, adding curve support to GEOS is likely
+to be a big effort.
+
+My opinion is that to consider an extension of this magnitude, there needs
+to be evidence that this initiative is feasible and sustainable over the
+long term (at least 10 years). A good way to demonstrate this is a separate
+project that extends GEOS with support for representing curves, and
+implementing a *significant* set of *native* operations on curves.  That
+project should have at least two developers contributing algorithmic code
+to it, to show that there is ability and desire to maintain such complex
+code over the long term.
+
+On Sun, Mar 5, 2023 at 2:38?PM Graham Toal <gtoal at gtoal.com> wrote:
+
+>
+> What I am currently working on is a hack to add curves to GEOS - I will
+> flatten any curves from SVG paths on loading, work with the large
+> straight-line paths using GEOS, but reconstitute and write out Bezier
+> curves from the results as I save back to SVG files.  (I've got
+> proof-of-concept code for the re-constitution of Bezier curves from
+> flattened paths but have not yet built that back into SVG data
+> structures).  My hope is that if I can get a demonstration working of a
+> GEOS with curves by using this approximation, it might serve as a starting
+> point for adding curves (and the corresponding operations) to GEOS properly
+> within the data structure.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230308/63f99bc2/attachment.htm>
+
+From dbaston at gmail.com  Wed Mar  8 11:34:06 2023
+From: dbaston at gmail.com (Daniel Baston)
+Date: Wed, 8 Mar 2023 14:34:06 -0500
+Subject: [geos-devel] Writing a wrapper around LibGEOS
+In-Reply-To: <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+References: <CABwQhLnUPYvjiFoLq6yneRD42nM4W0HaBPW4Vt2gkfLE3+e6dQ@mail.gmail.com>
+ <000301d933aa$565aabe0$031003a0$@pcorp.us>
+ <eabfcf35-73c4-6956-f403-972643a2f585@spatialys.com>
+ <000101d933e4$63b92b60$2b2b8220$@pcorp.us>
+ <CAB28Asi+3=wCcxJxgbhZnSJQuYwkOLC6aDv+J_di6UkOg5XJQw@mail.gmail.com>
+ <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+ <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+ <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+Message-ID: <CA+K_q_qJ75jmNtfnu08gUEOWyxYV0=MacLYQzM1WK8WXHidd5w@mail.gmail.com>
+
+>
+> My opinion is that to consider an extension of this magnitude, there needs
+> to be evidence that this initiative is feasible and sustainable over the
+> long term (at least 10 years). A good way to demonstrate this is a separate
+> project that extends GEOS with support for representing curves, and
+> implementing a *significant* set of *native* operations on curves.  That
+> project should have at least two developers contributing algorithmic code
+> to it, to show that there is ability and desire to maintain such complex
+> code over the long term.
+>
+
+This seems a bit excessive. How much of GEOS has two developers involved in
+algorithmic development and committing to maintenance for > 10 years?
+
+Dan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230308/c9ee7bf5/attachment.htm>
+
+From mtnclimb at gmail.com  Wed Mar  8 11:43:07 2023
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 8 Mar 2023 11:43:07 -0800
+Subject: [geos-devel] Writing a wrapper around LibGEOS
+In-Reply-To: <CA+K_q_qJ75jmNtfnu08gUEOWyxYV0=MacLYQzM1WK8WXHidd5w@mail.gmail.com>
+References: <CABwQhLnUPYvjiFoLq6yneRD42nM4W0HaBPW4Vt2gkfLE3+e6dQ@mail.gmail.com>
+ <000301d933aa$565aabe0$031003a0$@pcorp.us>
+ <eabfcf35-73c4-6956-f403-972643a2f585@spatialys.com>
+ <000101d933e4$63b92b60$2b2b8220$@pcorp.us>
+ <CAB28Asi+3=wCcxJxgbhZnSJQuYwkOLC6aDv+J_di6UkOg5XJQw@mail.gmail.com>
+ <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+ <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+ <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+ <CA+K_q_qJ75jmNtfnu08gUEOWyxYV0=MacLYQzM1WK8WXHidd5w@mail.gmail.com>
+Message-ID: <CAK2ens3OegV2NHjMZhEatEpTWFfxCnvGM7XMV-1_WDZAoHLANg@mail.gmail.com>
+
+Over the 20 year lifetime of GEOS there have been at least 6 developers
+involved at a deep algorithmic level (fixing bugs and design issues and
+contributing new and improved algorithms).  And now that GEOS is so mature
+and widely used, I'd say the bar is higher.
+
+Anyway, the key point is: let's see some real code for GEOS curves, and
+then the cost/benefit tradeoff will be clearer.
+
+
+On Wed, Mar 8, 2023 at 11:36?AM Daniel Baston <dbaston at gmail.com> wrote:
+
+> My opinion is that to consider an extension of this magnitude, there needs
+>> to be evidence that this initiative is feasible and sustainable over the
+>> long term (at least 10 years). A good way to demonstrate this is a separate
+>> project that extends GEOS with support for representing curves, and
+>> implementing a *significant* set of *native* operations on curves.  That
+>> project should have at least two developers contributing algorithmic code
+>> to it, to show that there is ability and desire to maintain such complex
+>> code over the long term.
+>>
+>
+> This seems a bit excessive. How much of GEOS has two developers involved
+> in algorithmic development and committing to maintenance for > 10 years?
+>
+> Dan
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230308/937fcd4a/attachment.htm>
+
+From gtoal at gtoal.com  Wed Mar  8 12:38:47 2023
+From: gtoal at gtoal.com (Graham Toal)
+Date: Wed, 8 Mar 2023 14:38:47 -0600
+Subject: [geos-devel] Writing a wrapper around LibGEOS
+In-Reply-To: <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+References: <CABwQhLnUPYvjiFoLq6yneRD42nM4W0HaBPW4Vt2gkfLE3+e6dQ@mail.gmail.com>
+ <000301d933aa$565aabe0$031003a0$@pcorp.us>
+ <eabfcf35-73c4-6956-f403-972643a2f585@spatialys.com>
+ <000101d933e4$63b92b60$2b2b8220$@pcorp.us>
+ <CAB28Asi+3=wCcxJxgbhZnSJQuYwkOLC6aDv+J_di6UkOg5XJQw@mail.gmail.com>
+ <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+ <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+ <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+Message-ID: <CABwQhLk=JipB-N5zs5QVAkLu_TxSZU2koP2HnEn+EubXC4Uu1Q@mail.gmail.com>
+
+On Wed, Mar 8, 2023 at 1:12?PM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> As others have said on this thread, adding curve support to GEOS is likely
+> to be a big effort.
+>
+> My opinion is that to consider an extension of this magnitude, there needs
+> to be evidence that this initiative is feasible and sustainable over the
+> long term (at least 10 years). A good way to demonstrate this is a separate
+> project that extends GEOS with support for representing curves, and
+> implementing a *significant* set of *native* operations on curves.  That
+> project should have at least two developers contributing algorithmic code
+> to it, to show that there is ability and desire to maintain such complex
+> code over the long term.
+>
+
+You may find it surprising, but I do appreciate this point of view, and
+agree in as much as if I am the only person advocating for it, it's not
+going to happen as frankly I'm not "one of us" - I'm not a geographer and
+my interest in GEOS is primarily in how far I can stretch it in the
+direction of being a generic domain-independent polygon package that could
+be used in CAD and other fields. This may not be something you're
+interested in and there may not be enough interest in adding curves to the
+package from programmers working in the geography field.
+
+And also I agree that a concrete demonstration in terms of a fork or pull
+request is a precondition to a more significant effort by the current
+maintainers; and I'd be happy to start that myself *if* I were a C++
+programmer, but at the age of 65 I honestly do not have the enthusiasm to
+learn another language to the depth that I know C, which I think is a
+pre-requisite for working on a released codebase in any language.
+
+So I'll continue to potter on working on an interface layered on top of
+your package (which is pretty good - the best of all the ones I've looked
+at, that support calling from C) and if any of the GEOS developers find
+anything I'm working on useful in the future then maybe you'll revisit the
+suggestion of adding curves.  I'll drop in infrequently with status updates
+- and if they're not welcome or irrelevant, do say so and I'll stop. I'm
+pretty thick skinned and won't take offence.
+
+Incidentally I got the code to do the inverse flattening working relatively
+well last night.  I thought at first it was producing more Bezier segments
+than were needed until I worked out the math that showed that the
+elliptical arcs I was reconstituting were literally not possible with a
+single Bezier curve. So, progress.
+
+Regards,
+
+Graham
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230308/0a308c52/attachment.htm>
+
+From lr at pcorp.us  Wed Mar  8 13:41:42 2023
+From: lr at pcorp.us (Regina Obe)
+Date: Wed, 8 Mar 2023 16:41:42 -0500
+Subject: [geos-devel] Writing a wrapper around LibGEOS
+In-Reply-To: <CABwQhLk=JipB-N5zs5QVAkLu_TxSZU2koP2HnEn+EubXC4Uu1Q@mail.gmail.com>
+References: <CABwQhLnUPYvjiFoLq6yneRD42nM4W0HaBPW4Vt2gkfLE3+e6dQ@mail.gmail.com>
+ <000301d933aa$565aabe0$031003a0$@pcorp.us>
+ <eabfcf35-73c4-6956-f403-972643a2f585@spatialys.com>
+ <000101d933e4$63b92b60$2b2b8220$@pcorp.us>
+ <CAB28Asi+3=wCcxJxgbhZnSJQuYwkOLC6aDv+J_di6UkOg5XJQw@mail.gmail.com>
+ <001301d934bc$ddffb8c0$99ff2a40$@pcorp.us>
+ <CABwQhLkFd77HeXSmF_Wq0S-UHd7inDrjBj7VJEWPe2h=1z=u=Q@mail.gmail.com>
+ <CAK2ens02+dRjiKWB9JTvFWBHgt8nQgCfRGGCqwUFyN=1+CQThw@mail.gmail.com>
+ <CABwQhLk=JipB-N5zs5QVAkLu_TxSZU2koP2HnEn+EubXC4Uu1Q@mail.gmail.com>
+Message-ID: <003b01d95206$c60862a0$521927e0$@pcorp.us>
+
+Graham,
+
+ 
+
+Please do keep us posted on this with your trials and share your code.
+
+As a fellow member of the ?not one of us? crowd, I am interested in pushing GEOS beyond the very confined geography domain.
+
+ 
+
+Thanks,
+
+Regina
+
+ 
+
+From: geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of Graham Toal
+Sent: Wednesday, March 8, 2023 3:39 PM
+To: GEOS Development List <geos-devel at lists.osgeo.org>
+Subject: Re: [geos-devel] Writing a wrapper around LibGEOS
+
+ 
+
+On Wed, Mar 8, 2023 at 1:12?PM Martin Davis <mtnclimb at gmail.com <mailto:mtnclimb at gmail.com> > wrote:
+
+As others have said on this thread, adding curve support to GEOS is likely to be a big effort.  
+
+ 
+
+My opinion is that to consider an extension of this magnitude, there needs to be evidence that this initiative is feasible and sustainable over the long term (at least 10 years). A good way to demonstrate this is a separate project that extends GEOS with support for representing curves, and implementing a *significant* set of *native* operations on curves.  That project should have at least two developers contributing algorithmic code to it, to show that there is ability and desire to maintain such complex code over the long term.
+
+ 
+
+You may find it surprising, but I do appreciate this point of view, and agree in as much as if I am the only person advocating for it, it's not going to happen as frankly I'm not "one of us" - I'm not a geographer and my interest in GEOS is primarily in how far I can stretch it in the direction of being a generic domain-independent polygon package that could be used in CAD and other fields. This may not be something you're interested in and there may not be enough interest in adding curves to the package from programmers working in the geography field.
+
+ 
+
+And also I agree that a concrete demonstration in terms of a fork or pull request is a precondition to a more significant effort by the current maintainers; and I'd be happy to start that myself *if* I were a C++ programmer, but at the age of 65 I honestly do not have the enthusiasm to learn another language to the depth that I know C, which I think is a pre-requisite for working on a released codebase in any language.
+
+ 
+
+So I'll continue to potter on working on an interface layered on top of your package (which is pretty good - the best of all the ones I've looked at, that support calling from C) and if any of the GEOS developers find anything I'm working on useful in the future then maybe you'll revisit the suggestion of adding curves.  I'll drop in infrequently with status updates - and if they're not welcome or irrelevant, do say so and I'll stop. I'm pretty thick skinned and won't take offence.
+
+ 
+
+Incidentally I got the code to do the inverse flattening working relatively well last night.  I thought at first it was producing more Bezier segments than were needed until I worked out the math that showed that the elliptical arcs I was reconstituting were literally not possible with a single Bezier curve. So, progress.
+
+ 
+
+Regards,
+
+ 
+
+Graham
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230308/b24c09fb/attachment.htm>
+
+From pramsey at cleverelephant.ca  Thu Mar  9 12:18:20 2023
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 9 Mar 2023 12:18:20 -0800
+Subject: [geos-devel] Preserving Collection Type on Precision Reduction
+Message-ID: <CFD61D9C-B9B3-465C-8C3B-A743031F5A3B@cleverelephant.ca>
+
+Anyone have opinions on this one? https://github.com/libgeos/geos/issues/662
+
+On the one hand it?s easily worked around in PostGIS. On the other hand, it?s a biter for anyone working with homogeneous geometry type.
+
+P
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230309/281aa4da/attachment.htm>
+
+From mtnclimb at gmail.com  Thu Mar  9 12:35:57 2023
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Thu, 9 Mar 2023 12:35:57 -0800
+Subject: [geos-devel] Preserving Collection Type on Precision Reduction
+In-Reply-To: <CFD61D9C-B9B3-465C-8C3B-A743031F5A3B@cleverelephant.ca>
+References: <CFD61D9C-B9B3-465C-8C3B-A743031F5A3B@cleverelephant.ca>
+Message-ID: <CAK2ens0jPOhNpCoGNwMkgvNSs5jERaw_QJu3yHd2Ksx6pwgLbA@mail.gmail.com>
+
+I commented on the ticket.  It seems fine to preserve the type of the
+input.
+
+This might just be an artifact of using OverlayNG under the covers.
+
+On Thu, Mar 9, 2023 at 12:18?PM Paul Ramsey <pramsey at cleverelephant.ca>
+wrote:
+
+> Anyone have opinions on this one?
+> https://github.com/libgeos/geos/issues/662
+>
+> On the one hand it?s easily worked around in PostGIS. On the other hand,
+> it?s a biter for anyone working with homogeneous geometry type.
+>
+> P
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230309/4463cf7a/attachment.htm>
+
+From pramsey at cleverelephant.ca  Wed Mar 15 15:34:44 2023
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Wed, 15 Mar 2023 15:34:44 -0700
+Subject: [geos-devel] Release 3.11.2, 3.10.5?
+Message-ID: <DFFACC81-880A-46FE-9F49-C9B8D9E79936@cleverelephant.ca>
+
+Given a potentially large performance regression in the stable branches [1], I propose doing patch releases for the 3.10 and 3.11 series. There are also decent backlogs of defects repaired as well, so I think these releases will be welcome.
+
+Any objections?
+
+[1] https://github.com/shapely/shapely/issues/1785
+
+From lr at pcorp.us  Wed Mar 15 18:41:28 2023
+From: lr at pcorp.us (Regina Obe)
+Date: Wed, 15 Mar 2023 21:41:28 -0400
+Subject: [geos-devel] Release 3.11.2, 3.10.5?
+In-Reply-To: <DFFACC81-880A-46FE-9F49-C9B8D9E79936@cleverelephant.ca>
+References: <DFFACC81-880A-46FE-9F49-C9B8D9E79936@cleverelephant.ca>
+Message-ID: <002f01d957a8$6dab10b0$49013210$@pcorp.us>
+
+No objections.
+
++1 to push on.
+
+> -----Original Message-----
+> From: geos-devel [mailto:geos-devel-bounces at lists.osgeo.org] On Behalf Of
+> Paul Ramsey
+> Sent: Wednesday, March 15, 2023 6:35 PM
+> To: GEOS Development List <geos-devel at lists.osgeo.org>
+> Subject: [geos-devel] Release 3.11.2, 3.10.5?
+> 
+> Given a potentially large performance regression in the stable branches
+[1], I
+> propose doing patch releases for the 3.10 and 3.11 series. There are also
+> decent backlogs of defects repaired as well, so I think these releases
+will be
+> welcome.
+> 
+> Any objections?
+> 
+> [1] https://github.com/shapely/shapely/issues/1785
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+From pramsey at cleverelephant.ca  Thu Mar 16 17:38:04 2023
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Thu, 16 Mar 2023 17:38:04 -0700
+Subject: [geos-devel] 3.10.5 and 3.11.2 released
+Message-ID: <A9DA4BA8-1E12-4F4E-B87A-B2FD025010F1@cleverelephant.ca>
+
+Lots of little fixes and a potential performance regression in overlay.
+
+## Changes in 3.11.2
+2023-03-16
+
+- Fixes/Improvements:
+  - GEOSIntersection: Fix FE_INVALID exception on intersection of disjoint geometries
+    (GH-791, Joris Van den Bossche & Dan Baston)
+  - Fix incorrect result from Envelope::disjoint (GH-791, Dan Baston)
+  - Fix handling of odd cases in PolygonHoleJoiner (JTS-946, Paul Ramsey, Martin Davis)
+  - Support gcc-13 (GH-743, Sergei Trofimovich)
+  - Disallow Inf envelopes in Quadtree, avoid inf loop (Paul Ramsey)
+  - GEOSUnaryUnion: Fix crash on collection containing empty point (GH-830, Dan Baston)
+  - GEOSSTRtree_iterate: Do not return removed items (GH-833, Dan Baston)
+  - IndexedFacetDistance: Fix crash with Inf coordinates (GH-821, Dan Baston)
+  - HausdorffDistance: Fix crash on collection containing empty point (GH-840, Dan Baston)
+  - MaximumInscribedCircle: Fix infinite loop with non-finite coordinates (GH-843, Dan Baston)
+  - DistanceOp: Fix crash on collection containing empty point (GH-842, Dan Baston)
+  - Guard against non-finite distances in Buffer/OffsetCurve (GH-661, Paul Ramsey)
+
+
+Changes in 3.10.5
+2023-03-16
+
+- Fixes/Improvements:
+  - Support gcc-13 (GH-743, Sergei Trofimovich)
+  - Disallow Inf envelopes in Quadtree, avoid inf loop (Paul Ramsey)
+  - GEOSUnaryUnion: Fix crash on collection containing empty point (GH-830, Dan Baston)
+  - GEOSSTRtree_iterate: Do not return removed items (GH-833, Dan Baston)
+  - IndexedFacetDistance: Fix crash with Inf coordinates (GH-821, Dan Baston)
+  - HausdorffDistance: Fix crash on collection containing empty point (GH-840, Dan Baston)
+  - DistanceOp: Fix crash on collection containing empty point (GH-842, Dan Baston)
+
+
+From gdt at lexort.com  Fri Mar 17 04:51:50 2023
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 17 Mar 2023 07:51:50 -0400
+Subject: [geos-devel] 3.10.5 and 3.11.2 released
+In-Reply-To: <A9DA4BA8-1E12-4F4E-B87A-B2FD025010F1@cleverelephant.ca> (Paul
+ Ramsey's message of "Thu, 16 Mar 2023 17:38:04 -0700")
+References: <A9DA4BA8-1E12-4F4E-B87A-B2FD025010F1@cleverelephant.ca>
+Message-ID: <rmi7cvfbnop.fsf@s1.lexort.com>
+
+In 3.11.2 vs 3.11.1 I find new files installed
+
+ERROR: The following files are in /tmp/work/geography/geos/work/.destdir/usr/pkg but not in the PLIST:
+ERROR:         /tmp/work/geography/geos/work/.destdir/usr/pkg/include/geos/algorithm/PolygonNodeTopology.h
+ERROR:         /tmp/work/geography/geos/work/.destdir/usr/pkg/include/geos/triangulate/polygon/PolygonNoder.h
+
+and do not immediately see adding new interfaces in NEWS, so I wanted to
+check that this is intended/correct before I push the update to pkgsrc.
+
+
+
+
+From maplabs at light42.com  Fri Mar 17 06:23:02 2023
+From: maplabs at light42.com (Brian M Hamlin)
+Date: Fri, 17 Mar 2023 06:23:02 -0700
+Subject: [geos-devel] 3.10.5 and 3.11.2 released
+In-Reply-To: <rmi7cvfbnop.fsf@s1.lexort.com>
+References: <A9DA4BA8-1E12-4F4E-B87A-B2FD025010F1@cleverelephant.ca>
+ <rmi7cvfbnop.fsf@s1.lexort.com>
+Message-ID: <97da5ca5-a477-b878-627e-83d4e03be4e9@light42.com>
+
+I? confirm that 3.11.3 build shows two new header files, called 
+PolygonNoder.h and PolygonNodeTopology.h
+
+ ? --Brian M Hamlin??? /? MAPLABS? /? OSGeoLive PSC
+
+
+On 3/17/23 04:51, Greg Troxel wrote:
+> In 3.11.2 vs 3.11.1 I find new files installed
+>
+> ERROR: The following files are in /tmp/work/geography/geos/work/.destdir/usr/pkg but not in the PLIST:
+> ERROR:         /tmp/work/geography/geos/work/.destdir/usr/pkg/include/geos/algorithm/PolygonNodeTopology.h
+> ERROR:         /tmp/work/geography/geos/work/.destdir/usr/pkg/include/geos/triangulate/polygon/PolygonNoder.h
+>
+> and do not immediately see adding new interfaces in NEWS, so I wanted to
+> check that this is intended/correct before I push the update to pkgsrc.
+>
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+From pramsey at cleverelephant.ca  Fri Mar 17 08:13:06 2023
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 17 Mar 2023 08:13:06 -0700
+Subject: [geos-devel] 3.10.5 and 3.11.2 released
+In-Reply-To: <97da5ca5-a477-b878-627e-83d4e03be4e9@light42.com>
+References: <A9DA4BA8-1E12-4F4E-B87A-B2FD025010F1@cleverelephant.ca>
+ <rmi7cvfbnop.fsf@s1.lexort.com>
+ <97da5ca5-a477-b878-627e-83d4e03be4e9@light42.com>
+Message-ID: <CFDDA9A3-A6C1-45B3-8527-6F9F5E0266F2@cleverelephant.ca>
+
+This is expected, they came along for the backport of 
+
+  - Fix handling of odd cases in PolygonHoleJoiner (JTS-946, Paul Ramsey, Martin Davis)
+
+P
+
+> On Mar 17, 2023, at 6:23 AM, Brian M Hamlin <maplabs at light42.com> wrote:
+> 
+> I  confirm that 3.11.3 build shows two new header files, called PolygonNoder.h and PolygonNodeTopology.h
+> 
+>   --Brian M Hamlin    /  MAPLABS  /  OSGeoLive PSC
+> 
+> 
+> On 3/17/23 04:51, Greg Troxel wrote:
+>> In 3.11.2 vs 3.11.1 I find new files installed
+>> 
+>> ERROR: The following files are in /tmp/work/geography/geos/work/.destdir/usr/pkg but not in the PLIST:
+>> ERROR:         /tmp/work/geography/geos/work/.destdir/usr/pkg/include/geos/algorithm/PolygonNodeTopology.h
+>> ERROR:         /tmp/work/geography/geos/work/.destdir/usr/pkg/include/geos/triangulate/polygon/PolygonNoder.h
+>> 
+>> and do not immediately see adding new interfaces in NEWS, so I wanted to
+>> check that this is intended/correct before I push the update to pkgsrc.
+>> 
+>> 
+>> 
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/geos-devel
+>> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/geos-devel
+
+
+From pramsey at cleverelephant.ca  Fri Mar 24 09:43:23 2023
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 24 Mar 2023 09:43:23 -0700
+Subject: [geos-devel] CAPI \since
+Message-ID: <D987788A-0606-4660-8931-E9496216A995@cleverelephant.ca>
+
+If anyone feels like annotating the doxygen, here?s a list of the CAPI function additions from 2.2 (start of CAPI) to present.
+
+P
+-------------- next part --------------
+An embedded and charset-unspecified text was scrubbed...
+Name: output.txt
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20230324/170ea7c7/attachment.txt>
+
+From pramsey at cleverelephant.ca  Fri Mar 24 13:46:12 2023
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Fri, 24 Mar 2023 13:46:12 -0700
+Subject: [geos-devel] CAPI \since
+In-Reply-To: <D987788A-0606-4660-8931-E9496216A995@cleverelephant.ca>
+References: <D987788A-0606-4660-8931-E9496216A995@cleverelephant.ca>
+Message-ID: <6767F08D-CD60-43EA-8001-9B06C529E82F@cleverelephant.ca>
+
+There?s an issue if anyone wants to pick it up.
+
+https://github.com/libgeos/geos/issues/854
+
+P
+
+> On Mar 24, 2023, at 9:43 AM, Paul Ramsey <pramsey at cleverelephant.ca> wrote:
+> 
+> If anyone feels like annotating the doxygen, here?s a list of the CAPI function additions from 2.2 (start of CAPI) to present.
+> 
+> P<output.txt>
+
+

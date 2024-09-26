@@ -1,0 +1,948 @@
+From ybychkov at direct.ca  Mon Dec  2 05:37:29 2002
+From: ybychkov at direct.ca (Yury A. Bychkov)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Latest performance numbers
+References: <5A94289A9268514C8D6C0F1FF44BA02701DD78@venus.VividSolutions.com>
+Message-ID: <0e3801c299ee$d177f100$b9354d18@yury>
+
+Unfortunately I was rather busy last week and didn't spend as much time as I
+wanted on GEOS. Nonetheless, I am including the latest performance figures
+(after changing instances of CoordinateList (and the most called ones of
+Coordinate) into references and pointers). It gives ~16% improvement. Note: this
+is before inlining, which should bring a good performance boost as well.
+
+Here is the latest profiler output for the top methods (Note: I don't know what
+the time units are, so just use them for relative comparison):
+# of calls               Self Time               Method
+1339907549        66686185             Total
+     35062026       11518383
+MonotoneChainEdge::computeIntersectsForChain
+   326523022         9213873              CoordinateList::getAt
+     36845240         5960861              RobustDeterminant::signOfDet2x2
+   454718749         5439538              Coordinate::Coordinate
+     17144728         5112518
+RobustLineIntersector::computeIntersect
+     21238728         5073871              SegmentIntersector::addIntersections
+I have quite a good idea on what causes so many calls to Coordinate(), so I
+should be able to solve it easily (though it probably wouldn't have a drastic
+effect on the overall performance).
+
+Yury.
+
+Latest performance numbers:
+ # overlapping MCs: 406
+ # segment intersection tests: 226
+ n Pts: 1000  Executed in     20 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 278
+ n Pts: 2000  Executed in     40 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 248
+ n Pts: 4000  Executed in     60 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 250
+ n Pts: 8000  Executed in    110 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 272
+ n Pts: 16000  Executed in    230 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 264
+ n Pts: 32000  Executed in    441 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 236
+ n Pts: 64000  Executed in    872 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 264
+ n Pts: 128000  Executed in   1673 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 238
+ n Pts: 256000  Executed in   3295 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 232
+ n Pts: 512000  Executed in   6610 ms.
+ # overlapping MCs: 406
+ # segment intersection tests: 232
+ n Pts: 1024000  Executed in  13409 ms.
+
+
+
+From mbdavis at VividSolutions.com  Wed Dec  4 20:22:51 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA02701DD8E@venus.VividSolutions.com>
+
+Here's an issue which is really more of a general JTS issue, but it may impact the integration with PostGIS, so I thought I'd throw it out here:
+
+Currently JTS does NOT handle GeometryCollections as input to relate. This is for two reasons: 
+
+(i) the SFS did not define the semantics for this  
+
+(ii) the semantics which I suspect are most useful are to treat the GC as the union of its components.  Unfortunately, I don't know how to compute this robustly (either implicitly or explicitly).  (Well, I do, but it's a LOT of work).  This is annoying, since you really want relate to be robust AND exact.  Since I couldn't do this, I chose to make GC's an invalid argument to relate.
+
+The question is, is this a big deal for PostGIS?  It *is* a pain not having operators complete over the entire space of representable objects.'
+
+There is a cheesy way of defining relate over GCs, to be the "sum" of relate over the individual components.  This works for intersection (an important case) but produces counterintuitive results for some of the other predicates.
+
+Thoughts, anyone?
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+From nhv at cape.com  Wed Dec  4 21:30:50 2002
+From: nhv at cape.com (Norman Vine)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+References: <5A94289A9268514C8D6C0F1FF44BA02701DD8E@venus.VividSolutions.com>
+Message-ID: <00ca01c29c06$54cea1c0$736cba8c@sfdev3>
+
+Martin Davis writes:
+>
+> Here's an issue which is really more of a general JTS issue, but it may impact the integration with PostGIS, so I thought I'd
+throw it out here:
+>
+> Currently JTS does NOT handle GeometryCollections as input to relate. This is for two reasons:
+>
+> (i) the SFS did not define the semantics for this
+>
+> (ii) the semantics which I suspect are most useful are to treat the GC as the union of its components.  Unfortunately, I don't
+know how to compute this robustly (either implicitly or explicitly).  (Well, I do, but it's a LOT of work).  This is annoying, since
+you really want relate to be robust AND exact.  Since I couldn't do this, I chose to make GC's an invalid argument to relate.
+>
+> The question is, is this a big deal for PostGIS?  It *is* a pain not having operators complete over the entire space of
+representable objects.'
+
+>There is a cheesy way of defining relate over GCs, to be the "sum" of relate over the individual components.  This works for
+intersection (an important case) but produces counterintuitive results for some of the other predicates.
+>
+> Thoughts, anyone?
+>
+
+I was mildly surprised that there is no spatial partitioning in GEOS.
+
+i.e. subdividing the elements into pieces coresponding to their
+spatial bucket, performing the 'spatial operations' on the pieces
+within each bucket, and then reassembling the resulting objects.
+
+Once the problem space gets big enough something similar
+is needed any way or you are going to run out of core.
+
+Cheers
+
+Norman
+
+
+From mbdavis at VividSolutions.com  Thu Dec  5 12:07:49 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: FW: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0270FD587@venus.VividSolutions.com>
+
+
+
+There's two problems:
+
+- GeometryCollections generally don't "partition" nicely, since they allow components to overlap
+
+- The main problem is that depending on how you define the semantics of relate for GCs, you may not be able to evaluate it robustly without using exact arithmetic.  
+
+Norman, the spatial partioning you are referring to would involve disk-based spatial indexes and serialized graph structures - a WHOLE  bunch harder than doing it all in memory.  Beside, that's what PostGIS is for. 8^)
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: Norman Vine [mailto:nhv@cape.com]
+> Sent: Wednesday, December 04, 2002 6:31 PM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Issues with relate not handling
+> GeometryCollections?
+> 
+> 
+> Martin Davis writes:
+> >
+> > Here's an issue which is really more of a general JTS 
+> issue, but it may impact the integration with PostGIS, so I 
+> thought I'd
+> throw it out here:
+> >
+> > Currently JTS does NOT handle GeometryCollections as input 
+> to relate. This is for two reasons:
+> >
+> > (i) the SFS did not define the semantics for this
+> >
+> > (ii) the semantics which I suspect are most useful are to 
+> treat the GC as the union of its components.  Unfortunately, I don't
+> know how to compute this robustly (either implicitly or 
+> explicitly).  (Well, I do, but it's a LOT of work).  This is 
+> annoying, since
+> you really want relate to be robust AND exact.  Since I 
+> couldn't do this, I chose to make GC's an invalid argument to relate.
+> >
+> > The question is, is this a big deal for PostGIS?  It *is* a 
+> pain not having operators complete over the entire space of
+> representable objects.'
+> 
+> >There is a cheesy way of defining relate over GCs, to be the 
+> "sum" of relate over the individual components.  This works for
+> intersection (an important case) but produces 
+> counterintuitive results for some of the other predicates.
+> >
+> > Thoughts, anyone?
+> >
+> 
+> I was mildly surprised that there is no spatial partitioning in GEOS.
+> 
+> i.e. subdividing the elements into pieces coresponding to their
+> spatial bucket, performing the 'spatial operations' on the pieces
+> within each bucket, and then reassembling the resulting objects.
+> 
+> Once the problem space gets big enough something similar
+> is needed any way or you are going to run out of core.
+> 
+> Cheers
+> 
+> Norman
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From chodgson at refractions.net  Thu Dec  5 12:10:19 2002
+From: chodgson at refractions.net (chodgson@refractions.net)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA02701DD8E@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA02701DD8E@venus.VividSolutions.com>
+Message-ID: <1039108219.3def887bf0272@www>
+
+I believe there are a couple of PostGIS functions which just take the first 
+geometry in the collection, and do the operation on that, in the case that 
+handling a collection is either too difficult or meaningless. At the PostGIS 
+level, we would want to post a NOTICE or WARNING or something like that.
+
+Chris
+
+Quoting Martin Davis <mbdavis@VividSolutions.com>:
+
+> Here's an issue which is really more of a general JTS issue, but it may
+> impact the integration with PostGIS, so I thought I'd throw it out here:
+> 
+> Currently JTS does NOT handle GeometryCollections as input to relate. This is
+> for two reasons:
+> 
+> (i) the SFS did not define the semantics for this
+> 
+> (ii) the semantics which I suspect are most useful are to treat the GC as the
+> union of its components.  Unfortunately, I don't know how to compute this
+> robustly (either implicitly or explicitly).  (Well, I do, but it's a LOT of
+> work).  This is annoying, since you really want relate to be robust AND
+> exact.  Since I couldn't do this, I chose to make GC's an invalid argument to
+> relate.
+> 
+> The question is, is this a big deal for PostGIS?  It *is* a pain not having
+> operators complete over the entire space of representable objects.'
+> 
+> There is a cheesy way of defining relate over GCs, to be the "sum" of relate
+> over the individual components.  This works for intersection (an important
+> case) but produces counterintuitive results for some of the other predicates.
+> 
+> Thoughts, anyone?
+> 
+> Martin Davis, Senior Technical Specialist
+> Vivid Solutions Inc.
+> Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+> Phone: (250) 385 6040    Fax: (250) 385 6046
+> EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+
+
+
+
+From mbdavis at VividSolutions.com  Thu Dec  5 12:14:03 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0270FD589@venus.VividSolutions.com>
+
+Ok, great, if there's a precedent for hacking around the issue in PostGIS that makes it easier!
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: chodgson@refractions.net [mailto:chodgson@refractions.net]
+> Sent: Thursday, December 05, 2002 9:10 AM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Issues with relate not handling
+> GeometryCollections?
+> 
+> 
+> I believe there are a couple of PostGIS functions which just 
+> take the first 
+> geometry in the collection, and do the operation on that, in 
+> the case that 
+> handling a collection is either too difficult or meaningless. 
+> At the PostGIS 
+> level, we would want to post a NOTICE or WARNING or something 
+> like that.
+> 
+> Chris
+> 
+> Quoting Martin Davis <mbdavis@VividSolutions.com>:
+> 
+> > Here's an issue which is really more of a general JTS 
+> issue, but it may
+> > impact the integration with PostGIS, so I thought I'd throw 
+> it out here:
+> > 
+> > Currently JTS does NOT handle GeometryCollections as input 
+> to relate. This is
+> > for two reasons:
+> > 
+> > (i) the SFS did not define the semantics for this
+> > 
+> > (ii) the semantics which I suspect are most useful are to 
+> treat the GC as the
+> > union of its components.  Unfortunately, I don't know how 
+> to compute this
+> > robustly (either implicitly or explicitly).  (Well, I do, 
+> but it's a LOT of
+> > work).  This is annoying, since you really want relate to 
+> be robust AND
+> > exact.  Since I couldn't do this, I chose to make GC's an 
+> invalid argument to
+> > relate.
+> > 
+> > The question is, is this a big deal for PostGIS?  It *is* a 
+> pain not having
+> > operators complete over the entire space of representable objects.'
+> > 
+> > There is a cheesy way of defining relate over GCs, to be 
+> the "sum" of relate
+> > over the individual components.  This works for 
+> intersection (an important
+> > case) but produces counterintuitive results for some of the 
+> other predicates.
+> > 
+> > Thoughts, anyone?
+> > 
+> > Martin Davis, Senior Technical Specialist
+> > Vivid Solutions Inc.
+> > Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+> > Phone: (250) 385 6040    Fax: (250) 385 6046
+> > EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+> > 
+> > 
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@geos.refractions.net
+> > http://geos.refractions.net/mailman/listinfo/geos-devel
+> > 
+> 
+> 
+> 
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From mbdavis at VividSolutions.com  Thu Dec  5 12:38:26 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0270FD58D@venus.VividSolutions.com>
+
+ Here's an example show why a robust approach is require to the issue of relating GeometryCollections.  In the attach image, you have to be able to tell whether the red line intersects the exterior of the two blue triangles.  This could require more precision than supplied by double precision numbers.
+
+Currently the only way I can think of doing this robustly is to compute the arrangement of the intersections exactly, and then examine the resulting line segments for their location to one another.  It's basically the same problem as for computing overlays robustly, but at least in this case you can report the results precisely,  since the output is just a boolean.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: GC intersection robustness problem.gif
+Type: image/gif
+Size: 2991 bytes
+Desc: GC intersection robustness problem.gif
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20021205/b2741e9b/GCintersectionrobustnessproblem.gif
+From chodgson at refractions.net  Thu Dec  5 13:05:32 2002
+From: chodgson at refractions.net (chodgson@refractions.net)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA0270FD58D@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA0270FD58D@venus.VividSolutions.com>
+Message-ID: <1039111532.3def956c1d711@www>
+
+Okay, I'm not much of a geometryologist so let me make sure I understand why 
+this is a problem. When relating two (singleton) geometries you would normally 
+be able to use the determinant, or "triangle test" to determine _exactly_ 
+whether a point is to the left, right, or on a line. However, in this case you 
+must first first calculate the intersection of the two lines, and there may not 
+be enough precision to calculate that exactly, so that when you do the 
+determinant test, you may be doing it with an incorrect point, and so the 
+result may be wrong. Am I correct? 
+
+I guess I can understand the "moral" reason for not wanting to implement 
+something that could give an incorrect answer in such a case, however, is it 
+actually possible for something to go wrong in the algorithm as a result of 
+this? I mean, given that one point happens to get pushed just to the other side 
+of line due to precision issues, could the geometries or structures used in the 
+algorithm become invalid, and cause catastrophic failure? Or is the worst-case 
+result of such an error occurring just an incorrect result? 
+
+If I recall correctly, the probability of 3 random lines intersecting at a 
+single point is zero, so this should rarely be an issue, unless people happen 
+to pick lines with the intent of them all meeting at a point. And that wouldn't
+happen with the sort of lines people work with everyday, like roads and 
+streams... </sarcasm>
+
+Chris
+
+Quoting Martin Davis <mbdavis@VividSolutions.com>:
+
+>  Here's an example show why a robust approach is require to the issue of
+> relating GeometryCollections.  In the attach image, you have to be able to
+> tell whether the red line intersects the exterior of the two blue triangles. 
+> This could require more precision than supplied by double precision numbers.
+> 
+> Currently the only way I can think of doing this robustly is to compute the
+> arrangement of the intersections exactly, and then examine the resulting line
+> segments for their location to one another.  It's basically the same problem
+> as for computing overlays robustly, but at least in this case you can report
+> the results precisely,  since the output is just a boolean.
+> 
+
+
+
+
+
+From mbdavis at VividSolutions.com  Thu Dec  5 13:27:55 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA02701DD91@venus.VividSolutions.com>
+
+You're correct in your description of the problem, Chris.
+
+In the case of overlay, the problem is deep, in that the algorithm actually experiences catastrophic failure when it encounters a topology problem caused by robustness.  There's no way to recover from this - the best you can do is throw an exception.
+
+In the case of relate, you may be somewhat correct in that the algorithm can trap any exceptions and just return *something*, which may or may not be correct.  But is returning values which may be wrong a good thing?  Might it not be better just to say we can't handle those cases reliably (which at least indicates to the user that he'd better think of another way of modelling his data).
+
+Good point, though, that the percentage of cases which really are incorrect will be very low.  My original question was "What is the appropriate semantics?"  If there is a strong answer of "union semantics", then it may be worth implementing this even if a few times it's going to be wrong.
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: chodgson@refractions.net [mailto:chodgson@refractions.net]
+> Sent: Thursday, December 05, 2002 10:06 AM
+> To: GEOS Development List
+> Subject: RE: [geos-devel] Issues with relate not handling
+> GeometryCollections?
+> 
+> 
+> Okay, I'm not much of a geometryologist so let me make sure I 
+> understand why 
+> this is a problem. When relating two (singleton) geometries 
+> you would normally 
+> be able to use the determinant, or "triangle test" to 
+> determine _exactly_ 
+> whether a point is to the left, right, or on a line. However, 
+> in this case you 
+> must first first calculate the intersection of the two lines, 
+> and there may not 
+> be enough precision to calculate that exactly, so that when 
+> you do the 
+> determinant test, you may be doing it with an incorrect 
+> point, and so the 
+> result may be wrong. Am I correct? 
+> 
+> I guess I can understand the "moral" reason for not wanting 
+> to implement 
+> something that could give an incorrect answer in such a case, 
+> however, is it 
+> actually possible for something to go wrong in the algorithm 
+> as a result of 
+> this? I mean, given that one point happens to get pushed just 
+> to the other side 
+> of line due to precision issues, could the geometries or 
+> structures used in the 
+> algorithm become invalid, and cause catastrophic failure? Or 
+> is the worst-case 
+> result of such an error occurring just an incorrect result? 
+> 
+> If I recall correctly, the probability of 3 random lines 
+> intersecting at a 
+> single point is zero, so this should rarely be an issue, 
+> unless people happen 
+> to pick lines with the intent of them all meeting at a point. 
+> And that wouldn't
+> happen with the sort of lines people work with everyday, like 
+> roads and 
+> streams... </sarcasm>
+> 
+> Chris
+> 
+> Quoting Martin Davis <mbdavis@VividSolutions.com>:
+> 
+> >  Here's an example show why a robust approach is require to 
+> the issue of
+> > relating GeometryCollections.  In the attach image, you 
+> have to be able to
+> > tell whether the red line intersects the exterior of the 
+> two blue triangles. 
+> > This could require more precision than supplied by double 
+> precision numbers.
+> > 
+> > Currently the only way I can think of doing this robustly 
+> is to compute the
+> > arrangement of the intersections exactly, and then examine 
+> the resulting line
+> > segments for their location to one another.  It's basically 
+> the same problem
+> > as for computing overlays robustly, but at least in this 
+> case you can report
+> > the results precisely,  since the output is just a boolean.
+> > 
+> 
+> 
+> 
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From chodgson at refractions.net  Thu Dec  5 13:43:24 2002
+From: chodgson at refractions.net (chodgson@refractions.net)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA02701DD91@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA02701DD91@venus.VividSolutions.com>
+Message-ID: <1039113804.3def9e4c479de@www>
+
+Union semantics are certainly what I (an admitted 2nd-class geometryologist) 
+would expect.
+
+Chris
+
+> Good point, though, that the percentage of cases which really are incorrect
+> will be very low.  My original question was "What is the appropriate
+> semantics?"  If there is a strong answer of "union semantics", then it may be
+> worth implementing this even if a few times it's going to be wrong.
+
+
+
+From mbdavis at VividSolutions.com  Thu Dec  5 15:02:25 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0270FD595@venus.VividSolutions.com>
+
+Yeah, me too.  Sigh...
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: chodgson@refractions.net [mailto:chodgson@refractions.net]
+> Sent: Thursday, December 05, 2002 10:43 AM
+> To: GEOS Development List
+> Subject: RE: [geos-devel] Issues with relate not handling
+> GeometryCollections?
+> 
+> 
+> Union semantics are certainly what I (an admitted 2nd-class 
+> geometryologist) 
+> would expect.
+> 
+> Chris
+> 
+> > Good point, though, that the percentage of cases which 
+> really are incorrect
+> > will be very low.  My original question was "What is the appropriate
+> > semantics?"  If there is a strong answer of "union 
+> semantics", then it may be
+> > worth implementing this even if a few times it's going to be wrong.
+> 
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From dblasby at refractions.net  Fri Dec  6 16:26:16 2002
+From: dblasby at refractions.net (David Blasby)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+References: <5A94289A9268514C8D6C0F1FF44BA0270FD58D@venus.VividSolutions.com>
+Message-ID: <3DF115F8.632D82AD@refractions.net>
+
+Here's another nasty.  Its basically the same as martin's 2-triangle problem, but its a triangle-and-line collection (green) versus a line (red).
+
+Its more difficult because the union of a polygon and a line is (often) the polygon and the line (with the line being clipped).
+
+dave
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Image2.gif
+Type: image/gif
+Size: 2328 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20021206/1e8e1c02/Image2.gif
+From mbdavis at VividSolutions.com  Fri Dec  6 16:48:55 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0270FD5A7@venus.VividSolutions.com>
+
+Good one...    Not sure if this would be a harder problem or not - I think it all depends on the approach.  The green line would almost certainly end up being clipped (or noded - same thing), which would move it slightly.  However, the red line would probably be noded in the same way.  If the red line was identical to the green line, the node point would be the same, so you would get the right answer.  If it was different - well, it probably wouldn't overlay the green line exactly then anyway.  I guess one obvious failure case is where the red line IS different, but the (rounded) node created causes it to become identical to the green line.
+
+I think it would be possible to develop an imprecise version of relate, which simply calculated approximate intersection points and proceeded as if they were correct.  This code would be robust (it would never fail) but might produce incorrect answers (semantical note: can code be called robust it it's incorrect?).    The question is, what would be the percentage of incorrect answers?  And how would you test them, anyway?
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: David Blasby [mailto:dblasby@refractions.net]
+> Sent: Friday, December 06, 2002 1:26 PM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Issues with relate not handling
+> GeometryCollections?
+> 
+> 
+> Here's another nasty.  Its basically the same as martin's 
+> 2-triangle problem, but its a triangle-and-line collection 
+> (green) versus a line (red).
+> 
+> Its more difficult because the union of a polygon and a line 
+> is (often) the polygon and the line (with the line being clipped).
+> 
+> dave
+> 
+> 
+
+From pramsey at refractions.net  Fri Dec  6 16:59:59 2002
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+In-Reply-To: <5A94289A9268514C8D6C0F1FF44BA0270FD5A7@venus.VividSolutions.com>
+References: <5A94289A9268514C8D6C0F1FF44BA0270FD5A7@venus.VividSolutions.com>
+Message-ID: <3DF11DDF.3060302@refractions.net>
+
+Martin Davis wrote:
+> semantical note: can code be called robust it it's incorrect?).    
+
+Well, not in the limit, since then my robust Buffer function could look 
+like this:
+
+public Geometry Buffer(Geometry geom) {
+	return geom;
+}
+
+
+As a side note, I have noticed our backups go way faster now that I have 
+directed all the output to /dev/null instead of /dev/mt0 :)
+
+-- 
+       __
+      /
+      | Paul Ramsey
+      | Refractions Research
+      | Email: pramsey@refractions.net
+      | Phone: (250) 885-0632
+      \_
+
+
+From mbdavis at VividSolutions.com  Mon Dec  9 13:13:53 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA02701DD99@venus.VividSolutions.com>
+
+I've thought about this too, and I suppose that the more reasonable definition of robust is "robust => correct".
+
+That then raise the issue of: What does "correct" mean in the context of spatial functions which can only be computed as approximations (such as buffer and the overlay functions)?   
+
+I suppose the answer is to define some sort of tolerance area by which the returned answer can differ from the exact answer.  The problem here is that currently we have no way of verifying whether or not answers are "correct" ( = within tolerance) since we have no way of calculating or expressing the *exact* answer!
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: Paul Ramsey [mailto:pramsey@refractions.net]
+> Sent: Friday, December 06, 2002 2:00 PM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Issues with relate not handling
+> GeometryCollections?
+> 
+> 
+> Martin Davis wrote:
+> > semantical note: can code be called robust it it's incorrect?).    
+> 
+> Well, not in the limit, since then my robust Buffer function 
+> could look 
+> like this:
+> 
+> public Geometry Buffer(Geometry geom) {
+> 	return geom;
+> }
+> 
+> 
+> As a side note, I have noticed our backups go way faster now 
+> that I have 
+> directed all the output to /dev/null instead of /dev/mt0 :)
+> 
+> -- 
+>        __
+>       /
+>       | Paul Ramsey
+>       | Refractions Research
+>       | Email: pramsey@refractions.net
+>       | Phone: (250) 885-0632
+>       \_
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+
+From dblasby at refractions.net  Mon Dec  9 17:41:34 2002
+From: dblasby at refractions.net (David Blasby)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Issues with relate not handling GeometryCollections?
+References: <5A94289A9268514C8D6C0F1FF44BA02701DD99@venus.VividSolutions.com>
+Message-ID: <3DF51C1E.280F2190@refractions.net>
+
+Martin,
+
+Could you send me the most up-to-date version of the JCS technical document so I can stick in the compressed stream information?
+
+dave
+
+
+From pramsey at refractions.net  Wed Dec 11 18:56:15 2002
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Status?
+Message-ID: <3DF7D09F.8020001@refractions.net>
+
+Anyone? Anyone? Bueller?
+
+-- 
+       __
+      /
+      | Paul Ramsey
+      | Refractions Research
+      | Email: pramsey@refractions.net
+      | Phone: (250) 885-0632
+      \_
+
+
+From ybychkov at direct.ca  Wed Dec 11 19:27:38 2002
+From: ybychkov at direct.ca (Yury A. Bychkov)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Re: GEOS Status
+References: <5A94289A9268514C8D6C0F1FF44BA0270FD5E7@venus.VividSolutions.com>
+Message-ID: <00c701c2a175$494db470$b9354d18@yury>
+
+Strange. I've sent last status report on Monday, but apparently it didn't make
+it to the list. So, I'll repeat it just in case:
+
+GEOS Status Report. Friday, December 6th.
+
+Completed things:
+1. All instances of Coordinate and CoordinateList have been replaced with
+references or pointers.
+2. Attempted to switch to CoordinateList interface proposed by Martin.
+
+Things to do next:
+1. Finish switching to CoordinateList interface.
+2. Inline most methods from Coordinate, BasicCoordinateList, etc.
+3. Update GEOS to correspond to the latest version of JTS (it has some improved
+algorithms).
+
+Decisions from the phone meeting:
+After the items above are finished the GEOS performance should be good enough
+and I can continue porting the JTS.
+
+Yury
+
+
+----- Original Message -----
+From: "Martin Davis" <mbdavis@VividSolutions.com>
+To: "Yury Bychkov (E-mail)" <ybychkov@direct.ca>
+Sent: Wednesday, December 11, 2002 4:08 PM
+Subject: GEOS Status
+
+
+>Yury, did you post a Status report for last week?
+
+
+----- Original Message -----
+From: "Paul Ramsey" <pramsey@refractions.net>
+To: "GEOS Development List" <geos-devel@geos.refractions.net>
+Sent: Wednesday, December 11, 2002 3:56 PM
+Subject: [geos-devel] Status?
+
+
+> Anyone? Anyone? Bueller?
+
+
+
+From pramsey at refractions.net  Wed Dec 11 19:53:52 2002
+From: pramsey at refractions.net (Paul Ramsey)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] Re: GEOS Status
+In-Reply-To: <00c701c2a175$494db470$b9354d18@yury>
+References: <5A94289A9268514C8D6C0F1FF44BA0270FD5E7@venus.VividSolutions.com>
+	<00c701c2a175$494db470$b9354d18@yury>
+Message-ID: <3DF7DE20.9090604@refractions.net>
+
+Let me display my ignorance for a moment :)
+Does this mean that the external API has settled down now? If we did the 
+PostGIS bindings, would they be good for "all eternity"?
+Paul
+
+Yury A. Bychkov wrote:
+> Strange. I've sent last status report on Monday, but apparently it didn't make
+> it to the list. So, I'll repeat it just in case:
+> 
+> GEOS Status Report. Friday, December 6th.
+> 
+> Completed things:
+> 1. All instances of Coordinate and CoordinateList have been replaced with
+> references or pointers.
+> 2. Attempted to switch to CoordinateList interface proposed by Martin.
+> 
+> Things to do next:
+> 1. Finish switching to CoordinateList interface.
+> 2. Inline most methods from Coordinate, BasicCoordinateList, etc.
+> 3. Update GEOS to correspond to the latest version of JTS (it has some improved
+> algorithms).
+
+
+-- 
+       __
+      /
+      | Paul Ramsey
+      | Refractions Research
+      | Email: pramsey@refractions.net
+      | Phone: (250) 885-0632
+      \_
+
+
+From mbdavis at VividSolutions.com  Wed Dec 11 19:57:49 2002
+From: mbdavis at VividSolutions.com (Martin Davis)
+Date: Fri Nov  2 20:52:05 2007
+Subject: [geos-devel] RE: stable API?
+Message-ID: <5A94289A9268514C8D6C0F1FF44BA0270FD5E9@venus.VividSolutions.com>
+
+Once the new CoordinateList interface has been implemented, the API should be stable.
+
+I would like to have a chance to review the API design before signing off on it.  Yury, let me know when you have finished defining the API (even if not the implementation) and I'll review it.
+
+Martin Davis, Senior Technical Specialist
+Vivid Solutions Inc.
+Suite #1A-2328 Government Street   Victoria, B.C.   V8T 5G5
+Phone: (250) 385 6040    Fax: (250) 385 6046
+EMail: mbdavis@vividsolutions.com  Web: www.vividsolutions.com
+
+
+> -----Original Message-----
+> From: Paul Ramsey [mailto:pramsey@refractions.net]
+> Sent: Wednesday, December 11, 2002 4:54 PM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Re: GEOS Status
+> 
+> 
+> Let me display my ignorance for a moment :)
+> Does this mean that the external API has settled down now? If 
+> we did the 
+> PostGIS bindings, would they be good for "all eternity"?
+> Paul
+> 
+> Yury A. Bychkov wrote:
+> > Strange. I've sent last status report on Monday, but 
+> apparently it didn't make
+> > it to the list. So, I'll repeat it just in case:
+> > 
+> > GEOS Status Report. Friday, December 6th.
+> > 
+> > Completed things:
+> > 1. All instances of Coordinate and CoordinateList have been 
+> replaced with
+> > references or pointers.
+> > 2. Attempted to switch to CoordinateList interface proposed 
+> by Martin.
+> > 
+> > Things to do next:
+> > 1. Finish switching to CoordinateList interface.
+> > 2. Inline most methods from Coordinate, BasicCoordinateList, etc.
+> > 3. Update GEOS to correspond to the latest version of JTS 
+> (it has some improved
+> > algorithms).
+> 
+> 
+> -- 
+>        __
+>       /
+>       | Paul Ramsey
+>       | Refractions Research
+>       | Email: pramsey@refractions.net
+>       | Phone: (250) 885-0632
+>       \_
+> 
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@geos.refractions.net
+> http://geos.refractions.net/mailman/listinfo/geos-devel
+> 
+

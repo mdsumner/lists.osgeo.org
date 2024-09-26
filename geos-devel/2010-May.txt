@@ -1,0 +1,2968 @@
+From Roger.Bivand at nhh.no  Tue May  4 05:07:59 2010
+From: Roger.Bivand at nhh.no (Roger Bivand)
+Date: Tue May  4 05:07:48 2010
+Subject: [geos-devel] rgeos interface to R classes (sp, others)
+In-Reply-To: <alpine.LRH.2.00.1002031917250.22179@reclus.nhh.no>
+References: <alpine.LRH.2.00.1001312026350.10139@reclus.nhh.no>
+	<4B671409.5070707@refractions.net>
+	<alpine.LRH.2.00.1002011906570.13477@reclus.nhh.no>
+	<4B671CF1.306@refractions.net>
+	<alpine.LRH.2.00.1002012117280.14080@reclus.nhh.no>
+	<4B6740B7.3030902@refractions.net>
+	<alpine.LRH.2.00.1002021047030.16338@reclus.nhh.no>
+	<4B685B95.8070300@refractions.net>
+	<alpine.LRH.2.00.1002031917250.22179@reclus.nhh.no>
+Message-ID: <alpine.LRH.2.00.1005041052080.14545@reclus.nhh.no>
+
+On Wed, 3 Feb 2010, Roger Bivand wrote:
+
+> (reverting to list - link to test C code below).
+
+For closure on the thread of touching polygons not being merged by union 
+operations:
+
+The rgeos R/GEOS interface is now a GSoC project within the R project, and 
+the "student", Colin Rundel, has found the root of the problem: when 
+creating GEOSCoordSeq, the val values had not been java_math_round'ed. 
+Once they are java_math_round'ed, rather than just taken as the doubles 
+they were, the problem goes away. Reading from WKT, etc., couldn't 
+reproduce the problem, because the read values were rounded on their way 
+in.
+
+So I wasn't using the default precision model, just passing doubles from 
+R. Thanks to Colin for his analysis and resolution! Is there a suitable 
+place to let others know that double val being fed say to 
+GEOSCoordSeq_setX_r in the C API should apparently be pushed through a 
+precision filter first?
+
+Roger
+
+
+>
+> On Tue, 2 Feb 2010, Martin Davis wrote:
+>
+>> Roger,
+>>> 
+>>> 
+>>> Thanks for checking. In my coding using GEOS C API they do not, leading to 
+>>> my puzzlement. I guess it isn't GEOS, so must be my coding, but I can't 
+>>> see where - nothing I do (I think) is scale-dependent.
+>> Very strange.  It sounds like it might be a Precision Model problem - but 
+>> I'm guessing you're just using the default precision model, which is 
+>> floating point and should handle this test case fine.
+>> 
+>> GEOS gets extremely well tested via its heritage in JTS and by its use in 
+>> PostGIS, so the problem is almost certainly in how it is being called, or 
+>> in some issue with the input data.  I suggest printing out the input and 
+>> results immediately before and after the GEOS calls, to see if something is 
+>> going wrong there.
+>> 
+>> I've tried looking at your code a bit more, but I have to confess that I 
+>> get lost in the mixture of  function calls to both R and GEOS.  Perhaps you 
+>> could try and make a simple test program using only GEOS calls?  That will 
+>> be needed in any case if there is truly a GEOS bug.
+>
+> Martin:
+>
+> I've put a small test program on:
+>
+> http://spatial.nhh.no/misc/test.c
+>
+> which doesn't reproduce the problem exactly, but obviously isn't right. It 
+> may be a validity problem, with:
+>
+> Duplicate Rings at or near point 0 0
+> type MultiPolygon, valid: 0
+> reason: Duplicate Rings[0 0]
+>
+> in (now) both cases, even though I don't see that the three polygons in the 
+> multipolygon duplicate anything. I now get Polygon objects that are not 
+> disjoint and have 0 distance not touching. Here UnionCascaded also breaks 
+> down (probably because of the validity problem). The data are hard-coded (and 
+> may be wrong too?), rather than brought in from WKT.
+>
+> Roger
+>
+>>> 
+>>>> 
+>>>> But perhaps your problem lies elsewhere?  I don't understand your 
+>>>> reference to GEOMTouches in the first email - perhaps this is not 
+>>>> producing the right result, or is being used incorrectly?
+>>> 
+>>> Trying to find out if it was my coding, I tried sequential GEOMTouches 
+>>> among the polygons in the multipolygon. Again, with a 0.1 x 0.1 square, 
+>>> they do not touch, but with 100 x 100 they do. I found the problem after 
+>>> giving advice on the R-sig-geo list about how to create a vector patch map 
+>>> from a raster (dissolve borders between contiguous vectorised cells), and 
+>>> was most surprised to see the toy example fail.
+>> Ah, ok, I understand.
+>>> 
+>>> The underlying motivation is to provide R/GEOS integration without Java - 
+>>> one contributed R package (cshapes) does bundle JTS through Java, but 
+>>> exchanges data by writing and reading shapefiles (R doesn't fit Java well 
+>>> installation-wise). In addition, the port of GPC to R that I've used for 
+>>> this before has serious license problems, and JTS/GEOS are both more 
+>>> general and license-wise clean.
+>> That makes perfect sense.  It's always nicer to have a library that is 
+>> native to the platform you're working on.    (I'm amazed that someone 
+>> actually interfaced to JTS via files and presumably system calls - but I 
+>> guess when all you have is a hammer...)
+>> 
+>> 
+>> 
+>>> 
+>>> Roger
+>>> 
+>>>> 
+>>>> 
+>>>> Roger Bivand wrote:
+>>>>> On Mon, 1 Feb 2010, Martin Davis wrote:
+>>>>> 
+>>>>>> Can you post the WKT/WKB of your test case?
+>>>>> 
+>>>>> If this is WKT, then:
+>>>>> 
+>>>>>> SP2WKT(spol0)
+>>>>> [1] "MULTIPOLYGON(((0 0.1,0 0.2,0.1 0.2,0.1 0.1,0 0.1)),
+>>>>>   ((0.1 0.1,0.1 0.2,0.2 0.2,0.2 0.1,0.1 0.1)),
+>>>>>   ((0 0,0 0.1,0.1 0.1,0.1 0,0 0)))"
+>>>>>> SP2WKT(spolx0)
+>>>>> [1] "MULTIPOLYGON(((0 100,0 200,100 200,100 100,0 100)),
+>>>>>   ((100 100,100 200,200 200,200 100,100 100)),
+>>>>>   ((0 0,0 100,100 100,100 0,0 0)))"
+>>>>>> 
+>>>>> 
+>>>>> I don't think that there is an OGR driver, is there? So this is a text 
+>>>>> representation for the two objects, each with 3 Polygon members, and 
+>>>>> only differing in scale (the coordinates of the second are 1000 times 
+>>>>> those of the first). I see the same difference on GEOS 3.2.0/C API 1.6.0 
+>>>>> on x86_64 RHEL5 and with an MSYS-built GEOS 3.2.0/C API 1.6.0 on Win 32 
+>>>>> R.
+>>>>> 
+>>>>> Hope this is good enough, grateful for any ideas,
+>>>>> 
+>>>>> Roger
+>>>>> 
+>>>>> 
+>>>>>> Roger Bivand wrote:
+>>>>>>> On Mon, 1 Feb 2010, Martin Davis wrote:
+>>>>>>> 
+>>>>>>>> Roger,
+>>>>>>>> 
+>>>>>>>> The technique of using buffer(0) to union polygons is now deprecated 
+>>>>>>>> in favour of using Unary Union (Geometry.union() - not sure what the 
+>>>>>>>> exact GEOS signature is).  Unary Union is usually faster and more 
+>>>>>>>> robust than the previous technique.  You might want to check this 
+>>>>>>>> out.
+>>>>>>> 
+>>>>>>> Martin,
+>>>>>>> 
+>>>>>>> Thanks, I've replaced buffer(0) by GEOSUnionCascaded (C API). But the 
+>>>>>>> artefact remains. For input MULTIPOLYGON:
+>>>>>>> 
+>>>>>>> ---------
+>>>>>>> |   |   |
+>>>>>>> |   |   |
+>>>>>>> |--------
+>>>>>>> |   |
+>>>>>>> |   |
+>>>>>>> -----
+>>>>>>> 
+>>>>>>> I still get the same MultiPolygon out when the bounding box is 
+>>>>>>> (0,0)(0.2,0.2), but correctly Polygon:
+>>>>>>> 
+>>>>>>> ---------
+>>>>>>> |       |
+>>>>>>> |       |
+>>>>>>> |   -----
+>>>>>>> |   |
+>>>>>>> |   |
+>>>>>>> -----
+>>>>>>> 
+>>>>>>> when the bounding box is (0,0)(200,200). May this be related to the 
+>>>>>>> input Polygon objects only having 5 coordinates (4 corners and 
+>>>>>>> closure)? The generating code is inserting exactly the same doubles 
+>>>>>>> into the coordinates.
+>>>>>>> 
+>>>>>>> Anyway, I'm sure that Unary Union is a better solution than buffer(0) 
+>>>>>>> in general, so thanks for that!
+>>>>>>> 
+>>>>>>> Roger
+>>>>>>> 
+>>>>>>> 
+>>>>>>>> 
+>>>>>>>> Martin
+>>>>>>>> 
+>>>>>>>> Roger Bivand wrote:
+>>>>>>>>> Hi,
+>>>>>>>>> 
+>>>>>>>>> I've felt that I've been making reasonable progress with interfacing 
+>>>>>>>>> GEOS geometries and methods for the R language (cran.r-project.org), 
+>>>>>>>>> in a draft contributed package rgeos:
+>>>>>>>>> 
+>>>>>>>>> https://r-forge.r-project.org/projects/rgeos/
+>>>>>>>>> 
+>>>>>>>>> However, I encountered a problem that I do not understand, and would 
+>>>>>>>>> be very grateful if I could be put back on track. The specific 
+>>>>>>>>> problem is that an R function uses the C API to dissolve polygon 
+>>>>>>>>> borders for adjacent polygons sharing a category given as its second 
+>>>>>>>>> argument.
+>>>>>>>>> 
+>>>>>>>>> I've used the buffer technique from the JTS documentation, and all 
+>>>>>>>>> was well until I tried to dissolve borders between touching squares 
+>>>>>>>>> when the coordinate measures were small (square side 0.1). When the 
+>>>>>>>>> squares are 100 units, all is well, and GEOMTouches is TRUE. But for 
+>>>>>>>>> 0.1, GEOMTouches is FALSE, and no dissolving takes place.
+>>>>>>>>> 
+>>>>>>>>> This can be reproduced (I'm on RHEL5, x86_64) by installing R, 
+>>>>>>>>> contributed packages sp and maptools from CRAN, GEOS (3.1.1 or 
+>>>>>>>>> 3.2.0), and installing rgeos from R-Forge. Start R, say
+>>>>>>>>> 
+>>>>>>>>> library(rgeos) example(unionSpatialPolygonsGEOS)
+>>>>>>>>> 
+>>>>>>>>> and look for undissolved borders in:
+>>>>>>>>> 
+>>>>>>>>> image(grd, axes=TRUE)
+>>>>>>>>> plot(spol1, add=TRUE)
+>>>>>>>>> 
+>>>>>>>>> but dissolved in:
+>>>>>>>>> 
+>>>>>>>>> image(grdx, axes=TRUE)
+>>>>>>>>> plot(spol1x, add=TRUE)
+>>>>>>>>> 
+>>>>>>>>> I started on an alternative implementation using GEOMTouches in 
+>>>>>>>>> unionSpatialPolygonsGEOS(..., buffer=FALSE) output to console, where 
+>>>>>>>>> one sees in the example output:
+>>>>>>>>> 
+>>>>>>>>>> spol1F <- unionSpatialPolygonsGEOS(as(spol, "SpatialPolygons"),
+>>>>>>>>> +   as.character(spol$xvs), buffer=FALSE)
+>>>>>>>>> # 4 squares within (0,0), (0.2,0.2) NE, NW, SW share category, SE 
+>>>>>>>>> doesn't
+>>>>>>>>> npls: 3, nnpls: 3
+>>>>>>>>> type[0] Polygon
+>>>>>>>>> i: 0, j: 1, touches: 0
+>>>>>>>>> i: 0, j: 2, touches: 0
+>>>>>>>>> type[1] Polygon
+>>>>>>>>> i: 1, j: 2, touches: 0
+>>>>>>>>> type[2] Polygon
+>>>>>>>>> out of function
+>>>>>>>>> npls: 1, nnpls: 1
+>>>>>>>>> type[0] Polygon
+>>>>>>>>> out of function
+>>>>>>>>>> spol1xF <- unionSpatialPolygonsGEOS(as(spolx, "SpatialPolygons"),
+>>>>>>>>> +   as.character(spolx$xvs), buffer=FALSE)
+>>>>>>>>> # 4 squares within (0,0), (200,200), same categories
+>>>>>>>>> npls: 3, nnpls: 3
+>>>>>>>>> type[0] Polygon
+>>>>>>>>> i: 0, j: 1, touches: 1
+>>>>>>>>> i: 0, j: 2, touches: 1
+>>>>>>>>> type[1] Polygon
+>>>>>>>>> i: 1, j: 2, touches: 1
+>>>>>>>>> type[2] Polygon
+>>>>>>>>> out of function
+>>>>>>>>> npls: 1, nnpls: 1
+>>>>>>>>> type[0] Polygon
+>>>>>>>>> out of function
+>>>>>>>>> 
+>>>>>>>>> The C code is in:
+>>>>>>>>> 
+>>>>>>>>> https://r-forge.r-project.org/plugins/scmsvn/viewcvs.php/pkg/src/rgeos_sp.c?rev=44&root=rgeos&view=log 
+>>>>>>>>> around line 466 rgeos_SpatialPolygonsUnion(), calling 
+>>>>>>>>> rgeos_plspairUnion() - desperate test framework, or 
+>>>>>>>>> rgeos_plsbufUnion() which I had thought worked, but which clearly 
+>>>>>>>>> doesn't dissolve small squares.
+>>>>>>>>> 
+>>>>>>>>> Very grateful for any help, this is a show-stopper, and I had hoped 
+>>>>>>>>> to release rgeos before February (small chance now!)
+>>>>>>>>> 
+>>>>>>>>> Roger
+>>>>>>>>> 
+>>>>>>>> 
+>>>>>>>> 
+>>>>>>> 
+>>>>>> 
+>>>>>> 
+>>>>> 
+>>>> 
+>>>> 
+>>> 
+>> 
+>> 
+>
+>
+
+-- 
+Roger Bivand
+Economic Geography Section, Department of Economics, Norwegian School of
+Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+e-mail: Roger.Bivand@nhh.no
+
+From Roger.Bivand at nhh.no  Tue May  4 09:30:24 2010
+From: Roger.Bivand at nhh.no (Roger Bivand)
+Date: Tue May  4 09:29:09 2010
+Subject: [geos-devel] use of STRtree functions in C API
+Message-ID: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+
+Hi,
+
+I'm investigating the use of STRtree functions in C API to find candidate 
+GEOS_MULTIPOLYGON or GEOS_POLYGON objects to test for contiguity, with 
+GEOSDisjoint() or GEOSTouches(). I think that I can see how to build the 
+tree with envelopes of the polygon objects, using an int ID number as the 
+inserted item. However, I'm very unsure how:
+
+extern void GEOS_DLL GEOSSTRtree_query_r(GEOSContextHandle_t handle,
+                                          GEOSSTRtree *tree,
+                                          const GEOSGeometry *g,
+                                          GEOSQueryCallback callback,
+                                          void *userdata);
+
+should be understood. The first three arguments appear clear, but neither 
+of the remaining two is. userdata out could be a structure with a 
+pre-allocated int array long enough to hold any intersected object IDs, 
+with an int saying how many are present. Does anyone have any use examples 
+of GEOSSTRtree_query in the C API?
+
+Grateful for any pointers,
+
+Roger
+
+-- 
+Roger Bivand
+Economic Geography Section, Department of Economics, Norwegian School of
+Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+e-mail: Roger.Bivand@nhh.no
+
+From hobu.inc at gmail.com  Tue May  4 10:00:49 2010
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue May  4 10:00:57 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+Message-ID: <F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>
+
+Roger,
+
+I would suggest at least investigating libspatialindex, which is an R* tree (and linear and quadratic splitting as well) implementation that is much more featureful than the unexposed internal indexing of GEOS.  I have just added a C API (GDAL or GEOS-style, it's a total rip-off of them) to libspatialindex, to allow users to do the basics like insertion and querying quite easily.  Additionally, with libspatialindex, you have the option of storing your index on disk and bulk loading (pre-sorting for much faster insert performance) the index.
+
+http://trac.gispython.org/spatialindex/wiki
+http://lists.gispython.org/mailman/listinfo/spatialindex
+
+Howard
+
+PS, if you are in the Python world, you can use the Shapely (GEOS wrapper) and Rtree (libspatialindex wrapper) combination to do all kinds of magic quite painlessly.
+
+On May 4, 2010, at 8:30 AM, Roger Bivand wrote:
+
+> Hi,
+> 
+> I'm investigating the use of STRtree functions in C API to find candidate GEOS_MULTIPOLYGON or GEOS_POLYGON objects to test for contiguity, with GEOSDisjoint() or GEOSTouches(). I think that I can see how to build the tree with envelopes of the polygon objects, using an int ID number as the inserted item. However, I'm very unsure how:
+> 
+> extern void GEOS_DLL GEOSSTRtree_query_r(GEOSContextHandle_t handle,
+>                                         GEOSSTRtree *tree,
+>                                         const GEOSGeometry *g,
+>                                         GEOSQueryCallback callback,
+>                                         void *userdata);
+> 
+> should be understood. The first three arguments appear clear, but neither of the remaining two is. userdata out could be a structure with a pre-allocated int array long enough to hold any intersected object IDs, with an int saying how many are present. Does anyone have any use examples of GEOSSTRtree_query in the C API?
+> 
+> Grateful for any pointers,
+> 
+> Roger
+> 
+> -- 
+> Roger Bivand
+> Economic Geography Section, Department of Economics, Norwegian School of
+> Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+> Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+> e-mail: Roger.Bivand@nhh.no
+> 
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From hobu.inc at gmail.com  Tue May  4 10:10:07 2010
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue May  4 10:10:18 2010
+Subject: [geos-devel] Motion: Add Paul Ramsey as PSC Member
+In-Reply-To: <20100411163439.GE58112@keybit.net>
+References: <E26FE548-34CF-44D6-8DC7-C726FE238FE5@gmail.com>
+	<20100411163439.GE58112@keybit.net>
+Message-ID: <C7D03C3E-A412-4235-8F53-402B0B8C870F@gmail.com>
+
+
+On Apr 11, 2010, at 11:34 AM, strk wrote:
+
+> On Wed, Apr 07, 2010 at 08:14:02AM -0500, Howard Butler wrote:
+>> PSC Members,
+>> 
+>> I would like to add Paul Ramsey to the PSC, subject to his acceptance of RFC 2 (which he wrote ;).  His history with the project is well known, and now that he's more deeply in the technical realm, it makes sense to have him on the PSC.
+>> 
+>> +1 
+> 
+> +1 (self-promoting as having voting powers, having bureucracy failed [1])
+> 
+> [1] http://lists.osgeo.org/pipermail/geos-devel/2008-November/003747.html
+
+Ok, I'm declaring *both* of these motions passed then now that we have enough time and +1's.  Both Paul Ramsey and Sandro Santilli are now members of the GEOS PSC.  I have added both to http://trac.osgeo.org/geos/wiki/PSC as well, updating our list.
+
+Howard
+From Roger.Bivand at nhh.no  Tue May  4 10:26:50 2010
+From: Roger.Bivand at nhh.no (Roger Bivand)
+Date: Tue May  4 10:25:36 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>
+Message-ID: <alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>
+
+On Tue, 4 May 2010, Howard Butler wrote:
+
+> Roger,
+>
+> I would suggest at least investigating libspatialindex, which is an R* 
+> tree (and linear and quadratic splitting as well) implementation that is 
+> much more featureful than the unexposed internal indexing of GEOS.  I 
+> have just added a C API (GDAL or GEOS-style, it's a total rip-off of 
+> them) to libspatialindex, to allow users to do the basics like insertion 
+> and querying quite easily.  Additionally, with libspatialindex, you have 
+> the option of storing your index on disk and bulk loading (pre-sorting 
+> for much faster insert performance) the index.
+>
+> http://trac.gispython.org/spatialindex/wiki
+> http://lists.gispython.org/mailman/listinfo/spatialindex
+>
+
+Thanks for the suggestion.
+
+I'm sorry, but I don't see any documentation whatsoever, after 
+successfully building. So "quite easily" is maybe not my impression, I'm 
+afraid, coming from C and interfacing with R.
+
+I need GEOS for Touches/Disjoint (topology operations) anyway, so extra 
+dependencies are not a help, rather the opposite. All I need is to 
+identify which bounding boxes (envelopes in GEOM-speak) intersect for a 
+fixed set of objects whose bounding boxes I can compute, and where GEOS is 
+already present and running.
+
+The underlying motivation is to find contiguous polygon neighbours for 
+spatial analysis, hoping to avoid doing Touches on n*((n-1)/2) pairs of 
+polygons by indexing the bounding boxes and querying which of them 
+intersect which others.
+
+> Howard
+>
+> PS, if you are in the Python world, you can use the Shapely (GEOS 
+> wrapper) and Rtree (libspatialindex wrapper) combination to do all kinds 
+> of magic quite painlessly.
+
+No, the R world, additional dependencies are not welcome, believe me. 
+Maybe they provide use examples (all I asked for) ... links?
+
+Roger
+
+>
+> On May 4, 2010, at 8:30 AM, Roger Bivand wrote:
+>
+>> Hi,
+>>
+>> I'm investigating the use of STRtree functions in C API to find candidate GEOS_MULTIPOLYGON or GEOS_POLYGON objects to test for contiguity, with GEOSDisjoint() or GEOSTouches(). I think that I can see how to build the tree with envelopes of the polygon objects, using an int ID number as the inserted item. However, I'm very unsure how:
+>>
+>> extern void GEOS_DLL GEOSSTRtree_query_r(GEOSContextHandle_t handle,
+>>                                         GEOSSTRtree *tree,
+>>                                         const GEOSGeometry *g,
+>>                                         GEOSQueryCallback callback,
+>>                                         void *userdata);
+>>
+>> should be understood. The first three arguments appear clear, but neither of the remaining two is. userdata out could be a structure with a pre-allocated int array long enough to hold any intersected object IDs, with an int saying how many are present. Does anyone have any use examples of GEOSSTRtree_query in the C API?
+>>
+>> Grateful for any pointers,
+>>
+>> Roger
+>>
+>> --
+>> Roger Bivand
+>> Economic Geography Section, Department of Economics, Norwegian School of
+>> Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+>> Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+>> e-mail: Roger.Bivand@nhh.no
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+
+-- 
+Roger Bivand
+Economic Geography Section, Department of Economics, Norwegian School of
+Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+e-mail: Roger.Bivand@nhh.no
+
+From hobu.inc at gmail.com  Tue May  4 10:41:35 2010
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue May  4 10:41:40 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>
+	<alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>
+Message-ID: <B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>
+
+
+On May 4, 2010, at 9:26 AM, Roger Bivand wrote:
+> Thanks for the suggestion.
+> 
+> I'm sorry, but I don't see any documentation whatsoever, after successfully building. So "quite easily" is maybe not my impression, I'm afraid, coming from C and interfacing with R.
+
+If you've coded with GDAL or GEOS' APIs already, "quite easily" still applies, even though yes, there isn't any docs other than the header file at this point.  It is indeed quite easy compared to writing your own C++ classes to implement querying and insertion logic though ;)
+
+> I need GEOS for Touches/Disjoint (topology operations) anyway, so extra dependencies are not a help, rather the opposite.
+
+Indexing is orthogonal to GEOS main geometry algebra operations, IMO.  I don't like that we expose internal indexing stuff publicly because it will limit the library's options to do something different in the future.  That it uses an index to do things internally for things like prepared geometry is an implementation detail.  Small pieces, loosely joined, not giant monoliths (/me stares in GDAL's embedding-every-library-in-the-entire-osgis-ecosystem's direction).  I understand the desire to not have extra dependencies, but if you want a general, programmable rtree, GEOS' isn't it at this time.
+
+To the GEOS devs, is GEOS to be an indexing library too?
+
+> All I need is to identify which bounding boxes (envelopes in GEOM-speak) intersect for a fixed set of objects whose bounding boxes I can compute, and where GEOS is already present and running.
+
+Doesn't GEOS' prepared geometry stuff already do this, or is that not sufficient?  Maybe I don't understand the problem well enough.
+
+>> PS, if you are in the Python world, you can use the Shapely (GEOS wrapper) and Rtree (libspatialindex wrapper) combination to do all kinds of magic quite painlessly.
+> 
+> No, the R world, additional dependencies are not welcome, believe me. Maybe they provide use examples (all I asked for) ... links?
+
+http://www.google.com/search?q=shapely (1st link, not the pretty pictures :)
+http://www.google.com/search?q=rtree (3rd link)
+
+
+From gavin.heavyside at gmail.com  Tue May  4 11:26:53 2010
+From: gavin.heavyside at gmail.com (Gavin Heavyside)
+Date: Tue May  4 11:26:56 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+Message-ID: <z2tf4d3e2a21005040826jf97f2167lf8830f88236780af@mail.gmail.com>
+
+On 4 May 2010 14:30, Roger Bivand <Roger.Bivand@nhh.no> wrote:
+> Hi,
+>
+> I'm investigating the use of STRtree functions in C API to find candidate
+> GEOS_MULTIPOLYGON or GEOS_POLYGON objects to test for contiguity, with
+> GEOSDisjoint() or GEOSTouches(). I think that I can see how to build the
+> tree with envelopes of the polygon objects, using an int ID number as the
+> inserted item. However, I'm very unsure how:
+>
+> extern void GEOS_DLL GEOSSTRtree_query_r(GEOSContextHandle_t handle,
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? GEOSSTRtree *tree,
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? const GEOSGeometry *g,
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? GEOSQueryCallback callback,
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? void *userdata);
+>
+> should be understood. The first three arguments appear clear, but neither of
+> the remaining two is. userdata out could be a structure with a pre-allocated
+> int array long enough to hold any intersected object IDs, with an int saying
+> how many are present. Does anyone have any use examples of GEOSSTRtree_query
+> in the C API?
+>
+> Grateful for any pointers,
+>
+
+I don't have any example code handy, but I did get a test program
+working with the RTree API a little while ago.
+
+If I remember correctly, you define your own GEOSQueryCallback
+function and pass the address in when you make the query. Your
+callback is then called once for each geometry in the RTree that
+bounding-box-overlaps the geometry passed to the query.
+
+The userdata pointer allows you to provide a pointer to whatever data
+you might need.  Your callback receives the matching geometry from the
+rtree and your userdata each time it is called, you can cast it back
+to the appropriate type in the callback.  e.g. You might want to pass
+a pointer that gives you access to the geometry used in the query, so
+you can do more specific comparisons between the geometries.
+
+Hope this helps a little,
+
+Gavin
+From mbdavis at refractions.net  Tue May  4 11:54:36 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Tue May  4 11:51:06 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>	<alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>
+	<B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>
+Message-ID: <4BE0433C.70704@refractions.net>
+
+
+
+Howard Butler wrote:
+>   
+>> I need GEOS for Touches/Disjoint (topology operations) anyway, so extra dependencies are not a help, rather the opposite.
+>>     
+>
+> Indexing is orthogonal to GEOS main geometry algebra operations, IMO.  I don't like that we expose internal indexing stuff publicly because it will limit the library's options to do something different in the future.  That it uses an index to do things internally for things like prepared geometry is an implementation detail.  Small pieces, loosely joined, not giant monoliths (/me stares in GDAL's embedding-every-library-in-the-entire-osgis-ecosystem's direction).  I understand the desire to not have extra dependencies, but if you want a general, programmable rtree, GEOS' isn't it at this time.
+>
+> To the GEOS devs, is GEOS to be an indexing library too?
+>   
+Sure, why not?  At least for in-memory indexes - there are no plans to 
+extend this to disk-based indexes.
+
+Reasons are:
+i) The code is there and well-tested
+ii) The index is designed to work well with GEOS objects (although as 
+you point out, indexes are fairly independent)
+iii) This reduces the need for dependencies on other librarries (as I 
+think you have just recommended)
+
+Of course as you say this exposes an interface which will need to be 
+maintained in the future.  But there's a fairly low cost to maintaining 
+the simple indexes currently provided (and there are no current plans to 
+stop using them in GEOS itself).
+
+>   
+>> All I need is to identify which bounding boxes (envelopes in GEOM-speak) intersect for a fixed set of objects whose bounding boxes I can compute, and where GEOS is already present and running.
+>>     
+>
+> Doesn't GEOS' prepared geometry stuff already do this, or is that not sufficient?  Maybe I don't understand the problem well enough.
+>   
+PreparedGeometry optimizes the computation between two individual 
+geometries, but it doesn't optimize the situation of processing two sets 
+of geometries in pairwise fashion.  For that you need a spatial index.
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From hobu.inc at gmail.com  Tue May  4 12:30:12 2010
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue May  4 12:30:20 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <4BE0433C.70704@refractions.net>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>	<alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>
+	<B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>
+	<4BE0433C.70704@refractions.net>
+Message-ID: <1C065EB9-52AA-453C-80E0-1DE5B3775BB5@gmail.com>
+
+On May 4, 2010, at 10:54 AM, Martin Davis wrote:
+> Sure, why not?  At least for in-memory indexes - there are no plans to extend this to disk-based indexes.
+> 
+> Reasons are:
+> i) The code is there and well-tested
+> ii) The index is designed to work well with GEOS objects (although as you point out, indexes are fairly independent)
+> iii) This reduces the need for dependencies on other librarries (as I think you have just recommended)
+> 
+
+Reasons against:
+i) Why not the quadtree or interval tree too?  
+ii) Once it's in the C API, we can't take it back, and I think the design is wrong (why not GEOSIndex instead of GEOSSTRtree, etc)
+iii) I was arguing that each library should focus on what it does best.  GDAL's approach of embedding just about every library it uses that doesn't have licensing restrictions preventing it has been extremely limiting.
+
+
+> Of course as you say this exposes an interface which will need to be maintained in the future.  But there's a fairly low cost to maintaining the simple indexes currently provided (and there are no current plans to stop using them in GEOS itself).
+
+It doesn't matter at this point, I guess.  We can't remove it from the C API or we will break ABI compatibility, which was the whole point of the C API in the first place.  But we should be a bit more careful about adding stuff to the C API because a) people will want to use it b) once it's there we can't practically change it and c) it will never be removed.
+
+> PreparedGeometry optimizes the computation between two individual geometries, but it doesn't optimize the situation of processing two sets of geometries in pairwise fashion.  For that you need a spatial index.
+
+Thanks for the description.  For some reason I thought they could do set operations.
+From mbdavis at refractions.net  Tue May  4 12:47:56 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Tue May  4 12:44:29 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <1C065EB9-52AA-453C-80E0-1DE5B3775BB5@gmail.com>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>	<alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>	<B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>	<4BE0433C.70704@refractions.net>
+	<1C065EB9-52AA-453C-80E0-1DE5B3775BB5@gmail.com>
+Message-ID: <4BE04FBC.10805@refractions.net>
+
+Good point about the C API.  I have been happily far removed from the 
+debate about the C API versus the C++ API.  I'll defer to others about 
+where the line should be drawn - but I can see a good argument for 
+limiting the width of the C API as much as possible. 
+
+Howard Butler wrote:
+> On May 4, 2010, at 10:54 AM, Martin Davis wrote:
+>   
+>> Sure, why not?  At least for in-memory indexes - there are no plans to extend this to disk-based indexes.
+>>
+>> Reasons are:
+>> i) The code is there and well-tested
+>> ii) The index is designed to work well with GEOS objects (although as you point out, indexes are fairly independent)
+>> iii) This reduces the need for dependencies on other librarries (as I think you have just recommended)
+>>
+>>     
+>
+> Reasons against:
+> i) Why not the quadtree or interval tree too?  
+> ii) Once it's in the C API, we can't take it back, and I think the design is wrong (why not GEOSIndex instead of GEOSSTRtree, etc)
+> iii) I was arguing that each library should focus on what it does best.  GDAL's approach of embedding just about every library it uses that doesn't have licensing restrictions preventing it has been extremely limiting.
+>
+>
+>   
+>> Of course as you say this exposes an interface which will need to be maintained in the future.  But there's a fairly low cost to maintaining the simple indexes currently provided (and there are no current plans to stop using them in GEOS itself).
+>>     
+>
+> It doesn't matter at this point, I guess.  We can't remove it from the C API or we will break ABI compatibility, which was the whole point of the C API in the first place.  But we should be a bit more careful about adding stuff to the C API because a) people will want to use it b) once it's there we can't practically change it and c) it will never be removed.
+>
+>   
+>> PreparedGeometry optimizes the computation between two individual geometries, but it doesn't optimize the situation of processing two sets of geometries in pairwise fashion.  For that you need a spatial index.
+>>     
+>
+> Thanks for the description.  For some reason I thought they could do set operations._______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From Roger.Bivand at nhh.no  Thu May  6 12:33:40 2010
+From: Roger.Bivand at nhh.no (Roger Bivand)
+Date: Thu May  6 12:32:27 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <z2tf4d3e2a21005040826jf97f2167lf8830f88236780af@mail.gmail.com>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+	<z2tf4d3e2a21005040826jf97f2167lf8830f88236780af@mail.gmail.com>
+Message-ID: <alpine.LRH.2.00.1005061829210.21837@reclus.nhh.no>
+
+On Tue, 4 May 2010, Gavin Heavyside wrote:
+
+> On 4 May 2010 14:30, Roger Bivand <Roger.Bivand@nhh.no> wrote:
+>> Hi,
+>>
+>> I'm investigating the use of STRtree functions in C API to find candidate
+>> GEOS_MULTIPOLYGON or GEOS_POLYGON objects to test for contiguity, with
+>> GEOSDisjoint() or GEOSTouches(). I think that I can see how to build the
+>> tree with envelopes of the polygon objects, using an int ID number as the
+>> inserted item. However, I'm very unsure how:
+>>
+>> extern void GEOS_DLL GEOSSTRtree_query_r(GEOSContextHandle_t handle,
+>> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? GEOSSTRtree *tree,
+>> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? const GEOSGeometry *g,
+>> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? GEOSQueryCallback callback,
+>> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? void *userdata);
+>>
+>> should be understood. The first three arguments appear clear, but neither of
+>> the remaining two is. userdata out could be a structure with a pre-allocated
+>> int array long enough to hold any intersected object IDs, with an int saying
+>> how many are present. Does anyone have any use examples of GEOSSTRtree_query
+>> in the C API?
+>>
+>> Grateful for any pointers,
+>>
+>
+> I don't have any example code handy, but I did get a test program
+> working with the RTree API a little while ago.
+>
+> If I remember correctly, you define your own GEOSQueryCallback
+> function and pass the address in when you make the query. Your
+> callback is then called once for each geometry in the RTree that
+> bounding-box-overlaps the geometry passed to the query.
+>
+> The userdata pointer allows you to provide a pointer to whatever data
+> you might need.  Your callback receives the matching geometry from the
+> rtree and your userdata each time it is called, you can cast it back
+> to the appropriate type in the callback.  e.g. You might want to pass
+> a pointer that gives you access to the geometry used in the query, so
+> you can do more specific comparisons between the geometries.
+>
+> Hope this helps a little,
+
+Yes, thanks, Gavin. I had looked at the callback and thought it looked 
+forbidding, but the results are good - despite compiler warnings both 
+building the tree and querying it. We can now find census blocks that 
+neighbour one another in Los Angeles (almost 90K polygons) in under 10 
+seconds, compared to over 10 minutes without spatial indexing. I'm only 
+retrieving the input envelope ID values, not the geometries, which for our 
+purposes are not needed.
+
+Roger
+
+>
+> Gavin
+>
+
+-- 
+Roger Bivand
+Economic Geography Section, Department of Economics, Norwegian School of
+Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+e-mail: Roger.Bivand@nhh.no
+From strk at keybit.net  Sun May  9 16:31:53 2010
+From: strk at keybit.net (strk)
+Date: Sun May  9 16:31:57 2010
+Subject: [geos-devel] Applications using GEOS
+Message-ID: <20100509203153.GI3038@keybit.net>
+
+I've started a wiki page to list applications using GEOS:
+http://trac.osgeo.org/geos/wiki/Applications
+
+Surely some are missing, can you find them ?
+Thanks.
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From sean.gillies at gmail.com  Mon May 10 04:57:16 2010
+From: sean.gillies at gmail.com (Sean Gillies)
+Date: Mon May 10 04:57:20 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <4BE0433C.70704@refractions.net>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>
+	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>
+	<alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>
+	<B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>
+	<4BE0433C.70704@refractions.net>
+Message-ID: <AANLkTimVDnRfH5SpepNn2vr72NXdZPY3AazF-sSi6k-g@mail.gmail.com>
+
+Hi everybody,
+
+On Tue, May 4, 2010 at 5:54 PM, Martin Davis <mbdavis@refractions.net> wrote:
+>
+>
+> Howard Butler wrote:
+>>
+>>
+>>>
+>>> I need GEOS for Touches/Disjoint (topology operations) anyway, so extra
+>>> dependencies are not a help, rather the opposite.
+>>>
+>>
+>> Indexing is orthogonal to GEOS main geometry algebra operations, IMO. ?I
+>> don't like that we expose internal indexing stuff publicly because it will
+>> limit the library's options to do something different in the future. ?That
+>> it uses an index to do things internally for things like prepared geometry
+>> is an implementation detail. ?Small pieces, loosely joined, not giant
+>> monoliths (/me stares in GDAL's
+>> embedding-every-library-in-the-entire-osgis-ecosystem's direction). ?I
+>> understand the desire to not have extra dependencies, but if you want a
+>> general, programmable rtree, GEOS' isn't it at this time.
+>>
+>> To the GEOS devs, is GEOS to be an indexing library too?
+>>
+>
+> Sure, why not? ?At least for in-memory indexes - there are no plans to
+> extend this to disk-based indexes.
+>
+> Reasons are:
+> i) The code is there and well-tested
+> ii) The index is designed to work well with GEOS objects (although as you
+> point out, indexes are fairly independent)
+> iii) This reduces the need for dependencies on other librarries (as I think
+> you have just recommended)
+>
+> Of course as you say this exposes an interface which will need to be
+> maintained in the future. ?But there's a fairly low cost to maintaining the
+> simple indexes currently provided (and there are no current plans to stop
+> using them in GEOS itself).
+>
+>>
+>>>
+>>> All I need is to identify which bounding boxes (envelopes in GEOM-speak)
+>>> intersect for a fixed set of objects whose bounding boxes I can compute, and
+>>> where GEOS is already present and running.
+>>>
+>>
+>> Doesn't GEOS' prepared geometry stuff already do this, or is that not
+>> sufficient? ?Maybe I don't understand the problem well enough.
+>>
+>
+> PreparedGeometry optimizes the computation between two individual
+> geometries, but it doesn't optimize the situation of processing two sets of
+> geometries in pairwise fashion. ?For that you need a spatial index.
+>
+
+I've done a bit of benchmarking using Rtree (libspatialindex) and
+Shapely (GEOS) and am finding that using a spatial index to select
+candidates for intersects() and within() isn't as big a win as I had
+expected. The GEOS predicates short-circuit when the bounding boxes of
+the features don't intersect
+
+http://trac.osgeo.org/geos/browser/trunk/src/operation/relate/RelateComputer.cpp#L67
+
+Testing the bounds is O(N) (N being number of vertexes) and so the
+cost of evaluating intersects() for unrelated features that would be
+excluded by an index search is dwarfed by the cost of evaluating
+intersects() for complicated related features (about O(N log N) yes?).
+I'm finding 2X faster queries when using a spatial index in
+combination with intersects() for small (radius 0.01, N=64) polygons
+related to a large (radius 1.0, N=64) polygon in a 10.0 x 10.0 space.
+Faster, yes, but not justifying the creation of a spatial index for
+one search.
+
+-- 
+Sean Gillies
+Programmer
+Institute for the Study of the Ancient World
+New York University
+From mbdavis at refractions.net  Mon May 10 12:09:33 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Mon May 10 12:05:43 2010
+Subject: [geos-devel] Applications using GEOS
+In-Reply-To: <20100509203153.GI3038@keybit.net>
+References: <20100509203153.GI3038@keybit.net>
+Message-ID: <4BE82FBD.5040000@refractions.net>
+
+There's a few more listed here:
+
+http://tsusiatsoftware.net/jts/jts-links.html#systems
+
+strk wrote:
+> I've started a wiki page to list applications using GEOS:
+> http://trac.osgeo.org/geos/wiki/Applications
+>
+> Surely some are missing, can you find them ?
+> Thanks.
+>
+> --strk; 
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mbdavis at refractions.net  Mon May 10 12:13:13 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Mon May 10 12:09:23 2010
+Subject: [geos-devel] use of STRtree functions in C API
+In-Reply-To: <AANLkTimVDnRfH5SpepNn2vr72NXdZPY3AazF-sSi6k-g@mail.gmail.com>
+References: <alpine.LRH.2.00.1005041520310.14545@reclus.nhh.no>	<F42728E4-72D3-4643-BC2D-7CB7BE59476B@gmail.com>	<alpine.LRH.2.00.1005041614150.14545@reclus.nhh.no>	<B00656AC-9F29-4AEC-A0B4-1CF686262DC2@gmail.com>	<4BE0433C.70704@refractions.net>
+	<AANLkTimVDnRfH5SpepNn2vr72NXdZPY3AazF-sSi6k-g@mail.gmail.com>
+Message-ID: <4BE83099.6070101@refractions.net>
+
+Yes, spatial indexing only pays off when you run many queries against 
+the index.
+
+This is the case when processing all interacting pairs from two lists of 
+geometries, however.  The index takes this from O(n^2) to O(n log n) 
+(roughly).
+
+Sean Gillies wrote:
+> Hi everybody,
+>
+> On Tue, May 4, 2010 at 5:54 PM, Martin Davis <mbdavis@refractions.net> wrote:
+>   
+>> Howard Butler wrote:
+>>     
+>>>       
+>>>> I need GEOS for Touches/Disjoint (topology operations) anyway, so extra
+>>>> dependencies are not a help, rather the opposite.
+>>>>
+>>>>         
+>>> Indexing is orthogonal to GEOS main geometry algebra operations, IMO.  I
+>>> don't like that we expose internal indexing stuff publicly because it will
+>>> limit the library's options to do something different in the future.  That
+>>> it uses an index to do things internally for things like prepared geometry
+>>> is an implementation detail.  Small pieces, loosely joined, not giant
+>>> monoliths (/me stares in GDAL's
+>>> embedding-every-library-in-the-entire-osgis-ecosystem's direction).  I
+>>> understand the desire to not have extra dependencies, but if you want a
+>>> general, programmable rtree, GEOS' isn't it at this time.
+>>>
+>>> To the GEOS devs, is GEOS to be an indexing library too?
+>>>
+>>>       
+>> Sure, why not?  At least for in-memory indexes - there are no plans to
+>> extend this to disk-based indexes.
+>>
+>> Reasons are:
+>> i) The code is there and well-tested
+>> ii) The index is designed to work well with GEOS objects (although as you
+>> point out, indexes are fairly independent)
+>> iii) This reduces the need for dependencies on other librarries (as I think
+>> you have just recommended)
+>>
+>> Of course as you say this exposes an interface which will need to be
+>> maintained in the future.  But there's a fairly low cost to maintaining the
+>> simple indexes currently provided (and there are no current plans to stop
+>> using them in GEOS itself).
+>>
+>>     
+>>>> All I need is to identify which bounding boxes (envelopes in GEOM-speak)
+>>>> intersect for a fixed set of objects whose bounding boxes I can compute, and
+>>>> where GEOS is already present and running.
+>>>>
+>>>>         
+>>> Doesn't GEOS' prepared geometry stuff already do this, or is that not
+>>> sufficient?  Maybe I don't understand the problem well enough.
+>>>
+>>>       
+>> PreparedGeometry optimizes the computation between two individual
+>> geometries, but it doesn't optimize the situation of processing two sets of
+>> geometries in pairwise fashion.  For that you need a spatial index.
+>>
+>>     
+>
+> I've done a bit of benchmarking using Rtree (libspatialindex) and
+> Shapely (GEOS) and am finding that using a spatial index to select
+> candidates for intersects() and within() isn't as big a win as I had
+> expected. The GEOS predicates short-circuit when the bounding boxes of
+> the features don't intersect
+>
+> http://trac.osgeo.org/geos/browser/trunk/src/operation/relate/RelateComputer.cpp#L67
+>
+> Testing the bounds is O(N) (N being number of vertexes) and so the
+> cost of evaluating intersects() for unrelated features that would be
+> excluded by an index search is dwarfed by the cost of evaluating
+> intersects() for complicated related features (about O(N log N) yes?).
+> I'm finding 2X faster queries when using a spatial index in
+> combination with intersects() for small (radius 0.01, N=64) polygons
+> related to a large (radius 1.0, N=64) polygon in a 10.0 x 10.0 space.
+> Faster, yes, but not justifying the creation of a spatial index for
+> one search.
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From geos-trac at osgeo.org  Thu May 13 11:11:39 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu May 13 11:11:40 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a multiline
+ the library starts growing in memory usage and hungs
+Message-ID: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+
+#343: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ After applying a buffer of 0.005 to the attached geometry in hex wkb the
+ library starts growing in memory usage until the kernel kills it. It never
+ returns the buffered geometry nor any error message.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/343>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From strk at keybit.net  Thu May 13 11:13:35 2010
+From: strk at keybit.net (strk)
+Date: Thu May 13 11:13:38 2010
+Subject: [geos-devel] Applications using GEOS
+In-Reply-To: <4BE82FBD.5040000@refractions.net>
+References: <20100509203153.GI3038@keybit.net>
+	<4BE82FBD.5040000@refractions.net>
+Message-ID: <20100513151335.GN99776@keybit.net>
+
+On Mon, May 10, 2010 at 09:09:33AM -0700, Martin Davis wrote:
+> There's a few more listed here:
+> 
+> http://tsusiatsoftware.net/jts/jts-links.html#systems
+
+Thanks, page updated.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From geos-trac at osgeo.org  Thu May 13 11:14:12 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu May 13 11:14:13 2010
+Subject: [geos-devel] [GEOS] #344: After applying a buffer over a multiline
+ the library starts growing in memory usage and hungs
+Message-ID: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+
+#344: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ After applying a buffer of 0.005 to the attached geometry in hex wkb the
+ library starts growing in memory usage until the kernel kills it. It never
+ returns the buffered geometry nor any error message.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/344>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu May 13 11:35:41 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu May 13 11:35:48 2010
+Subject: [geos-devel] Re: [GEOS] #343: After applying a buffer over a
+ multiline the library starts growing in memory usage and hungs
+In-Reply-To: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+Message-ID: <055.347682ed0bcdd3f85f0ba3d9af2a5416@osgeo.org>
+
+#343: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:  duplicate                 
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by pramsey):
+
+  * status:  new => closed
+  * resolution:  => duplicate
+
+Comment:
+
+ Dupes #344
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/343#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From mbdavis at refractions.net  Thu May 13 11:54:57 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Thu May 13 11:50:48 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+Message-ID: <4BEC20D1.1070004@refractions.net>
+
+Yikes!  That's one nasty dataset.  JTS has issues with it as well - I 
+wasn't able to get the buffer to complete.
+
+As a workaround, you could buffer each line separately and then 
+UnaryUnion the results. 
+
+GEOS wrote:
+> #343: After applying a buffer over a multiline the library starts growing in
+> memory usage and hungs
+> ------------------------+---------------------------------------------------
+>  Reporter:  sberna      |       Owner:  geos-devel@lists.osgeo.org
+>      Type:  defect      |      Status:  new                       
+>  Priority:  major       |   Milestone:                            
+> Component:  Default     |     Version:  3.2.0                     
+>  Severity:  Unassigned  |    Keywords:                            
+> ------------------------+---------------------------------------------------
+>  After applying a buffer of 0.005 to the attached geometry in hex wkb the
+>  library starts growing in memory usage until the kernel kills it. It never
+>  returns the buffered geometry nor any error message.
+>
+>   
+> ------------------------------------------------------------------------
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mbdavis at refractions.net  Thu May 13 12:22:49 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Thu May 13 12:18:38 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <4BEC20D1.1070004@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+	<4BEC20D1.1070004@refractions.net>
+Message-ID: <4BEC2759.6030801@refractions.net>
+
+Just tried the buffer-and-union approach in JTS.  It works fine - about 
+70 s for the union, less for the initial buffering.  Memory usage was low.
+
+This geometry is pretty much a poster child for things that defeat the 
+optimizations used in buffering.  It has lots of small geometries, thus 
+preventing simplification.  And the buffer size chosen is large relative 
+to the geometry size, thus creating lots of overlaps.
+
+At the moment I haven't spent much time thinking about how to detect 
+these cases automatically. Of course it would be possible to switch to 
+using an automated buffer-and-union approach if this could be detected. 
+But this seems like such a pathological case I'm not sure it's worth 
+penalizing all other buffer users just to handle it.
+
+In any case, it would be worth providing a buffer-and-union algorithm as 
+a builtin class.  This could be further optimized by using the same 
+approach as CascadedPolygonUnion to produce a CascadedBuffer class.  
+This would reduce the amount of intermediate memory required (but would 
+not provide any direct performance advantage.)
+
+M
+
+Martin Davis wrote:
+> Yikes!  That's one nasty dataset.  JTS has issues with it as well - I 
+> wasn't able to get the buffer to complete.
+>
+> As a workaround, you could buffer each line separately and then 
+> UnaryUnion the results.
+> GEOS wrote:
+>> #343: After applying a buffer over a multiline the library starts 
+>> growing in
+>> memory usage and hungs
+>> ------------------------+--------------------------------------------------- 
+>>
+>>  Reporter:  sberna      |       Owner:  geos-devel@lists.osgeo.org
+>>      Type:  defect      |      Status:  new                       
+>>  Priority:  major       |   Milestone:                            
+>> Component:  Default     |     Version:  3.2.0                     
+>>  Severity:  Unassigned  |    Keywords:                            
+>> ------------------------+--------------------------------------------------- 
+>>
+>>  After applying a buffer of 0.005 to the attached geometry in hex wkb 
+>> the
+>>  library starts growing in memory usage until the kernel kills it. It 
+>> never
+>>  returns the buffered geometry nor any error message.
+>>
+>>   
+>> ------------------------------------------------------------------------
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mateusz at loskot.net  Thu May 13 12:29:29 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu May 13 12:26:37 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <4BEC2759.6030801@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>	<4BEC20D1.1070004@refractions.net>
+	<4BEC2759.6030801@refractions.net>
+Message-ID: <4BEC28E9.1050008@loskot.net>
+
+On 13/05/10 17:22, Martin Davis wrote:
+> At the moment I haven't spent much time thinking about how to detect
+> these cases automatically. Of course it would be possible to switch to
+> using an automated buffer-and-union approach if this could be detected.
+> But this seems like such a pathological case I'm not sure it's worth
+> penalizing all other buffer users just to handle it.
+
+IMHO, documentation-backed and brain-driven automatic detection
+should be enough to solve this case.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From geos-trac at osgeo.org  Fri May 14 04:43:49 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri May 14 04:44:14 2010
+Subject: [geos-devel] Re: [GEOS] #344: After applying a buffer over a
+ multiline the library starts growing in memory usage and hungs
+In-Reply-To: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+References: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+Message-ID: <055.9bab5558d8b584bff29a386392b5b452@osgeo.org>
+
+#344: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by sberna):
+
+ Both geometries are reported as valid by the library.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/344#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri May 14 05:11:14 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri May 14 05:11:16 2010
+Subject: [geos-devel] Re: [GEOS] #344: After applying a buffer over a
+ multiline the library starts growing in memory usage and hungs
+In-Reply-To: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+References: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+Message-ID: <055.0d0cfd0635011936e4871c3cc7691909@osgeo.org>
+
+#344: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by strk):
+
+ Replying to [comment:1 sberna]:
+ > Both geometries are reported as valid by the library.
+
+ Note that GEOS-3.2.1 contains a fix for a bug giving false positives for
+ ValidOp.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/344#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri May 14 05:25:00 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri May 14 05:25:01 2010
+Subject: [geos-devel] Re: [GEOS] #344: After applying a buffer over a
+ multiline the library starts growing in memory usage and hungs
+In-Reply-To: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+References: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+Message-ID: <055.edee8bfe8fe14a4cbd9c253dc20b03d7@osgeo.org>
+
+#344: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by sberna):
+
+ Replying to [comment:2 strk]:
+ > Replying to [comment:1 sberna]:
+ > > Both geometries are reported as valid by the library.
+ >
+ > Note that GEOS-3.2.1 contains a fix for a bug giving false positives for
+ ValidOp.
+
+ Downloaded GEOS-3.2.2 to test both geometries, and no changes. Both
+ geometries are reported as valid and the buffer operation crashes.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/344#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Fri May 14 08:44:33 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri May 14 08:44:35 2010
+Subject: [geos-devel] Re: [GEOS] #344: After applying a buffer over a
+ multiline the library starts growing in memory usage and hungs
+In-Reply-To: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+References: <046.745dfb87a93e4847c5cd3b8f2ee97c39@osgeo.org>
+Message-ID: <055.6f7d7a114930c1cb6b0ddd05caf8d3e6@osgeo.org>
+
+#344: After applying a buffer over a multiline the library starts growing in
+memory usage and hungs
+------------------------+---------------------------------------------------
+ Reporter:  sberna      |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Comment (by strk):
+
+ wow, I confirm the huge memory use.
+ I've added an XML tester with your geometry in
+ tests/xmltester/tests/bug334.xml
+ Will take a look when i find some time.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/344#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From strk at keybit.net  Fri May 14 09:09:40 2010
+From: strk at keybit.net (strk)
+Date: Fri May 14 09:09:48 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a
+	multiline the library starts growing in memory usage and hungs
+In-Reply-To: <4BEC2759.6030801@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+	<4BEC20D1.1070004@refractions.net>
+	<4BEC2759.6030801@refractions.net>
+Message-ID: <20100514130940.GQ99776@keybit.net>
+
+On Thu, May 13, 2010 at 09:22:49AM -0700, Martin Davis wrote:
+> Just tried the buffer-and-union approach in JTS.  It works fine - about 
+> 70 s for the union, less for the initial buffering.  Memory usage was low.
+
+I tried buffer-and-union approach in PostGIS.
+It was very fast !
+
+Some stats:
+
+ - Original geometry is a MULTILINESTRING with 3272 components
+ - Average number of points per component: 3.3 (from 2 to 93)
+ - Total number of points: 10677
+
+Postgis operations with timing:
+
+ $ time psql -c 'create table bug_dump2 as select (st_dump(g)).* from bug;'
+ real    0m0.330s
+ user    0m0.032s
+ sys     0m0.012s
+
+ $ time psql strk -c 'update bug_dump2 set geom = st_buffer(geom, 0.005)';
+ UPDATE 3272
+ real    0m0.463s
+ user    0m0.040s
+ sys     0m0.008s
+
+ $ time psql strk -Ac 'select st_npoints(st_union(geom)) from bug_dump2';
+ st_npoints: 1336
+ real    0m1.181s
+ user    0m0.040s
+ sys     0m0.008s
+
+This is postgis trunk (to be 2.0.0) with GEOS trunk (to be 3.3.0).
+
+I'm surprised it takes 70 seconds with JTS. Am I doing anything wrong here ?
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From strk at keybit.net  Fri May 14 09:36:23 2010
+From: strk at keybit.net (strk)
+Date: Fri May 14 09:36:26 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a
+	multiline the library starts growing in memory usage and hungs
+In-Reply-To: <20100514130940.GQ99776@keybit.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+	<4BEC20D1.1070004@refractions.net>
+	<4BEC2759.6030801@refractions.net>
+	<20100514130940.GQ99776@keybit.net>
+Message-ID: <20100514133623.GR99776@keybit.net>
+
+On Fri, May 14, 2010 at 03:09:40PM +0200, strk wrote:
+> On Thu, May 13, 2010 at 09:22:49AM -0700, Martin Davis wrote:
+> > Just tried the buffer-and-union approach in JTS.  It works fine - about 
+> > 70 s for the union, less for the initial buffering.  Memory usage was low.
+> 
+> I tried buffer-and-union approach in PostGIS.
+> It was very fast !
+> 
+> Some stats:
+> 
+>  - Original geometry is a MULTILINESTRING with 3272 components
+>  - Average number of points per component: 3.3 (from 2 to 93)
+>  - Total number of points: 10677
+> 
+> Postgis operations with timing:
+> 
+>  $ time psql -c 'create table bug_dump2 as select (st_dump(g)).* from bug;'
+>  real    0m0.330s
+>  user    0m0.032s
+>  sys     0m0.012s
+> 
+>  $ time psql strk -c 'update bug_dump2 set geom = st_buffer(geom, 0.005)';
+>  UPDATE 3272
+>  real    0m0.463s
+>  user    0m0.040s
+>  sys     0m0.008s
+> 
+>  $ time psql strk -Ac 'select st_npoints(st_union(geom)) from bug_dump2';
+>  st_npoints: 1336
+>  real    0m1.181s
+>  user    0m0.040s
+>  sys     0m0.008s
+> 
+> This is postgis trunk (to be 2.0.0) with GEOS trunk (to be 3.3.0).
+> 
+> I'm surprised it takes 70 seconds with JTS. Am I doing anything wrong here ?
+
+Note that postgis uses the cascaded union...
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From mbdavis at refractions.net  Fri May 14 12:11:30 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Fri May 14 12:07:12 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over a	multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <20100514130940.GQ99776@keybit.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>	<4BEC20D1.1070004@refractions.net>	<4BEC2759.6030801@refractions.net>
+	<20100514130940.GQ99776@keybit.net>
+Message-ID: <4BED7632.6070709@refractions.net>
+
+I'm surprise that PostGIS is so much faster too!  Can you supply the 
+output, so I can check it against JTS?
+
+One thing I notice is that the input I'm using has 5615 elements and 
+11502 points.
+
+This *might* make a big difference, if you are missing some of the 
+bigger linestrings which (a) have large buffer polygons and (b) 
+intersect *all* of the other elements' buffers.
+
+strk wrote:
+> On Thu, May 13, 2010 at 09:22:49AM -0700, Martin Davis wrote:
+>   
+>> Just tried the buffer-and-union approach in JTS.  It works fine - about 
+>> 70 s for the union, less for the initial buffering.  Memory usage was low.
+>>     
+>
+> I tried buffer-and-union approach in PostGIS.
+> It was very fast !
+>
+> Some stats:
+>
+>  - Original geometry is a MULTILINESTRING with 3272 components
+>  - Average number of points per component: 3.3 (from 2 to 93)
+>  - Total number of points: 10677
+>
+> Postgis operations with timing:
+>
+>  $ time psql -c 'create table bug_dump2 as select (st_dump(g)).* from bug;'
+>  real    0m0.330s
+>  user    0m0.032s
+>  sys     0m0.012s
+>
+>  $ time psql strk -c 'update bug_dump2 set geom = st_buffer(geom, 0.005)';
+>  UPDATE 3272
+>  real    0m0.463s
+>  user    0m0.040s
+>  sys     0m0.008s
+>
+>  $ time psql strk -Ac 'select st_npoints(st_union(geom)) from bug_dump2';
+>  st_npoints: 1336
+>  real    0m1.181s
+>  user    0m0.040s
+>  sys     0m0.008s
+>
+> This is postgis trunk (to be 2.0.0) with GEOS trunk (to be 3.3.0).
+>
+> I'm surprised it takes 70 seconds with JTS. Am I doing anything wrong here ?
+>
+> --strk;
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From strk at keybit.net  Fri May 14 14:13:15 2010
+From: strk at keybit.net (strk)
+Date: Fri May 14 14:13:21 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over
+	a	multiline the library starts growing in memory usage and hungs
+In-Reply-To: <4BED7632.6070709@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+	<4BEC20D1.1070004@refractions.net>
+	<4BEC2759.6030801@refractions.net>
+	<20100514130940.GQ99776@keybit.net>
+	<4BED7632.6070709@refractions.net>
+Message-ID: <20100514181314.GS99776@keybit.net>
+
+On Fri, May 14, 2010 at 09:11:30AM -0700, Martin Davis wrote:
+> I'm surprise that PostGIS is so much faster too!  Can you supply the 
+> output, so I can check it against JTS?
+> 
+> One thing I notice is that the input I'm using has 5615 elements and 
+> 11502 points.
+
+The input I'm using is this:
+http://trac.osgeo.org/geos/attachment/ticket/344/roads_broken_geom.txt.gz
+
+The output I have with it is attached.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: out.txt.gz
+Type: application/x-gunzip
+Size: 19760 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20100514/b1715794/out.txt-0001.bin
+From mbdavis at refractions.net  Fri May 14 14:28:48 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Fri May 14 14:24:30 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over	a	multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <20100514181314.GS99776@keybit.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>	<4BEC20D1.1070004@refractions.net>	<4BEC2759.6030801@refractions.net>	<20100514130940.GQ99776@keybit.net>	<4BED7632.6070709@refractions.net>
+	<20100514181314.GS99776@keybit.net>
+Message-ID: <4BED9660.6020601@refractions.net>
+
+Ah, ok.  I was using this one.
+
+http://trac.osgeo.org/geos/attachment/ticket/344/fail_geom.txt.gz
+
+I'll try the other one and see what kind of performance I get.
+
+
+
+strk wrote:
+> On Fri, May 14, 2010 at 09:11:30AM -0700, Martin Davis wrote:
+>   
+>> I'm surprise that PostGIS is so much faster too!  Can you supply the 
+>> output, so I can check it against JTS?
+>>
+>> One thing I notice is that the input I'm using has 5615 elements and 
+>> 11502 points.
+>>     
+>
+> The input I'm using is this:
+> http://trac.osgeo.org/geos/attachment/ticket/344/roads_broken_geom.txt.gz
+>
+> The output I have with it is attached.
+>
+> --strk;
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+>   
+> ------------------------------------------------------------------------
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mbdavis at refractions.net  Fri May 14 14:35:45 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Fri May 14 14:31:25 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer over	a	multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <4BED9660.6020601@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>	<4BEC20D1.1070004@refractions.net>	<4BEC2759.6030801@refractions.net>	<20100514130940.GQ99776@keybit.net>	<4BED7632.6070709@refractions.net>	<20100514181314.GS99776@keybit.net>
+	<4BED9660.6020601@refractions.net>
+Message-ID: <4BED9801.5070504@refractions.net>
+
+Ok, I tried the roads_broken geometry in JTS using the buffer-and-union 
+approach.  The result matches the one you posted, strk.
+
+Time was 2.7 s.  So the two systems are pretty close.
+
+It would be interesting if you tried the other geometry as well.
+
+Martin Davis wrote:
+> Ah, ok.  I was using this one.
+>
+> http://trac.osgeo.org/geos/attachment/ticket/344/fail_geom.txt.gz
+>
+> I'll try the other one and see what kind of performance I get.
+>
+>
+>
+> strk wrote:
+>> On Fri, May 14, 2010 at 09:11:30AM -0700, Martin Davis wrote:
+>>  
+>>> I'm surprise that PostGIS is so much faster too!  Can you supply the 
+>>> output, so I can check it against JTS?
+>>>
+>>> One thing I notice is that the input I'm using has 5615 elements and 
+>>> 11502 points.
+>>>     
+>>
+>> The input I'm using is this:
+>> http://trac.osgeo.org/geos/attachment/ticket/344/roads_broken_geom.txt.gz 
+>>
+>>
+>> The output I have with it is attached.
+>>
+>> --strk;
+>>
+>>   ()   Free GIS & Flash consultant/developer
+>>   /\   http://strk.keybit.net/services.html
+>>   
+>> ------------------------------------------------------------------------
+>>
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From strk at keybit.net  Fri May 14 17:18:06 2010
+From: strk at keybit.net (strk)
+Date: Fri May 14 17:18:11 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer
+	over	a	multiline the library starts growing in memory usage and hungs
+In-Reply-To: <4BED9801.5070504@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+	<4BEC20D1.1070004@refractions.net>
+	<4BEC2759.6030801@refractions.net>
+	<20100514130940.GQ99776@keybit.net>
+	<4BED7632.6070709@refractions.net>
+	<20100514181314.GS99776@keybit.net>
+	<4BED9660.6020601@refractions.net>
+	<4BED9801.5070504@refractions.net>
+Message-ID: <20100514211806.GT99776@keybit.net>
+
+On Fri, May 14, 2010 at 11:35:45AM -0700, Martin Davis wrote:
+> Ok, I tried the roads_broken geometry in JTS using the buffer-and-union 
+> approach.  The result matches the one you posted, strk.
+> 
+> Time was 2.7 s.  So the two systems are pretty close.
+> 
+> It would be interesting if you tried the other geometry as well.
+
+Done, but on another (older) machine:
+ Intel(R) Pentium(R) 4 CPU 2.66GHz
+ bogomips        : 5333.43
+
+Input points: 11502
+Input components: 5615
+Output points: 417
+
+$ time psql -c ' select st_npoints(st_union(st_buffer(geom, 0.005)))
+from ( select (st_dump(g)).geom from bug ) as foo; '
+ real    1m9.838s
+ user    0m0.100s
+ sys     0m0.028s
+
+Memory is fine, CPU is pretty much fixed at 100%.
+
+Interesting enough the buffer itself is pretty quick:
+
+$ time psql -c ' select sum(st_npoints(st_buffer(geom, 0.005)))
+from ( select (st_dump(g)).geom from bug ) as foo;'
+ real    0m3.170s
+ user    0m0.108s
+ sys     0m0.024s
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From mbdavis at refractions.net  Fri May 14 17:28:39 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Fri May 14 17:24:19 2010
+Subject: [geos-devel] [GEOS] #343: After applying a buffer	over	a	multiline
+	the library starts growing in memory usage and hungs
+In-Reply-To: <20100514211806.GT99776@keybit.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>	<4BEC20D1.1070004@refractions.net>	<4BEC2759.6030801@refractions.net>	<20100514130940.GQ99776@keybit.net>	<4BED7632.6070709@refractions.net>	<20100514181314.GS99776@keybit.net>	<4BED9660.6020601@refractions.net>	<4BED9801.5070504@refractions.net>
+	<20100514211806.GT99776@keybit.net>
+Message-ID: <4BEDC087.4010703@refractions.net>
+
+Ok, then that's in the same ballpark as JTS.  And yes, the union is much 
+slower than the buffer creation.
+
+Interesting that GEOS seems to have caught up to JTS in terms of 
+performance.  I seem to remember it used to be slower.  (But it's not 
+really any faster, either, in spite of all that C goodness!  8^)
+
+strk wrote:
+> On Fri, May 14, 2010 at 11:35:45AM -0700, Martin Davis wrote:
+>   
+>> Ok, I tried the roads_broken geometry in JTS using the buffer-and-union 
+>> approach.  The result matches the one you posted, strk.
+>>
+>> Time was 2.7 s.  So the two systems are pretty close.
+>>
+>> It would be interesting if you tried the other geometry as well.
+>>     
+>
+> Done, but on another (older) machine:
+>  Intel(R) Pentium(R) 4 CPU 2.66GHz
+>  bogomips        : 5333.43
+>
+> Input points: 11502
+> Input components: 5615
+> Output points: 417
+>
+> $ time psql -c ' select st_npoints(st_union(st_buffer(geom, 0.005)))
+> from ( select (st_dump(g)).geom from bug ) as foo; '
+>  real    1m9.838s
+>  user    0m0.100s
+>  sys     0m0.028s
+>
+> Memory is fine, CPU is pretty much fixed at 100%.
+>
+> Interesting enough the buffer itself is pretty quick:
+>
+> $ time psql -c ' select sum(st_npoints(st_buffer(geom, 0.005)))
+> from ( select (st_dump(g)).geom from bug ) as foo;'
+>  real    0m3.170s
+>  user    0m0.108s
+>  sys     0m0.024s
+>
+> --strk;
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From strk at keybit.net  Fri May 14 17:39:37 2010
+From: strk at keybit.net (strk)
+Date: Fri May 14 17:39:41 2010
+Subject: [geos-devel] [GEOS] #343: After applying a
+	buffer	over	a	multiline the library starts growing in memory
+	usage and hungs
+In-Reply-To: <4BEDC087.4010703@refractions.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>
+	<4BEC20D1.1070004@refractions.net>
+	<4BEC2759.6030801@refractions.net>
+	<20100514130940.GQ99776@keybit.net>
+	<4BED7632.6070709@refractions.net>
+	<20100514181314.GS99776@keybit.net>
+	<4BED9660.6020601@refractions.net>
+	<4BED9801.5070504@refractions.net>
+	<20100514211806.GT99776@keybit.net>
+	<4BEDC087.4010703@refractions.net>
+Message-ID: <20100514213937.GU99776@keybit.net>
+
+On Fri, May 14, 2010 at 02:28:39PM -0700, Martin Davis wrote:
+
+> Interesting that GEOS seems to have caught up to JTS in terms of 
+> performance.  I seem to remember it used to be slower.  (But it's not 
+> really any faster, either, in spite of all that C goodness!  8^)
+
+That's the price to pay for "closely tracking JTS" :>
+Would be interesting to see how GGL deals with this dataset
+(the union part).
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From mbdavis at refractions.net  Fri May 14 18:05:29 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Fri May 14 18:01:09 2010
+Subject: [geos-devel] [GEOS] #343: After applying a	buffer	over	a	multiline
+	the library starts growing in memory	usage and hungs
+In-Reply-To: <20100514213937.GU99776@keybit.net>
+References: <046.ed5fcfc9a330ea34ec54fbadf651f29e@osgeo.org>	<4BEC20D1.1070004@refractions.net>	<4BEC2759.6030801@refractions.net>	<20100514130940.GQ99776@keybit.net>	<4BED7632.6070709@refractions.net>	<20100514181314.GS99776@keybit.net>	<4BED9660.6020601@refractions.net>	<4BED9801.5070504@refractions.net>	<20100514211806.GT99776@keybit.net>	<4BEDC087.4010703@refractions.net>
+	<20100514213937.GU99776@keybit.net>
+Message-ID: <4BEDC929.7060406@refractions.net>
+
+Yes, that would be very interesting.  Does GGL provide polygon union now?
+
+strk wrote:
+> On Fri, May 14, 2010 at 02:28:39PM -0700, Martin Davis wrote:
+>
+>   
+>> Interesting that GEOS seems to have caught up to JTS in terms of 
+>> performance.  I seem to remember it used to be slower.  (But it's not 
+>> really any faster, either, in spite of all that C goodness!  8^)
+>>     
+>
+> That's the price to pay for "closely tracking JTS" :>
+> Would be interesting to see how GGL deals with this dataset
+> (the union part).
+>
+> --strk;
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From strk at keybit.net  Fri May 14 18:09:59 2010
+From: strk at keybit.net (strk)
+Date: Fri May 14 18:10:03 2010
+Subject: [geos-devel] [GEOS] #343: After applying
+	a	buffer	over	a	multiline the library starts growing in
+	memory	usage and hungs
+In-Reply-To: <4BEDC929.7060406@refractions.net>
+References: <4BEC2759.6030801@refractions.net>
+	<20100514130940.GQ99776@keybit.net>
+	<4BED7632.6070709@refractions.net>
+	<20100514181314.GS99776@keybit.net>
+	<4BED9660.6020601@refractions.net>
+	<4BED9801.5070504@refractions.net>
+	<20100514211806.GT99776@keybit.net>
+	<4BEDC087.4010703@refractions.net>
+	<20100514213937.GU99776@keybit.net>
+	<4BEDC929.7060406@refractions.net>
+Message-ID: <20100514220959.GV99776@keybit.net>
+
+On Fri, May 14, 2010 at 03:05:29PM -0700, Martin Davis wrote:
+> Yes, that would be very interesting.  Does GGL provide polygon union now?
+
+Seems so:
+http://geometrylibrary.geodan.nl/group__union.html
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From warmerdam at pobox.com  Mon May 17 11:25:56 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon May 17 11:26:00 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+Message-ID: <4BF16004.6060700@pobox.com>
+
+Folks,
+
+I am creating a GEOS Point from 2D WKB input, then fetching back the
+CoordinateSequence and interogating it's dimension.  I get "3".
+
+Looking through the code there does not seem to be a real effort to preserve
+dimension for coordinate sequences, at least with the CoordinateArraySequence
+implementation.  Is this intentional?
+
+As the Z coordinate is NaN I'll try and adapt my code to watch for that as
+a clue to dimension but it is not entirely clear to me why dimension is not
+currently preserved.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at keybit.net  Mon May 17 11:32:54 2010
+From: strk at keybit.net (strk)
+Date: Mon May 17 11:32:58 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF16004.6060700@pobox.com>
+References: <4BF16004.6060700@pobox.com>
+Message-ID: <20100517153254.GD72500@keybit.net>
+
+On Mon, May 17, 2010 at 11:25:56AM -0400, Frank Warmerdam wrote:
+> Folks,
+> 
+> I am creating a GEOS Point from 2D WKB input, then fetching back the
+> CoordinateSequence and interogating it's dimension.  I get "3".
+> 
+> Looking through the code there does not seem to be a real effort to preserve
+> dimension for coordinate sequences, at least with the 
+> CoordinateArraySequence
+> implementation.  Is this intentional?
+
+The interface was added to later make a real effort,
+but none is made at this time indeed.
+
+When non-empty you could check for IsNan(Z) but when empty you can't tell..
+ 
+> As the Z coordinate is NaN I'll try and adapt my code to watch for that as
+> a clue to dimension but it is not entirely clear to me why dimension is not
+> currently preserved.
+
+PostGIS extracts dimension from postgis format, then converts, does the thing
+and converts back to same dimension of input.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From warmerdam at pobox.com  Mon May 17 11:42:34 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon May 17 11:42:37 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <20100517153254.GD72500@keybit.net>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+Message-ID: <4BF163EA.8010204@pobox.com>
+
+strk wrote:
+> On Mon, May 17, 2010 at 11:25:56AM -0400, Frank Warmerdam wrote:
+>> Folks,
+>>
+>> I am creating a GEOS Point from 2D WKB input, then fetching back the
+>> CoordinateSequence and interogating it's dimension.  I get "3".
+>>
+>> Looking through the code there does not seem to be a real effort to preserve
+>> dimension for coordinate sequences, at least with the 
+>> CoordinateArraySequence
+>> implementation.  Is this intentional?
+> 
+> The interface was added to later make a real effort,
+> but none is made at this time indeed.
+
+Strk,
+
+Is this a good time for me to take a crack at implementing dimension
+support?   I see the dimension potentially makes it as far as the
+CoordinateArraySequenceFactory, but that CoordinateArraySequence has
+nothing to keep track of it.  I could add it as a private member and
+ensure it is passed in by the factory.
+
+> When non-empty you could check for IsNan(Z) but when empty you can't tell..
+
+I'm using the C API.  Is there a nice portable way to check for NaN in C code?
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From mateusz at loskot.net  Mon May 17 12:08:46 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Mon May 17 12:05:58 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF163EA.8010204@pobox.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+Message-ID: <4BF16A0E.1050707@loskot.net>
+
+On 17/05/10 16:42, Frank Warmerdam wrote:
+> I'm using the C API. Is there a nice portable way to check for NaN in C
+> code?
+
+Frank,
+
+double is_nan(double v) { return v != v; }
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From strk at keybit.net  Mon May 17 12:12:53 2010
+From: strk at keybit.net (strk)
+Date: Mon May 17 12:12:55 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF163EA.8010204@pobox.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+Message-ID: <20100517161253.GE72500@keybit.net>
+
+On Mon, May 17, 2010 at 11:42:34AM -0400, Frank Warmerdam wrote:
+
+> Is this a good time for me to take a crack at implementing dimension
+> support?   I see the dimension potentially makes it as far as the
+> CoordinateArraySequenceFactory, but that CoordinateArraySequence has
+> nothing to keep track of it.  I could add it as a private member and
+> ensure it is passed in by the factory.
+
+Sure, you may try that.
+Only, I highly dubt any computation will check dimension of input(s)
+and use that to dimension the output.
+
+I belive neither JTS will do that, is that correct Martin ?
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From pramsey at opengeo.org  Mon May 17 12:24:16 2010
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Mon May 17 12:32:35 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF163EA.8010204@pobox.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+Message-ID: <AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+
+This would be an excellent time! :) It is raised about every 2 months
+on the list, both the oddness of the return value and the fact that we
+have no M value support.
+
+P
+
+On Mon, May 17, 2010 at 8:42 AM, Frank Warmerdam <warmerdam@pobox.com> wrote:
+> strk wrote:
+>>
+>> On Mon, May 17, 2010 at 11:25:56AM -0400, Frank Warmerdam wrote:
+>>>
+>>> Folks,
+>>>
+>>> I am creating a GEOS Point from 2D WKB input, then fetching back the
+>>> CoordinateSequence and interogating it's dimension. ?I get "3".
+>>>
+>>> Looking through the code there does not seem to be a real effort to
+>>> preserve
+>>> dimension for coordinate sequences, at least with the
+>>> CoordinateArraySequence
+>>> implementation. ?Is this intentional?
+>>
+>> The interface was added to later make a real effort,
+>> but none is made at this time indeed.
+>
+> Strk,
+>
+> Is this a good time for me to take a crack at implementing dimension
+> support? ? I see the dimension potentially makes it as far as the
+> CoordinateArraySequenceFactory, but that CoordinateArraySequence has
+> nothing to keep track of it. ?I could add it as a private member and
+> ensure it is passed in by the factory.
+>
+>> When non-empty you could check for IsNan(Z) but when empty you can't
+>> tell..
+>
+> I'm using the C API. ?Is there a nice portable way to check for NaN in C
+> code?
+>
+> Best regards,
+> --
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up ? | Frank Warmerdam,
+> warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush ? ?| Geospatial Programmer for Rent
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From warmerdam at pobox.com  Mon May 17 12:39:15 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon May 17 12:39:18 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+	<AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+Message-ID: <4BF17133.7050908@pobox.com>
+
+Paul Ramsey wrote:
+> This would be an excellent time! :) It is raised about every 2 months
+> on the list, both the oddness of the return value and the fact that we
+> have no M value support.
+
+strk wrote:
+ > Sure, you may try that.
+ > Only, I highly dubt any computation will check dimension of input(s)
+ > and use that to dimension the output.
+
+Paul, strk,
+
+OK, I'm going to make a quick pass to try and implement support for
+differentiating between 2D and 3D dimension of geometries in the default
+CoordinateSequence related classes and ensure that the path from WKB, and
+WKT to GEOS Geometries and back will preserve dimension.
+
+At this time I'm not going to try and address M, nor to start going into
+the algorithms and making them dimension aware.
+
+This is driven by the Ingres implementation effort, by the way.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From pramsey at opengeo.org  Mon May 17 12:46:08 2010
+From: pramsey at opengeo.org (Paul Ramsey)
+Date: Mon May 17 12:52:03 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF17133.7050908@pobox.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+	<AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+	<4BF17133.7050908@pobox.com>
+Message-ID: <AANLkTinzj8EgDJxMFBqvqhwcZVTdZkt94lKpkW5rDao9@mail.gmail.com>
+
+Great, the more victims^H^H^H^H^H^Husers we have, the better!
+
+(Surely Ingres wants M! :)
+
+P
+
+On Mon, May 17, 2010 at 9:39 AM, Frank Warmerdam <warmerdam@pobox.com> wrote:
+> Paul Ramsey wrote:
+>>
+>> This would be an excellent time! :) It is raised about every 2 months
+>> on the list, both the oddness of the return value and the fact that we
+>> have no M value support.
+>
+> strk wrote:
+>> Sure, you may try that.
+>> Only, I highly dubt any computation will check dimension of input(s)
+>> and use that to dimension the output.
+>
+> Paul, strk,
+>
+> OK, I'm going to make a quick pass to try and implement support for
+> differentiating between 2D and 3D dimension of geometries in the default
+> CoordinateSequence related classes and ensure that the path from WKB, and
+> WKT to GEOS Geometries and back will preserve dimension.
+>
+> At this time I'm not going to try and address M, nor to start going into
+> the algorithms and making them dimension aware.
+>
+> This is driven by the Ingres implementation effort, by the way.
+>
+> Best regards,
+> --
+> ---------------------------------------+--------------------------------------
+> I set the clouds in motion - turn up ? | Frank Warmerdam,
+> warmerdam@pobox.com
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush ? ?| Geospatial Programmer for Rent
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From strk at keybit.net  Mon May 17 13:07:38 2010
+From: strk at keybit.net (strk)
+Date: Mon May 17 13:07:44 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF17133.7050908@pobox.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+	<AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+	<4BF17133.7050908@pobox.com>
+Message-ID: <20100517170738.GF72500@keybit.net>
+
+On Mon, May 17, 2010 at 12:39:15PM -0400, Frank Warmerdam wrote:
+
+> At this time I'm not going to try and address M, nor to start going into
+> the algorithms and making them dimension aware.
+
+M will be much harder indeed.
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From warmerdam at pobox.com  Tue May 18 15:38:57 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue May 18 15:39:00 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <AANLkTinzj8EgDJxMFBqvqhwcZVTdZkt94lKpkW5rDao9@mail.gmail.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+	<AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+	<4BF17133.7050908@pobox.com>
+	<AANLkTinzj8EgDJxMFBqvqhwcZVTdZkt94lKpkW5rDao9@mail.gmail.com>
+Message-ID: <4BF2ECD1.20802@pobox.com>
+
+
+Folks,
+
+In followup on the dimension support front, I have made a quick pass
+through the CoordinateArraySequence and related classes as well as WKTReader
+so that I can preserve dimension in a GEOS geometry, at least to some extent.
+
+Rather than ask for permission, I've just gone ahead and applied the changes.
+We can always tweak as needed.  They are documented in:
+
+     http://trac.osgeo.org/geos/ticket/345
+
+I will note that the common idiom "CoordinateSequenceFactory->create(0,3)" to
+create a 3D coordinate sequence no longer exactly works since I have added
+dimension as an argument in the create() method that takes a coordinate vector.
+This means that "0" can be interpreted as NULL or a count.  To disambiguate
+I have had to cast the zero to size_t in the tests and a couple other places.
+Hopefully this isn't going to cause other people heartache.
+
+Future directions might include preserve dimension carefully through geometry
+operations, and having the WKT and WKB Writer classes produce output based
+on the dimension of the geometry.  I haven't checked WKBWriter, but WKTWriter
+is (annoyingly) only supporting 3D output based on a build time choice, rather
+than dynamically based on the input geometry.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From strk at keybit.net  Tue May 18 17:56:30 2010
+From: strk at keybit.net (strk)
+Date: Tue May 18 17:56:33 2010
+Subject: [geos-devel] Dimension and Coordinate Sequences
+In-Reply-To: <4BF2ECD1.20802@pobox.com>
+References: <4BF16004.6060700@pobox.com> <20100517153254.GD72500@keybit.net>
+	<4BF163EA.8010204@pobox.com>
+	<AANLkTimSe7abFV8rBBuXk_aN1DTCkFSV3YuPTgTwhDNL@mail.gmail.com>
+	<4BF17133.7050908@pobox.com>
+	<AANLkTinzj8EgDJxMFBqvqhwcZVTdZkt94lKpkW5rDao9@mail.gmail.com>
+	<4BF2ECD1.20802@pobox.com>
+Message-ID: <20100518215630.GA82349@keybit.net>
+
+On Tue, May 18, 2010 at 03:38:57PM -0400, Frank Warmerdam wrote:
+
+> Rather than ask for permission, I've just gone ahead and applied the 
+> changes.
+
+Good job.
+Free Software is ... never ask for permissions !
+
+> Future directions might include preserve dimension carefully through 
+> geometry
+> operations, and having the WKT and WKB Writer classes produce output based
+> on the dimension of the geometry. 
+
+Note that empty geometries will have NO CoordinateSequence associated,
+which means you won't be able to get their coordinate dimension from
+there...
+
+> I haven't checked WKBWriter, but 
+> WKTWriter
+> is (annoyingly) only supporting 3D output based on a build time choice, 
+> rather
+> than dynamically based on the input geometry.
+
+WKTWriter should accept number of dimensions in the constructor,
+following JTS design.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From warmerdam at pobox.com  Tue May 25 14:55:26 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue May 25 14:55:29 2010
+Subject: [geos-devel] WKT / WKB Writer Output Dimension
+Message-ID: <4BFC1D1E.2020406@pobox.com>
+
+Folks,
+
+Currently the WKBWriter supports writing 2D (default) or 3D (by calling
+setOutputDimension(3)).  I would like to extend this to support setting
+the output dimension to a special value (-1 or 0 perhaps) indicating that
+the output dimension of the WKB should be determined from the input geometry.
+
+More importantly, I'd like to extend the WKTWriter to support writing 3D
+geometries, adding a setOutputDimension() method like on the WKBWriter.
+
+For the WKT writer I will support at least the new style WKT "POINT Z (1 2 3)"
+and possibly support the old approach "POINT (1 2 3)" as an option.  Some
+discussion of this will be at:
+
+   http://trac.osgeo.org/geos/ticket/292
+
+I hope by leaving the defaults as the current behavior the changes should
+be non-disruptive but with substantial capability.
+
+Any suggestions or objections?
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From warmerdam at pobox.com  Tue May 25 15:15:43 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue May 25 15:15:46 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+Message-ID: <4BFC21DF.2060709@pobox.com>
+
+Folks,
+
+Ticket 311:
+
+   http://trac.osgeo.org/geos/ticket/311
+
+raises some dimension related issues. One of them is that getDimension()
+currently returns 2/3 which is really the coordinate dimension, not the
+geometry dimension.  I'm not going to immediately address this issue, but
+I would like to add a getCoordinateDimension() method on the geometry which
+returns the dimension of the coordinates (2 or 3 or in the future 4).
+
+This will be done only in trunk, and reflected also in the C API.  Are there
+any objections to this?
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From mbdavis at refractions.net  Tue May 25 16:56:25 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Tue May 25 16:55:17 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <4BFC21DF.2060709@pobox.com>
+References: <4BFC21DF.2060709@pobox.com>
+Message-ID: <4BFC3979.3050202@refractions.net>
+
+In JTS Geometry.getDimension() follows the OGC semantics, and returns 
+the dimension of the geometry (not the coordinates).
+
+So this looks like a bug in GEOS.  IMO this should be fixed.
+
+Adding a getCoordinateDimension seems like a good idea.  What would this 
+return for coordinates which have XYM?  Would it work for empty geometries?
+
+Maybe strk is right, and this should be changed to an enum. Perhaps the 
+enum could be defined as
+
+XY = 2
+XYZ = 3
+XYZM = 4
+XYM = 5 ?
+
+Or perhaps there is already a convention covering this?
+
+Frank Warmerdam wrote:
+> Folks,
+>
+> Ticket 311:
+>
+>   http://trac.osgeo.org/geos/ticket/311
+>
+> raises some dimension related issues. One of them is that getDimension()
+> currently returns 2/3 which is really the coordinate dimension, not the
+> geometry dimension.  I'm not going to immediately address this issue, but
+> I would like to add a getCoordinateDimension() method on the geometry 
+> which
+> returns the dimension of the coordinates (2 or 3 or in the future 4).
+>
+> This will be done only in trunk, and reflected also in the C API.  Are 
+> there
+> any objections to this?
+>
+> Best regards,
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mbdavis at refractions.net  Tue May 25 17:08:34 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Tue May 25 17:07:53 2010
+Subject: [geos-devel] WKT / WKB Writer Output Dimension
+In-Reply-To: <4BFC1D1E.2020406@pobox.com>
+References: <4BFC1D1E.2020406@pobox.com>
+Message-ID: <4BFC3C52.7080403@refractions.net>
+
+FWIW, the semantics of JTS were intended to be that setting the output 
+dimension determines the *maximum* number of dimensions written.  If the 
+input geometry does not provide that many dimensions, the extra ones are 
+not written.  So this is somewhat equivalent to "letting the input 
+geometry determine the number of dimensions to output".
+
+The WKTWriter accepts this value in the constructor.  WKTWriter was 
+intended to be a lightweight immutable class, so this makes sense for 
+Java.  In the C world perhaps it's better to have an explicit setter.
+
+If you want to force always outputting a given number of dimensions, 
+would you want to support supplying a default value for missing 
+dimensions? Or just default to 0?
+
+Seems like a good idea to support outputting the new syntax, via a flag.
+
+Frank Warmerdam wrote:
+> Folks,
+>
+> Currently the WKBWriter supports writing 2D (default) or 3D (by calling
+> setOutputDimension(3)).  I would like to extend this to support setting
+> the output dimension to a special value (-1 or 0 perhaps) indicating that
+> the output dimension of the WKB should be determined from the input 
+> geometry.
+>
+> More importantly, I'd like to extend the WKTWriter to support writing 3D
+> geometries, adding a setOutputDimension() method like on the WKBWriter.
+>
+> For the WKT writer I will support at least the new style WKT "POINT Z 
+> (1 2 3)"
+> and possibly support the old approach "POINT (1 2 3)" as an option.  Some
+> discussion of this will be at:
+>
+>   http://trac.osgeo.org/geos/ticket/292
+>
+> I hope by leaving the defaults as the current behavior the changes should
+> be non-disruptive but with substantial capability.
+>
+> Any suggestions or objections?
+>
+> Best regards,
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From warmerdam at pobox.com  Tue May 25 21:27:16 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue May 25 21:27:19 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <4BFC3979.3050202@refractions.net>
+References: <4BFC21DF.2060709@pobox.com> <4BFC3979.3050202@refractions.net>
+Message-ID: <4BFC78F4.2080000@pobox.com>
+
+Martin Davis wrote:
+> In JTS Geometry.getDimension() follows the OGC semantics, and returns 
+> the dimension of the geometry (not the coordinates).
+> 
+> So this looks like a bug in GEOS.  IMO this should be fixed.
+
+Martin,
+
+I should clarify.  On deeper examination the only getDimension() that
+was not returning the geometry dimension was the C API wrapper one.  I'm
+not sure why. So the C++ is getDimension() is already right.
+
+I think we will have to change the values returned by the C API getDimension
+function to match C++ even though this introduces a modest risk of problems
+for applications using the undocumented current behavior.
+
+> Adding a getCoordinateDimension seems like a good idea.  What would this 
+> return for coordinates which have XYM?  Would it work for empty geometries?
+
+Well, GEOS does not yet have any M support.
+
+> Maybe strk is right, and this should be changed to an enum. Perhaps the 
+> enum could be defined as
+> 
+> XY = 2
+> XYZ = 3
+> XYZM = 4
+> XYM = 5 ?
+> 
+> Or perhaps there is already a convention covering this?
+
+My personal opinion is that the interpretation of the coordinate
+dimensions should not be directly mixed into getting the number
+of coordinate dimensions.  But I could be wrong headed on this.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From warmerdam at pobox.com  Wed May 26 00:41:53 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Wed May 26 00:41:58 2010
+Subject: [geos-devel] WKT / WKB Writer Output Dimension
+In-Reply-To: <4BFC3C52.7080403@refractions.net>
+References: <4BFC1D1E.2020406@pobox.com> <4BFC3C52.7080403@refractions.net>
+Message-ID: <4BFCA691.5020601@pobox.com>
+
+Martin Davis wrote:
+> FWIW, the semantics of JTS were intended to be that setting the output 
+> dimension determines the *maximum* number of dimensions written.  If the 
+> input geometry does not provide that many dimensions, the extra ones are 
+> not written.  So this is somewhat equivalent to "letting the input 
+> geometry determine the number of dimensions to output".
+
+Martin,
+
+Gotcha. I'll take the same approach in GEOS then.  I see now the
+WKBWriter is actually broken if output dimension is set to 3 and a
+2D geometry is passed in but that is just a bug.
+
+  http://trac.osgeo.org/geos/ticket/346
+
+I'll fix that while applying the suggest behavior.
+
+> The WKTWriter accepts this value in the constructor.  WKTWriter was 
+> intended to be a lightweight immutable class, so this makes sense for 
+> Java.  In the C world perhaps it's better to have an explicit setter.
+
+Output Dimension can be set in the constructor of the WKBWriter, but
+also via a later setter.  I'll try to following the WKBWriter pattern
+in the WKTWriter.
+
+> If you want to force always outputting a given number of dimensions, 
+> would you want to support supplying a default value for missing 
+> dimensions? Or just default to 0?
+
+Since I'm not going to force 3D output it doesn't matter, but if I had
+been going to do so I would have wanted to write 0.
+
+> Seems like a good idea to support outputting the new syntax, via a flag.
+
+Note that I'll default to writing the new syntax.  I'm not sure if I
+will support writing the old syntax or not via a flag.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From mateusz at loskot.net  Wed May 26 06:18:25 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed May 26 08:04:52 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <4BFC78F4.2080000@pobox.com>
+References: <4BFC21DF.2060709@pobox.com> <4BFC3979.3050202@refractions.net>
+	<4BFC78F4.2080000@pobox.com>
+Message-ID: <4BFCF571.3010406@loskot.net>
+
+On 26/05/10 02:27, Frank Warmerdam wrote:
+> Martin Davis wrote:
+>> Maybe strk is right, and this should be changed to an enum. Perhaps
+>> the enum could be defined as
+>>
+>> XY = 2
+>> XYZ = 3
+>> XYZM = 4
+>> XYM = 5 ?
+>>
+>> Or perhaps there is already a convention covering this?
+>
+> My personal opinion is that the interpretation of the coordinate
+> dimensions should not be directly mixed into getting the number
+> of coordinate dimensions. But I could be wrong headed on this.
+
+
+I second Frank's your opinion here.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From strk at keybit.net  Wed May 26 10:05:28 2010
+From: strk at keybit.net (strk)
+Date: Wed May 26 10:05:35 2010
+Subject: [geos-devel] WKT / WKB Writer Output Dimension
+In-Reply-To: <4BFCA691.5020601@pobox.com>
+References: <4BFC1D1E.2020406@pobox.com> <4BFC3C52.7080403@refractions.net>
+	<4BFCA691.5020601@pobox.com>
+Message-ID: <20100526140528.GR58744@keybit.net>
+
+On Wed, May 26, 2010 at 12:41:53AM -0400, Frank Warmerdam wrote:
+
+> Note that I'll default to writing the new syntax.  I'm not sure if I
+> will support writing the old syntax or not via a flag.
+
+If current WKTWriter didn't output old syntax it makes perfectly
+sense to start the support with new syntax.
+Keep up the good work !
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From strk at keybit.net  Wed May 26 10:10:51 2010
+From: strk at keybit.net (strk)
+Date: Wed May 26 10:10:56 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <4BFC3979.3050202@refractions.net>
+References: <4BFC21DF.2060709@pobox.com> <4BFC3979.3050202@refractions.net>
+Message-ID: <20100526141051.GS58744@keybit.net>
+
+On Tue, May 25, 2010 at 01:56:25PM -0700, Martin Davis wrote:
+
+> Maybe strk is right, and this should be changed to an enum. Perhaps the 
+> enum could be defined as
+> 
+> XY = 2
+> XYZ = 3
+> XYZM = 4
+> XYM = 5 ?
+
+My enum suggestion was for the spatial dimension, not coordinate dimension.
+PUNTUAL/LINEAL/AREAL kind of enum.
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From strk at keybit.net  Wed May 26 10:13:17 2010
+From: strk at keybit.net (strk)
+Date: Wed May 26 10:13:22 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <4BFC78F4.2080000@pobox.com>
+References: <4BFC21DF.2060709@pobox.com> <4BFC3979.3050202@refractions.net>
+	<4BFC78F4.2080000@pobox.com>
+Message-ID: <20100526141317.GT58744@keybit.net>
+
+On Tue, May 25, 2010 at 09:27:16PM -0400, Frank Warmerdam wrote:
+
+> I think we will have to change the values returned by the C API getDimension
+> function to match C++ even though this introduces a modest risk of problems
+> for applications using the undocumented current behavior.
+
+What's the problem with deprecating it and use a new, more explicit name ?
+
+ GEOSGeom_getSpatialDimension() maybe ?
+
+Note that there are other functions which I think should be deprecated
+so getDimension won't feel alone (the setOrdinate/getOrdinate ones
+in particular, as they use 1-based index and in an undocumented way).
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From mbdavis at refractions.net  Wed May 26 12:08:24 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed May 26 12:07:09 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <20100526141317.GT58744@keybit.net>
+References: <4BFC21DF.2060709@pobox.com>
+	<4BFC3979.3050202@refractions.net>	<4BFC78F4.2080000@pobox.com>
+	<20100526141317.GT58744@keybit.net>
+Message-ID: <4BFD4778.8070508@refractions.net>
+
+getDimension follows the OGC spec.  Seems to me it's better to simply 
+change it to match the spec and the C++ API.  This was clearly a bug in 
+the first place, no?
+
+strk wrote:
+> On Tue, May 25, 2010 at 09:27:16PM -0400, Frank Warmerdam wrote:
+>
+>   
+>> I think we will have to change the values returned by the C API getDimension
+>> function to match C++ even though this introduces a modest risk of problems
+>> for applications using the undocumented current behavior.
+>>     
+>
+> What's the problem with deprecating it and use a new, more explicit name ?
+>
+>  GEOSGeom_getSpatialDimension() maybe ?
+>
+> Note that there are other functions which I think should be deprecated
+> so getDimension won't feel alone (the setOrdinate/getOrdinate ones
+> in particular, as they use 1-based index and in an undocumented way).
+>
+> --strk; 
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From mbdavis at refractions.net  Wed May 26 12:19:52 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Wed May 26 12:18:38 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <20100526141051.GS58744@keybit.net>
+References: <4BFC21DF.2060709@pobox.com> <4BFC3979.3050202@refractions.net>
+	<20100526141051.GS58744@keybit.net>
+Message-ID: <4BFD4A28.7000701@refractions.net>
+
+I have to disagree.  Mathematically speaking the topological dimension 
+is a counting number (e.g. in the set {0,1,2,...}.  I don't see any 
+reason why this shouldn't be represented as an integer value (and plenty 
+of reasons why it should - e.g. ordering, comparison, etc)
+
+strk wrote:
+> On Tue, May 25, 2010 at 01:56:25PM -0700, Martin Davis wrote:
+>
+>   
+>> Maybe strk is right, and this should be changed to an enum. Perhaps the 
+>> enum could be defined as
+>>
+>> XY = 2
+>> XYZ = 3
+>> XYZM = 4
+>> XYM = 5 ?
+>>     
+>
+> My enum suggestion was for the spatial dimension, not coordinate dimension.
+> PUNTUAL/LINEAL/AREAL kind of enum.
+>
+> --strk; 
+>
+>   ()   Free GIS & Flash consultant/developer
+>   /\   http://strk.keybit.net/services.html
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+From strk at keybit.net  Thu May 27 03:00:50 2010
+From: strk at keybit.net (strk)
+Date: Thu May 27 03:01:04 2010
+Subject: [geos-devel] getCoordinateDimension() - ticket 311
+In-Reply-To: <4BFD4778.8070508@refractions.net>
+References: <4BFC21DF.2060709@pobox.com> <4BFC3979.3050202@refractions.net>
+	<4BFC78F4.2080000@pobox.com> <20100526141317.GT58744@keybit.net>
+	<4BFD4778.8070508@refractions.net>
+Message-ID: <20100527070050.GX58744@keybit.net>
+
+On Wed, May 26, 2010 at 09:08:24AM -0700, Martin Davis wrote:
+> getDimension follows the OGC spec.  Seems to me it's better to simply 
+> change it to match the spec and the C++ API.  This was clearly a bug in 
+> the first place, no?
+
+It was, yes.
+
+I'm just being extra-nice to exclude any possibility of backward
+compatibility, but I've to admit the probability of people using
+that function is very low.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://strk.keybit.net/services.html
+From warmerdam at pobox.com  Mon May 31 10:52:43 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon May 31 10:52:46 2010
+Subject: [geos-devel] Dimension Changes
+Message-ID: <4C03CD3B.9020801@pobox.com>
+
+Folks,
+
+I have completed the changes related to dimensions that were previously
+discussed (in trunk).  This includes tickets:
+
+  #311 - correcting GEOSGeom_getDimensions()
+         adding GEOSGeom_getCoordinateDimension()
+
+  #292 - WKTWriter 3D writing support
+         added _setOutputDimension() and _setOld3D() methods (also in C API)
+
+  #346 - Fix WKBWriter corrupt output if 2D geometry written when writer is
+         set with outputDimension of 3.
+
+  #347 - fixed WKTReader to support new style Z, M and ZM geometries.
+
+  #345 - Change CoordinateArraySequence to keep track of dimension.
+
+With these changes converting between WKT, WKB and geos::Geometry objects
+should preserve the coordinate dimension of geometries.  As mentioned earlier
+many actual geometry operations likely do not preserve the dimension in the
+result.  For instance the intersection of two 2D geometries may be
+unnecessarily marked as 3D.  I have no immediate plans to dig into this
+though I might if it impacts Ingres.
+
+The change to the behavior of the C API GEOSGeom_getDimensions() is a
+non-backward compatible change but as was the apparent consensus on the
+list I am doing it because it is a bug fix.   I don't anticipate many problems
+from it.  But it should be mentioned in release notes if we have such things.
+
+Now, at last I can set my editor back to sensible 8-wide tabs again.
+
+Best regards
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From warmerdam at pobox.com  Mon May 31 12:31:47 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon May 31 12:31:50 2010
+Subject: [geos-devel] Dimension Changes
+In-Reply-To: <4C03CD3B.9020801@pobox.com>
+References: <4C03CD3B.9020801@pobox.com>
+Message-ID: <4C03E473.8050900@pobox.com>
+
+Frank Warmerdam wrote:
+> I have no immediate plans to dig into this though I might if it 
+ > impacts Ingres.
+
+Folks,
+
+OK, I soon ran into lots of issues with 3D geometries with "nan"'s in them.
+I have filed ticket:
+
+   http://trac.osgeo.org/geos/ticket/348
+
+and applied several changes (as noted) in order to alleviate dimension related
+problems.  The primary downside is that my limited autodetection of geometry
+dimension (based on looking for NaN in Z) will make it difficult to preserve
+geometries that legimately have NaN for Z.   This isn't important to me, but
+it could be to others.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+
+From warmerdam at pobox.com  Mon May 31 23:29:00 2010
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon May 31 23:29:03 2010
+Subject: [geos-devel] WKTReader requiring uppercase keywords? 
+Message-ID: <4C047E7C.5040204@pobox.com>
+
+Folks,
+
+Does anyone know why the WKTReader requires the WKT keywords like "POINT" to
+be in upper case?   This seems needlessly pendantic, and I'd like to relax
+it so that mixed and lower case keywords work as well.  This is convenient
+for me when hand preparing WKT for SQL operations.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Programmer for Rent
+

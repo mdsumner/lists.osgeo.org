@@ -1,0 +1,2548 @@
+From dron at a...  Thu Aug  1 08:00:14 2002
+From: dron at a... (Andrey Kiselev)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: Calibration in GDAL
+In-Reply-To: <002d01c238f6$35ab6350$700201c0@M...>
+References: <20020731190209.6c67118c.dron@a...>
+  <3D4800F4.9000504@p...>
+  <002d01c238f6$35ab6350$700201c0@M...>
+Message-ID: <20020801160014.3da1c62d.dron@a...>
+
+Hi, Paul,
+
+> I need a little education here. What is the use of the so-called
+> calibrated raster? (I have always associated calibration to instruments).
+
+And you are absolutely right.
+
+GDAL supports importing data from the variety of sources, in particular from
+the remote sensing data storage file formats. These data obtained by the
+space or airborne based scanners and may be available for users with
+different levels of processing. Information about calibration of the orbital
+instruments (these coefficients determined dinamically on board) is received
+with the data and stored in the output files passed to users. So for
+satellite datasets we need a technique for extracting and applying
+calibration information. Without calibration such data are not very useful
+(if not to say more) and may be used as pretty pictures only (in case of
+uncalibrated ASTER Level 1A data it is even not very pretty).
+
+Even if you have data with high level of processing, like ASTER Level 1B and
+Level 3 products, you still need to apply some function to actual values.
+They are stored as integers and you should make floats from them. Of course
+units of measurement also should be supplied with calibration function.
+
+Calibration procedure is essential for any subsequent quantitative data
+processing and exploration.
+
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone: +7 812 2307834 ICQ UIN 26871517
+Registered Linux user number 169907
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 35 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020801/7c43666c/attachment.bin
+From paul at t...  Thu Aug  1 08:01:15 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: Calibration in GDAL
+References: <20020731190209.6c67118c.dron@a...><3D4800F4.9000504@p...><002d01c238f6$35ab6350$700201c0@M...> <20020801160014.3da1c62d.dron@a...>
+Message-ID: <000b01c23953$2518b440$700201c0@nsepaul>
+
+Hello Andrey,
+Thanks so much for taken the time to explain this well to me.
+
+Best regards,
+Paul.
+
+----- Original Message ----- 
+From: "Andrey Kiselev" <dron@a...>
+To: <gdal-dev@yahoogroups.com>
+Sent: Thursday, August 01, 2002 9:00 PM
+Subject: Re: [gdal-dev] Re: Calibration in GDAL
+
+
+
+
+
+From dron at a...  Thu Aug  1 11:01:42 2002
+From: dron at a... (Andrey Kiselev)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: Calibration in GDAL
+In-Reply-To: <3D4800F4.9000504@p...>
+References: <20020731190209.6c67118c.dron@a...>
+  <3D4800F4.9000504@p...>
+Message-ID: <20020801190142.50ef2023.dron@a...>
+
+Frank,
+
+Now I'm suggest the next scheme for implementing calibration.
+
+class GDALCalibrationModel
+{
+public:
+
+GDALCalibrationModel( char **papszModelDescription );
+GDALCalibrationModel( );
+CreateFromDescription( char **papszModelDescription );
+~GDALCalibrationModel( );
+double GetCalibratedValue( int iXPos, int iYPos, double dfValue );
+CPLErr DumpToFile( const char * pszFilename );
+CPLErr ReadFromFile( const char * pszFilename ); /* ??? */
+}
+
+Class instances will be initialized by the string list like this:
+
+"METHOD=<method for applying calibration>" [PIXEL|ROW|COLUMN]
+"FUNCTION=<type of calibration function>" [POLY|PICEWISE_POLY|LUT]
+"COEFFS0=<list of the zero-order coefficients>" [number of coefficients
+depends from value of the METHOD field]
+"COEFFS1=<list of the first-order coefficients>"
+...
+
+Only "METHOD" and "FUNCTION" keys are obligatory, number and meaning of
+other parameters depends from "FUNCTION" field. During the initialization
+the new metadata domain (GDAL_CALIBRATION) will be created and filled by the
+corresponding values.
+
+Does this conforms with your vision of problem?
+
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone: +7 812 2307834 ICQ UIN 26871517
+Registered Linux user number 169907
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 35 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020801/0299fb40/attachment.bin
+From warmerdam at p...  Thu Aug  1 11:36:16 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: Calibration in GDAL
+References: <20020731190209.6c67118c.dron@a...>	<3D4800F4.9000504@p...> <20020801190142.50ef2023.dron@a...>
+Message-ID: <3D495570.1070402@p...>
+
+Andrey Kiselev wrote:
+> Frank,
+> 
+> Now I'm suggest the next scheme for implementing calibration.
+> 
+> class GDALCalibrationModel
+> {
+> public:
+> 
+> GDALCalibrationModel( char **papszModelDescription );
+> GDALCalibrationModel( );
+> CreateFromDescription( char **papszModelDescription );
+> ~GDALCalibrationModel( );
+> double GetCalibratedValue( int iXPos, int iYPos, double dfValue );
+> CPLErr DumpToFile( const char * pszFilename );
+> CPLErr ReadFromFile( const char * pszFilename ); /* ??? */
+> }
+> 
+> Class instances will be initialized by the string list like this:
+> 
+> "METHOD=<method for applying calibration>" [PIXEL|ROW|COLUMN]
+> "FUNCTION=<type of calibration function>" [POLY|PICEWISE_POLY|LUT]
+> "COEFFS0=<list of the zero-order coefficients>" [number of coefficients
+> depends from value of the METHOD field]
+> "COEFFS1=<list of the first-order coefficients>"
+> ...
+
+
+> Only "METHOD" and "FUNCTION" keys are obligatory, number and meaning of
+> other parameters depends from "FUNCTION" field. 
+
+Andrey,
+
+this all sounds right on.
+
+> During the initialization
+> the new metadata domain (GDAL_CALIBRATION) will be created and filled by the
+> corresponding values.
+
+File formats supporting calibration information will respond to the
+GetMetadata() call for the GDAL_CALIBRATION domain. This is usually
+done by overriding GetMetadata() since the internal metadata maintaining
+code only supports the default domain ... perhaps we should change this.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From dron at a...  Thu Aug  1 12:11:03 2002
+From: dron at a... (Andrey Kiselev)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: Calibration in GDAL
+In-Reply-To: <3D495570.1070402@p...>
+References: <20020731190209.6c67118c.dron@a...>
+  <3D4800F4.9000504@p...>
+  <20020801190142.50ef2023.dron@a...>
+  <3D495570.1070402@p...>
+Message-ID: <20020801201103.509d5ba4.dron@a...>
+
+> this all sounds right on.
+
+Well, I'm start to write code.
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone: +7 812 2307834 ICQ UIN 26871517
+Registered Linux user number 169907
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 35 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020801/311c2a51/attachment.bin
+From warmerdam at p...  Tue Aug  6 13:52:12 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: -projwin
+Message-ID: <3D500CCC.6080104@p...>
+
+Matt,
+
+As requested I have committed a change to gdal_translate adding the -projwin switch.
+The arguments are ulx uly lrx lry. Note that the program just compute a -srcwin
+argument and uses that. There is no fancy implicit resampling happening and
+to make rounding explicit I print out the srcwin selected.
+
+eg.
+
+warmerda@gdal[451]% gdal_translate -projwin 440780 3751260 441080 3750940 utm.tif out.tif
+Size is 512, 512
+Computed -srcin 1 1 5 5 from projected window.
+0.20.40.60.80.100 - done.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From bdodson at e...  Fri Aug  9 18:54:43 2002
+From: bdodson at e... (bruce_esrican)
+Date: Wed Nov 21 11:49:17 2007
+Subject: On Proj4...
+In-Reply-To: <000501c20706$3b0189f0$700201c0@M...>
+Message-ID: <aj1h7j+cs0q@eGroups.com>
+
+Hi Paul,
+
+I didn't see any followup on this. Has the discussion moved to 
+another forum? I'm interested in a version of PROJ.4 without all 
+those macros confusing the issue. However after you're done you'll 
+probably see opportunities to refactor the common boilerplate code, 
+without resorting to macros. For example, in a C++ implementation 
+the boilerplate could make its way into a base class.
+
+strtod shouldn't be a problem since it is part of most C libraries 
+and is probably not used. If it IS used (e.g. to ensure portability 
+through a consistent implementation), it can be replaced easily with 
+another implementation based on sscanf.
+
+Regards,
+Bruce
+
+
+--- In gdal-dev@y..., "Paul Selormey" <paul@t...> wrote:
+> Hello All,
+> As I have stated earlier, I am working to remove all the macros 
+style codes
+> to
+> a more readable version of the projection library.
+> 
+> With the exception of the PROJ_HEAD in the pj_list.h file, I have 
+completed
+> the
+> removal from all other files. I am not removing the constants.
+> 
+> I have found two problems and need some help...
+> 
+> 1. One file strtod.c is a GPL code. Is the Proj4 therefore not 
+under GPL?
+> and other
+> libraries using it?
+> 
+> 2. One file biveval.c still contains one pre-ANSI C function.
+> 
+> /* basic bivariate Chebyshev evaluation */
+> static double ceval(C, n) struct PW_COEF *C;
+> {
+> ....
+> }
+> 
+> what is the right ANSI version of this function. I could not get 
+this right
+> (it seems
+> the "n" is an integer!) :(
+> 
+> I will post the final codes for all to evaluate and then start work 
+on
+> porting to C++.
+> I know many will still prefer this
+> 
+> --------------------------------------------------------------------
+--------
+> -----------
+> ENTRY0(leac)
+> P->phi2 = pj_param(P->params, "rlat_1").f;
+> P->phi1 = pj_param(P->params, "bsouth").i ? - HALFPI: HALFPI;
+> ENDENTRY(setup(P))
+> --------------------------------------------------------------------
+--------
+> ----------
+> 
+> to this:
+> 
+> --------------------------------------------------------------------
+--------
+> ---------
+> const char * const pj_s_leac = des_leac;
+> 
+> PJ *pj_leac(PJ *P)
+> {
+> if (!P)
+> {
+> if( (P = pj_malloc(sizeof(PJ))) != ((void *)0))
+> {
+> P->pfree = freeup;
+> P->fwd = 0;
+> P->inv = 0;
+> P->spc = 0;
+> P->descr = des_leac;
+> }
+> return P;
+> }
+> else
+> {
+> P->phi2 = pj_param(P->params, "rlat_1").f;
+> P->phi1 = pj_param(P->params, "bsouth").i ? - HALFPI: HALFPI;
+> }
+> return (setup(P));
+> }
+> --------------------------------------------------------------------
+--------
+> --------
+> 
+> However, the macro-free version will make it earsier to port the 
+library to
+> C++/Java/C# etc
+> and that is my goal.
+> 
+> Best regards,
+> Paul.
+
+
+
+From bdodson at e...  Fri Aug  9 18:58:55 2002
+From: bdodson at e... (bruce_esrican)
+Date: Wed Nov 21 11:49:17 2007
+Subject: proj.4 on topic or off topic?
+Message-ID: <aj1hff+rlfm@eGroups.com>
+
+I meant that last post to go directly to Paul, not to the list. My 
+apologies if proj.4 is off-topic here... bruce
+
+
+
+From paul at t...  Fri Aug  9 21:24:59 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] proj.4 on topic or off topic?
+References: <aj1hff+rlfm@eGroups.com>
+Message-ID: <001301c2400c$c06b2df0$700201c0@nsepaul>
+
+Hello Bruce,
+No problem, I will response to you directly.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "bruce_esrican" <bdodson@e...>
+To: <gdal-dev@yahoogroups.com>
+Sent: Saturday, August 10, 2002 7:58 AM
+Subject: [gdal-dev] proj.4 on topic or off topic?
+
+
+>
+> I meant that last post to go directly to Paul, not to the list. My
+> apologies if proj.4 is off-topic here... bruce
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+>
+>
+
+
+
+From tklistaddr at k...  Mon Aug 12 14:36:38 2002
+From: tklistaddr at k... (Timothy H. Keitt)
+Date: Wed Nov 21 11:49:17 2007
+Subject: fast-l7a format
+Message-ID: <1029177398.18156.31.camel@peregrine>
+
+Anyone have a driver for fast-l7a format files?
+
+Tim
+
+
+
+From dron at a...  Mon Aug 12 16:40:26 2002
+From: dron at a... (Andrey Kiselev)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] fast-l7a format
+In-Reply-To: <1029177398.18156.31.camel@peregrine>
+References: <1029177398.18156.31.camel@peregrine>
+Message-ID: <20020812204026.GC17718@a...>
+
+On Mon, Aug 12, 2002 at 02:36:38PM -0400, Timothy H. Keitt wrote:
+> Anyone have a driver for fast-l7a format files?
+
+Work in progress. Will be available soon.
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone: +7 812 2307834 ICQ UIN 26871517
+Registered Linux user number 169907
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 35 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020813/e0d10531/attachment.bin
+From tklistaddr at k...  Mon Aug 12 16:45:09 2002
+From: tklistaddr at k... (Timothy H. Keitt)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] fast-l7a format
+In-Reply-To: <20020812204026.GC17718@a...>
+References: <1029177398.18156.31.camel@peregrine> 
+  <20020812204026.GC17718@a...>
+Message-ID: <1029185109.18775.1.camel@peregrine>
+
+Super. Let me know if I can help with testing.
+
+Cheers,
+Tim
+
+On Mon, 2002-08-12 at 16:40, Andrey Kiselev wrote:
+> On Mon, Aug 12, 2002 at 02:36:38PM -0400, Timothy H. Keitt wrote:
+> > Anyone have a driver for fast-l7a format files?
+> 
+> Work in progress. Will be available soon.
+> 
+> -- 
+> Andrey V. Kiselev
+> Scientific Research Center for Ecological Safety Russian Academy of Sciences
+> Office phone: +7 812 2307834 ICQ UIN 26871517
+> Registered Linux user number 169907
+> 
+
+
+
+From dron at a...  Thu Aug 15 09:15:00 2002
+From: dron at a... (Andrey Kiselev)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [ANNOUNCE]: EOSAT Fast format support in GDAL
+Message-ID: <20020815131500.GA16570@a...>
+
+Hello, folks,
+
+EOSAT FAST-L7A supported by GDAL now (don't forget to fetch development
+tree from CVS repository).
+
+FAST-L7A consists form several files: big ones with image data and three
+small files with administrative information. You should give to driver one
+of the administrative files (named as L7fppprrr_rrrYYYYMMDD_HPN.FST,
+L7fppprrr_rrrYYYYMMDD_HRF.FST or L7fppprrr_rrrYYYYMMDD_HTM.FST). All raw
+images corresponded to their administrative files will be imported as
+GDAL bands.
+
+Best regards,
+Andrey
+
+-- 
+Andrey V. Kiselev
+Scientific Research Center for Ecological Safety Russian Academy of Sciences
+Office phone: +7 812 2307834 ICQ UIN 26871517
+Registered Linux user number 169907
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/pgp-signature
+Size: 35 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020815/f92076ef/attachment.bin
+From alessandro_amici at t...  Mon Aug 19 13:02:55 2002
+From: alessandro_amici at t... (gdal_dev_reader)
+Date: Wed Nov 21 11:49:17 2007
+Subject: any reason for a linked statically gdalinfo?
+Message-ID: <ajr8bv+9749@eGroups.com>
+
+Frank,
+
+in the apps/GNUmakefile i find:
+
+gdalinfo$(EXE): gdalinfo.o $(DEP_LIBS)
+$(CXX) $(LNK_FLAGS) gdalinfo.o $(XTRAOBJ) $(GDAL_LIBS) $(LIBS) \
+-o gdalinfo$(EXE)
+
+gdal_translate$(EXE): gdal_translate.o $(DEP_LIBS)
+$(CXX) $(LNK_FLAGS) gdal_translate.o $(XTRAOBJ) \
+$(CONFIG_LIBS) -o gdal_translate$(EXE)
+
+is there any special reason for gdalinfo to be always linked
+statically? all other apps seem to be linked dinamically when
+possible.
+
+i build libgdal.1.1.so as a shared library and dinamic link saves
+some disk space with no apparent (to me:)) loss:
+gdalinfo.static is 1139844 bytes
+gdalinfo.dinamic is 15896 bytes
+
+cheers,
+alessandro
+
+
+
+
+
+
+From warmerdam at p...  Mon Aug 19 13:01:34 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] any reason for a linked statically gdalinfo?
+References: <ajr8bv+9749@eGroups.com>
+Message-ID: <3D61246E.6000808@p...>
+
+gdal_dev_reader wrote:
+> 
+> Frank,
+> 
+> in the apps/GNUmakefile i find:
+> 
+> gdalinfo$(EXE): gdalinfo.o $(DEP_LIBS)
+> $(CXX) $(LNK_FLAGS) gdalinfo.o $(XTRAOBJ) $(GDAL_LIBS) $(LIBS) \
+> -o gdalinfo$(EXE)
+> 
+> gdal_translate$(EXE): gdal_translate.o $(DEP_LIBS)
+> $(CXX) $(LNK_FLAGS) gdal_translate.o $(XTRAOBJ) \
+> $(CONFIG_LIBS) -o gdal_translate$(EXE)
+> 
+> is there any special reason for gdalinfo to be always linked
+> statically? all other apps seem to be linked dinamically when
+> possible.
+> 
+> i build libgdal.1.1.so as a shared library and dinamic link saves
+> some disk space with no apparent (to me:)) loss:
+> gdalinfo.static is 1139844 bytes
+> gdalinfo.dinamic is 15896 bytes
+> 
+> cheers,
+> alessandro
+
+Alessandro,
+
+There is no compelling reason for gdalinfo to be linked statically. I
+do that just so that I can verify that static linking still worked as expected.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From alessandro_amici at t...  Tue Aug 20 05:30:43 2002
+From: alessandro_amici at t... (gdal_dev_reader)
+Date: Wed Nov 21 11:49:17 2007
+Subject: any reason for a linked statically gdalinfo?
+In-Reply-To: <3D61246E.6000808@p...>
+Message-ID: <ajt283+p82u@eGroups.com>
+
+
+Frank,
+
+> There is no compelling reason for gdalinfo to be linked statically. I
+> do that just so that I can verify that static linking still worked as expected.
+
+from a packaging perspective 1Mb less is an appelling feature :)
+
+it wuold be nice if you could move the static-link test to a 
+non-installed binary. gdal2raw and gdalindex look like candidates
+(actually, i'd like to see the dinamically linked gdal2raw in the
+default install, any chache?), test1 would be the perfect one,
+but it looks like a stale rule...
+
+cheers,
+alessandro
+
+
+
+
+From bgmilne at c...  Tue Aug 20 05:44:01 2002
+From: bgmilne at c... (Buchan Milne)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: any reason for a linked statically gdalinfo?
+References: <ajt283+p82u@eGroups.com>
+Message-ID: <3D620F61.10101@c...>
+
+gdal_dev_reader wrote:
+
+> Frank,
+> 
+> 
+>>There is no compelling reason for gdalinfo to be linked statically. I
+>>do that just so that I can verify that static linking still worked as expected.
+> 
+> 
+> from a packaging perspective 1Mb less is an appelling feature :)
+> 
+> it wuold be nice if you could move the static-link test to a 
+> non-installed binary. gdal2raw and gdalindex look like candidates
+> (actually, i'd like to see the dinamically linked gdal2raw in the
+> default install, any chache?), test1 would be the perfect one,
+> but it looks like a stale rule...
+> 
+
+How about an alternative rule (make check-static) instead.
+
+I have put a gdal package into Mandrake, using the default make rule, 
+halving it's size is appealing ...
+
+Btw, any time frame for SONAME support?
+
+Buchan
+
+-- 
+|----------------Registered Linux User #182071-----------------|
+Buchan Milne Mechanical Engineer, Network Manager
+Cellphone * Work +27 82 472 2231 * +27 21 8828820x121
+Stellenbosch Automotive Engineering http://www.cae.co.za
+GPG Key http://ranger.dnsalias.com/bgmilne.asc
+1024D/60D204A7 2919 E232 5610 A038 87B1 72D6 AC92 BA50 60D2 04A7
+
+
+
+From alessandro_amici at t...  Tue Aug 20 10:13:26 2002
+From: alessandro_amici at t... (gdal_dev_reader)
+Date: Wed Nov 21 11:49:17 2007
+Subject: any reason for a linked statically gdalinfo?
+In-Reply-To: <3D620F61.10101@c...>
+Message-ID: <ajtiq6+6l6h@eGroups.com>
+
+Buchan,
+
+> I have put a gdal package into Mandrake, using the default make rule, 
+> halving it's size is appealing ...
+
+here are the sizes i have :) (with hand-make dynamic link on debian):
+-rw-r--r-- 1 amici amici 1308560 Aug 20 15:39 gdal-bin_1.1.7-1.1_i386.deb
+-rw-r--r-- 1 amici amici 1605506 Aug 20 15:39 libgdal0-dev_1.1.7-1.1_i386.deb
+-rw-r--r-- 1 amici amici 1077956 Aug 20 15:39 libgdal0_1.1.7-1.1_i386.deb
+-rw-r--r-- 1 amici amici 47504 Aug 20 15:39 python-gdal_1.1.7-1.1_i386.deb
+the four packages contain anything produced by make install plus
+some redundancy in administrative files.
+
+the ogr library is staic only.
+
+> 
+> Btw, any time frame for SONAME support?
+> 
+
+Frank,
+
+you allowed people to ping you on that starting on mid july... :)
+
+if you agree i can submit a patch for GNUmakefile and
+GDALmake.opts.in that enable SONAME support for GNU binutils.
+what i'm not able to do is to twist the configure script to
+identify a GNU target, final touch needs to be yours ;)
+
+cheers,
+alessandro
+
+
+
+
+From shimitz at u...  Tue Aug 20 12:01:18 2002
+From: shimitz at u... (April Shimitz)
+Date: Wed Nov 21 11:49:17 2007
+Subject: shared datasets
+Message-ID: <OF91D9EA95.933B0E7A-ON86256C1A.006781A2@c...>
+
+Frank,
+
+I have a few changes for the GDAL core. First is just a minor bug in the
+GDALDataset Create method. The return of GetDescription() is getting
+checked at line 185 against NULL, but GetDescription returns the
+description string or an empty string. I think Create should be comparing
+the return to an empty string, not NULL.
+
+For LAS, we have implemented a wrapper layer around the GDAL calls to make
+our transition from our old image I/O library to the GDAL library a
+smoother process. In the wrapper layer we implemented some routines to
+track the open datasets so files don't get opened multiple times. I just
+found a bug in one of those routines and was trying to fix it when I came
+across your GDALOpenShared function. The dataset sharing you've implemented
+does has mostly the same functionality we had implemented in our wrapper
+layer, so I decided to just use that instead. There were a couple glitches
+I found when trying to use it though - functionality I need but couldn't
+find implemented anywhere (I could have just missed it if it is already).
+First, I need some way to find out what datasets are currently open quicker
+than dumping the datasets to a file (GDALDumpOpenDatasets) then parsing the
+file to retrieve the datasets. So I implemented a public version of the
+GetOpenDatasets routine (GDALGetOpenDatasets). The other thing was that I
+needed the ability to determine the access method used to open the file
+described by a given dataset. That was not available publicly either, so I
+implemented a GDALGetAccess routine. I have attached a single patch file
+containing these modifications.
+
+Let me know when (and if) these routines get incorporated into the GDAL
+core and if you make any changes to them.
+
+Thanks,
+April Shimitz
+
+(See attached file: gdalcore.patch)
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: application/octet-stream
+Size: 151 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020820/0cc904b7/attachment.obj
+From bgmilne at c...  Tue Aug 20 13:27:55 2002
+From: bgmilne at c... (Buchan Milne)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Re: any reason for a linked statically gdalinfo?
+References: <ajtiq6+6l6h@eGroups.com>
+Message-ID: <3D627C1B.4090603@c...>
+
+gdal_dev_reader wrote:
+
+>>I have put a gdal package into Mandrake, using the default make rule, 
+>>halving it's size is appealing ...
+> 
+> 
+> here are the sizes i have :) (with hand-make dynamic link on debian):
+> -rw-r--r-- 1 amici amici 1308560 Aug 20 15:39 gdal-bin_1.1.7-1.1_i386.deb
+> -rw-r--r-- 1 amici amici 1605506 Aug 20 15:39 libgdal0-dev_1.1.7-1.1_i386.deb
+> -rw-r--r-- 1 amici amici 1077956 Aug 20 15:39 libgdal0_1.1.7-1.1_i386.deb
+> -rw-r--r-- 1 amici amici 47504 Aug 20 15:39 python-gdal_1.1.7-1.1_i386.deb
+> the four packages contain anything produced by make install plus
+> some redundancy in administrative files.
+> 
+
+OK, I have this in cooker contrib at the moment:
+[bgmilne@printserver RPMS]$ ls *gdal* -l
+-rw-r--r-- 1 bgmilne adm 1775889 Aug 16 18:45 
+gdal-1.1.7-2mdk.i586.rpm
+-rw-r--r-- 1 bgmilne adm 41789 Aug 16 18:45 
+gdal-python-1.1.7-2mdk.i586.rpm
+-rw-r--r-- 1 bgmilne adm 817070 Aug 16 18:45 
+libgdal0-1.1.7-2mdk.i586.rpm
+-rw-r--r-- 1 bgmilne adm 1501677 Aug 16 18:45 
+libgdal0-devel-1.1.7-2mdk.i586.rpm
+
+At least we settled on the same major number, what do you propose about 
+gdal-python? (In terms of keeping package names consistent?) Do you want 
+to change or should I?
+
+
+> the ogr library is staic only.
+> 
+> 
+>>Btw, any time frame for SONAME support?
+>>
+> 
+> 
+> Frank,
+> 
+> you allowed people to ping you on that starting on mid july... :)
+> 
+> if you agree i can submit a patch for GNUmakefile and
+> GDALmake.opts.in that enable SONAME support for GNU binutils.
+> what i'm not able to do is to twist the configure script to
+> identify a GNU target, final touch needs to be yours ;)
+
+Could you mail the patch to me or the list?
+
+But that's going to mean I have to rebuild grass .... :-( Maybe I should 
+leave it till after 9.0 is out, or maybe I shouldn't let un-SONAMED libs 
+into a stable distro - sounds like I'll be rebuilding grass.
+
+Buchan
+
+
+-- 
+|----------------Registered Linux User #182071-----------------|
+Buchan Milne Mechanical Engineer, Network Manager
+Cellphone * Work +27 82 472 2231 * +27 21 8828820x121
+Stellenbosch Automotive Engineering http://www.cae.co.za
+GPG Key http://ranger.dnsalias.com/bgmilne.asc
+1024D/60D204A7 2919 E232 5610 A038 87B1 72D6 AC92 BA50 60D2 04A7
+
+
+
+From gdal-dev at yahoogroups.com  Wed Aug 21 07:38:58 2002
+From: gdal-dev at yahoogroups.com (gdal-dev@yahoogroups.com)
+Date: Wed Nov 21 11:49:17 2007
+Subject: New file uploaded to gdal-dev 
+Message-ID: <1029929938.51260.46169.w59@yahoogroups.com>
+
+
+Hello,
+
+This email message is a notification to let you know that
+a file has been uploaded to the Files area of the gdal-dev 
+group.
+
+File : /GDALTestViewer.zip 
+Uploaded by : pegroups <paul@t...> 
+Description : A simple MFC (Windows) test GDAL image viewer. 
+
+You can access this file at the URL
+
+http://groups.yahoo.com/group/gdal-dev/files/GDALTestViewer.zip 
+
+To learn more about file sharing for your group, please visit
+
+http://help.yahoo.com/help/us/groups/files
+
+Regards,
+
+pegroups <paul@t...>
+
+
+
+
+
+
+
+From paul at t...  Wed Aug 21 07:56:36 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] New file uploaded to gdal-dev
+References: <1029929938.51260.46169.w59@yahoogroups.com>
+Message-ID: <000901c24909$d0362d60$700201c0@M...>
+
+Hello All,
+This is a simple test application I built to test the GDAL library.
+Unfortunately, it is Windows only sample - I am currently a Windows
+developer :-(.
+
+GDAL, even though being an image library, is still without GUI test samples.
+I have started to build some test samples to demonstrate the various parts
+and for debugging the library.
+
+This one is build with ideas from the VTP library. Unfortunately, the use of
+the GDAL in VTP limits its size since the whole image file is loaded into
+the memory, instead of reading only the required parts. I will be working on
+a Windows wrapper for Windows applications as I study the GDAL and
+test it.
+
+In this sample
+1. Reading and displaying image files using GDAL
+2. Scrolling
+3. Zooming
+4. Simple printing and print preview - MFC :-)
+
+Note that this sample contains the binaries too (hence the large size), but
+not
+the GDAL library, which must be extracted to the Gdal subfolder to compile
+it.
+The binaries are in the Output subfolder.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: <gdal-dev@yahoogroups.com>
+To: <gdal-dev@yahoogroups.com>
+Sent: Wednesday, August 21, 2002 8:38 PM
+Subject: [gdal-dev] New file uploaded to gdal-dev
+
+
+>
+> Hello,
+>
+> This email message is a notification to let you know that
+> a file has been uploaded to the Files area of the gdal-dev
+> group.
+>
+> File : /GDALTestViewer.zip
+> Uploaded by : pegroups <paul@t...>
+> Description : A simple MFC (Windows) test GDAL image viewer.
+>
+> You can access this file at the URL
+>
+> http://groups.yahoo.com/group/gdal-dev/files/GDALTestViewer.zip
+>
+> To learn more about file sharing for your group, please visit
+>
+> http://help.yahoo.com/help/us/groups/files
+>
+> Regards,
+>
+> pegroups <paul@t...>
+>
+>
+>
+>
+>
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From alessandro_amici at t...  Wed Aug 21 08:38:34 2002
+From: alessandro_amici at t... (gdal_dev_reader)
+Date: Wed Nov 21 11:49:17 2007
+Subject: any reason for a linked statically gdalinfo?
+In-Reply-To: <3D627C1B.4090603@c...>
+Message-ID: <ak01ka+enir@eGroups.com>
+
+
+hi,
+
+> > -rw-r--r-- 1 amici amici 1308560 Aug 20 15:39 gdal-bin_1.1.7-1.1_i386.deb
+> > -rw-r--r-- 1 amici amici 1605506 Aug 20 15:39 libgdal0-dev_1.1.7-1.1_i386.deb
+> > -rw-r--r-- 1 amici amici 1077956 Aug 20 15:39 libgdal0_1.1.7-1.1_i386.deb
+> > -rw-r--r-- 1 amici amici 47504 Aug 20 15:39 python-gdal_1.1.7-1.1_i386.deb
+
+i forgot to mention libgdal0-dev contains all the html :)
+
+> -rw-r--r-- 1 bgmilne adm 1775889 Aug 16 18:45 gdal-1.1.7-2mdk.i586.rpm
+> -rw-r--r-- 1 bgmilne adm 41789 Aug 16 18:45 gdal-python-1.1.7-2mdk.i586.rpm
+> -rw-r--r-- 1 bgmilne adm 817070 Aug 16 18:45 libgdal0-1.1.7-2mdk.i586.rpm
+> -rw-r--r-- 1 bgmilne adm 1501677 Aug 16 18:45 libgdal0-devel-1.1.7-2mdk.i586.rpm
+> 
+> At least we settled on the same major number, what do you propose about 
+> gdal-python? (In terms of keeping package names consistent?) Do you want 
+> to change or should I?
+> 
+
+mm... packages names are the least 'free' thing in debian ;),
+i think i have almost no other choice than what i used.
+if you could change gdal-python -> python-gdal wuold be nice,
+but it's up to you (don't know mandrake name policy).
+moreover, i prefer gdal-bin to gdal because it is not a real
+application but a collection of binaries to access the library
+interface.
+once more i'd prefer you to change the name, but you and paul
+may very well override me :)
+
+> 
+> Could you mail the patch to me or the list?
+>
+
+after lunch (i have to figure out the best way to post patches,
+any hint?)
+
+cheers,
+alessandro
+
+
+
+
+From alessandro_amici at t...  Wed Aug 21 10:10:43 2002
+From: alessandro_amici at t... (gdal_dev_reader)
+Date: Wed Nov 21 11:49:17 2007
+Subject: improved debian package for gdal uploaded
+Message-ID: <ak0713+qjdj@eGroups.com>
+
+
+hi all,
+
+i uploaded the debian packaging sources and i386 binaries to:
+http://groups.yahoo.com/group/gdal-dev/files/debian/
+
+(they are not apt-gettable, but i have no web space :( )
+
+this is a heavy restructure of Paul Baker package, based on my
+own local version. i sent him all the new stuff, but he will 
+be busy until the end of the week. once (if!) he accept them
+he has an apt-gettable archive.
+
+see /usr/share/doc/libgdal0/changelog for a breaf review of features.
+note that libgdal.1.1.so has soname libgdal.so.0
+
+note2: i'd prefer not to rename libgdal.1.1.so to something more standard
+before Frank. but it might be easily done.
+
+packages have been tested on i386 and build correctly on alpha.
+
+comments are welcome,
+alessandro
+
+
+
+
+From tklistaddr at k...  Wed Aug 21 10:21:59 2002
+From: tklistaddr at k... (Timothy H. Keitt)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] improved debian package for gdal uploaded
+In-Reply-To: <ak0713+qjdj@eGroups.com>
+References: <ak0713+qjdj@eGroups.com>
+Message-ID: <1029939719.7161.1.camel@keittlab-6>
+
+Super. Thanks so much. Are these the latest CVS sources? (I'm hoping to
+try the fast-l7a driver.)
+
+Cheers,
+Tim
+
+On Wed, 2002-08-21 at 10:10, gdal_dev_reader wrote:
+> 
+> 
+> hi all,
+> 
+> i uploaded the debian packaging sources and i386 binaries to:
+> http://groups.yahoo.com/group/gdal-dev/files/debian/
+> 
+> (they are not apt-gettable, but i have no web space :( )
+> 
+> this is a heavy restructure of Paul Baker package, based on my
+> own local version. i sent him all the new stuff, but he will 
+> be busy until the end of the week. once (if!) he accept them
+> he has an apt-gettable archive.
+> 
+> see /usr/share/doc/libgdal0/changelog for a breaf review of features.
+> note that libgdal.1.1.so has soname libgdal.so.0
+> 
+> note2: i'd prefer not to rename libgdal.1.1.so to something more standard
+> before Frank. but it might be easily done.
+> 
+> packages have been tested on i386 and build correctly on alpha.
+> 
+> comments are welcome,
+> alessandro
+> 
+> 
+> 
+> 
+> 
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/ 
+> 
+> 
+
+
+
+From tklistaddr at k...  Wed Aug 21 10:25:56 2002
+From: tklistaddr at k... (Timothy H. Keitt)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] improved debian package for gdal uploaded
+In-Reply-To: <ak0713+qjdj@eGroups.com>
+References: <ak0713+qjdj@eGroups.com>
+Message-ID: <1029939956.7161.6.camel@keittlab-6>
+
+Oops. Tried to download, but apparently I'm not mature enough! :-) (Got
+a message about age-restricted content???) Could someone email them to
+me as attachments? Thanks. I can put them up on my web server if that
+will help.
+
+T.
+
+On Wed, 2002-08-21 at 10:10, gdal_dev_reader wrote:
+> 
+> 
+> hi all,
+> 
+> i uploaded the debian packaging sources and i386 binaries to:
+> http://groups.yahoo.com/group/gdal-dev/files/debian/
+> 
+> (they are not apt-gettable, but i have no web space :( )
+> 
+> this is a heavy restructure of Paul Baker package, based on my
+> own local version. i sent him all the new stuff, but he will 
+> be busy until the end of the week. once (if!) he accept them
+> he has an apt-gettable archive.
+> 
+> see /usr/share/doc/libgdal0/changelog for a breaf review of features.
+> note that libgdal.1.1.so has soname libgdal.so.0
+> 
+> note2: i'd prefer not to rename libgdal.1.1.so to something more standard
+> before Frank. but it might be easily done.
+> 
+> packages have been tested on i386 and build correctly on alpha.
+> 
+> comments are welcome,
+> alessandro
+> 
+> 
+> 
+> 
+> 
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/ 
+> 
+> 
+
+
+
+From ben at v...  Wed Aug 21 13:47:39 2002
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:17 2007
+Subject: ArcInfo export (EOO) files
+In-Reply-To: <1029939956.7161.6.camel@keittlab-6>
+Message-ID: <MGEOKJAEOFKANAFBLFGGIEMODJAA.ben@v...>
+
+
+What is the status of GDAL/OGR being able to read from ArcInfo E00 files? I
+know it is a "proprietary format" but apparently there is some public
+documentation for it around, e.g.
+http://pages.infinit.net/danmo/e00/docs/v7_e00_cover.html
+.. in fact i seem to recall that person is a GDAL contributor - is there
+some reason why i don't find E00 listed in the supported formats?
+
+Thanks,
+Ben
+
+
+
+From alessandro_amici at t...  Wed Aug 21 12:46:12 2002
+From: alessandro_amici at t... (Amici Alessandro)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [PATCH] cvs20020821 add soname support
+Message-ID: <A183DF60AC72D5119B990002A5749CB3025935A5@ROMADG-MAIL01>
+
+charset="iso-8859-1"
+
+
+
+Frank,
+
+this is an implementation for soname support working with GNU tools.
+i tested it on a debian linux i386 with gdal-current-cvs.
+
+gdal-soname.patch:
+- GNU binutils are associated to HAVE_LD_SHARED=yes (? this might be wrong)
+- soname for gdal is libgdal.so.0 (you might want to upgrade GDAL_SOVER to
+1
+before release, thou)
+- the library name is changed to libgdal.so.1.1
+- the build system is such that having a different libgdal installed should
+_not_ be a problem (at least it worked on my system!)
+- build _and_ install are supported.
+
+dynamic-gdalinfo.patch:
+- link gdalinfo dynamically and save 1Mb!
+
+please apply.
+
+cheers,
+alessandro
+
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: text/x-diff
+Size: 2967 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020821/36f8b41f/attachment.bin
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: not available
+Type: text/x-diff
+Size: 733 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/20020821/36f8b41f/attachment-0001.bin
+From danmo at v...  Wed Aug 21 13:10:14 2002
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] ArcInfo export (EOO) files
+References: <MGEOKJAEOFKANAFBLFGGIEMODJAA.ben@v...>
+Message-ID: <3D63C976.23D0E505@d...>
+
+Ben Discoe wrote:
+> 
+> What is the status of GDAL/OGR being able to read from ArcInfo E00 files? I
+> know it is a "proprietary format" but apparently there is some public
+> documentation for it around, e.g.
+> http://pages.infinit.net/danmo/e00/docs/v7_e00_cover.html
+> .. in fact i seem to recall that person is a GDAL contributor - is there
+> some reason why i don't find E00 listed in the supported formats?
+> 
+
+Frank added support for binary coverages (even better than E00) in OGR a
+few months ago based on my AVCE00 library.
+
+I guess E00 could be added as well based on the same library, but that
+would require some more development time and might not be worth the
+effort since E00 is ASCII and hence would be very slow for interactive
+use, and there is not much benefit to it anyway since binary coverages
+are faster and are already supported.
+
+If you have E00 files then you can turn them into binary coverages using
+the AVCIMPORT program that you can find at
+http://pages.infinit.net/danmo/e00/index-avce00.html
+
+I hope that helps.
+
+Daniel
+-- 
+------------------------------------------------------------
+Daniel Morissette morissette@d...
+DM Solutions Group http://www.dmsolutions.ca/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+
+
+From ben at v...  Wed Aug 21 14:27:55 2002
+From: ben at v... (Ben Discoe)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] ArcInfo export (EOO) files
+In-Reply-To: <OFD3759428.378CB4E2-ON88256C1C.005CA303-88256C1C.005CF5B2@l...>
+Message-ID: <MGEOKJAEOFKANAFBLFGGIENADJAA.ben@v...>
+
+
+My interest in E00 is because i'm encountering more and more "public" data
+clearinghouses which are distributing their data in E00 format. Now, i
+think this is a really bad idea on their part, but it's not something i have
+control over. E.g. even raster data like DEMs reformatted as E00:
+http://www.mojavedata.gov/datasets.php?&qclass=dem
+
+Yes, i would like to read these directly. As i understand it, E00 can be
+used to contain either vector or raster data, so i presume it would involve
+support in both GDAL and OGR..
+
+-Ben
+
+> -----Original Message-----
+> From: Tyler Mitchell [mailto:TMitchell@l...]
+> Sent: Wednesday, August 21, 2002 8:55 AM
+> To: ben@v...
+> Subject: Re: [gdal-dev] ArcInfo export (EOO) files
+>
+>
+>
+> Hi Ben, I'll let Frank and Daniel Morrisette answer your question with a
+> bit of knowledge. All I know is that the E00 code that you mentioned is
+> being used in the gdal/ogr to read arcinfo coverages, but not for
+> e00 files
+> specifically. I think that Frank just needs to do a little more work to
+> implement the e00 reader, but I'm not sure. I have tried it though and it
+> doesn't recognize it. Are you looking to convert e00 data to something
+> else using these tools or read it directly for an application? It would
+> probably be insanely slow. Arcinfo coverage support in gdal/ogr works but
+> is also fairly slow depending on complexity of the file of
+> course. If all
+> you want is to convert the e00 to something else like a shapefile, for
+> example, then there is a tool called avcimport/export that will convert it
+> into an arcinfo coverage which gdal/ogr can then read or convert as
+> desired.
+> Let me know if you need more pointers.
+>
+> Tyler
+>
+
+
+
+From paul at t...  Wed Aug 21 22:02:23 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: Memory leaks?
+Message-ID: <000701c2497f$f69a0b40$700201c0@M...>
+
+Hello All,
+With my test sample, I am seeing some memory leaks,
+from the image drivers.
+
+GDALAllRegister(void) creates all the image drivers. Who is
+responsible for the deletion of the image drivers?
+Or is there any method like GDALAllUnregister()/GDALAllDeregister()
+
+The driver manager is a static global pointer. Who deletes this
+pointer?
+
+Best regards,
+Paul.
+
+
+
+
+From warmerdam at p...  Mon Aug 26 02:21:41 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <000701c2497f$f69a0b40$700201c0@M...>
+Message-ID: <3D69C8F5.4020400@p...>
+
+Paul Selormey wrote:
+> Hello All,
+> With my test sample, I am seeing some memory leaks,
+> from the image drivers.
+> 
+> GDALAllRegister(void) creates all the image drivers. Who is
+> responsible for the deletion of the image drivers?
+> Or is there any method like GDALAllUnregister()/GDALAllDeregister()
+> 
+> The driver manager is a static global pointer. Who deletes this
+> pointer?
+
+Paul,
+
+Currently there is no facility to cleanup the driver memory. It is intended
+to live till application shutdown. However, for applications wanting to
+monitor very closely for memory leaks I can see that this might be annoying,
+so I am willing to add a call to cleanup all the drivers. If you would like
+this, please submit a request into Bugzilla as an enhancement request.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From warmerdam at p...  Mon Aug 26 02:30:37 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] ArcInfo export (EOO) files
+References: <MGEOKJAEOFKANAFBLFGGIEMODJAA.ben@v...>
+Message-ID: <3D69CB0D.5090109@p...>
+
+Ben Discoe wrote:
+> What is the status of GDAL/OGR being able to read from ArcInfo E00 files? I
+> know it is a "proprietary format" but apparently there is some public
+> documentation for it around, e.g.
+> http://pages.infinit.net/danmo/e00/docs/v7_e00_cover.html
+> .. in fact i seem to recall that person is a GDAL contributor - is there
+> some reason why i don't find E00 listed in the supported formats?
+
+Ben,
+
+There is an enhancement request in bugzilla requesting E00 support (vector)
+based on enabling the existing E00 side of the AVC library used for Arc/Info
+binary coverages.
+
+http://bugzilla.remotesensing.org/show_bug.cgi?id=159
+
+While the task isn't huge, it would likely take a full days work, and I have
+no schedule to do it.
+
+Implementing raster support would be another modest chunk of work. I haven't
+generally seen much use of e00 files to transport rasters, though I know it
+does happen.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From paul at t...  Mon Aug 26 03:15:34 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <000701c2497f$f69a0b40$700201c0@M...> <3D69C8F5.4020400@p...>
+Message-ID: <000b01c24cd0$6159f870$700201c0@M...>
+
+Hello Frank,
+Thanks for the response.
+
+> Currently there is no facility to cleanup the driver memory. It is
+intended
+> to live till application shutdown. However, for applications wanting to
+> monitor very closely for memory leaks I can see that this might be
+annoying,
+> so I am willing to add a call to cleanup all the drivers. If you would
+like
+> this, please submit a request into Bugzilla as an enhancement request.
+
+I think memory leaking should rather be a concern in the library,
+not me! wanting it. Currently, when the application shuts down there is no
+clean up - I do not think this is a normal practice. I will, however, submit
+it
+as an enhancement request, as you requested (have just created the bugzilla
+account).
+
+Best regards,
+Paul.
+
+
+
+
+From warmerdam at p...  Mon Aug 26 08:57:28 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <000701c2497f$f69a0b40$700201c0@M...> <3D69C8F5.4020400@p...> <000b01c24cd0$6159f870$700201c0@M...>
+Message-ID: <3D6A25B8.40508@p...>
+
+Paul Selormey wrote:
+> I think memory leaking should rather be a concern in the library,
+> not me! wanting it. Currently, when the application shuts down there is no
+> clean up - I do not think this is a normal practice. I will, however, submit
+> it
+> as an enhancement request, as you requested (have just created the bugzilla
+> account).
+
+Paul,
+
+I consider a "fixed size" and modest memory leak to not be a bug. This is
+basically static information that happens to be dynamically allocated on the
+heap. It reached a fixed size which is only a couple of kilobytes and stays
+there till the application terminates.
+
+Of course if GDAL was leaking something that could mount up to alot of
+memory it would be a bug and in need of fixing.
+
+However, I see this issue as one of providing a mechanism for a program to
+cleanup all memory to make memory leak checking easier.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From s.perkins at l...  Mon Aug 26 15:26:19 2002
+From: s.perkins at l... (Simon Perkins)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+In-Reply-To: <000b01c24cd0$6159f870$700201c0@M...>
+References: <000701c2497f$f69a0b40$700201c0@M...>
+  <3D69C8F5.4020400@p...> 
+  <000b01c24cd0$6159f870$700201c0@M...>
+Message-ID: <1030389979.2864.62.camel@afreet>
+
+On Mon, 2002-08-26 at 01:15, Paul Selormey wrote:
+> > Currently there is no facility to cleanup the driver memory. It is
+> intended
+> > to live till application shutdown. However, for applications wanting to
+> > monitor very closely for memory leaks I can see that this might be
+> annoying,
+> > so I am willing to add a call to cleanup all the drivers. If you would
+> like
+> > this, please submit a request into Bugzilla as an enhancement request.
+> 
+> I think memory leaking should rather be a concern in the library,
+> not me! wanting it. Currently, when the application shuts down there is no
+> clean up - I do not think this is a normal practice. I will, however, submit
+> it
+> as an enhancement request, as you requested (have just created the bugzilla
+> account).
+
+I don't really see how this is a memory leak. A memory leak is when you
+lose all access to a block of allocated memory so that you have no
+chance of ever deallocating it. And it's only really a concern if chunks
+of memory are repeatedly allocated and then lost. Here, the drivers
+consist of allocated chunks of memory that are managed by the GDAL
+library, and they are freed up by the OS when the application quits.
+This is perfectly standard practice - whenever you run a C/C++ program
+there are many blocks of memory that are allocated invisibly in this
+way, and that are cleaned up by the OS when the application quits. e.g.
+the virtual function tables for each class in C++, and no doubt many
+others. To look at it another way, the GDAL library has no idea whether
+you are going to need to use a particular driver again until the moment
+the application quits, and so it would be an error for the library to
+automatically delete drivers any time before the application quits.
+
+Frank was offering to add some user code to free up this allocated
+memory in GDAL, if you know that you're going to be short of memory.
+This has to be a manual procedure though since only the user can know if
+GDAL will no longer be needed. But if you're on this hairy edge then
+you're almost certainly not going to have enough memory to actually load
+an image anyway, so I don't really see the point...
+
+Cheers,
+
+Sy
+
+
+
+-- 
+Simon Perkins
+Los Alamos National Laboratory, USA
+http://nis-www.lanl.gov/~simes
+
+
+
+
+From s.perkins at l...  Mon Aug 26 15:34:59 2002
+From: s.perkins at l... (Simon Perkins)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+In-Reply-To: <1030389979.2864.62.camel@afreet>
+References: <000701c2497f$f69a0b40$700201c0@M...>
+  <3D69C8F5.4020400@p...> 
+  <000b01c24cd0$6159f870$700201c0@M...> 
+  <1030389979.2864.62.camel@afreet>
+Message-ID: <1030390500.2827.71.camel@afreet>
+
+On Mon, 2002-08-26 at 13:26, Simon Perkins wrote:
+> Frank was offering to add some user code to free up this allocated
+> memory in GDAL, if you know that you're going to be short of memory.
+> This has to be a manual procedure though since only the user can know if
+> GDAL will no longer be needed. But if you're on this hairy edge then
+> you're almost certainly not going to have enough memory to actually load
+> an image anyway, so I don't really see the point...
+
+Just read Frank's e-mail. He sees the purpose of this function as an aid
+to making hunting for real memory leaks less confusing. But I would have
+thought that any decent memory leak checking software would only flag
+leaks that occur in unreachable memory blocks, which does not include
+those drivers. But it's been a while since I last used Insure for this
+kind of thing.
+
+Sy
+
+-- 
+Simon Perkins
+Los Alamos National Laboratory, USA
+http://nis-www.lanl.gov/~simes
+
+
+
+
+From paul at t...  Mon Aug 26 21:16:27 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <000701c2497f$f69a0b40$700201c0@M...><3D69C8F5.4020400@p...> <000b01c24cd0$6159f870$700201c0@M...> <1030389979.2864.62.camel@afreet> <1030390500.2827.71.camel@afreet>
+Message-ID: <001101c24d67$605775f0$700201c0@M...>
+
+
+----- Original Message -----
+From: "Simon Perkins" <s.perkins@l...>
+To: "Simon Perkins" <s.perkins@l...>
+Cc: <gdal-dev@yahoogroups.com>
+Sent: Tuesday, August 27, 2002 4:34 AM
+Subject: Re: [gdal-dev] Memory leaks?
+
+
+>
+> On Mon, 2002-08-26 at 13:26, Simon Perkins wrote:
+> > Frank was offering to add some user code to free up this allocated
+> > memory in GDAL, if you know that you're going to be short of memory.
+> > This has to be a manual procedure though since only the user can know if
+> > GDAL will no longer be needed. But if you're on this hairy edge then
+> > you're almost certainly not going to have enough memory to actually load
+> > an image anyway, so I don't really see the point...
+>
+> Just read Frank's e-mail. He sees the purpose of this function as an aid
+> to making hunting for real memory leaks less confusing. But I would have
+> thought that any decent memory leak checking software would only flag
+> leaks that occur in unreachable memory blocks, which does not include
+> those drivers. But it's been a while since I last used Insure for this
+> kind of thing.
+>
+> Sy
+>
+> --
+> Simon Perkins
+> Los Alamos National Laboratory, USA
+> http://nis-www.lanl.gov/~simes
+>
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From paul at t...  Mon Aug 26 21:17:18 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <000701c2497f$f69a0b40$700201c0@M...><3D69C8F5.4020400@p...> <000b01c24cd0$6159f870$700201c0@M...> <1030389979.2864.62.camel@afreet> <1030390500.2827.71.camel@afreet>
+Message-ID: <001901c24d67$7ea889e0$700201c0@M...>
+
+Hello Simon,
+
+> Just read Frank's e-mail. He sees the purpose of this function as an aid
+> to making hunting for real memory leaks less confusing. But I would have
+> thought that any decent memory leak checking software would only flag
+> leaks that occur in unreachable memory blocks, which does not include
+> those drivers. But it's been a while since I last used Insure for this
+> kind of thing.
+
+It might be a personal style, I do not leave the memories I have allocated
+for the system to clean up (if I do not know, that is a different story).
+I have never used Insure, but this is what Windows-based BoundsChecker
+(do not know if you consider is decent memory leak checker) gives:
+
+----------------------------------------------------------------------------
+-------------------------------------------
+void * __cdecl operator new(unsigned int) (ceosdataset.cpp (206))
+GDALRegister_CEOS ceosdataset.cpp 206
+void * __cdecl operator new(unsigned int) (elasdataset.cpp (653))
+GDALRegister_ELAS elasdataset.cpp 653
+void * __cdecl operator new(unsigned int) (aigdataset.cpp (390))
+GDALRegister_AIGrid aigdataset.cpp 390
+void * __cdecl operator new(unsigned int) (aaigriddataset.cpp (462))
+GDALRegister_AAIGrid aaigriddataset.cpp 462
+void * __cdecl operator new(unsigned int) (sdtsdataset.cpp (378))
+GDALRegister_SDTS sdtsdataset.cpp 378
+void * __cdecl operator new(unsigned int) (dteddataset.cpp (399))
+GDALRegister_DTED dteddataset.cpp 399
+void * __cdecl operator new(unsigned int) (pngdataset.cpp (951))
+GDALRegister_PNG pngdataset.cpp 951
+void * __cdecl operator new(unsigned int) (jpgdataset.cpp (597))
+GDALRegister_JPEG jpgdataset.cpp 597
+void * __cdecl operator new(unsigned int) (memdataset.cpp (481))
+GDALRegister_MEM memdataset.cpp 481
+void * __cdecl operator new(unsigned int) (jdemdataset.cpp (316))
+GDALRegister_JDEM jdemdataset.cpp 316
+void * __cdecl operator new(unsigned int) (gifdataset.cpp (603))
+GDALRegister_GIF gifdataset.cpp 603
+void * __cdecl operator new(unsigned int) (envisatdataset.cpp (609))
+GDALRegister_Envisat envisatdataset.cpp 609
+void * __cdecl operator new(unsigned int) (xpmdataset.cpp (415))
+GDALRegister_XPM xpmdataset.cpp 415
+void * __cdecl operator new(unsigned int) (pnmdataset.cpp (307))
+GDALRegister_PNM pnmdataset.cpp 307
+void * __cdecl operator new(unsigned int) (doq1dataset.cpp (363))
+GDALRegister_DOQ1 doq1dataset.cpp 363
+void * __cdecl operator new(unsigned int) (doq2dataset.cpp (449))
+GDALRegister_DOQ2 doq2dataset.cpp 449
+void * __cdecl operator new(unsigned int) (envidataset.cpp (786))
+GDALRegister_ENVI envidataset.cpp 786
+void * __cdecl operator new(unsigned int) (ehdrdataset.cpp (445))
+GDALRegister_EHdr ehdrdataset.cpp 445
+void * __cdecl operator new(unsigned int) (pauxdataset.cpp (1091))
+GDALRegister_PAux pauxdataset.cpp 1091
+void * __cdecl operator new(unsigned int) (mffdataset.cpp (874))
+GDALRegister_MFF mffdataset.cpp 874
+void * __cdecl operator new(unsigned int) (hkvdataset.cpp (1045))
+GDALRegister_HKV hkvdataset.cpp 1045
+void * __cdecl operator new(unsigned int) (effdataset.cpp (232))
+GDALRegister_EFF effdataset.cpp 232
+void * __cdecl operator new(unsigned int) (fujibasdataset.cpp (223))
+GDALRegister_FujiBAS fujibasdataset.cpp 223
+void * __cdecl operator new(unsigned int) (fitdataset.cpp (1285))
+GDALRegister_FIT fitdataset.cpp 1285
+void * __cdecl operator new(unsigned int) (usgsdemdataset.cpp (584))
+GDALRegister_USGSDEM usgsdemdataset.cpp 584
+void * __cdecl operator new(unsigned int) (gxfdataset.cpp (310))
+GDALRegister_GXF gxfdataset.cpp 310
+void * __cdecl operator new(unsigned int) (gdaldrivermanager.cpp (88))
+GetGDALDriverManager gdaldrivermanager.cpp 88
+_strdup (cpl_vsisimple.cpp (289)) VSIStrdup cpl_vsisimple.cpp 289
+void * __cdecl operator new(unsigned int) (vrtdataset.cpp (259))
+GDALRegister_VRT vrtdataset.cpp 259
+void * __cdecl operator new(unsigned int) (geotiff.cpp (3034))
+GDALRegister_GTiff geotiff.cpp 3034
+void * __cdecl operator new(unsigned int) (hfadataset.cpp (1700))
+GDALRegister_HFA hfadataset.cpp 1700
+void * __cdecl operator new(unsigned int) (sar_ceosdataset.cpp (1413))
+GDALRegister_SAR_CEOS sar_ceosdataset.cpp 1413
+_realloc (cpl_vsisimple.cpp (268)) VSIRealloc cpl_vsisimple.cpp 268
+----------------------------------------------------------------------------
+-----------------------------------------------------
+
+By your arguments, we could leave any memory allocated, which is used
+throughout the lifetime
+of the application for the system to clean up - there is hardly a reason to
+worry about memory
+management in the C++ application.
+
+Best regards,
+Paul.
+
+
+
+
+From paul at t...  Mon Aug 26 21:21:14 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <000701c2497f$f69a0b40$700201c0@M...><3D69C8F5.4020400@p...> <000b01c24cd0$6159f870$700201c0@M...> <1030389979.2864.62.camel@afreet> <1030390500.2827.71.camel@afreet> <001101c24d67$605775f0$700201c0@M...>
+Message-ID: <000701c24d68$0b2e0ca0$700201c0@M...>
+
+Sorry for this repost.
+
+----- Original Message -----
+From: "Paul Selormey" <paul@t...>
+To: <gdal-dev@yahoogroups.com>
+Sent: Tuesday, August 27, 2002 10:16 AM
+Subject: Re: [gdal-dev] Memory leaks?
+
+
+>
+>
+> ----- Original Message -----
+> From: "Simon Perkins" <s.perkins@l...>
+> To: "Simon Perkins" <s.perkins@l...>
+> Cc: <gdal-dev@yahoogroups.com>
+> Sent: Tuesday, August 27, 2002 4:34 AM
+> Subject: Re: [gdal-dev] Memory leaks?
+>
+>
+> >
+> > On Mon, 2002-08-26 at 13:26, Simon Perkins wrote:
+> > > Frank was offering to add some user code to free up this allocated
+> > > memory in GDAL, if you know that you're going to be short of memory.
+> > > This has to be a manual procedure though since only the user can know
+if
+> > > GDAL will no longer be needed. But if you're on this hairy edge then
+> > > you're almost certainly not going to have enough memory to actually
+load
+> > > an image anyway, so I don't really see the point...
+> >
+> > Just read Frank's e-mail. He sees the purpose of this function as an aid
+> > to making hunting for real memory leaks less confusing. But I would have
+> > thought that any decent memory leak checking software would only flag
+> > leaks that occur in unreachable memory blocks, which does not include
+> > those drivers. But it's been a while since I last used Insure for this
+> > kind of thing.
+> >
+> > Sy
+> >
+> > --
+> > Simon Perkins
+> > Los Alamos National Laboratory, USA
+> > http://nis-www.lanl.gov/~simes
+> >
+> >
+> >
+> >
+> >
+> > Your use of Yahoo! Groups is subject to
+http://docs.yahoo.com/info/terms/
+> >
+> >
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From ed at t...  Mon Aug 26 21:40:00 2002
+From: ed at t... (Ed McNierney)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+Message-ID: <13858AA1A74F30419F319ACB66A9D1220193F7@m...>
+
+Paul -
+
+(at the risk of pushing this thread over the edge into a religious
+debate...)
+
+Well, yes, sort of - it IS OK to allocate memory and let the system
+clean up. The C++ runtime is supposed to free all memory it allocates
+when the application terminates, and most operating systems I know of
+(and I know a few) will enforce that rule by freeing all memory blocks
+associated with a process when it terminates. I think it is very safe
+and perfectly appropriate to allocate memory and leave the deallocation
+to the runtime and OS.
+
+The chief disadvantage of this technique when used in C++ is that the
+delete operator (i.e. appropriate destructor) is NOT called for any
+objects allocated with the new operator. You need to call delete
+yourself or it won't get called. If you know that and don't care, then
+it's fine to ignore the deletes.
+
+However, this does NOT mean that "there is hardly any reason to worry
+about memory management in the C++ application". That's quite a jump.
+If you're going to allocate an object REPEATEDLY you're probably going
+to want to deallocate it or you'll be in trouble. Calling
+GDALAllRegister more than once in a program is (IMHO) a usage error.
+There are lots of other reasons to "worry about memory management".
+
+While it would be nice to offer a complementary "close and clean up"
+function for the library, I can't agree that it's wrong to not have one.
+
+- Ed
+
+Ed McNierney
+Chief Mapmaker
+TopoZone.com
+
+
+-----Original Message-----
+From: Paul Selormey [mailto:paul@t...] 
+Sent: Monday, August 26, 2002 9:17 PM
+To: gdal-dev@yahoogroups.com
+Subject: Re: [gdal-dev] Memory leaks?
+
+
+
+Hello Simon,
+
+> Just read Frank's e-mail. He sees the purpose of this function as an 
+> aid to making hunting for real memory leaks less confusing. But I 
+> would have thought that any decent memory leak checking software would
+
+> only flag leaks that occur in unreachable memory blocks, which does 
+> not include those drivers. But it's been a while since I last used 
+> Insure for this kind of thing.
+
+It might be a personal style, I do not leave the memories I have
+allocated for the system to clean up (if I do not know, that is a
+different story). I have never used Insure, but this is what
+Windows-based BoundsChecker (do not know if you consider is decent
+memory leak checker) gives:
+
+------------------------------------------------------------------------
+----
+-------------------------------------------
+void * __cdecl operator new(unsigned int) (ceosdataset.cpp (206))
+GDALRegister_CEOS ceosdataset.cpp 206 void * __cdecl operator
+new(unsigned int) (elasdataset.cpp (653)) GDALRegister_ELAS
+elasdataset.cpp 653 void * __cdecl operator new(unsigned int)
+(aigdataset.cpp (390)) GDALRegister_AIGrid aigdataset.cpp 390 void *
+__cdecl operator new(unsigned int) (aaigriddataset.cpp (462))
+GDALRegister_AAIGrid aaigriddataset.cpp 462 void * __cdecl operator
+new(unsigned int) (sdtsdataset.cpp (378)) GDALRegister_SDTS
+sdtsdataset.cpp 378 void * __cdecl operator new(unsigned int)
+(dteddataset.cpp (399)) GDALRegister_DTED dteddataset.cpp 399 void *
+__cdecl operator new(unsigned int) (pngdataset.cpp (951))
+GDALRegister_PNG pngdataset.cpp 951 void * __cdecl operator new(unsigned
+int) (jpgdataset.cpp (597)) GDALRegister_JPEG jpgdataset.cpp 597 void *
+__cdecl operator new(unsigned int) (memdataset.cpp (481))
+GDALRegister_MEM memdataset.cpp 481 void * __cdecl operator new(unsigned
+int) (jdemdataset.cpp (316)) GDALRegister_JDEM jdemdataset.cpp 316 void
+* __cdecl operator new(unsigned int) (gifdataset.cpp (603))
+GDALRegister_GIF gifdataset.cpp 603 void * __cdecl operator new(unsigned
+int) (envisatdataset.cpp (609)) GDALRegister_Envisat envisatdataset.cpp
+609 void * __cdecl operator new(unsigned int) (xpmdataset.cpp (415))
+GDALRegister_XPM xpmdataset.cpp 415 void * __cdecl operator new(unsigned
+int) (pnmdataset.cpp (307)) GDALRegister_PNM pnmdataset.cpp 307 void *
+__cdecl operator new(unsigned int) (doq1dataset.cpp (363))
+GDALRegister_DOQ1 doq1dataset.cpp 363 void * __cdecl operator
+new(unsigned int) (doq2dataset.cpp (449)) GDALRegister_DOQ2
+doq2dataset.cpp 449 void * __cdecl operator new(unsigned int)
+(envidataset.cpp (786)) GDALRegister_ENVI envidataset.cpp 786 void *
+__cdecl operator new(unsigned int) (ehdrdataset.cpp (445))
+GDALRegister_EHdr ehdrdataset.cpp 445 void * __cdecl operator
+new(unsigned int) (pauxdataset.cpp (1091)) GDALRegister_PAux
+pauxdataset.cpp 1091 void * __cdecl operator new(unsigned int)
+(mffdataset.cpp (874)) GDALRegister_MFF mffdataset.cpp 874 void *
+__cdecl operator new(unsigned int) (hkvdataset.cpp (1045))
+GDALRegister_HKV hkvdataset.cpp 1045 void * __cdecl operator
+new(unsigned int) (effdataset.cpp (232)) GDALRegister_EFF effdataset.cpp
+232 void * __cdecl operator new(unsigned int) (fujibasdataset.cpp (223))
+GDALRegister_FujiBAS fujibasdataset.cpp 223 void * __cdecl operator
+new(unsigned int) (fitdataset.cpp (1285)) GDALRegister_FIT
+fitdataset.cpp 1285 void * __cdecl operator new(unsigned int)
+(usgsdemdataset.cpp (584)) GDALRegister_USGSDEM usgsdemdataset.cpp 584
+void * __cdecl operator new(unsigned int) (gxfdataset.cpp (310))
+GDALRegister_GXF gxfdataset.cpp 310 void * __cdecl operator new(unsigned
+int) (gdaldrivermanager.cpp (88)) GetGDALDriverManager
+gdaldrivermanager.cpp 88 _strdup (cpl_vsisimple.cpp (289)) VSIStrdup
+cpl_vsisimple.cpp 289 void * __cdecl operator new(unsigned int)
+(vrtdataset.cpp (259)) GDALRegister_VRT vrtdataset.cpp 259 void *
+__cdecl operator new(unsigned int) (geotiff.cpp (3034))
+GDALRegister_GTiff geotiff.cpp 3034 void * __cdecl operator new(unsigned
+int) (hfadataset.cpp (1700)) GDALRegister_HFA hfadataset.cpp 1700 void *
+__cdecl operator new(unsigned int) (sar_ceosdataset.cpp (1413))
+GDALRegister_SAR_CEOS sar_ceosdataset.cpp 1413 _realloc
+(cpl_vsisimple.cpp (268)) VSIRealloc cpl_vsisimple.cpp 268
+------------------------------------------------------------------------
+----
+-----------------------------------------------------
+
+By your arguments, we could leave any memory allocated, which is used
+throughout the lifetime of the application for the system to clean up -
+there is hardly a reason to worry about memory management in the C++
+application.
+
+Best regards,
+Paul.
+
+
+
+ 
+
+Your use of Yahoo! Groups is subject to
+http://docs.yahoo.com/info/terms/ 
+
+
+
+
+From paul at t...  Mon Aug 26 22:40:31 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <13858AA1A74F30419F319ACB66A9D1220193F7@m...>
+Message-ID: <000f01c24d73$1e825170$700201c0@M...>
+
+Hello Ed,
+
+> (at the risk of pushing this thread over the edge into a religious
+> debate...)
+
+I am not interested in debating an issue for the sake of debate, there is
+not time for this.
+
+> While it would be nice to offer a complementary "close and clean up"
+> function for the library, I can't agree that it's wrong to not have one.
+
+I think you have already made the point. If you agree, however, that
+the destructors are not called, then have a look at the destructors for each
+driver to see what they really do, and decide whether it is a choice to
+clean
+up or not - this concludes my contribution to this issue.
+
+Best regards,
+Paul.
+
+
+
+
+From ed at t...  Mon Aug 26 23:06:31 2002
+From: ed at t... (Ed McNierney)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+Message-ID: <13858AA1A74F30419F319ACB66A9D1220193F9@m...>
+
+Paul -
+
+No, that's not the same thing at all. The call to GDALAllRegister ()
+*loads* all the configured drivers, but it does not *open* them. For
+example, in the GeoTIFF driver, the call to GDALAllRegister () calls (in
+the driver) GDALRegister_GTiff (), which registers the driver by
+allocating a data structure for it and filling it in. This is pretty
+much what all drivers do at registration time. There is no equivalent
+"GDALUnregister_Gtiff" function to undo this operation, and so there is
+no equivalent "GDALUnregistter_Gtiff" function in the driver.
+
+The constructor and destructor for the class GTiffDataset are not called
+at registration time. They're called much later if and when there's an
+actual dataset for that driver to handle, and the destructor is indeed
+properly called when the dataset is no longer needed. If it were not
+being called, your memory leak tester would be reporting allocations
+from other than GDALAllRegister that were left over.
+
+At the GDALAllRegister level, there's no "destructor" to be called, so
+the failure to call it doesn't create a problem for any driver.
+
+- Ed
+
+-----Original Message-----
+From: Paul Selormey [mailto:paul@t...] 
+Sent: Monday, August 26, 2002 10:41 PM
+To: gdal-dev@yahoogroups.com
+Subject: Re: [gdal-dev] Memory leaks?
+
+
+
+Hello Ed,
+
+> (at the risk of pushing this thread over the edge into a religious
+> debate...)
+
+I am not interested in debating an issue for the sake of debate, there
+is not time for this.
+
+> While it would be nice to offer a complementary "close and clean up" 
+> function for the library, I can't agree that it's wrong to not have 
+> one.
+
+I think you have already made the point. If you agree, however, that the
+destructors are not called, then have a look at the destructors for each
+driver to see what they really do, and decide whether it is a choice to
+clean up or not - this concludes my contribution to this issue.
+
+Best regards,
+Paul.
+
+
+
+ 
+
+Your use of Yahoo! Groups is subject to
+http://docs.yahoo.com/info/terms/ 
+
+
+
+
+From paul at t...  Tue Aug 27 00:14:07 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Memory leaks?
+References: <13858AA1A74F30419F319ACB66A9D1220193F9@m...>
+Message-ID: <000701c24d80$32480ad0$700201c0@M...>
+
+Hello Ed,
+Thanks for the clarifications.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "Ed McNierney" <ed@t...>
+To: <gdal-dev@yahoogroups.com>
+Sent: Tuesday, August 27, 2002 12:06 PM
+Subject: RE: [gdal-dev] Memory leaks?
+
+
+>
+> Paul -
+>
+> No, that's not the same thing at all. The call to GDALAllRegister ()
+> *loads* all the configured drivers, but it does not *open* them. For
+> example, in the GeoTIFF driver, the call to GDALAllRegister () calls (in
+> the driver) GDALRegister_GTiff (), which registers the driver by
+> allocating a data structure for it and filling it in. This is pretty
+> much what all drivers do at registration time. There is no equivalent
+> "GDALUnregister_Gtiff" function to undo this operation, and so there is
+> no equivalent "GDALUnregistter_Gtiff" function in the driver.
+>
+> The constructor and destructor for the class GTiffDataset are not called
+> at registration time. They're called much later if and when there's an
+> actual dataset for that driver to handle, and the destructor is indeed
+> properly called when the dataset is no longer needed. If it were not
+> being called, your memory leak tester would be reporting allocations
+> from other than GDALAllRegister that were left over.
+>
+> At the GDALAllRegister level, there's no "destructor" to be called, so
+> the failure to call it doesn't create a problem for any driver.
+>
+> - Ed
+>
+> -----Original Message-----
+> From: Paul Selormey [mailto:paul@t...]
+> Sent: Monday, August 26, 2002 10:41 PM
+> To: gdal-dev@yahoogroups.com
+> Subject: Re: [gdal-dev] Memory leaks?
+>
+>
+>
+> Hello Ed,
+>
+> > (at the risk of pushing this thread over the edge into a religious
+> > debate...)
+>
+> I am not interested in debating an issue for the sake of debate, there
+> is not time for this.
+>
+> > While it would be nice to offer a complementary "close and clean up"
+> > function for the library, I can't agree that it's wrong to not have
+> > one.
+>
+> I think you have already made the point. If you agree, however, that the
+> destructors are not called, then have a look at the destructors for each
+> driver to see what they really do, and decide whether it is a choice to
+> clean up or not - this concludes my contribution to this issue.
+>
+> Best regards,
+> Paul.
+>
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to
+> http://docs.yahoo.com/info/terms/
+>
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From paul at t...  Tue Aug 27 04:18:23 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: ERDAS img format...
+Message-ID: <000901c24da2$527c8c50$700201c0@M...>
+
+Hello All,
+Is there a special compilation flag required to use this image format?
+I have just downloaded some samples from the ERDAS site but
+could not view them using the GDAL viewer.
+
+I have so far tested the following format:
+
+1. PNG
+2. Tiff/GeoTiff
+3. JPEG/JFIF
+4. GIF
+
+Anyone with sample images for the other supported formats, such as
+the ECW, RAW stuff (any of them) etc? In fact, I will be very grateful
+if anyone can kindly help with the listed supported formats: 
+(with samples images or further information)
+
+AAIGrid
+AIG
+BSB
+CEOS
+DOQ1
+DOQ2
+DTED
+EFF
+ECW
+EHdr
+Envisat
+FITS
+GIF -- tested
+GIO
+GRASS
+GTiff -- tested
+HFA
+HKV
+JDEM
+JPEG -- tested
+MFF
+OGDI -- do not know if this should be considered a supported format.
+PAux
+PNG -- tested
+PNM
+SDTS
+SAR_CEOS
+USGSDEM
+XPM
+
+Best regards,
+Paul.
+
+
+
+
+From paul at t...  Tue Aug 27 22:47:04 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: GetDescription method
+Message-ID: <000b01c24e3d$33837520$700201c0@M...>
+
+Hello All,
+The GetDescription() method of the dataset object currently
+returns only the image file name. It this the objective or there
+is more to it? (It is currently not documented)
+
+For the rasterband object, it is documented as returning the
+description of the band, but currently returns nothing! What type
+of information is really expected here?
+
+Best regards,
+Paul.
+
+
+
+
+From paul at t...  Wed Aug 28 03:10:16 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: Use of the virtual dataset/rasterband
+Message-ID: <000b01c24e61$f817aa90$700201c0@M...>
+
+Hello,
+Anybody at home?
+What is the use of the dataset/rasterband objects?
+
+Best regards,
+Paul.
+
+
+
+
+From paul at t...  Wed Aug 28 03:25:20 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Use of the virtual dataset/rasterband
+References: <000b01c24e61$f817aa90$700201c0@M...>
+Message-ID: <000501c24e64$13149f90$700201c0@M...>
+
+> What is the use of the dataset/rasterband objects?
+
+Sorry, I mean the virtual dataset object (it contains some stuff
+relating to XML), but I could not get the purpose of the dataset.
+
+Best regards,
+Paul.
+
+
+
+
+From warmerdam at p...  Wed Aug 28 08:34:39 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Use of the virtual dataset/rasterband
+References: <000b01c24e61$f817aa90$700201c0@M...>
+Message-ID: <3D6CC35F.90203@p...>
+
+Paul Selormey wrote:
+> Hello,
+> Anybody at home?
+
+Paul,
+
+Yes, somebody somewhere is at home. In fact, even I am.
+
+> What is the use of the dataset/rasterband objects?
+
+...
+
+> Sorry, I mean the virtual dataset object (it contains some stuff
+> relating to XML), but I could not get the purpose of the dataset.
+
+The virtual dataset "format" is a way of writing an XML description of a
+dataset where the image data is derived from other GDAL supported datasets.
+It has a number of potential uses including:
+
+o A way of creating a dataset with different, or complete metadata without
+copying image data.
+
+o A mechanism to merge bands from many files into one.
+
+o A way to create a subsetted dataset (without copying image).
+
+o A way to build a virtual mosaic from a set of data files.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From warmerdam at p...  Wed Aug 28 08:46:37 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GetDescription method
+References: <000b01c24e3d$33837520$700201c0@M...>
+Message-ID: <3D6CC62D.1070109@p...>
+
+Paul Selormey wrote:
+> The GetDescription() method of the dataset object currently
+> returns only the image file name. It this the objective or there
+> is more to it? (It is currently not documented)
+
+Paul,
+
+Despite the apparent meaning of the call it has been "usurped" to hold
+the filename when called on the GDALDataset object. Note that it isn't
+guaranteed that the filename returned by GetDescription() is exactly
+the same as what was passed to GDALOpen(), but it is supposed to be
+guaranteed to result in opening the same dataset if given to GDALOpen().
+
+> For the rasterband object, it is documented as returning the
+> description of the band, but currently returns nothing! What type
+> of information is really expected here?
+
+Most formats have no band descriptions. A few (or one?) formats, notably
+ENVI format, do support band descriptions and they are returned by
+GetDescription(). OpenEV will also show these band descriptions in some
+appropriate band dialogs.
+
+Where there is no band specific name, we deliberately return an empty string
+so applications can easiliy recognise that there is no meaningful band
+description rather than "synthesising" one.
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+From paul at t...  Wed Aug 28 09:04:30 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] Use of the virtual dataset/rasterband
+References: <000b01c24e61$f817aa90$700201c0@M...> <3D6CC35F.90203@p...>
+Message-ID: <000f01c24e93$75e29da0$700201c0@M...>
+
+Hello Frank,
+Thanks for the response.
+
+> Yes, somebody somewhere is at home. In fact, even I am.
+
+Thank God!
+
+> The virtual dataset "format" is a way of writing an XML description of a
+> dataset where the image data is derived from other GDAL supported
+datasets.
+> It has a number of potential uses including:
+>
+> o A way of creating a dataset with different, or complete metadata
+without
+> copying image data.
+>
+> o A mechanism to merge bands from many files into one.
+>
+> o A way to create a subsetted dataset (without copying image).
+>
+> o A way to build a virtual mosaic from a set of data files.
+
+Sounds good, I will also see how best to exploit it.
+Again, thanks for the information.
+
+Best regards,
+Paul.
+
+
+
+
+From paul at t...  Wed Aug 28 09:08:17 2002
+From: paul at t... (Paul Selormey)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] GetDescription method
+References: <000b01c24e3d$33837520$700201c0@M...> <3D6CC62D.1070109@p...>
+Message-ID: <001301c24e93$fbc29e70$700201c0@M...>
+
+Hello Frank,
+Thanks for the support. I have tried some few image formats and got nothing,
+so I thought it might not be returning anything for all the rasterbands.
+
+Best regards,
+Paul.
+
+----- Original Message -----
+From: "Frank Warmerdam" <warmerdam@p...>
+To: <gdal-dev@yahoogroups.com>
+Sent: Wednesday, August 28, 2002 9:46 PM
+Subject: Re: [gdal-dev] GetDescription method
+
+
+>
+> Paul Selormey wrote:
+> > The GetDescription() method of the dataset object currently
+> > returns only the image file name. It this the objective or there
+> > is more to it? (It is currently not documented)
+>
+> Paul,
+>
+> Despite the apparent meaning of the call it has been "usurped" to hold
+> the filename when called on the GDALDataset object. Note that it isn't
+> guaranteed that the filename returned by GetDescription() is exactly
+> the same as what was passed to GDALOpen(), but it is supposed to be
+> guaranteed to result in opening the same dataset if given to GDALOpen().
+>
+> > For the rasterband object, it is documented as returning the
+> > description of the band, but currently returns nothing! What type
+> > of information is really expected here?
+>
+> Most formats have no band descriptions. A few (or one?) formats, notably
+> ENVI format, do support band descriptions and they are returned by
+> GetDescription(). OpenEV will also show these band descriptions in some
+> appropriate band dialogs.
+>
+> Where there is no band specific name, we deliberately return an empty
+string
+> so applications can easiliy recognise that there is no meaningful band
+> description rather than "synthesising" one.
+>
+> Best regards,
+>
+> --
+> ---------------------------------------+----------------------------------
+----
+> I set the clouds in motion - turn up | Frank Warmerdam,
+warmerdam@p...
+> light and sound - activate the windows | http://pobox.com/~warmerdam
+> and watch the world go round - Rush | Geospatial Programmer for Rent
+>
+>
+>
+>
+>
+> Your use of Yahoo! Groups is subject to http://docs.yahoo.com/info/terms/
+>
+>
+
+
+
+From shimitz at u...  Thu Aug 29 09:56:05 2002
+From: shimitz at u... (April Shimitz)
+Date: Wed Nov 21 11:49:17 2007
+Subject: new data type
+Message-ID: <OFEF2197A4.38A99141-ON86256C24.004B4824@c...>
+
+Frank,
+
+Could you add support for complex signed byte data?
+
+April Shimitz
+
+
+
+
+From warmerdam at p...  Thu Aug 29 10:34:25 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] new data type
+References: <OFEF2197A4.38A99141-ON86256C24.004B4824@c...>
+Message-ID: <3D6E30F1.2010903@p...>
+
+April Shimitz wrote:
+
+>Frank,
+>
+>Could you add support for complex signed byte data?
+>
+>April Shimitz
+> 
+>
+April,
+
+First, I hate adding new data types to GDAL. It is a data model change, 
+and I hate data model
+changes. Can you make a case for why complex signed byte is needed, and 
+why the data can't
+be internally promoted to complex 16bit integer?
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+
+
+From shimitz at u...  Thu Aug 29 11:12:52 2002
+From: shimitz at u... (April Shimitz)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] new data type
+Message-ID: <OFDA76F923.87030E36-ON86256C24.005385AF@c...>
+
+
+>April,
+>
+>First, I hate adding new data types to GDAL. It is a data model change,
+>and I hate data model
+>changes. Can you make a case for why complex signed byte is needed, and
+>why the data can't
+>be internally promoted to complex 16bit integer?
+>
+>Best regards,
+
+Frank,
+
+Currently LAS doesn't support any complex signed byte data, but support
+for such will undoubtedly be needed as new satellites are lauched and
+new data formats are created, or if we are asked to support the existing
+SAR complex data sets. We could just promote the data to complex 16bit
+integer at the driver level, as you suggested, but then you'd end up
+doubling the size of a file that's usually already very large (very high
+resolution data).
+
+One reason that drove us to use GDAL for our I/O library was the
+extensibility of the data types. If it's just a matter of the time it
+would take you to implement the changes, would you be against us making
+the changes to the GDAL core to support it when the need arises?
+
+April
+
+
+
+
+From warmerdam at p...  Thu Aug 29 11:24:48 2002
+From: warmerdam at p... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:17 2007
+Subject: [gdal-dev] new data type
+References: <OFDA76F923.87030E36-ON86256C24.005385AF@c...>
+Message-ID: <3D6E3CC0.7010608@p...>
+
+April Shimitz wrote:
+
+>Currently LAS doesn't support any complex signed byte data, but support
+>for such will undoubtedly be needed as new satellites are lauched and
+>new data formats are created, or if we are asked to support the existing
+>SAR complex data sets. We could just promote the data to complex 16bit
+>integer at the driver level, as you suggested, but then you'd end up
+>doubling the size of a file that's usually already very large (very high
+>resolution data).
+>
+>One reason that drove us to use GDAL for our I/O library was the
+>extensibility of the data types. If it's just a matter of the time it
+>would take you to implement the changes, would you be against us making
+>the changes to the GDAL core to support it when the need arises?
+> 
+>
+April,
+
+OK, I am agreeable to adding the signed complex byte type when it 
+becomes necessary. 
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up | Frank Warmerdam, warmerdam@p...
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush | Geospatial Programmer for Rent
+
+
+
+
+
+

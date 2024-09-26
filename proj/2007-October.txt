@@ -1,0 +1,833 @@
+From jason.roberts at duke.edu  Mon Oct  1 07:57:40 2007
+From: jason.roberts at duke.edu (Jason Roberts)
+Date: Mon, 1 Oct 2007 10:57:40 -0400
+Subject: [Proj] Passing 64-bit floats to proj with -b option works for some
+	numbers but not others
+Message-ID: <015601c8043b$6a4afce0$0601a8c0@JASONRLAPTOP>
+
+PROJ folks,
+
+ 
+
+I am trying to invoke proj as a child process using the -b option, pass
+binary 64-bit floats to stdin, and receive binary 64-bit floats from stdout:
+
+ 
+
+proj -b +proj=merc +ellps=WGS84
+
+ 
+
+I have discovered that I can successfully project the point 37.782 0.0 but
+not the point 37.783 0.0. When I write the first point to stdin (in radians,
+of course), proj responds by writing 16 bytes to stdout. This is the
+projected point. But when I write the second point, proj does not write
+anything to stdout. I have reproduced the problem on a Windows XP machine
+with a Pentium M and a Windows Vista machine with a Core 2 T74000. I am
+using ftp://ftp.remotesensing.org/proj/proj446_win32_bin.zip.
+
+ 
+
+Can anyone explain why I can project one point but not the other? If this is
+a bug in proj, can you fix it? Thanks very much for any help anyone can
+provide. If it is a bug and no fix is possible, I would suggest that the -b
+or -i options not be used by anyone unless someone can explain the
+circumstances in which they may be safely used.
+
+ 
+
+Here is a detailed demonstration of the problem. First, I can successfully
+project both points if I invoke proj in normal mode (not using -b):
+
+ 
+
+C:\temp2>proj +proj=merc +ellps=WGS84
+
+37.782 0.0
+
+4205873.00      0.00
+
+37.783 0.0
+
+4205984.32      0.00
+
+ 
+
+In order to use the -b option, it is necessary to pass in radians. I wrote a
+C++ program, compiled with Visual Studio 2005 as a Win32 console
+application, to convert to radians and display the hex values of the 64-bit
+float representations:
+
+ 
+
+#include <stdio.h>
+
+ 
+
+void main()
+
+{
+
+    double value = 3.14159265358979323846 / 180.0 * 37.782;
+
+    unsigned char *p = (unsigned char *)&value;
+
+    printf("value = %.17f (%02X %02X %02X %02X %02X %02X %02X %02X)\n",
+value, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+
+    value = 3.14159265358979323846 / 180.0 * 37.783;
+
+    printf("value = %.17f (%02X %02X %02X %02X %02X %02X %02X %02X)\n",
+value, p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]);
+
+}
+
+ 
+
+This produced the output:
+
+ 
+
+value = 0.65942029798849755 (C6 BB C5 98 F8 19 E5 3F)
+
+value = 0.65943775128101756 (F9 FD EF 32 1D 1A E5 3F)
+
+ 
+
+As an aside, because I ultimately want to invoke proj from Python, I did the
+same thing in Python 2.5, to verify that Python and C++ produced the same
+representations:
+
+ 
+
+>>> import array, math
+
+>>> ' '.join(map(hex, map(ord, array.array('d',
+[math.radians(37.782)]).tostring()))).replace('0x', '').upper()
+
+'C6 BB C5 98 F8 19 E5 3F'
+
+>>> ' '.join(map(hex, map(ord, array.array('d',
+[math.radians(37.783)]).tostring()))).replace('0x', '').upper()
+
+'F9 FD EF 32 1D 1A E5 3F'
+
+ 
+
+Using a hex editor, I wrote the binary values for the two points to two
+16-byte files, 37.782.bin and 37.783.bin. Note that the 64-bit float
+representation of 0.0 is 0x0000000000000000.
+
+ 
+
+C:\temp2>hexdump 37.782.bin
+
+HEXDUMP of Mon, 13 Jun 2005, copyright (c) 2005 by Rich Pasco
+
+C:\temp2\37.782.bin  16 bytes    9/26/2007   9:22:50
+
+ 
+
+          -0 -1 -2 -3  -4 -5 -6 -7  -8 -9 -A -B  -C -D -E -F
+
+ 
+
+00000000- C6 BB C5 98  F8 19 E5 3F  00 00 00 00  00 00 00 00
+[.......?........]
+
+ 
+
+C:\temp2>hexdump 37.783.bin
+
+HEXDUMP of Mon, 13 Jun 2005, copyright (c) 2005 by Rich Pasco
+
+C:\temp2\37.783.bin  16 bytes    9/26/2007   9:22:56
+
+ 
+
+          -0 -1 -2 -3  -4 -5 -6 -7  -8 -9 -A -B  -C -D -E -F
+
+ 
+
+00000000- F9 FD EF 32  1D 1A E5 3F  00 00 00 00  00 00 00 00
+[...2...?........]
+
+ 
+
+I verified that I could use the -i option with O/S redirection to pass in
+37.782.bin and get the expected result:
+
+ 
+
+C:\temp2>proj -i +proj=merc +ellps=WGS84 < 37.782.bin
+
+4205873.00      0.00
+
+ 
+
+But now, when I pass in 37.783.bin, proj does not write anything to stdout:
+
+ 
+
+C:\temp2>proj -i +proj=merc +ellps=WGS84 < 37.783.bin
+
+ 
+
+When I invoke it from a Python program using the -b option, the same
+situations result (except the output for the first point is 16 bytes and the
+second point is nothing). For brevity, I'm not including that program here.
+
+ 
+
+Again, thanks for your help,
+
+ 
+
+Jason
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071001/42ff2ac7/attachment.html>
+
+From csbruce at cubewerx.com  Mon Oct 15 14:17:43 2007
+From: csbruce at cubewerx.com (Craig Bruce)
+Date: Mon, 15 Oct 2007 17:17:43 -0400
+Subject: [Proj] Google Mercator Projection
+Message-ID: <200710152117.l9FLHhZL010829@tux.cubewerx.com>
+
+I am having a problem converting coordinate values from WGS84 Geographic to
+the Mercator projection that Google Maps uses.  This case works correctly:
+
+% cs2cs +proj=latlong +datum=WGS84 +ellps=WGS84 +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +nadgrids=@null
+-66 45
+-7347086.39     5621521.49 -0.00
+
+but if I go above 45° latitude, it stops working:
+
+% cs2cs +proj=latlong +datum=WGS84 +ellps=WGS84 +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0 +nadgrids=@null
+-66 46
+*       * -0.00
+
+If I remove the "+nadgrids", it returns a result, but the Y value is off
+by about 30 km from where it should be.
+
+% cs2cs +proj=latlong +datum=WGS84 +ellps=WGS84 +to +proj=merc +a=6378137 +b=6378137 +lat_ts=0.0 +lon_0=0.0 +x_0=0.0 +y_0=0                
+-66 46
+-7347086.39     5749581.82 -11020.66
+
+I am using proj 4.4.8.  It looks like whatever formula changes the Z
+coordinate value to 0 conks out a 45° latitude.
+
+--------------------------+----------------------+--------------------------
+Dr. Craig S. Bruce        | Ph 819-771-8303 x205 |             CubeWerx Inc.
+Senior Software Developer |   Fax 819-771-8388   |  Gatineau, Québec, Canada
+csbruce at cubewerx.com      |  http://csbruce.com/ |  http://www.cubewerx.com/
+--------------------------+----------------------+--------------------------
+                "If the shoe fits, it is probably worn out."
+
+
+From csbruce at cubewerx.com  Mon Oct 15 15:07:16 2007
+From: csbruce at cubewerx.com (Craig Bruce)
+Date: Mon, 15 Oct 2007 18:07:16 -0400
+Subject: [Proj] Google Mercator Projection
+In-Reply-To: <200710152117.l9FLHhZL010829@tux.cubewerx.com>
+Message-ID: <200710152207.l9FM7GXV012035@tux.cubewerx.com>
+
+Craig Bruce <csbruce at cubewerx.com> wrote:
+
+> I am using proj 4.4.8.  It looks like whatever formula changes the Z
+> coordinate value to 0 conks out a 45° latitude.
+
+It appears that proj-4.5.0 solves the problem.  It looks like the
+"nad/null.lla" file is messed up in 4.4.8, having a grid spacing that
+doesn't match the number of 'fence posts' in the grid:
+
+Null transform for whole world
+   8   4   1  -180.00000   45.00000   -90.00000   45.00000
+0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+1: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+2: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+3: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+whereas in 4.5.0, it is simplified with the right number of fence posts:
+
+Null transform for whole world
+   3   3   1  -180.00000   180.00000   -90.00000   90.00000
+0: 0 0 0 0 0 0 
+1: 0 0 0 0 0 0 
+2: 0 0 0 0 0 0
+
+--------------------------+----------------------+--------------------------
+Dr. Craig S. Bruce        | Ph 819-771-8303 x205 |             CubeWerx Inc.
+Senior Software Developer |   Fax 819-771-8388   |  Gatineau, Québec, Canada
+csbruce at cubewerx.com      |  http://csbruce.com/ |  http://www.cubewerx.com/
+--------------------------+----------------------+--------------------------
+                "Very funny Scotty, now beam me my clothes!"
+
+
+From Chris.Barker at noaa.gov  Mon Oct 15 15:20:19 2007
+From: Chris.Barker at noaa.gov (Christopher Barker)
+Date: Mon, 15 Oct 2007 15:20:19 -0700
+Subject: [Proj] Google Mercator Projection
+In-Reply-To: <200710152117.l9FLHhZL010829@tux.cubewerx.com>
+References: <200710152117.l9FLHhZL010829@tux.cubewerx.com>
+Message-ID: <4713E7A3.4010305@noaa.gov>
+
+Hi,
+
+Craig Bruce wrote:
+> I am having a problem converting coordinate values from WGS84 Geographic to
+> the Mercator projection that Google Maps uses. 
+
+There was a fair bit of talk about this at the FOSS4G conference, I only 
+caught bits of it. This may help:
+
+http://crschmidt.net/blog/archives/238/understanding-googles-projection-slightly-anyway/
+
+There was talk of a new EPSG code for the google Mercator projection:
+
+http://crschmidt.net/blog/archives/243/google-projection-900913/
+
+
+-Chris
+
+
+-- 
+Christopher Barker, Ph.D.
+Oceanographer
+
+Emergency Response Division
+NOAA/NOS/OR&R            (206) 526-6959   voice
+7600 Sand Point Way NE   (206) 526-6329   fax
+Seattle, WA  98115       (206) 526-6317   main reception
+
+Chris.Barker at noaa.gov
+
+
+From warmerdam at pobox.com  Mon Oct 15 16:24:51 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 15 Oct 2007 19:24:51 -0400
+Subject: [Proj] Google Mercator Projection
+In-Reply-To: <4713E7A3.4010305@noaa.gov>
+References: <200710152117.l9FLHhZL010829@tux.cubewerx.com>
+	<4713E7A3.4010305@noaa.gov>
+Message-ID: <4713F6C3.7050302@pobox.com>
+
+Christopher Barker wrote:
+> Hi,
+> 
+> Craig Bruce wrote:
+>> I am having a problem converting coordinate values from WGS84 
+>> Geographic to
+>> the Mercator projection that Google Maps uses. 
+> 
+> There was a fair bit of talk about this at the FOSS4G conference, I only 
+> caught bits of it. This may help:
+> 
+> http://crschmidt.net/blog/archives/238/understanding-googles-projection-slightly-anyway/ 
+> 
+> 
+> There was talk of a new EPSG code for the google Mercator projection:
+> 
+> http://crschmidt.net/blog/archives/243/google-projection-900913/
+
+Craig,
+
+You should also read the final FAQ at:
+
+   http://proj.maptools.org/faq.html
+
+It talks about how to stop pj_transform() from doing a big shift to get
+from Mercator spherical coordinates to WGS84 ellipical coordinates.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From mankoff at gmail.com  Mon Oct 15 21:48:18 2007
+From: mankoff at gmail.com (Ken Mankoff)
+Date: Tue, 16 Oct 2007 17:48:18 +1300 (NZDT)
+Subject: [Proj] inverse projecting ASCII data
+Message-ID: <Pine.OSX.4.64.0710161706310.6983@cnezn.ybpny>
+
+Hi List,
+
+I'm completely new to proj and fairly new to projections in general 
+at this level of detail, although I've been making maps for years 
+with higher level tools (IDL).
+
+I now have an ASCII file centered on the south pole. I'd like to 
+inverse project it to a simple cylindrical gridded data set of, for 
+example, 1x1 degree latitude longitude boxes (eventual goal: Google 
+Earth layer that requires pole at edgcm of image).
+
+I've been reading the man page for invproj but am not able to get 
+far at all. I don't know much about the data but I do know this:
+
+* Polar Stereographic, 71S as true lat scale
+* Grid is 5km
+* I know the number of rows and columns of the input ASCII file
+* And that "xllcorner: -2713600" and "yllcorner: -2304000"
+   but I don't know what these mean
+
+I've come up with this mostly from an old archive post:
+
+invproj +proj=stere +lon_0=0 +lat_0=-90 +lat_ts=-71 proj.test.in > proj.test.out
+
+But don't fully understand the output,  which looks like this:
+
+> 135dW   89d52'11.473"S -9999 ....
+> 135dW   89d52'11.473"S -9999 ...
+and then suddenly
+> 0dE     90dS 0 0 ...
+
+Any help greatly appreciated.
+
+Thanks,
+
+   -k.
+
+-- 
+Sent from Antarctica: http://pace.edgcm.columbia.edu
+
+
+From Martin.Boka at boka.cz  Fri Oct 19 05:37:35 2007
+From: Martin.Boka at boka.cz (Mgr. Martin Boka)
+Date: Fri, 19 Oct 2007 14:37:35 +0200
+Subject: [Proj] using proj4 for transformation from local polar coordinates
+ to other local polar (with different center and height)
+Message-ID: <4718A50F.4090802@boka.cz>
+
+Hi List,
+I am newbie in using proj and map projections in general.
+I have this problem:
+
+I have some sensor(s) which is placed at given WGS84 coordinates
+(lat/long from GPS) and given height above the sea level (also from
+GPS). I have some detections on some Rho (the distance from the sphere
+center - slant range) and Theta (the azimutal angle, 0 deg is due north
+approximately) from this given center. I have also heights of these
+targets above the ground (using a pressure altimeter - so it is above
+sea level).
+Now i need some transformation and projection to the plane (map)
+tangential to the Earth at the place of sensor or at another place with
+given coordinates and height (for multi sensor coordination).
+I think I could use the pj_transform and pj_datum_transform. But I dont
+know how to use it with the given height which is not from the sensor
+possition but against sea level and with local polar coordinates of
+targets. Also I need to transform slant-range to  the range from the
+sensor (at target tangential plane).
+
+Because I am getting data (possitions of targets) continually I must do
+transformation for each target or a small nuber of targets separately.
+But there is the same center and therefore is not necessary to compute
+The Earth radius or sin and cos of coordinates each time. Is there any
+way to compute these constants at initialization of projection an use it
+for computations?
+
+Thanks for any help
+
+Martin Boka
+Czech republic
+
+
+
+From mfinn at usgs.gov  Fri Oct 19 07:01:35 2007
+From: mfinn at usgs.gov (Michael P Finn)
+Date: Fri, 19 Oct 2007 10:01:35 -0400
+Subject: [Proj] Michael P Finn of the USGS/ National Geospatial Technical
+ Operations Center is out of the office.
+Message-ID: <OF4CEAC313.65E9ACB8-ON85257379.004D0CEF-85257379.004D0CEF@usgs.gov>
+
+
+I will be out of the office starting  10/16/2007 and will not return until
+10/29/2007.
+
+I will be unable to check e-mail regularly while I am out. If I can't
+respond to your message while I am out, then I will when I return. If you
+have anything that cannot wait, please contact my colleague, Dr. E. Lynn
+Usery, at usery at usgs.gov.     Mike
+
+
+
+From support.mn at elisanet.fi  Fri Oct 19 07:59:30 2007
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Fri, 19 Oct 2007 17:59:30 +0300 (EEST)
+Subject: [Proj] proj-4 introduced errors!
+Message-ID: <31073723.300461192805970768.JavaMail.support.mn@elisanet.fi>
+
+To: proj at lists.maptools.org
+
+PJ_Transform_Plus() or similar....
+
+Is there any plan to add a new routine to the library (PJ_Transform_Plus or similar), that would do the datum conversion more elegantly? Current version intoduces datum shits to transformations where usually such shits are not seen! Let's have an example:
+
+Datum 1:
+
+proj=robin
+ellps=WGS84
+datum=WGS86
+no_defs
+
+Datum 2:
+
+proj=tmerc
+ellps=WGS84
+datum=WGS86
+no_defs
+
+Now, if I take some coordinates in datum 1, like (62.000000N and 32.000000W) and want to do a datum shit, all would  expect that the result in datum 2 will be exactly the same (62.000000N and 32.000000W)! SINCE IF THE DATUM IS THE SAME THERE CAN NOT BE ANY SHIFTS (The whole idea behind different datums)
+
+Put if I use PJ_Transform I will get huge shits (about 12 minutes or so)??? Using any common datum shift program will keep the transormation clean! Frank Warmerdam already adressed this problem and his idea was to use zero shift grid.... but that does not solve the problem generally when using proj-4 as a routine library.
+
+The idea behind the new transformer would be to avoid using any projection related data unless projections are even used. So the user datum and ellps definitions would win over the defaults... and the spehrical to elliptical conversion would not introduce those shifts. The library should also give a warning if it does not use the user definitions!
+
+Compare for example the following program:
+
+http://www.geomatix.net/datumpro/datums.htm
+
+The MAIN PROBLEM might be that proj-4 introduces such shifts that other common programs and methods do not! and it should be fixed. Maybe datum shits and projections should be kept separate. Since that is how they are handled commonly. And now they are mixed....
+
+Fixing this outside proj-4 would require to rewrite the whole scanner again or installing a prepresessor that would take the definitions before proj-4 starts to deal with them. Since this is meaningless when proj-4 allready has the scanners, it is more easy to fix there directly.
+
+Best regards: Janne
+
+P.S. I don't know who has done and what... I am just using the package.
+
+
+
+From warmerdam at pobox.com  Fri Oct 19 12:45:59 2007
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Fri, 19 Oct 2007 15:45:59 -0400
+Subject: [Proj] proj-4 introduced errors!
+In-Reply-To: <31073723.300461192805970768.JavaMail.support.mn@elisanet.fi>
+References: <31073723.300461192805970768.JavaMail.support.mn@elisanet.fi>
+Message-ID: <47190977.6020205@pobox.com>
+
+support.mn at elisanet.fi wrote:
+> To: proj at lists.maptools.org
+> 
+> PJ_Transform_Plus() or similar....
+> 
+> Is there any plan to add a new routine to the library (PJ_Transform_Plus 
+> or similar), that would do the datum conversion more elegantly? Current 
+> version intoduces datum shits to transformations where usually such 
+> shits are not seen! Let's have an example:
+> 
+> Datum 1:
+> 
+> proj=robin
+> ellps=WGS84
+> datum=WGS86
+> no_defs
+> 
+> Datum 2:
+> 
+> proj=tmerc
+> ellps=WGS84
+> datum=WGS86
+> no_defs
+
+Folks,
+
+For reference, the reason a problem occurs is that internally the ellipse
+for robinson is reset to a sphere since it is a spherical only projection.
+Unfortunately the datum/ellipse shift code then picks up on this difference
+and attempts an ellipse to ellipse conversion.
+
+This is definately not desirable, but I'm not sure how to fix it.  And
+somehow Janne's approach is such that I don't feel like putting everything
+else aside to work on the issue.
+
+Good solutions welcome.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+
+
+From ricozinn at gmail.com  Mon Oct 29 11:57:45 2007
+From: ricozinn at gmail.com (Richard Zinn)
+Date: Mon, 29 Oct 2007 12:57:45 -0600
+Subject: [Proj] How to build the correct paramater list for pj_init()
+Message-ID: <496eec030710291157p488835b7g62318bcfc7003bbf@mail.gmail.com>
+
+Hi, Sorry if this has been addressed before, I couldn't see any way to
+search the archive.
+
+I want to build the correct paramater list for proj based on this data:
+PROJCS["NAD_1983_UTM_Zone_12N",GEOGCS["GCS_North_American_1983",
+DATUM["D_North_American_1983",
+SPHEROID["GRS_1980",6378137.0,298.257222101]],
+PRIMEM["Greenwich",0.0],
+UNIT["Degree",0.0174532925199433]],
+
+PROJECTION["Transverse_Mercator"],
+PARAMETER["False_Easting",500000.0],
+PARAMETER["False_Northing",0.0],
+PARAMETER["Central_Meridian",-111.0],
+PARAMETER["Scale_Factor",0.9996],
+PARAMETER["Latitude_Of_Origin",0.0],
+UNIT["Meter",1.0]]
+
+I've read the documentation, and since I'm just a newbie to cartography it
+is all still a little unclear and I need to learn by example.
+
+Is there any code out there (any language) I could see that takes this kind
+of input and builds out the paramaters for prj_init()?
+
+My guess is that it is something like this:
+static char *params_in[] = {
+  "proj=tmerc",
+  "lat_0=0",
+  "lon_0=500000",
+  "units=m"
+};
+prj_init(4, params_in);
+
+But that doesn't work :)  And I'm sure it is pretty far off.
+
+Thanks.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20071029/b395a7f7/attachment.html>
+
+From hamish_nospam at yahoo.com  Wed Oct 31 03:01:57 2007
+From: hamish_nospam at yahoo.com (Hamish)
+Date: Wed, 31 Oct 2007 23:01:57 +1300
+Subject: [Proj] How to build the correct paramater list for pj_init()
+In-Reply-To: <496eec030710291157p488835b7g62318bcfc7003bbf@mail.gmail.com>
+References: <496eec030710291157p488835b7g62318bcfc7003bbf@mail.gmail.com>
+Message-ID: <20071031230157.cd8b196c.hamish_nospam@yahoo.com>
+
+Richard Zinn wrote:
+
+> Hi, Sorry if this has been addressed before, I couldn't see any way to
+> search the archive.
+> 
+> I want to build the correct paramater list for proj based on this data:
+> PROJCS["NAD_1983_UTM_Zone_12N",GEOGCS["GCS_North_American_1983",
+> DATUM["D_North_American_1983",
+> SPHEROID["GRS_1980",6378137.0,298.257222101]],
+> PRIMEM["Greenwich",0.0],
+> UNIT["Degree",0.0174532925199433]],
+> 
+> PROJECTION["Transverse_Mercator"],
+> PARAMETER["False_Easting",500000.0],
+> PARAMETER["False_Northing",0.0],
+> PARAMETER["Central_Meridian",-111.0],
+> PARAMETER["Scale_Factor",0.9996],
+> PARAMETER["Latitude_Of_Origin",0.0],
+> UNIT["Meter",1.0]]
+> 
+> I've read the documentation, and since I'm just a newbie to cartography
+> it is all still a little unclear and I need to learn by example.
+> 
+> Is there any code out there (any language) I could see that takes this
+> kind of input and builds out the paramaters for prj_init()?
+> 
+> My guess is that it is something like this:
+> static char *params_in[] = {
+>   "proj=tmerc",
+>   "lat_0=0",
+>   "lon_0=500000",
+>   "units=m"
+> };
+> prj_init(4, params_in);
+> 
+> But that doesn't work :)  And I'm sure it is pretty far off.
+
+
+The above is WKT "Well known text" format,
+  http://en.wikipedia.org/wiki/Well-known_text
+
+Yours looks a lot like standard UTM zone 12 North.
+
+>From the /usr/share/proj/epsg file:
+  # NAD83 / UTM zone 12N
+  <26912> +proj=utm +zone=12 +ellps=GRS80 +datum=NAD83 +units=m +no_defs  <>
+
+
+simple method: does it work using that EPSG code? or one of the other
+UTM12N epsg codes?
+
+
+using the WKT with GRASS GIS's g.proj module to make a new project location:
+GRASS6.3> g.proj -c location=foo wkt=- << EOF
+ PROJCS["NAD_1983_UTM_Zone_12N",GEOGCS["GCS_North_American_1983",
+ DATUM["D_North_American_1983",
+ SPHEROID["GRS_1980",6378137.0,298.257222101]],
+ PRIMEM["Greenwich",0.0],
+ UNIT["Degree",0.0174532925199433]],
+ PROJECTION["Transverse_Mercator"],
+ PARAMETER["False_Easting",500000.0],
+ PARAMETER["False_Northing",0.0],
+ PARAMETER["Central_Meridian",-111.0],
+ PARAMETER["Scale_Factor",0.9996],
+ PARAMETER["Latitude_Of_Origin",0.0],
+ UNIT["Meter",1.0]]
+EOF
+Location foo created!
+
+
+then in the new location we can check by outputting projection info in
+WKT format:  (should be the same as the input)
+
+GRASS6.3> g.proj -w
+PROJCS["UTM Zone 12, Northern Hemisphere",
+    GEOGCS["grs80",
+        DATUM["North_American_Datum_1983",
+            SPHEROID["Geodetic_Reference_System_1980",6378137,298.257222101]],
+        PRIMEM["Greenwich",0],
+        UNIT["degree",0.0174532925199433]],
+    PROJECTION["Transverse_Mercator"],
+    PARAMETER["latitude_of_origin",0],
+    PARAMETER["central_meridian",-111],
+    PARAMETER["scale_factor",0.9996],
+    PARAMETER["false_easting",500000],
+    PARAMETER["false_northing",0],
+    UNIT["Meter",1]]
+
+
+and output in PROj.4 format:
+
+GRASS6.3> g.proj -j
++proj=utm
++no_defs
++zone=12
++a=6378137
++rf=298.257222101
++towgs84=0.000,0.000,0.000
++to_meter=1
+
+
+does that help?
+
+Hamish
+
+
+From roger at opq.se  Wed Oct 31 03:04:56 2007
+From: roger at opq.se (Roger Oberholtzer)
+Date: Wed, 31 Oct 2007 11:04:56 +0100
+Subject: [Proj] How to build the correct paramater list for pj_init()
+In-Reply-To: <496eec030710291157p488835b7g62318bcfc7003bbf@mail.gmail.com>
+References: <496eec030710291157p488835b7g62318bcfc7003bbf@mail.gmail.com>
+Message-ID: <1193825098.9258.57.camel@acme.pacific>
+
+On Mon, 2007-10-29 at 12:57 -0600, Richard Zinn wrote:
+> Hi, Sorry if this has been addressed before, I couldn't see any way to
+> search the archive.
+>  
+> I want to build the correct paramater list for proj based on this
+> data:
+> PROJCS["NAD_1983_UTM_Zone_12N",GEOGCS["GCS_North_American_1983",
+> DATUM["D_North_American_1983",
+> SPHEROID["GRS_1980",6378137.0,298.257222101]],
+> PRIMEM["Greenwich",0.0],
+> UNIT["Degree",0.0174532925199433]],
+>  
+> PROJECTION["Transverse_Mercator"],
+> PARAMETER["False_Easting",500000.0],
+> PARAMETER["False_Northing",0.0],
+> PARAMETER["Central_Meridian",-111.0],
+> PARAMETER["Scale_Factor",0.9996],
+> PARAMETER["Latitude_Of_Origin",0.0],
+> UNIT["Meter",1.0]]
+>  
+> I've read the documentation, and since I'm just a newbie to
+> cartography it is all still a little unclear and I need to learn by
+> example.
+>  
+> Is there any code out there (any language) I could see that takes this
+> kind of input and builds out the paramaters for prj_init()?
+>  
+> My guess is that it is something like this:
+> static char *params_in[] = { 
+>   "proj=tmerc", 
+>   "lat_0=0", 
+>   "lon_0=500000", 
+>   "units=m" 
+> };
+> prj_init(4, params_in);
+>  
+> But that doesn't work :)  And I'm sure it is pretty far off.
+
+Here is an example I use in the UK. I use a different routine, but you
+should be able to do the same:        
+
+Initialize thus: 
+
+	projPJ fromProj, toProj;
+
+	fromProj = pj_init_plus(
+						"+proj=latlong "
+						"+ellps=WGS84 "
+						"+towgs84=0,0,0 "
+						"+nodefs");
+
+	toProj   = pj_init_plus(
+						"+proj=tmerc "
+						"+lat_0=49 "
+						"+lon_0=-2 "
+						"+k=0.9996012717 "
+						"+x_0=400000 "
+						"+y_0=-100000 "
+						"+ellps=airy "
+						"+nadgrids=gb.gsb "
+						"+units=m "
+						"+no_defs");
+
+fromProf describes the source data. In my case, WGS84 from a Trimble
+receiver. toProj describes what I want out. In my case, OSTN02 in the
+UK. At least this is how I interpret things. This code works for me.
+
+To do a conversion, LONG is the longitude and LAT is the latitude, both
+in degrees. I do not do anything with the altitude (HEIGHT):
+
+	#define DEGREE_TO_RADIAN (M_PI / 180.0)
+
+	lng = LONG * DEGREE_TO_RADIAN;
+	lat = LAT  * DEGREE_TO_RADIAN;
+	alt = 0; // We do not give this a height
+
+	pj_transform(fromProj, toProj, 1, 0, &lng, &lat, &alt);
+
+	local_easting = lng;
+	local_northing = lat;
+	local_altitude = HEIGHT;
+
+The tricky part is the parameters to use!
+
+
+>  
+> Thanks.
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+-- 
+Roger Oberholtzer
+
+OPQ Systems / Ramböll RST
+
+Ramböll Sverige AB
+Kapellgränd 7
+P.O. Box 4205
+SE-102 65 Stockholm, Sweden
+
+Tel: Int +46 8-615 60 20
+Mobl: Int +46 70-815 1696
+
+
+

@@ -1,0 +1,1218 @@
+From makzpj at gmail.com  Fri May  2 14:05:05 2008
+From: makzpj at gmail.com (Maximo Pech)
+Date: Fri May  2 14:05:08 2008
+Subject: [geos-devel] GEOSBuffer doesn't take all of my geometry
+In-Reply-To: <481659C4.6050704@refractions.net>
+References: <e70424ee0804281358p157499f6r5ec142e109e8c620@mail.gmail.com>
+	<48163C79.6010203@refractions.net>
+	<e70424ee0804281507t4a5fec29u60f3b71f9541c49a@mail.gmail.com>
+	<48164F5B.7010200@refractions.net>
+	<e70424ee0804281600n6cc1ea6bicaa7c2120afb6044@mail.gmail.com>
+	<481659C4.6050704@refractions.net>
+Message-ID: <e70424ee0805021105r32ed4d1fi5a42f8cff8c9d3ad@mail.gmail.com>
+
+Ok, I've done the following; since the rings of the polygons seem to be
+unordered I first check which one is the exterior ring by checking the
+length of each one. I take the longest as the exterior ring, then:
+
+--- CODE ---
+
+/* Node the linework, the polygon I'm trying to fix is
+geos_shape_cobertura_polygons[i] */
+
+geos_shape_polygon = GEOSGetGeometryN(geos_shape_cobertura_polygons[i],
+largest_geom_index);
+geos_shape2 = GEOSPointOnSurface(geos_shape_polygon);
+geos_shape_polygon = GEOSUnion(geos_shape_polygon, geos_shape2);
+
+for(j=0; j<num_geoms; j++)
+{
+    if(j == largest_geom_index)
+           continue;
+
+      geos_shape = GEOSGetGeometryN(geos_shape_cobertura_polygons[i], j);
+      geos_shape_polygon = GEOSUnion(geos_shape_polygon,
+GEOSUnion(geos_shape, geos_shape2));
+ }
+
+geos_shape_polygon = GEOSPolygonize(&(geos_shape_polygon), 1);
+
+geos_shape_cobertura_polygons[i] = GEOSGetGeometryN(geos_shape_polygon, 0);
+
+--- END CODE ---
+
+But the weird thing is GEOSGetNumGeometries() on the polygonized shape
+returns 1280 and GEOSGetGeometryN() on the 0th geometry returns the polygon
+I want, so what are all those remaining geometries?
+
+2008/4/28 Martin Davis <mbdavis@refractions.net>:
+
+>
+>
+> Maximo Pech wrote:
+>
+> > Sounds like a tough problem, alright.
+> >
+> >
+> >    Can you throw away all the component polygons in the first shape
+> >    which don't intersect the second shapefile?  Does that reduce the
+> >    size at all?
+> >
+> >
+> > That would't work because many of the component polygons are invalid, in
+> > order to throw away them if they don't intersect the shapefile I have to
+> > clean them first because GEOSIntersects doesn't work with invalid polygons,
+> > but some (if not all) are as screwed up as the example polygons of my first
+> > post (inner rings outside of outer rings and many ugly things...)
+> >
+>
+> You could check their Envelopes, instead of the geometry itself.  That
+> avoids the problem with invalid geometry.
+>
+> >
+> >
+> >
+> >    Otherwise, you could use a manual tool (like JUMP) to find all the
+> >    self-intersections in the first shape and manually fix them.
+> >
+> >
+> > That would be good but it's required that the final user just launches
+> > the process and it should calculate and fix the invalid input automatically.
+> >
+> Well, all I can say is that there is no magic answer to cleaning invalid
+> geometry.  That's why APIs generally require valid geometry!  When trying to
+> handle invalid data, the approach to take is heavily dependent on exactly
+> *how* they can be invalid.  Your problem is compounded by the fact that the
+> input is so large.
+>
+> >
+> >
+> >
+> >    I guess one other thing I might try is to:
+> >    - split the first shape into linework
+> >    - node the linework (by unioning it with a single point)
+> >    - polygonize the noded linework
+> >    That might give you a clean "big poly" - although if it is really
+> >    screwed up you might have to drop some of the created polygons.
+> >
+> >
+> > I will try that but I don't understand what do you mean by linework.
+> >
+>
+> "Linework" means the lines which make up the geometries.  In the case of
+> polygons, you get get this by calling getBoundary.
+>
+> >
+> >
+> >
+> >
+> >    Maximo Pech wrote:
+> >
+> >        Well, I will explain you why I have this weird geometry.
+> >
+> >        The application I'm coding uses 2 esri shapefiles, one of them
+> >        is huge, it's the size of Mexico, and the shape of it is very
+> >        similar to Mexico. It's a huge multipolygon 24M in size.
+> >
+> >        Then I have another shapefile, the size of a city, this one is
+> >        made of many polygons and it's smaller.
+> >
+> >        I have to calculate the intersection percent between the first
+> >        and the second shapes.
+> >
+> >        To do this I convert both shapefiles to WKT, so I end up with
+> >        a huge WKT 54M in size from the first shapefile and many small
+> >        WKT's from the second one.
+> >
+> >        Problems start with the first shape, the huge one, having lots
+> >        of self-intersections. I tried to "fix" it by doing a
+> >        GEOSbuffer on it, but after some calculations, GEOSBuffer
+> >        fails with an error I don't remember.
+> >
+> >        After that I tried spliting the huge WKT multipolygon into
+> >        many smaller WKT polygons, and applying a GEOSBuffer to each
+> >        one of them when needed, but this doesn't work either because
+> >        many of the resulting polygons are screwed up, and I can't
+> >        discard any of them. Also there is no way I can get a
+> >        shapefile with a valid multipolygon inside it, I have to find
+> >        a way to make it usable for GEOSIntersection.
+> >
+> >        2008/4/28 Martin Davis <mbdavis@refractions.net
+> >        <mailto:mbdavis@refractions.net>
+> >        <mailto:mbdavis@refractions.net
+> >
+> >        <mailto:mbdavis@refractions.net>>>:
+> >
+> >
+> >           When I look at the geometry fragment you provided, the "hole"
+> >           actually lies completely outside the shell.  If the other
+> > holes
+> >           are the same, then buffer just removes them entirely.
+> >
+> >           In other words, buffer is behaving according to spec - it's
+> >        just
+> >           that your input geometry is too munged to be fixed by
+> >        buffer.  8^)
+> >
+> >           Maximo Pech wrote:
+> >
+> >               Hi, I'm having trouble with a geometry in WKT form, it
+> >        begins
+> >               like this:
+> >
+> >               POLYGON ((-97.3813520229492866 26.0028241269227607,
+> >               -97.3813272725338663 26.0046293743595065,
+> >        -97.3793295485156989
+> >               26.0046069937576725, -97.3793543294448654
+> >        26.0028017481029394,
+> >               -97.3813520229492866 26.0028241269227607),
+> >               (-97.3813520229492866 26.0028241269227607,
+> >               -97.3813767710094567 26.0010188790133867,
+> >        -97.3793791080158968
+> >               26.0009965019755249, -97.3773814473803014
+> >        26.0009740973626933,
+> >               -97.3753837891055838 26.0009516651750232,
+> >        -97.3753589495133269
+> >               26.0027569077319392, -97.3753341075571370
+> >        26.00456214981606...
+> >
+> >               It's a polygon with many rings inside it. I'm trying to
+> >        buffer
+> >               it to make a intersection operation with a lot of other
+> >               geometries because GEOS says it has a self-intersection
+> >        at or
+> >               near point -97.3814 26.0028, but after buffering it my
+> >               geometry becomes:
+> >
+> >               POLYGON ((-97.3813520229492866 26.0028241269227607,
+> >               -97.3813272725338663 26.0046293743595065,
+> >        -97.3793295485156989
+> >               26.0046069937576725, -97.3793543294448654
+> >        26.0028017481029394,
+> >               -97.3813520229492866 26.0028241269227607))
+> >
+> >               All of the remaining rings are gone.
+> >
+> > ------------------------------------------------------------------------
+> >
+> >               _______________________________________________
+> >               geos-devel mailing list
+> >               geos-devel@lists.osgeo.org
+> >        <mailto:geos-devel@lists.osgeo.org>
+> >        <mailto:geos-devel@lists.osgeo.org
+> >        <mailto:geos-devel@lists.osgeo.org>>
+> >
+> >               http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+> >
+> >           --    Martin Davis
+> >           Senior Technical Architect
+> >           Refractions Research, Inc.
+> >           (250) 383-3022
+> >
+> >           _______________________________________________
+> >           geos-devel mailing list
+> >           geos-devel@lists.osgeo.org
+> >        <mailto:geos-devel@lists.osgeo.org>
+> >        <mailto:geos-devel@lists.osgeo.org
+> >        <mailto:geos-devel@lists.osgeo.org>>
+> >
+> >           http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+> >
+> >
+> >  ------------------------------------------------------------------------
+> >
+> >        _______________________________________________
+> >        geos-devel mailing list
+> >        geos-devel@lists.osgeo.org <mailto:geos-devel@lists.osgeo.org>
+> >        http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+> >
+> >    --    Martin Davis
+> >    Senior Technical Architect
+> >    Refractions Research, Inc.
+> >    (250) 383-3022
+> >
+> >    _______________________________________________
+> >    geos-devel mailing list
+> >    geos-devel@lists.osgeo.org <mailto:geos-devel@lists.osgeo.org>
+> >    http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+> >
+> > ------------------------------------------------------------------------
+> >
+> > _______________________________________________
+> > geos-devel mailing list
+> > geos-devel@lists.osgeo.org
+> > http://lists.osgeo.org/mailman/listinfo/geos-devel
+> >
+>
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20080502/7d23e604/attachment.html
+From mateusz at loskot.net  Mon May  5 12:07:38 2008
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Mon May  5 12:07:42 2008
+Subject: [geos-devel] Ticket #184
+Message-ID: <481F30CA.4000607@loskot.net>
+
+Folks,
+
+Could anyone comment on this issue reported by Andrey (GDAL Team)?
+
+http://trac.osgeo.org/geos/ticket/184
+
+Greetings
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+From wang.yongjie.2008 at gmail.com  Tue May  6 02:06:51 2008
+From: wang.yongjie.2008 at gmail.com (=?GB2312?B?zfXTwL3c?=)
+Date: Tue May  6 02:06:56 2008
+Subject: [geos-devel] Memory leak in RelateComputer?
+Message-ID: <74be0bff0805052306p255cb630j2bcd41a2e9503a75@mail.gmail.com>
+
+Intend to know how to release the pointer return by Geometry::Relate,
+I trace the source code to class RelateComputer. There is a private
+member variable named "im" initialized in the constructor.
+
+RelateComputer::RelateComputer(std::vector<GeometryGraph*> *newArg):
+	arg(newArg),
+	nodes(RelateNodeFactory::instance()),
+	im(new IntersectionMatrix())
+{
+}
+The variable "im" is created by operator "new", so I think it must
+destroyed in the destructor, but there is nothing in the destructor of
+RelateComputer.
+
+RelateComputer::~RelateComputer()
+{
+}
+
+I think "delete im; im = NULL" is needed, right?
+
+Best regards to everyone.
+
+-- 
+Wang Yongjie
+Tel:              +86(10)8282 5800 Ext. 8411
+Fax:             +86(10)8282 5816
+Email:          yongjiemail@gmail.com
+MSN/Gtalk:  yongjiemail@gmail.com
+Blog:            www.iseeker.org/blog
+From mateusz at loskot.net  Tue May  6 03:45:49 2008
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Tue May  6 03:45:55 2008
+Subject: [geos-devel] Memory leak in RelateComputer?
+In-Reply-To: <74be0bff0805052306p255cb630j2bcd41a2e9503a75@mail.gmail.com>
+References: <74be0bff0805052306p255cb630j2bcd41a2e9503a75@mail.gmail.com>
+Message-ID: <48200CAD.8010303@loskot.net>
+
+??? wrote:
+> Intend to know how to release the pointer return by Geometry::Relate,
+> I trace the source code to class RelateComputer. There is a private
+> member variable named "im" initialized in the constructor.
+> 
+> RelateComputer::RelateComputer(std::vector<GeometryGraph*> *newArg):
+> 	arg(newArg),
+> 	nodes(RelateNodeFactory::instance()),
+> 	im(new IntersectionMatrix())
+> {
+> }
+> The variable "im" is created by operator "new", so I think it must
+> destroyed in the destructor, but there is nothing in the destructor of
+> RelateComputer.
+> 
+> RelateComputer::~RelateComputer()
+> {
+> }
+> 
+> I think "delete im; im = NULL" is needed, right?
+
+Wang,
+
+You are correct that RelateComputer allocates new IntersectionMatrix 
+object, though the computer instance does not own it.
+Next, ownership of the intersection matrix is transfered to a 
+RelateComputer caller according to following scheme:
+
+vool foo()
+{
+   RelateComputer rc;
+   IntersectionMatrix* im = rccomp.computeIM(); // ownership transfer
+   bool res = im->matches(...);
+   delete im; // required deallocation
+   return res;
+}
+
+RelateComputer is not required to deallocate the matrix in its 
+destructor, and no memory leak should not occur.
+
+Greetings
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+From wang.yongjie.2008 at gmail.com  Tue May  6 22:44:33 2008
+From: wang.yongjie.2008 at gmail.com (=?GB2312?B?zfXTwL3c?=)
+Date: Tue May  6 22:44:38 2008
+Subject: [geos-devel] Re: Memory leak in RelateComputer?
+Message-ID: <74be0bff0805061944m7af7c23fhc1829e8ed1ad8ed1@mail.gmail.com>
+
+>  ??? wrote:
+>  > Intend to know how to release the pointer return by Geometry::Relate,
+>  > I trace the source code to class RelateComputer. There is a private
+>  > member variable named "im" initialized in the constructor.
+>  >
+>  > RelateComputer::RelateComputer(std::vector<GeometryGraph*> *newArg):
+>  >       arg(newArg),
+>  >       nodes(RelateNodeFactory::instance()),
+>  >       im(new IntersectionMatrix())
+>  > {
+>  > }
+>  > The variable "im" is created by operator "new", so I think it must
+>  > destroyed in the destructor, but there is nothing in the destructor of
+>  > RelateComputer.
+>  >
+>  > RelateComputer::~RelateComputer()
+>  > {
+>  > }
+>  >
+>  > I think "delete im; im = NULL" is needed, right?
+>
+>  Wang,
+>
+>  You are correct that RelateComputer allocates new IntersectionMatrix
+>  object, though the computer instance does not own it.
+>  Next, ownership of the intersection matrix is transfered to a
+>  RelateComputer caller according to following scheme:
+>
+>  vool foo()
+>  {
+>    RelateComputer rc;
+>    IntersectionMatrix* im = rccomp.computeIM(); // ownership transfer
+>    bool res = im->matches(...);
+>    delete im; // required deallocation
+>    return res;
+>  }
+>
+>  RelateComputer is not required to deallocate the matrix in its
+>  destructor, and no memory leak should not occur.
+>
+>  Greetings
+>  --
+>  Mateusz Loskot
+>  http://mateusz.loskot.net
+>
+Mateusz,
+
+First, thanks very much for your reply.
+That's great you provide a solution to avoid memory leak in class
+RelateComputer. It work very well, but I don't think that idea is good
+enough to solve this problem. For example, if I create a
+RelateComputer pointer and delete it immediately.
+
+  RelateComputer* rc = new (RelateComputer);
+  delete rc;
+  rc = NULL;
+
+Does Memory leak ocurr?
+need I do this before the pointer destroyed?
+
+  delete rc->computeIM(); // destroy the pointer im.
+
+I don't think that codes are graceful.
+So I still consider deallocate the matrix in its destructor is a betty way.
+"Who created, who destroyed"
+
+How do you think?
+
+Thank you for your patience.
+
+Best regards to everyone.
+
+--
+Wang Yongjie
+Tel:              +86(10)8282 5800 Ext. 8411
+Fax:             +86(10)8282 5816
+Email:          yongjiemail@gmail.com
+MSN/Gtalk:  yongjiemail@gmail.com
+Blog:            www.iseeker.org/blog
+From simone.giannecchini at geo-solutions.it  Wed May  7 05:58:44 2008
+From: simone.giannecchini at geo-solutions.it (Simone Giannecchini)
+Date: Wed May  7 05:58:47 2008
+Subject: [geos-devel] Strange problem with ISNAN macro
+Message-ID: <961f4d9e0805070258i557340a7qef736bcc1176d189@mail.gmail.com>
+
+Hi list,
+I am resurrecting some old code (1.5 years almost) which depended on a
+previous version of GEOS and I am having a strange problem.
+My code was used on windows platforms without (apparent :-) )
+problems. I have some wrapper classes of Coordinate where I make use
+of the ISNAN(x)  macro defined in platform.h.
+I have built my app against GEOS 3.0  on an intel win xp pro using vs
+7.1 but now strange enough, in my code this test
+ISNAN(DoubleNotANumber) always fails, causing me quite a lot of
+headaches.
+I have not investigated this problem too much yet, hence the solutions
+might be simple and immediate, if so, I apologize in advance! :-)
+
+Does anyone have an idea about how to tackle this problem?
+
+
+Ciao,
+Simone.
+
+-- 
+-------------------------------------------------------
+Eng. Simone Giannecchini
+President /CEO GeoSolutions S.A.S.
+Via Carignoni 51
+55041 Camaiore (LU)
+Italy
+
+phone: +39 0584983027
+fax: +39 0584983027
+mob: +39 333 8128928
+
+
+http://www.geo-solutions.it
+
+-------------------------------------------------------
+From bclay at ball.com  Wed May  7 09:54:42 2008
+From: bclay at ball.com (Clay, Bruce)
+Date: Wed May  7 10:11:08 2008
+Subject: [geos-devel] compile errors using VS 2005
+Message-ID: <C482FF98AE985A47B8C982FD429C9E34FEFE95@daytonmsg2k3.AERO.BALL.COM>
+
+I have tried to compile both version of GEOS as well as the packaged
+nightly builds on WinXP using Visual Studio 2005.  None of them will
+build.  Each try gives various responses.  The errors shown below are
+for the nightly build package.
+
+ 
+
+First the compile errors
+
+ 
+
+Commented geom\prep\PreparedPolygonLineIntersection.obj out of
+makefile.vc because the file does not exist.
+
+ 
+
+ 
+
+MCIndexNoder.inl and geos/noding/SegmentString.inl files are not
+included so I copied them from version 3.0.0
+
+ 
+
+Bruce
+
+ 
+
+
+
+
+This message and any enclosures are intended only for the addressee.  Please  
+notify the sender by email if you are not the intended recipient.  If you are  
+not the intended recipient, you may not use, copy, disclose, or distribute this  
+message or its contents or enclosures to any other person and any such actions  
+may be unlawful.  Ball reserves the right to monitor and review all messages  
+and enclosures sent to or from this email address.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20080507/ac946845/attachment.html
+From wang.yongjie.2008 at gmail.com  Wed May  7 22:48:35 2008
+From: wang.yongjie.2008 at gmail.com (=?GB2312?B?zfXTwL3c?=)
+Date: Wed May  7 22:48:46 2008
+Subject: [geos-devel] Re: Strange problem with ISNAN macro
+In-Reply-To: <74be0bff0805071947t1c5af121s268cbcb45bec2eed@mail.gmail.com>
+References: <74be0bff0805071947t1c5af121s268cbcb45bec2eed@mail.gmail.com>
+Message-ID: <74be0bff0805071948p1539eddcmd3644cc8a4d029c1@mail.gmail.com>
+
+Hello Ciao:
+
+I try to test the return value of ISNAN(DoubleNotANumber), it's true
+that always failure.
+The macro ISNAN is defined with function _isnan what returns a nonzero
+value if the argument x is a NAN,
+
+There are two methods to generate NAN.
+1. this method is come from MSDN.
+       unsigned long nan[2]={0xffffffff, 0x7fffffff};
+       double g = *( double* )nan;
+  g is NAN, and ISNAN(g) will return true.
+2. the other method is come from stl
+       double g = numeric_limits<double>::quiet_NaN();
+ g is NAN too, and ISNAN(g) will return true.
+
+it's seems that DoubleNotANumber define with 1.7e-308 is not NAN.
+
+does this can solve your problem.
+
+Best regards to everyone.
+
+>  ------------------------------
+>
+>  Message: 2
+>  Date: Wed, 7 May 2008 11:58:44 +0200
+>  From: "Simone Giannecchini" <simone.giannecchini@geo-solutions.it>
+>  Subject: [geos-devel] Strange problem with ISNAN macro
+>  To: geos-devel@lists.osgeo.org
+>  Message-ID:
+>         <961f4d9e0805070258i557340a7qef736bcc1176d189@mail.gmail.com>
+>  Content-Type: text/plain; charset=ISO-8859-1
+>
+>  Hi list,
+>  I am resurrecting some old code (1.5 years almost) which depended on a
+>  previous version of GEOS and I am having a strange problem.
+>  My code was used on windows platforms without (apparent :-) )
+>  problems. I have some wrapper classes of Coordinate where I make use
+>  of the ISNAN(x)  macro defined in platform.h.
+>  I have built my app against GEOS 3.0  on an intel win xp pro using vs
+>  7.1 but now strange enough, in my code this test
+>  ISNAN(DoubleNotANumber) always fails, causing me quite a lot of
+>  headaches.
+>  I have not investigated this problem too much yet, hence the solutions
+>  might be simple and immediate, if so, I apologize in advance! :-)
+>
+>  Does anyone have an idea about how to tackle this problem?
+>
+>
+>  Ciao,
+>  Simone.
+>
+>  --
+>  -------------------------------------------------------
+>  Eng. Simone Giannecchini
+>  President /CEO GeoSolutions S.A.S.
+>  Via Carignoni 51
+>  55041 Camaiore (LU)
+>  Italy
+>
+>  phone: +39 0584983027
+>  fax: +39 0584983027
+>  mob: +39 333 8128928
+>
+>
+>  http://www.geo-solutions.it
+>
+>  -------------------------------------------------------
+>
+>
+
+--
+Wang Yongjie
+Tel:              +86(10)8282 5800 Ext. 8411
+Fax:             +86(10)8282 5816
+Email:          yongjiemail@gmail.com
+MSN/Gtalk:  yongjiemail@gmail.com
+Blog:            www.iseeker.org/blog
+From mateusz at loskot.net  Wed May  7 23:37:19 2008
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed May  7 23:37:26 2008
+Subject: [geos-devel] Re: Memory leak in RelateComputer?
+In-Reply-To: <74be0bff0805061944m7af7c23fhc1829e8ed1ad8ed1@mail.gmail.com>
+References: <74be0bff0805061944m7af7c23fhc1829e8ed1ad8ed1@mail.gmail.com>
+Message-ID: <4822756F.4070502@loskot.net>
+
+??? wrote:
+> It work very well, but I don't think that idea is good
+> enough to solve this problem. For example, if I create a
+> RelateComputer pointer and delete it immediately.
+> 
+>   RelateComputer* rc = new (RelateComputer);
+>   delete rc;
+>   rc = NULL;
+> 
+> Does Memory leak ocurr?
+
+Wang,
+
+Yes, it does, unfortunately.
+
+> need I do this before the pointer destroyed?
+>   delete rc->computeIM(); // destroy the pointer im.
+
+Yes, it needs to be destroyed explicitly.
+
+> I don't think that codes are graceful.
+
+I don't think either.
+
+> So I still consider deallocate the matrix in its destructor is a betty way.
+> "Who created, who destroyed"
+> 
+> How do you think?
+
+First, you should know that modifying a single class in GEOS is not that
+easy as it seems. There are rich and complex relations between GEOS
+types. I've not analysed this particular issue deeply, so I can't answer
+how to solve it better.
+
+However, there are a few solutions potentially possible:
+
+1. Use lazy allocation of matrix, means to not allocate the matrix in
+the RelateComputer ctor but to allocate it on request, when the computer
+is asked for it.
+
+2. Make RelateComputer an exclusive owner of the matrix, and destroy it
+in the dctor. Then, RelateComputer could give access to immutable matrix
+by reference to const (not pointer!).
+
+3. Introduce shared ownership by wrapping the matrix object with smart
+pointer implementing shared resource semantic (ie. boost::shared_ptr).
+
+The 3rd option *seems* to fit best in this case.
+
+I'm not eager to alter any patterns and semantics currently implemented
+without a wider discussion. I think changes of that kind are serious and
+should follow submission of Request For Comments (RFC) document,
+discussed and voted by the GEOS PSC.
+The PSC has just formed and we have not started up yet.
+
+For now, we have to remember how to properly use RelateComputer to avoid
+memory leaks.
+
+Greetings
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+From mateusz at loskot.net  Wed May  7 23:39:09 2008
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed May  7 23:39:14 2008
+Subject: [geos-devel] Strange problem with ISNAN macro
+In-Reply-To: <961f4d9e0805070258i557340a7qef736bcc1176d189@mail.gmail.com>
+References: <961f4d9e0805070258i557340a7qef736bcc1176d189@mail.gmail.com>
+Message-ID: <482275DD.6060904@loskot.net>
+
+Simone Giannecchini wrote:
+> I have built my app against GEOS 3.0  on an intel win xp pro using vs
+> 7.1 but now strange enough, in my code this test
+> ISNAN(DoubleNotANumber) always fails, causing me quite a lot of
+> headaches.
+
+What headaches you mean?
+Compilation errors? Run-time errors?
+If the latter, what are the exact cases (values) that fail?
+
+Greetings
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+From mateusz at loskot.net  Thu May  8 00:42:24 2008
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu May  8 00:42:40 2008
+Subject: [geos-devel] Ticket #184
+In-Reply-To: <481F30CA.4000607@loskot.net>
+References: <481F30CA.4000607@loskot.net>
+Message-ID: <482284B0.3050302@loskot.net>
+
+Hi,
+
+I've talked to Sandro about this issue, forwarding his reply:
+
+-------- Original Message --------
+Subject: Re: [Fwd: [geos-devel] Ticket #184]
+Date: Tue, 6 May 2008 23:26:18 +0200
+From: Sandro Santilli <strk@keybit.net>
+To: Mateusz Loskot <mateusz@loskot.net>
+References: <4820B90C.5080207@loskot.net>
+
+On Tue, May 06, 2008 at 10:01:16PM +0200, Mateusz Loskot wrote:
+ > Hi Sandro,
+ >
+ > Sorry I'm bothering you, but could you give me some
+ > comments to this issue below?
+ > As I see, you have intentionally removed them:
+ >
+ > http://trac.osgeo.org/geos/changeset/1600
+ >
+ > Is it to separate public API from private/implementation headers?
+
+Yes, I was sick of breaking API whenever there was a need
+to fix a design issue (many many times).
+I voted myself to only maintain the C-API finally...
+Dunno what the current idea is, but for sure I think GEOS api
+is far too wide to maintain.
+
+--strk;
+
+
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+From wang.yongjie.2008 at gmail.com  Thu May  8 22:29:08 2008
+From: wang.yongjie.2008 at gmail.com (Wang Yongjie)
+Date: Thu May  8 22:29:12 2008
+Subject: [geos-devel] Re: geos-devel Digest, Vol 67, Issue 5
+In-Reply-To: <20080508160008.5FF5EE01AAB@lists.osgeo.org>
+References: <20080508160008.5FF5EE01AAB@lists.osgeo.org>
+Message-ID: <74be0bff0805081929j326c7742t9f5abd09c5421df@mail.gmail.com>
+
+> Message: 2
+> Date: Thu, 08 May 2008 05:37:19 +0200
+> From: Mateusz Loskot <mateusz@loskot.net>
+> Subject: Re: [geos-devel] Re: Memory leak in RelateComputer?
+> To: GEOS Development List <geos-devel@lists.osgeo.org>
+> Message-ID: <4822756F.4070502@loskot.net>
+> Content-Type: text/plain; charset=ISO-2022-JP
+>
+>
+> First, you should know that modifying a single class in GEOS is not that
+> easy as it seems. There are rich and complex relations between GEOS
+> types. I've not analysed this particular issue deeply, so I can't answer
+> how to solve it better.
+
+I totally understand.
+
+>
+> However, there are a few solutions potentially possible:
+>
+> 1. Use lazy allocation of matrix, means to not allocate the matrix in
+> the RelateComputer ctor but to allocate it on request, when the computer
+> is asked for it.
+>
+> 2. Make RelateComputer an exclusive owner of the matrix, and destroy it
+> in the dctor. Then, RelateComputer could give access to immutable matrix
+> by reference to const (not pointer!).
+>
+> 3. Introduce shared ownership by wrapping the matrix object with smart
+> pointer implementing shared resource semantic (ie. boost::shared_ptr).
+>
+> The 3rd option *seems* to fit best in this case.
+
+I think the first method is the best to solve this problem, it's simple and
+easy to implement and the interface of RelateComputer needn't to alter.
+
+>
+> I'm not eager to alter any patterns and semantics currently implemented
+> without a wider discussion. I think changes of that kind are serious and
+> should follow submission of Request For Comments (RFC) document,
+> discussed and voted by the GEOS PSC.
+> The PSC has just formed and we have not started up yet.
+>
+> For now, we have to remember how to properly use RelateComputer to avoid
+> memory leaks.
+
+I agree with you.
+It's very kind of you to do me a favor.
+Thanks for your help.
+
+Best regards to you.
+
+--
+Wang Yongjie
+Tel:              +86(10)8282 5800 Ext. 8411
+Fax:             +86(10)8282 5816
+Email:          yongjiemail@gmail.com
+MSN/Gtalk:  yongjiemail@gmail.com
+Blog:            www.iseeker.org/blog
+From wang.yongjie.2008 at gmail.com  Thu May  8 22:33:59 2008
+From: wang.yongjie.2008 at gmail.com (Wang Yongjie)
+Date: Thu May  8 22:34:03 2008
+Subject: [geos-devel] Re: Memory leak in RelateComputer?
+Message-ID: <74be0bff0805081933v22443d12rede8171bd9927ef5@mail.gmail.com>
+
+I am sorry to send the mail without subject modified just now.
+
+> Message: 2
+> Date: Thu, 08 May 2008 05:37:19 +0200
+> From: Mateusz Loskot <mateusz@loskot.net>
+> Subject: Re: [geos-devel] Re: Memory leak in RelateComputer?
+> To: GEOS Development List <geos-devel@lists.osgeo.org>
+> Message-ID: <4822756F.4070502@loskot.net>
+> Content-Type: text/plain; charset=ISO-2022-JP
+>
+>
+> First, you should know that modifying a single class in GEOS is not that
+> easy as it seems. There are rich and complex relations between GEOS
+> types. I've not analysed this particular issue deeply, so I can't answer
+> how to solve it better.
+
+I totally understand.
+
+>
+> However, there are a few solutions potentially possible:
+>
+> 1. Use lazy allocation of matrix, means to not allocate the matrix in
+> the RelateComputer ctor but to allocate it on request, when the computer
+> is asked for it.
+>
+> 2. Make RelateComputer an exclusive owner of the matrix, and destroy it
+> in the dctor. Then, RelateComputer could give access to immutable matrix
+> by reference to const (not pointer!).
+>
+> 3. Introduce shared ownership by wrapping the matrix object with smart
+> pointer implementing shared resource semantic (ie. boost::shared_ptr).
+>
+> The 3rd option *seems* to fit best in this case.
+
+I think the first method is the best to solve this problem, it's simple and
+easy to implement and the interface of RelateComputer needn't to alter.
+
+>
+> I'm not eager to alter any patterns and semantics currently implemented
+> without a wider discussion. I think changes of that kind are serious and
+> should follow submission of Request For Comments (RFC) document,
+> discussed and voted by the GEOS PSC.
+> The PSC has just formed and we have not started up yet.
+>
+> For now, we have to remember how to properly use RelateComputer to avoid
+> memory leaks.
+
+I agree with you.
+It's very kind of you to do me a favor.
+Thanks for your help.
+
+Best regards to you.
+- Hide quoted text -
+
+--
+Wang Yongjie
+Tel:              +86(10)8282 5800 Ext. 8411
+Fax:             +86(10)8282 5816
+Email:          yongjiemail@gmail.com
+MSN/Gtalk:  yongjiemail@gmail.com
+Blog:            www.iseeker.org/blog
+From mateusz at loskot.net  Fri May  9 01:10:51 2008
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri May  9 01:10:57 2008
+Subject: [geos-devel] Any plan to add EnhancedPrecisionOp to C API ?
+Message-ID: <4823DCDB.4040909@loskot.net>
+
+Folks,
+
+I'm wondering, is any plan to expose the enhanced precision
+operations by GEOS C API?
+
+Greetings
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From pengxianghepipi at 163.com  Sun May 18 00:46:16 2008
+From: pengxianghepipi at 163.com (brianlee)
+Date: Sun May 18 01:01:31 2008
+Subject: [geos-devel] geos 3.0.0 compile error by visual studio 2005
+Message-ID: <21440470.524251211085976083.JavaMail.coremail@bj163app131.163.com>
+
+ Hi ,list
+
+ 
+   I check out the current geos version, and I can not compile it successfully.
+ I try the nmake too. but it does not work well.
+ Following error: 
+ 
+ error    135    fatal error C1083: can not open source file:¡°..\..\..\source\geom\prep\PreparedPolygonLineIntersection.cpp¡±: No such file or directory    c1xx
+ 
+ There is not PreparedPolygonLineIntersection.cpp In folder source\geom\prep\  !!
+ but in makefile.vc  row 106 there is item:  geom\prep\PreparedPolygonLineIntersection.obj \ .
+ Is there something wrong with the makefile.vc file?
+ or I do not following the right way to compile?
+ 
+ thanks in advance
+ 
+brian lee
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20080518/9bc20f06/attachment.html
+From wang.yongjie.2008 at gmail.com  Sun May 18 21:26:28 2008
+From: wang.yongjie.2008 at gmail.com (Wang Yongjie)
+Date: Sun May 18 21:26:31 2008
+Subject: [geos-devel] Re: geos 3.0.0 compile error by visual studio 2005
+	(brianlee)
+In-Reply-To: <74be0bff0805181823m71f5686ct5f967ba366f00c6e@mail.gmail.com>
+References: <74be0bff0805181823m71f5686ct5f967ba366f00c6e@mail.gmail.com>
+Message-ID: <74be0bff0805181826s41f9e382u6f1c70b703e9ac2f@mail.gmail.com>
+
+I think you can delete it from makefile.vc and vs2005 solution.
+
+On Mon, May 19, 2008 at 12:00 AM,  <geos-devel-request@lists.osgeo.org> wrote:
+> Send geos-devel mailing list submissions to
+>        geos-devel@lists.osgeo.org
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>        http://lists.osgeo.org/mailman/listinfo/geos-devel
+> or, via email, send a message with subject or body 'help' to
+>        geos-devel-request@lists.osgeo.org
+>
+> You can reach the person managing the list at
+>        geos-devel-owner@lists.osgeo.org
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of geos-devel digest..."
+>
+>
+> Today's Topics:
+>
+>   1. geos 3.0.0 compile error by visual studio 2005 (brianlee)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Sun, 18 May 2008 12:46:16 +0800 (CST)
+> From: brianlee <pengxianghepipi@163.com>
+> Subject: [geos-devel] geos 3.0.0 compile error by visual studio 2005
+> To: geos-devel@lists.osgeo.org
+> Message-ID:
+>        <21440470.524251211085976083.JavaMail.coremail@bj163app131.163.com>
+> Content-Type: text/plain; charset="gbk"
+>
+>  Hi ,list
+>
+>
+>   I check out the current geos version, and I can not compile it successfully.
+>  I try the nmake too. but it does not work well.
+>  Following error:
+>
+>  error    135    fatal error C1083: can not open source file:??..\..\..\source\geom\prep\PreparedPolygonLineIntersection.cpp??: No such file or directory    c1xx
+>
+>  There is not PreparedPolygonLineIntersection.cpp In folder source\geom\prep\  !!
+>  but in makefile.vc  row 106 there is item:  geom\prep\PreparedPolygonLineIntersection.obj \ .
+>  Is there something wrong with the makefile.vc file?
+>  or I do not following the right way to compile?
+>
+>  thanks in advance
+>
+> brian lee
+> -------------- next part --------------
+> An HTML attachment was scrubbed...
+> URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20080518/9bc20f06/attachment-0001.html
+>
+> ------------------------------
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> End of geos-devel Digest, Vol 67, Issue 7
+> *****************************************
+>
+
+--
+Wang Yongjie (???)
+Email: yongjiemail@gmail.com
+MSN/Gtalk: yongjiemail@gmail.com
+Blog: http://www.iseeker.org/blog
+Web: http://www.iseeker.org
+From pengxianghepipi at 163.com  Mon May 19 21:13:27 2008
+From: pengxianghepipi at 163.com (brianlee)
+Date: Mon May 19 21:28:50 2008
+Subject: [geos-devel] Re:Re: geos 3.0.0 compile error by visual studio 2005
+In-Reply-To: <20080519160010.D81C1E0151E@lists.osgeo.org>
+References: <20080519160010.D81C1E0151E@lists.osgeo.org>
+Message-ID: <6702842.1083651211246007386.JavaMail.coremail@bj163app115.163.com>
+
+ Great thanks to Mr. Wang.
+ 
+Your suggestion works.
+ I noticed that in geos-commits mail list, the file 
+
+    geom\prep\PreparedPolygonIntersects.cpp &
+    geom\prep\PreparedPolygonIntersects.h have been removed on 20080130.
+
+for detail please go to  http://lists.osgeo.org/pipermail/geos-commits/2008-January/000084.html  . 
+but the Makefile.vc does not change as expected. 
+
+ 
+brian lee
+
+
+?2008-05-20?geos-devel-request@lists.osgeo.org ???
+
+Send geos-devel mailing list submissions to
+	geos-devel@lists.osgeo.org
+
+To subscribe or unsubscribe via the World Wide Web, visit
+	http://lists.osgeo.org/mailman/listinfo/geos-devel
+or, via email, send a message with subject or body 'help' to
+	geos-devel-request@lists.osgeo.org
+
+You can reach the person managing the list at
+	geos-devel-owner@lists.osgeo.org
+
+When replying, please edit your Subject line so it is more specific
+than "Re: Contents of geos-devel digest..."
+
+
+Today's Topics:
+
+   1. Re: geos 3.0.0 compile error by visual studio 2005	(brianlee)
+      (Wang Yongjie)
+
+
+----------------------------------------------------------------------
+
+Message: 1
+Date: Mon, 19 May 2008 09:26:28 +0800
+From: "Wang Yongjie" <wang.yongjie.2008@gmail.com>
+Subject: [geos-devel] Re: geos 3.0.0 compile error by visual studio
+	2005	(brianlee)
+To: geos-devel@lists.osgeo.org
+Message-ID:
+	<74be0bff0805181826s41f9e382u6f1c70b703e9ac2f@mail.gmail.com>
+Content-Type: text/plain; charset=EUC-KR
+
+I think you can delete it from makefile.vc and vs2005 solution.
+
+On Mon, May 19, 2008 at 12:00 AM,  <geos-devel-request@lists.osgeo.org> wrote:
+> Send geos-devel mailing list submissions to
+>        geos-devel@lists.osgeo.org
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>        http://lists.osgeo.org/mailman/listinfo/geos-devel
+> or, via email, send a message with subject or body 'help' to
+>        geos-devel-request@lists.osgeo.org
+>
+> You can reach the person managing the list at
+>        geos-devel-owner@lists.osgeo.org
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of geos-devel digest..."
+>
+>
+> Today's Topics:
+>
+>   1. geos 3.0.0 compile error by visual studio 2005 (brianlee)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Sun, 18 May 2008 12:46:16 +0800 (CST)
+> From: brianlee <pengxianghepipi@163.com>
+> Subject: [geos-devel] geos 3.0.0 compile error by visual studio 2005
+> To: geos-devel@lists.osgeo.org
+> Message-ID:
+>        <21440470.524251211085976083.JavaMail.coremail@bj163app131.163.com>
+> Content-Type: text/plain; charset="gbk"
+>
+>  Hi ,list
+>
+>
+>   I check out the current geos version, and I can not compile it successfully.
+>  I try the nmake too. but it does not work well.
+>  Following error:
+>
+>  error    135    fatal error C1083: can not open source file:????..\..\..\source\geom\prep\PreparedPolygonLineIntersection.cpp????: No such file or directory    c1xx
+>
+>  There is not PreparedPolygonLineIntersection.cpp In folder source\geom\prep\  !!
+>  but in makefile.vc  row 106 there is item:  geom\prep\PreparedPolygonLineIntersection.obj \ .
+>  Is there something wrong with the makefile.vc file?
+>  or I do not following the right way to compile?
+>
+>  thanks in advance
+>
+> brian lee
+> -------------- next part --------------
+> An HTML attachment was scrubbed...
+> URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20080518/9bc20f06/attachment-0001.html
+>
+> ------------------------------
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+> End of geos-devel Digest, Vol 67, Issue 7
+> *****************************************
+>
+
+--
+Wang Yongjie (??????)
+Email: yongjiemail@gmail.com
+MSN/Gtalk: yongjiemail@gmail.com
+Blog: http://www.iseeker.org/blog
+Web: http://www.iseeker.org
+
+------------------------------
+
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+End of geos-devel Digest, Vol 67, Issue 8
+*****************************************
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20080520/4129020e/attachment.html
+From ts_chen at hhu.edu.cn  Tue May 20 03:41:40 2008
+From: ts_chen at hhu.edu.cn (=?gb2312?B?s8LMqcn6?=)
+Date: Tue May 20 03:54:40 2008
+Subject: [geos-devel] how can I install GEOS on xp?
+Message-ID: <411269300.10719@hhu.edu.cn>
+
+Dear
+  I have download GEOS3.0.0, but I failed to install it on my computer! I used
+windows xp and visual c++6.0. So, could you tell me how to install(build) it on
+windows! 
+
+Thank you!
+                                                                 Your sincerely,
+                                                                         ts_chen
+
+
+From warmerdam at pobox.com  Tue May 20 10:34:18 2008
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue May 20 10:34:37 2008
+Subject: [geos-devel] how can I install GEOS on xp?
+In-Reply-To: <411269300.10719@hhu.edu.cn>
+References: <411269300.10719@hhu.edu.cn>
+Message-ID: <4832E16A.4000403@pobox.com>
+
+??? wrote:
+> Dear
+>   I have download GEOS3.0.0, but I failed to install it on my computer! I used
+> windows xp and visual c++6.0. So, could you tell me how to install(build) it on
+> windows! 
+
+ts_chen,
+
+I don't think VC++ 6 is up to building GEOS.  I would encourage you to download
+or otherwise acquire visual studio 2005 or 2008 express and try with that.  I
+believe it should work with the provided makefiles. If you have some makefile
+problems, try grabbing the 3.0 branch from SVN or perhaps use:
+
+   http://home.gdal.org/tmp/geos-3.0.1a1.tar.gz
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam, warmerdam@pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | President OSGeo, http://osgeo.org
+
+From swongu at gmail.com  Thu May 29 13:30:55 2008
+From: swongu at gmail.com (Stephen Wong)
+Date: Thu May 29 13:30:58 2008
+Subject: [geos-devel] Re: [Buffer] Assertion failure causes crash in
+	RightmostEdgeFinder::findEdge()
+In-Reply-To: <633230220803311523y42293a94yc617418d6d34fddd@mail.gmail.com>
+References: <633230220803311523y42293a94yc617418d6d34fddd@mail.gmail.com>
+Message-ID: <633230220805291030w6c28274er6ef9069090accf8a@mail.gmail.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: geos_unit.rar
+Type: application/octet-stream
+Size: 1115 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/geos-devel/attachments/20080529/dc4e1bc7/geos_unit.obj

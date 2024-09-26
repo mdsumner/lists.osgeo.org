@@ -1,0 +1,1561 @@
+From warmerda at c...  Thu Nov  5 11:18:57 1998
+From: warmerda at c... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] test
+Message-ID: <199811051618.LAA23757@c...>
+
+A non-text attachment was scrubbed...
+Name: not available
+Type: text
+Size: 249 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/gdal-dev/attachments/19981105/96a75bb4/attachment.pl
+From danmo at v...  Thu Nov  5 12:36:41 1998
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Test
+Message-ID: <3641E229.C3AC6CC2@v...>
+
+Just trying to generate some traffic on this list :-)
+
+-- 
+------------------------------------------------------------
+Daniel Morissette danmo@v...
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+______________________________________________________________________
+
+Subscribe, unsubscribe, opt for a daily digest, or start a new e-group
+at http://www.eGroups.com -- Free Web-based e-mail groups.
+
+
+From warmerda at h...  Sat Nov 14 00:30:03 1998
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] GDAL Status
+Message-ID: <364D155B.5EE3EE77@h...>
+
+GDAL Folks,
+
+Daniel's recent web page on OWT (http://pages.infinit.net/danmo/owt/owt.html)
+has encouraged me to do a bit more on GDAL. Basically, just providing
+a link into the actual source tree so that people can see an image of
+what exists. 
+
+You should be able to track from the GDAL web page through to the source.
+
+http://members.home.com/warmerda/gdal/
+
+Note that most of the week was taken up writing the design for the OGDI
+project (see http://cs46980-a.mtnk1.on.wave.home.com/projects/ogdi/ogdi.html).
+
+I hope to do a bi-directional OGDI gateway similar to the GeoGatway <-> OGDI
+linkage described in this design at some point. I am also hoping that
+some of the PROJ.4 projection string parsing code for the GDP project 
+will provide useful in other venues, including GDAL. 
+
+I have been tentatively thinking of using PROJ.4 as the basis of GDAL
+projections support. It includes more projections than GCTPC2.0, and
+I like the fact that everything for a projections definition is encoded
+into a single string. 
+
+However, PROJ.4, like GCTP lacks real datum support. 
+
+I listed this weakness as one of the problems of OGDI, and suggested that
+an approach similar to the datum support in EASI/PACE be added to PROJ.4
+within OGDI. I even hold a faint hope that I might be able to do this
+as paid work for the OGDI research institute (whatever it may be called)
+when it is established. This is planned for January. 
+
+On another front, my bid to Intergraph to implement an Erdas Imagine to
+GeoTIFF translator (for $4KUS) has been accepted. I am hoping that within
+the time frame of this project I will be able to get raster translation
+working within GDAL, and implement the Imagine, and GeoTIFF support within
+GDAL. I don't doubt I will have to make some sacrifices to clean 
+implementation in the interest of getting the project done in a timely
+manner. 
+
+Later,
+
+-----------------------------------+---------------------------------------
+Who can give them back their lives | Frank Warmerdam, Software Developer
+and all those wasted years? - Rush | URL http://members.home.com/warmerda
+| warmerda@h...
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From warmerda at h...  Tue Nov 17 17:38:55 1998
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] C/C++ Divide
+Message-ID: <3651FAFF.51146048@h...>
+
+GDAL Folks,
+
+I am having a crisis figuring out how to handle the division of GDAL 
+between C and C++.
+
+On the one hand I want to retain C linkage for externally callable
+functions so that:
+o C applications can easily be built against it. 
+o Functions can be easily loaded from shared libraries and DLLs. This
+is particularly convenient when building links to the library from 
+other languages such as Tcl, or Java. 
+
+On the other hand, there are lots of nice things about C++, and so I was
+hoping to build the internals as C++ classes, just taking care to avoid
+dependencies on C++ runtime support that might limit the portability of
+the library in non-C++ environments. For instance, the RTTI support 
+with gcc depends on linking against a special GNU C++ support library.
+A library (.a file) build of GDAL would be difficult for someone using
+another compiler to utilize. 
+
+My approach to mixing the languages was to have ``stub types'' for some
+of the classes when compiled as C. For instance, GDALDataset is defined
+in gdal_priv.h (think of this as being an include file for C++ 
+applications). gdal_priv.h includes gdal.h which includes prototypes
+for stuff like ``GDALDataset * GDALOpen( const char *, GDALAccess );''.
+
+The GDALOpen prototype is include in GDAL_C_START/GDAL_C_END which 
+evaluates to ``extern "C" {}'' for C++ code. Basically this marks the
+prototype as having C linkage. 
+
+A C application just includes gdal.h directly. In this case GDALDataset
+is typedef to be a void *. 
+
+The idea is that the type for stuff like GDALDataset would be defined
+in a manner specific to the include files pulled in. A simlar approach
+was used with native information structures in SGL, but there all the
+items were structures in either case ... however, inclusion of different
+include files determine whether you saw the ``private data members'' or
+not. 
+
+However, my use for GDAL doesn't work as I expected, because a 
+prototype which returns a type known to be a C++ class is given C++ 
+linkage by GCC, even if it is bracketed by extern "C" {}. In retrospect, 
+it is reasonable that this is an ill-defined (likely illegal action) with 
+different compilers. 
+
+---
+
+What to do? I am deluded trying to cross this C/C++ chasm?
+
+Should I just have two sets of types for each application visible class. 
+One a C ``handle'' type which gets cast to a C++ type within the C 
+jacket functions? In this case we would need to have two names, one
+for the C handle type, and one for the C++ class. 
+
+eg. 
+
+typedef void *GDALDatasetH;
+
+#ifdef __cplusplus
+class GDALDataset;
+#endif
+
+int GDALGetRasterXSize( GDALDatasetH hDS )
+
+{
+GDALDataset *poDS = (GDALDataset *) hDS;
+
+return( poDS->GetRasterXSize() );
+}
+
+Should I just abandon C++ classes, and do everything with C linkage, no 
+methods, and just use a C++ compiler as a better C compiler? 
+
+Should I worry less about the C linkage API, and just graft cover functions
+over a clean, application visible C++ implementation?
+
+Also, what API should I provide documentation for? Given how much fun 
+documenting APIs are, I would prefer to write the documentation once, 
+perhaps just showing two prototypes, once for C and one for C++, but 
+argument handling and so forth the same for both language. This might
+extend well to other languages if I don't do anything too tricky with
+arguments. For instance, I might avoid C++ polymorphism, or defaulted
+arguments. 
+
+I am interested in anyones thoughts (well OK, I am intersted in Brian 
+and Daniel's thoughts since they are the only ones here!).
+
+PS, the core code can be found at http://24.65.38.156/gdal/dev/core
+
+Later,
+
+-----------------------------------+---------------------------------------
+Who can give them back their lives | Frank Warmerdam, Software Developer
+and all those wasted years? - Rush | URL http://members.home.com/warmerda
+| warmerda@h...
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From bkoehler at h...  Wed Nov 18 03:26:19 1998
+From: bkoehler at h... (Brian Koehler)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: C/C++ Divide
+Message-ID: <002101be12cd$1e49c7e0$8bcc4018@c...>
+
+Frank writes:
+
+>
+>Should I just have two sets of types for each application visible class.
+>One a C ``handle'' type which gets cast to a C++ type within the C
+>jacket functions? In this case we would need to have two names, one
+>for the C handle type, and one for the C++ class.
+>
+>eg.
+>
+>typedef void *GDALDatasetH;
+>
+>#ifdef __cplusplus
+>class GDALDataset;
+>#endif
+>
+>int GDALGetRasterXSize( GDALDatasetH hDS )
+>
+>{
+> GDALDataset *poDS = (GDALDataset *) hDS;
+>
+> return( poDS->GetRasterXSize() );
+>}
+>
+
+I like this idea. It even suggests to me that there might be a way
+of automatically generating the types and cover functions from
+the C++ header files (see below).
+
+>Should I just abandon C++ classes, and do everything with C linkage, no
+>methods, and just use a C++ compiler as a better C compiler?
+>
+
+No. If it were me, I would do everything in C++ and just be careful with
+the application callable classes so C cover functions like the one above
+can be created easily.
+
+>Should I worry less about the C linkage API, and just graft cover functions
+>over a clean, application visible C++ implementation?
+>
+
+Yes.
+
+>Also, what API should I provide documentation for? Given how much fun
+>documenting APIs are, I would prefer to write the documentation once,
+>perhaps just showing two prototypes, once for C and one for C++, but
+>argument handling and so forth the same for both language. This might
+>extend well to other languages if I don't do anything too tricky with
+>arguments. For instance, I might avoid C++ polymorphism, or defaulted
+>arguments.
+
+Probably a good idea at the top level.
+
+This whole discussion has got me thinking: wouldn't it be cool if there
+was a tool that took a C or C++ API and generated the appropriate
+C cover functions and whatever else was required to link up with another
+language such as C/Java/Perl/Python/Tcl. Something like:
+
+c++api_to_{C,Java,Perl,Python,Tcl} some_c++_api.h
+
+which would spew out all the required code which is a pain
+to do by hand now, not to mention boring.
+
+Anyway, I guess I'm getting off track. I hope this list doesn't
+have to be moderated now :-)
+
+Brian
+
+
+P.S. Frank, I haven't been able to access your site on your home
+computer (to see the source for example) in a long time, like following the
+link
+that was in the message that this a reply to. Is this just bad luck on my
+part
+or is there a bigger problem.
+
+
+
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From warmerda at h...  Wed Nov 18 10:30:02 1998
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: C/C++ Divide
+References: <002101be12cd$1e49c7e0$8bcc4018@c...>
+Message-ID: <3652E7FA.4FA50E9F@h...>
+
+Brian Koehler wrote:
+> This whole discussion has got me thinking: wouldn't it be cool if there
+> was a tool that took a C or C++ API and generated the appropriate
+> C cover functions and whatever else was required to link up with another
+> language such as C/Java/Perl/Python/Tcl. Something like:
+> 
+> c++api_to_{C,Java,Perl,Python,Tcl} some_c++_api.h
+> 
+> which would spew out all the required code which is a pain
+> to do by hand now, not to mention boring.
+> 
+> Anyway, I guess I'm getting off track. I hope this list doesn't
+> have to be moderated now :-)
+
+Brian,
+
+Are you familiar with SWIG (http://www.swig.org/)? This is a tool for
+automatically generating interfaces to C APIs from Python, Tcl, and Perl.
+What it doesn't do is produce class-like interfaces from C++ classes. :-(
+
+I would like to make the GDAL C API ``SWIG Friendly'' so that we can 
+easily maintain clean, up to date bindings in other languages.
+
+> P.S. Frank, I haven't been able to access your site on your home
+> computer (to see the source for example) in a long time, like following the
+> link
+> that was in the message that this a reply to. Is this just bad luck on my
+> part
+> or is there a bigger problem.
+
+Are you saying the URL http://24.65.38.156/ doesn't work for you? I went
+through some loops this weekend getting my second system working, and 
+assigned an IP number. It didn't go too well, but I have things working
+now. A byproduct was that my IP number for my old machine changed, and
+I don't even know if there is a real DNS name for it. So this is why
+old links won't work, but the direct IP number approach should be working.
+
+... pause while I look over configuration ...
+
+I did just find that the web server was returning the old DNS name as it's
+id and this may have caused problems. After changing this to the IP number
+things seem to be working fine from io.pci.on.ca using Lynx.
+
+Later,
+
+-----------------------------------+---------------------------------------
+Who can give them back their lives | Frank Warmerdam, Software Developer
+and all those wasted years? - Rush | URL http://members.home.com/warmerda
+| warmerda@h...
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From danmo at v...  Wed Nov 18 10:47:13 1998
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: C/C++ Divide
+References: <3651FAFF.51146048@h...>
+Message-ID: <3652EC00.829FBE73@v...>
+
+Frank Warmerdam wrote:
+> 
+> What to do? I am deluded trying to cross this C/C++ chasm?
+> 
+> Should I just have two sets of types for each application visible class.
+> One a C ``handle'' type which gets cast to a C++ type within the C
+> jacket functions? In this case we would need to have two names, one
+> for the C handle type, and one for the C++ class.
+> 
+> eg.
+> 
+> typedef void *GDALDatasetH;
+> 
+> #ifdef __cplusplus
+> class GDALDataset;
+> #endif
+> 
+> int GDALGetRasterXSize( GDALDatasetH hDS )
+> 
+> {
+> GDALDataset *poDS = (GDALDataset *) hDS;
+> 
+> return( poDS->GetRasterXSize() );
+> }
+> 
+> Should I just abandon C++ classes, and do everything with C linkage, no
+> methods, and just use a C++ compiler as a better C compiler?
+> 
+> Should I worry less about the C linkage API, and just graft cover functions
+> over a clean, application visible C++ implementation?
+> 
+
+Frank,
+
+My opinion is that you should still try to take advantage of C++ for the
+internals of GDAL and for any other part that would benefit from using
+C++. This sounds like an obvious choice to me... I hope I'm not missing
+something.
+
+And for the applications that need C linkage, I think that providing
+cover functions for the C++ public methods as you suggest in your
+example makes lots of sense. And actually, that's exactly the way I
+thought you were going to handle the C linkage problem... I didn't know
+you had these magic tricks with C vs C++ headers in mind ;-)
+
+> Also, what API should I provide documentation for? Given how much fun
+> documenting APIs are, I would prefer to write the documentation once,
+> perhaps just showing two prototypes, once for C and one for C++, but
+> argument handling and so forth the same for both language. This might
+> extend well to other languages if I don't do anything too tricky with
+> arguments. For instance, I might avoid C++ polymorphism, or defaulted
+> arguments.
+> 
+
+I agree with the idea of having only one set of documentation that
+combines both the C++ and C equivalents of each function.
+
+It would be good if you could still use polymorphism though (I like
+it!)... there may be some ways that you could still use polymorphism in
+C++, and provide a clean equivalent in C by appending a standardized
+suffix to the C function name.
+
+Suppose that you provide the following methods to set projections:
+
+void GDALDataset::GDALSetProj(GDALProj *poProjInfo);
+void GDALDataset::GDALSetProj(const char *pszProjInfo);
+
+The C cover functions could be:
+
+void GDALSetProj_ProjH(GDALProjH hProjInfo);
+void GDALSetProj_sz(const char *pszProjInfo);
+
+It's just a thought... maybe it would make things more complicated???
+
+
+Brian Koehler wrote:
+> 
+> This whole discussion has got me thinking: wouldn't it be cool if there
+> was a tool that took a C or C++ API and generated the appropriate
+> C cover functions and whatever else was required to link up with another
+> language such as C/Java/Perl/Python/Tcl. Something like:
+> 
+> c++api_to_{C,Java,Perl,Python,Tcl} some_c++_api.h
+> 
+> which would spew out all the required code which is a pain
+> to do by hand now, not to mention boring.
+> 
+
+Brian's suggestion to have a tool that generates the cover functions
+automatically could be nice... and actually Stephane Villeneuve told me
+that he was interested by compilers and pre-processors... I'll CC: this
+message to him, and he may be interested in looking at this?!?
+
+
+And BTW, I also had problems accessing Frank's system, and his page at
+members.home.com for the most part of the day yesterday... but it's back
+today.
+
+Later,
+-- 
+------------------------------------------------------------
+Daniel Morissette danmo@v...
+http://pages.infinit.net/danmo/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From svilleneuve at c...  Thu Nov 19 00:03:35 1998
+From: svilleneuve at c... (Stephane Villeneuve)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: C/C++ Divide
+Message-ID: <05050098515694@c...>
+
+Hi,
+
+I agree with Daniel, using C++ give many avantages, and a C library is a
+MUST:
+
+My idea is :
+
+Use a function (same type of a Promote() to select the object)
+
+EX:
+
+int main()
+{
+FILE *fp = GDALOpenFile("Toto","r+");
+FILE *fp2 = GDALOpenFile("Toto2", "r+");
+
+Promote(fp);
+hType1 = GDALGetRasterXSize();
+Promote(fp2);
+hType2 = GDALGetRasterSize();
+}
+
+int GDALGetRasterSize()
+{
+poCurrent->GetRasterSize();
+}
+
+void PromoteFile(fp)
+{
+static GDALDataset *poCurrent = NULL;
+poCurrent = (ANYTHING *)fp->GetCPPObject();
+
+or could use a strcture in a chain list.
+
+}
+
+By this way, you don't need to add a extra parameter for the C call.
+If you transfere information between 2 file you will add many calls to
+promote() :-(((((
+
+Brian Koehler wrote:
+> Brian's suggestion to have a tool that generates the cover functions
+> automatically could be nice... and actually Stephane Villeneuve told me
+> that he was interested by compilers and pre-processors... I'll CC: this
+> message to him, and he may be interested in looking at this?!?
+
+I don't think that it's very hard to create cover functions in other
+languages, 
+Jacket functions should call only the C function. I'am sure it will be
+possible to create a parser to do that.
+Is some one already call C functions in a other language (Not me) ????
+
+
+BTW, I add my name in the mailing list.
+
+
+regards,
+stephane 
+
+Long live to GDAL.
+__________________
+Stephane Villeneuve
+Software Analyst
+svilleneuve@c...
+
+
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From warmerda at h...  Thu Nov 19 23:51:29 1998
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: C/C++ Divide
+References: <05050098515694@c...>
+Message-ID: <3654F551.93122603@h...>
+
+Stephane Villeneuve wrote:
+> Hi,
+> 
+> I agree with Daniel, using C++ give many avantages, and a C library is a
+> MUST:
+
+Folks,
+
+Well, this seemed settled. We will use a (hopefully clean, and object
+oriented) underlying implementation with a well maintained C 
+interface layer. 
+
+> My idea is :
+> 
+> Use a function (same type of a Promote() to select the object)
+...
+> By this way, you don't need to add a extra parameter for the C call.
+> If you transfere information between 2 file you will add many calls to
+> promote() :-(((((
+
+Well, of course I was responsible for the extensive use of Promote() in
+GDB, but I don't think it is one of the things I want to carry out of it.
+In fact, I think this approach would be very prone to bugs with surprising
+changes to what is the current object. 
+
+I really don't mind the extra argument to the C functions. In that sense
+it is just a modest transformation on the syntax of invoking a method on
+a data object. 
+
+> I don't think that it's very hard to create cover functions in other
+> languages,
+> Jacket functions should call only the C function. I'am sure it will be
+> possible to create a parser to do that.
+> Is some one already call C functions in a other language (Not me) ????
+
+How complex it is to write jacket functions for other languages depends on
+a variety of factors. 
+
+o The complexities inherent in the languages mechanisms. For instance, 
+Python requires reference counting on all language objects, and this
+(from what I have seen) can complicate intrinsics.
+
+o The extent to which you want to modify the API to follow the conventions
+and fit in with the datatypes of the language. Many EASI intrinsics
+are straightforward, but others take advantage of builtin EASI types like
+MStrings, attempt to simplify the interface (use of defaulted arguments
+or variable argument types) or to supply greater safety (better error 
+checking, which may make sense in a user scripting language). 
+
+o The lack of functionality in the calling language corresponding to 
+stuff in the API. For instance, if polymorphisms was used in an 
+underlying API, but wasn't available in the language there would be
+extra work needed.
+
+o The fundamental incompatibilty of the data types in the language and
+the datatypes in the library. For instance, Tcl doesn't seem to have
+structure/object datatypes, so the OGDI binding in Tcl has to transform 
+structures into lists, and lists of lists and so forth. 
+
+I imagine there are other issues. 
+
+My intention is to make GDAL's C API not very fancy (no polymorphism,
+or defaulted arguments for instance). However, I can still a fair amount
+of hand effort going into binding it effectively into some languages. 
+
+For instance, if you want to treat a GDALShape (I imagine this will be
+similar to a GDBShape) as a proper structured data type in the language,
+more work han just building a bunch of function jackets will be required. 
+
+Another approach is to ensure that all accesses are done via functions, and
+that no non-basic datatypes are exposed to the application (or at least
+are not needed).
+
+Of course the more transformation you do as you bind GDAL into different
+languages, the more language specific online help will be needed. 
+
+Hmmpf.
+
+Daniel says:
+>I agree with the idea of having only one set of documentation that
+>combines both the C++ and C equivalents of each function.
+>
+>It would be good if you could still use polymorphism though (I like
+>it!)... there may be some ways that you could still use polymorphism in
+>C++, and provide a clean equivalent in C by appending a standardized
+>suffix to the C function name.
+>
+>Suppose that you provide the following methods to set projections:
+>
+> void GDALDataset::GDALSetProj(GDALProj *poProjInfo);
+> void GDALDataset::GDALSetProj(const char *pszProjInfo);
+>
+>The C cover functions could be:
+>
+> void GDALSetProj_ProjH(GDALProjH hProjInfo);
+> void GDALSetProj_sz(const char *pszProjInfo);
+>
+>It's just a thought... maybe it would make things more complicated???
+
+This would work, but I don't think I would like the C API to appear to 
+arcane. This reminds me of C++ name mangling. Under the assumption
+that most applications will be built on the C API, I would want the 
+C API to appear pretty clean. 
+
+One of the challenges in this is how to name the C API. In C++ methods
+you have the object on which the method is being invoked as context and
+to provide a specialized namespace. In C, that isn't the case. 
+
+Ideally, I would like to have C API names just be GDAL prepended on the
+name of the method for everything, and with the first argument being the
+object it is being invoked on. 
+
+However, imagine a GDALRasterBand, and GDALVectorLayer objects, both with
+GetName() methods. You can't just have one GDALGetName() function with
+the argument being ambiguous.
+
+We could:
+
+o Just prepend the method names with GDAL, and disambiguate when 
+necessary. This might still leave us situations ``GDALGetCount()'' with
+no idea what kind of object it is. 
+
+o Always prepend with the object type. GDALRasterBand_GetName(), and do 
+this for all methods. It would provide a very clean name space and 
+resolve all ambiguitites, but it would tend to cause very long names. 
+
+o Don't follow a strict convention ... just aim for understandability in
+the C API, and the C++ names, but without fixes rules relating them. 
+
+The more I think about it, the more I like the second approach. It is very
+predictable. If we take this, I think I would try harder to have short
+type names though, and to keep method names brief. 
+
+For instance, currently I have defined GDALRasterBand, and it has the
+GetRasterDatatype() method. I might just name the type GDALBand, and the 
+method GetDatatype(), so this would result in the C function 
+GDALBand_GetDatatype() instead of GDALRasterBand_GetRasterDatatype(). 
+
+With a few clues in the C include file we might even be able to give 
+automatic translators like SWIG enough information to build object oriented
+interfaces to the GDAL classes (even if operating through the C intermediate
+types). 
+
+How does everyone else feel about a C API convention of typename_methodname()?
+
+Later,
+
+-----------------------------------+---------------------------------------
+Who can give them back their lives | Frank Warmerdam, Software Developer
+and all those wasted years? - Rush | URL http://members.home.com/warmerda
+| warmerda@h...
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From warmerda at h...  Fri Nov 20 00:41:01 1998
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Low Level Library
+Message-ID: <365500ED.18A14167@h...>
+
+Folks,
+
+I would like to start a discussion of how a low level support library 
+should be organized. In the current GDAL tree I have a ``port'' directory
+which I intend to hold:
+
+o portability functions for system dependent functions. 
+
+o convenience functions for common stuff (Tokenize() type stuff for
+instance). 
+
+o virtualized APIs for things that different application environments
+might want to hook (memory management, file access)
+
+o an application hookable error handling mechanism. 
+
+o low level data objects for geospatial stuff ... perhaps the GDALShape.
+
+Now a rationale for each, and some comments:
+
+Portability Functions
+---------------------
+
+This would be simple stuff like strcasecmp() vs. stricmp() ... which is
+standard? It would also include more sophisticated capabilities like 
+getting a function pointer in a DLL/shared library (IMPGetSymbol()), and
+so forth. This aspect would also have an include file (gdal_port.h) for
+providing stuff like NULL, MAX(), ABS() and a byte order macro. 
+
+We have a decent example in the PCI libraries for what we would want in 
+this. 
+
+One thing I am not too sure about it how to keep track of what system 
+we are on. At PCI we defined a short list of well known SYSTEM_xx codes
+for different operating system configurations, with a few broad defines
+(SYSTEM_DF (dos filesystem), SYSTEM_UX (Unix)). However, I want GDAL to
+be easily built on many configurations, including those I didn't plan in
+advance. 
+
+Does anyone know much about how ``configure'' based GNU products keep
+track of stuff internally? I think this approach would be taken for GDAL
+as well. 
+
+Although, I also want to ensure that GDAL is easily built into commercial 
+packages, with their own build mechanisms, and that might want to use 
+configure configurations on each machine. What would we have to account 
+for to handle this? For instance, I don't know how I would handle a 
+``configure''ed package that I wanted to build within the PCI source tree. 
+Normally, for stuff like libtiff, and the JPEG library I just stripped out 
+much of the provided portability framework, trying to hook things up to 
+the PCI way of doing things. 
+
+Convenience Functions
+---------------------
+
+Likewise, we have some examples of what we might want in this category
+from the PCI libraries as well. String parsing, filename parsing, a
+``string list'' type. But how far do we go with this? I worry a bit 
+about library size creep on this front. 
+
+In particular, I think I should touch on one of the principles that I 
+would like to apply to the low level support library. I think that it 
+should be ``light''. I would like to be able to build code like the
+shapefile access library that might be used without the rest of GDAL 
+on the low level support library. But if someone wants to use one little
+sub-library like that in an application, and are force to drag along 
+100KLOC of support libraries, I think they will balk. This suggest that
+we shouldn't be trying to build a sophisticated object frame work in the
+low level library (such as the JOLTObject). 
+
+... man, it's going to be harder to have these discussions once there is
+someone on the list who doesn't share our common PCI heritage ... 
+
+Anyways, I would appreciate input on what are important core convenience
+capabilities. 
+
+Virtualized APIs
+----------------
+
+Some software environments like to ``manage'' everything about the 
+system. For instance, at PCI we liked all memory allocation to go through
+HMalloc() and co, and all disk file access to go through IMPDIOC 
+(DKOpen()...). This allows that software environment to track resource
+usage, and do better debugging. It also allows virtualizing things to
+look like files for instance. 
+
+I could imagine that if Oracle wanted to include GDAL in their spatial 
+data cartridge they might want to be able to operate on BLOBs in the 
+database as if they were regular files. 
+
+One of the things that I really liked about libtiff is that it gave a
+standard way of hooking the memory management, and file access. 
+
+I would like to use a similar approach within GDAL. To this end I have
+defined the VSI (Virtual System Interface) API within GDAL. The set of
+stdio, and memory functions now all have VSI equivelents that I would 
+like all GDAL code under our direct control to use.
+
+The PCI libraries started with a somewhat VAX/FORTRAN centric approach
+to file access (DKGet(), etc.). Unlike this, I intend for the VSI 
+functions to all be direct analogs to standard C (or Posix) functions. 
+For instance VSIFopen(), and VSIFRead() are direct analogs to fopen(), and
+fread(). No extra file type parameter, of whatever. 
+
+Normally these functions just directly call the standard C functions. 
+
+
+Error Handling
+--------------
+
+In the PCI libraries we had IMPError() and company. The old PACE model was
+that all real errors were fatal, and resulted in immediate application
+termination with a message. 
+
+When I wrote the C libraries, and discovered that it wasn't OK for 
+ImageWorks to exit() in response to a user error, I added the use of 
+setjmp(), and longjmp() with IMPProtect()/IMPUnprotect() error rings
+so that errors could be handled like an exception. However, the mechanism
+was at times tricky, and it introduced a few (though suprisingly few)
+bugs of it's own. 
+
+I would like to implement an error handling system that:
+
+o Allows applications to hook error handling functions, as long as
+the satisfy some standard responsibilities. 
+
+o Allows nicely formatted error messages from low level functions to be
+transported up when they are needed. 
+
+o Allows some very exceptional circumstances to be treated as fatal errors
+that don't have to be further handled by the calling code. For instance,
+the OGDI code tries to recover, and cleanup gracefully if an out of memory
+condition occurs an any memory allocation. This greatly complicates their
+code, and it seems likely that much of their ``cleanup'' code is likely
+broken and might cause a crash of it's own. I would like to ignore the 
+possibilty of running out of memory for small allocations calling a safe
+malloc() that would just blow an exception if it runs out. 
+
+For the E00 library Daniel wrote for Safe Software he implemented a simple
+little error handling API (http://24.65.38.156/gdal/dev/frmts/e00/e00error.c).
+This does some of what I want, but doesn't support some error types that are
+fatal or trigger a non-local exception. All error reports still return to the
+calling code which has to return to it's caller and so forth. 
+
+I partially implemented a GDAL error handling module with a similar approach,
+but that takes an error class (GE_None, GE_Warning, GE_Failure, or GE_Fatal). 
+Of these GE_Fatal is considered to be fatal, and the caller can be assured
+that control will not return to them. 
+
+http://24.65.38.156/gdal/dev/port/gbserror.cpp
+
+In EASI/PACE, this would be hooked to use IMPError(). In a commandline GDAL
+program situation, the GE_Fatal's would just result in an exit() after 
+reporting the error. 
+
+I recently read an article in Dr. Dobb's Journal which described the GEF
+(General Exception Facility) library. This is a C library for providing
+C++ like exceptions using setjmp(), and longjmp(). On the downside it
+is a bit heavy, but on the good side it is quite powerful. Should we
+adopt it? 
+
+See the gef stuff on the Dr. Dobb's web site:
+
+http://www.ddj.com/ftp/1998/1998_11/
+
+Or review a PostScript document on GEF:
+
+http://24.65.38.156/~warmerda/gef.ps
+
+
+Low Level Geospatial Support
+----------------------------
+
+Finally, let's not forget that GDAL is about GeoSpatial data. To that end
+I think that a few base feature types (a GDALShape class/structure) should
+be part of the low level library. This wouuld allow libraries such as
+the shapelib library to be used standalone, but so that they would actually
+be marshalling objects as GDALShape's internally so the features wouldn't
+have to be re-marshalled into another type of object. 
+
+Anyways, I am interested in peoples feedback on what is appropriate, what
+isn't and what is missing. 
+
+Best regards,
+
+-----------------------------------+---------------------------------------
+Who can give them back their lives | Frank Warmerdam, Software Developer
+and all those wasted years? - Rush | URL http://members.home.com/warmerda
+| warmerda@h...
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From danmo at v...  Fri Nov 20 10:45:50 1998
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: Low Level Library
+References: <365500ED.18A14167@h...>
+Message-ID: <36558EAE.B7C4A3FB@v...>
+
+Frank,
+
+I think the timing is very good to discuss these things, since I have to
+make these same decisions myself about a base library for OWT (for those
+who don't know about OWT yet, see
+http://pages.infinit.net/danmo/owt/owt.html). As you know, I built a
+first implementation of OWT very quickly while building a demo, so it's
+quite disorganized now and I have to do a big cleanup/reorganisation in
+it before I go any further.
+
+I also need a set of portability and convenience functions for OWT, I
+have already some stuff implemented and my hope is that we could share
+the same low-level libs.
+
+I'll give my first reactions to what you wrote, but I'll probably come
+back on the subject later, after putting some more thoughts in it.
+
+Frank Warmerdam wrote:
+> 
+> Folks,
+> 
+> I would like to start a discussion of how a low level support library
+> should be organized. In the current GDAL tree I have a ``port'' directory
+> which I intend to hold:
+> 
+> o portability functions for system dependent functions.
+> 
+> o convenience functions for common stuff (Tokenize() type stuff for
+> instance).
+> 
+> o virtualized APIs for things that different application environments
+> might want to hook (memory management, file access)
+> 
+> o an application hookable error handling mechanism.
+> 
+> o low level data objects for geospatial stuff ... perhaps the GDALShape.
+> 
+
+Once again, I will try to promote a clean separation of the files by
+category (which do not absolutely mean directories :). For instance, I
+would like it to be very easy to use only the portability and error
+handling stuff while not bringing in anything else... a bit like the
+idea that was behind the CCL, but this time let's try to do it before
+the lib is built, instead of trying to separate things after the fact.
+
+It should be more than just #defines in the headers, because I would
+like to have a simple way to grab all the C/C++ source files and headers
+corresponding to the APIs that I selected when I prepare a new release
+of a source package (other than GDAL) that uses the stuff in /port.
+
+The first thing I can think of is to create separate directories, but
+since I know you're not a big fan of that Frank ;-) and I realize that
+this sometimes leads to complicated makefiles, we could try to think of
+something else.
+
+There may be some tools that already handle these problems???? If not,
+then a simple way may be to have a directory file for each component:
+
+port.dir
+mem.dir
+file.dir
+strlist.dir
+convmisc.dir
+error.dir
+gdal.dir
+...
+
+each or these .dir file contains the list of all files from the /port
+directory that belong to a given API. A .dir file could also contain
+the name other .dir files if a module depends on other ones.
+
+Then (I hope) we could build a makefile that automatically grabs the
+source files we need for our specific package at the time we release a
+new source code version of the package or when we ship the deliverable
+of a contract.
+
+> Now a rationale for each, and some comments:
+> 
+> Portability Functions
+> ---------------------
+> 
+> This would be simple stuff like strcasecmp() vs. stricmp() ... which is
+> standard? It would also include more sophisticated capabilities like
+> getting a function pointer in a DLL/shared library (IMPGetSymbol()), and
+> so forth. This aspect would also have an include file (gdal_port.h) for
+> providing stuff like NULL, MAX(), ABS() and a byte order macro.
+> 
+
+
+Another point: you seem to be prefixing everything with GDAL (i.e.
+gdal_port.h, etc.), but since I would like to include some of that
+portability stuff in other packages, I suggest that we come up with a
+generic name for everything that's part of the /port library.
+
+The only name I can think of for now is CPL, for Common Portability
+Library... but I'm sure we can find something better than that... and
+maybe even something with a dual meaning ;-)
+
+> We have a decent example in the PCI libraries for what we would want in
+> this.
+> 
+> One thing I am not too sure about it how to keep track of what system
+> we are on. At PCI we defined a short list of well known SYSTEM_xx codes
+> for different operating system configurations, with a few broad defines
+> (SYSTEM_DF (dos filesystem), SYSTEM_UX (Unix)). However, I want GDAL to
+> be easily built on many configurations, including those I didn't plan in
+> advance.
+> 
+> Does anyone know much about how ``configure'' based GNU products keep
+> track of stuff internally? I think this approach would be taken for GDAL
+> as well.
+> 
+
+I don't personally know much about it... but I think we'll have to learn
+it if we release source code stuff... it must do a good job if so many
+packages use it. I'll probably give it a look when I release a first
+version of OWT... but I don't know when this will be. (No release
+date... this way I'm sure I won't break the deadline ;)
+
+> Although, I also want to ensure that GDAL is easily built into commercial
+> packages, with their own build mechanisms, and that might want to use
+> configure configurations on each machine. What would we have to account
+> for to handle this? For instance, I don't know how I would handle a
+> ``configure''ed package that I wanted to build within the PCI source tree.
+> Normally, for stuff like libtiff, and the JPEG library I just stripped out
+> much of the provided portability framework, trying to hook things up to
+> the PCI way of doing things.
+> 
+> Convenience Functions
+> ---------------------
+> 
+> Likewise, we have some examples of what we might want in this category
+> from the PCI libraries as well. String parsing, filename parsing, a
+> ``string list'' type. But how far do we go with this? I worry a bit
+> about library size creep on this front.
+> 
+
+FYI, I have already implemented the stringlist, tokenize (basic one),
+SPrintf(), SLPrintf()... actually SLPrintf() is pretty cool: it's like
+fprintf() but it writes at the end of a stringlist! I agree that it may
+not be very useful for GDAL, but...
+
+> In particular, I think I should touch on one of the principles that I
+> would like to apply to the low level support library. I think that it
+> should be ``light''. I would like to be able to build code like the
+> shapefile access library that might be used without the rest of GDAL
+> on the low level support library. But if someone wants to use one little
+> sub-library like that in an application, and are force to drag along
+> 100KLOC of support libraries, I think they will balk. This suggest that
+> we shouldn't be trying to build a sophisticated object frame work in the
+> low level library (such as the JOLTObject).
+> 
+
+I agree that it must be light... or that it must be possible to select
+only what we need as I described above.
+
+Hopefully if we separate things well, and try to avoid dependencies
+between modules as much as possible, we could have a quite powerful
+library, and be able to grab a light version of it when needed.
+
+> 
+> Error Handling
+> --------------
+> 
+> In the PCI libraries we had IMPError() and company. The old PACE model was
+> that all real errors were fatal, and resulted in immediate application
+> termination with a message.
+> 
+> When I wrote the C libraries, and discovered that it wasn't OK for
+> ImageWorks to exit() in response to a user error, I added the use of
+> setjmp(), and longjmp() with IMPProtect()/IMPUnprotect() error rings
+> so that errors could be handled like an exception. However, the mechanism
+> was at times tricky, and it introduced a few (though suprisingly few)
+> bugs of it's own.
+> 
+
+I don't think we should have something that complicated in a library
+that you make publicly available. Unless you're ready to write tons of
+documentation and do training seminars about it...
+
+> 
+> I partially implemented a GDAL error handling module with a similar approach,
+> but that takes an error class (GE_None, GE_Warning, GE_Failure, or GE_Fatal).
+> Of these GE_Fatal is considered to be fatal, and the caller can be assured
+> that control will not return to them.
+> 
+> http://24.65.38.156/gdal/dev/port/gbserror.cpp
+> 
+
+I agree with adding an error class.
+
+It's unfortunate that there does not seem to be a "perfect" way to
+handle errors in a program... the problem in our case is that we have to
+make sure that what we choose will be compatible with anyone else's
+approach...
+
+> 
+> I recently read an article in Dr. Dobb's Journal which described the GEF
+> (General Exception Facility) library. This is a C library for providing
+> C++ like exceptions using setjmp(), and longjmp(). On the downside it
+> is a bit heavy, but on the good side it is quite powerful. Should we
+> adopt it?
+> 
+
+I'll have a look and I'm sure I'll have some comments after that ;-)
+
+Later,
+-- 
+------------------------------------------------------------
+Daniel Morissette danmo@v...
+http://pages.infinit.net/danmo/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From danmo at v...  Fri Nov 20 13:19:22 1998
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Delays in forwarding messages
+Message-ID: <3655B2AA.CFE95A43@v...>
+
+Guys,
+
+Have you noticed as I did that there is a very long delay between the
+time we post a message to the list and the time it is actually
+forwarded. I assume this must be due to the fact that the egroups.com
+server is very busy...
+
+However, I think this is not very good when we have to discuss design
+issues, or stuff that requires lots of going back and forth. For
+instance, I replied this morning (almost 3 hours ago) to Frank's message
+from yesterday and it has not been forwarded yet. At this pace, we can
+exchange only 2 messages per day!!!
+
+Am I just too impatient, or do you also see a problem there? Do you
+have any ideas??? Should we directly CC: the message to the other
+concerned people? But if we do so, then the other list members will see
+the discussion only after the fact and won't have any chance to give
+their input...
+
+-- 
+------------------------------------------------------------
+Daniel Morissette danmo@v...
+http://pages.infinit.net/danmo/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From warmerda at h...  Fri Nov 20 22:40:56 1998
+From: warmerda at h... (Frank Warmerdam)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: Delays in forwarding messages
+References: <3655B2AA.CFE95A43@v...>
+Message-ID: <36563648.2F9822C7@h...>
+
+Daniel Morissette wrote:
+> 
+> e MTA v3.5 release 217 ID# 0-53853L0S0V35) with ESMTP
+??
+> e MTA v3.5 release 217 ID# 0-53853L0S0V35) with ESMTP
+??
+> 
+> Guys,
+> 
+> Have you noticed as I did that there is a very long delay between the
+> time we post a message to the list and the time it is actually
+> forwarded. I assume this must be due to the fact that the egroups.com
+> server is very busy...
+> 
+> However, I think this is not very good when we have to discuss design
+> issues, or stuff that requires lots of going back and forth. For
+> instance, I replied this morning (almost 3 hours ago) to Frank's message
+> from yesterday and it has not been forwarded yet. At this pace, we can
+> exchange only 2 messages per day!!!
+> 
+> Am I just too impatient, or do you also see a problem there? Do you
+> have any ideas??? Should we directly CC: the message to the other
+> concerned people? But if we do so, then the other list members will see
+> the discussion only after the fact and won't have any chance to give
+> their input...
+
+Daniel,
+
+I agree that it is irritating. 
+
+I emailed egroup.com, and they said:
+>The problem you are experiencing will be corrected as soon as possible.
+>eGroup apologize for any inconvenience the problem might have caused you and
+>is working on a solution to neutralize the problem. Rest assured that we
+>take this problem very seriously and appreciate your patience
+
+Perhaps it will get better again soon. 
+
+
+-----------------------------------+---------------------------------------
+Who can give them back their lives | Frank Warmerdam, Software Developer
+and all those wasted years? - Rush | URL http://members.home.com/warmerda
+| warmerda@h...
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From danmo at v...  Sat Nov 21 00:35:30 1998
+From: danmo at v... (Daniel Morissette)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: Low Level Library
+References: <365500ED.18A14167@h...> <36558EAE.B7C4A3FB@v...>
+  <36563C01.5A1676FA@h...>
+Message-ID: <36565122.B45E5E02@v...>
+
+Frank Warmerdam wrote:
+> 
+> Daniel Morissette wrote:
+> > Once again, I will try to promote a clean separation of the files by
+> > category (which do not absolutely mean directories :). For instance, I
+> > would like it to be very easy to use only the portability and error
+> > handling stuff while not bringing in anything else... a bit like the
+> > idea that was behind the CCL, but this time let's try to do it before
+> > the lib is built, instead of trying to separate things after the fact.
+> 
+> Daniel,
+> 
+> I agree with this in principle, though often one base component (ie
+> error handling) may depend on another (ie. memory allocation).
+> 
+
+Frank,
+
+My original idea was to go as far as providing a standard way to stub
+the memory allocation stuff if somebody does not want to use it. It's
+just that I had the E00 compress/uncompress library in mind, and this
+lib is so simple that it would not be justified to carry the whole
+memory allocation stuff when I only need the error handling part. But I
+agree that this may be going a bit too far.
+
+> > There may be some tools that already handle these problems???? If not,
+> > then a simple way may be to have a directory file for each component:
+> >
+> > port.dir
+> > mem.dir
+> > file.dir
+> > strlist.dir
+> > convmisc.dir
+> > error.dir
+> > gdal.dir
+> > ...
+> >
+> > each or these .dir file contains the list of all files from the /port
+> > directory that belong to a given API. A .dir file could also contain
+> > the name other .dir files if a module depends on other ones.
+> >
+> > Then (I hope) we could build a makefile that automatically grabs the
+> > source files we need for our specific package at the time we release a
+> > new source code version of the package or when we ship the deliverable
+> > of a contract.
+> 
+> I agree, though perhaps with less subcomponents. Simple wrappers for
+> memory and file access might be together for instance. I am doubtful
+> whether splitting strings lists out from other convenience stuff is a good
+> idea. I would certainly agree to splitting out GDAL specific convenience
+> functions.
+> 
+
+The size of the components is a choice we have to make and that will
+have a very big impact on how easy it is to derive a light version of
+the CPL for specific needs... say we put together the memory and file
+wrappers as you suggest, but my E00 lib (from my previous example above)
+only needs error handling from the CPL... I end up pulling probably a
+dozen of files... only because I wanted to use the error handling (1
+single file).
+
+I don't claim that I have a perfect solution, but that's the kind of
+problem I would like to prevent. Perhaps a way to isolate components
+would be to include stubs inside an #ifdef at the beginning of the
+source files that have dependencies on external components.
+
+For instance, say the error handling component has a dependency on the
+memory allocation stuff, then the file error.c could stub the memory
+allocation functions when they are not available:
+
+/* Error.c ... Error handling functions
+*/
+#include ...
+#include ...
+
+#ifndef MEM_MODULE_AVAILABLE
+/* Memory allocation module not available ... load stubs instead */
+#include "vsimalloc_stubs.c"
+#endif
+
+...
+...
+
+And the file vsimalloc_stubs.c would contain:
+
+/* vsimalloc_stubs.c ... stubs for Memory allocation module 
+*/
+#include <stdlib.h>
+
+void *VSIMalloc(size_t nsize) 
+{
+return malloc(nSize);
+}
+
+/* ... and stub all other mem allocation functions */
+
+
+When we release a source package, we could replace the #include
+"*_stubs.c" with the actual stub code so that it looks cleaner to the
+users...
+
+OK, I realize that there is a possibility that all this may bring more
+complications than real benefits since it probably won't be that often
+that we release very small source code packages... what do you think?
+
+> > Another point: you seem to be prefixing everything with GDAL (i.e.
+> > gdal_port.h, etc.), but since I would like to include some of that
+> > portability stuff in other packages, I suggest that we come up with a
+> > generic name for everything that's part of the /port library.
+> >
+> > The only name I can think of for now is CPL, for Common Portability
+> > Library... but I'm sure we can find something better than that... and
+> > maybe even something with a dual meaning ;-)
+> 
+> I am agreeable to this. Let us plan on the low level library being called
+> `cpl'. Within this I think we might want to break appart subsystems (ie.
+> memory, convenience) to have their own prefixes.
+> 
+> For instance, VSI* for all the standard library cover functions. We could
+> also have a standard prefix for some of the other systems (CES (Common Error
+> System) for the errors, and so on.
+> 
+
+That's fine with me...
+
+> > FYI, I have already implemented the stringlist, tokenize (basic one),
+> > SPrintf(), SLPrintf()... actually SLPrintf() is pretty cool: it's like
+> > fprintf() but it writes at the end of a stringlist! I agree that it may
+> > not be very useful for GDAL, but...
+> 
+> I don't think it is too soon for sharing code directly. I am happy to
+> provide access to my GDAL (and CPL) CVS trees to anyone who wants.
+> 
+
+I never used CVS before... does it allow remote checkin/checkout? I
+think I already read something that made me believe it did...
+
+> > I agree with adding an error class.
+> >
+> > It's unfortunate that there does not seem to be a "perfect" way to
+> > handle errors in a program... the problem in our case is that we have to
+> > make sure that what we choose will be compatible with anyone else's
+> > approach...
+> 
+> One thing I noticed is that your API had an error number. I am wondering
+> to what extent error numbers are really useful. I found myself more and
+> more often using ERR_APPDEFINED (-1) as the error code with IMP, and just
+> providing a meaningful message. Maintaining a meaningful list of error
+> numbers central is a big pain in the butt. Used poorly the error number
+> based messages often don't quite apply. The main use of error numbers is
+> to ensure that a program can distinquish between different error conditions
+> but I found that this was rarely used.
+> 
+
+I also used ERR_APPDEFINED a lot at PCI, and for the same reason you
+mention, I didn't include error numbers in my first version of the
+library, except that Safe asked that the E00 library return error
+numbers that they can test after each library function call...
+
+> One alternate approach might be to use error names, distinct from the error
+> messages formatted for the user.
+> 
+> For instance, I might throw the "FileNotFound" error, rather that doing this
+> with a code number. This makes it very easy to define new groups of errors
+> for a particular package just by making your own name space. For instance,
+> I could have a large family of GDAL specific errors which I just prefix
+> with "gdal", such as "gdalIllegalShapeid".
+> 
+> In general when error numbers are used, there is a corresponding set of
+> macros so that you can use symbolic values anyways. Why not just make the
+> symbolic value (a string) be the value?
+> 
+
+The main problem I see with that is that testing error conditions on a
+string (with strcmp()) can become quite expensive (in CPU cycles)... for
+organisations that check the current error status after each function
+call.
+
+I see the benefits of the name space, but before I give up, let me do a
+last suggestion assuming that we would use error numbers and macros. 
+Maybe we could define a Error code space for each module in a global
+header:
+
+#define VSI_ERR_BASE	1000
+#define CONV_ERR_BASE	1200
+#define GDAL_ERR_BASE	2000
+...
+...
+
+And in gdal.h, you would define the error codes for GDAL as:
+
+#ifndef GDAL_ERR_BASE
+#define GDAL_ERR_BASE 2000
+#endif
+
+#define GDAL_UNKNOWN_FORMAT GDAL_ERR_BASE + 1
+#define GDAL_INVALID_HANDLE GDAL_ERR_BASE + 2
+...
+...
+
+> We could have some well known error names used by convention (such as
+> "FileNotFound", and "OutOfMemory"), while others are adhoc. When writing
+> documentation for a function you can just show the error names that may
+> be ``thrown''. A call might look like:
+> 
+> CESError( CE_Fatal, "OutOfMemory",
+> "Out of memory allocating shapeid buffer for file\n%s\n",
+> pszFilename );
+> 
+
+This would be nice for sure... but how widely is this kind of approach
+used? We have to keep in mind, mostly for GDAL drivers, that the error
+handling mechanism must be compatible with the one of the applications
+that will use GDAL.
+
+> Of course, some of our policy would be set for us if we choose to use
+> GEF.
+> 
+
+GEF sounds interesting, I wanted to look at the author's web site, but
+he moved without leaving any address... have you seen GEF used somewhere
+in real life? I would like to see what the code looks like before I
+make a final opinion about it.
+
+Anyways... that's a couple more things to think about... on my Ski-Doo
+tomorrow ;-)
+
+Later,
+-- 
+------------------------------------------------------------
+Daniel Morissette danmo@v...
+http://pages.infinit.net/danmo/
+------------------------------------------------------------
+Don't put for tomorrow what you can do today, because if 
+you enjoy it today you can do it again tomorrow.
+
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+
+From svilleneuve at c...  Mon Nov 23 00:50:15 1998
+From: svilleneuve at c... (Stephane Villeneuve)
+Date: Wed Nov 21 11:49:12 2007
+Subject: [gdal-dev] Re: Low Level Library
+Message-ID: <05561863941961@c...>
+
+Hi,
+
+I agree with the principle to have a stand alone library for many modules,
+but keep in mind that all
+users of this library should be programmer. 
+
+I'am not very hot to add some ifdef in the source code if the memory stuff
+is present or not, 
+Why do not force the user of the library to link with a stubfile if it
+don't want to use the real library.
+
+I think,the best approche is to be easy for the user to use is stuff of
+memory without make modifications
+in many files. 
+
+The switch case should be in the Makefile stuff( with some configuration
+file)
+
+link with the memory stub or with the real memory management, and the user
+could modify the stub
+file to use is memory system. The same think could be done for other
+module.
+
+The release package could include the both. 
+
+The makefile could access a file to know which file is include of the
+complete memory system and a other to know
+which files are included in the stub memory stuff. They could share the
+smae directory. and the makefile could use
+one.
+
+memory.dir
+stubmemory.dir
+
+
+
+About Error handle, I think that it should be interresting if we don't only
+handle the last error, but all errors, A fatal 
+error should be occur because you receive a warning error 3 call before,
+And the user or the programmer should be 
+interested to see all errors. I don't really like a printf everytime a
+warning occur. it shoul be interesting that the 
+caller functions or the GUI take many errors to create only one.
+
+Is a Fatal error equal a programmer error??
+
+> > I never used CVS before... does it allow remote checkin/checkout? I
+> > think I already read something that made me believe it did...
+
+I'am not really sure that it's a good idea to provide remote checkin to
+anyone. How do you think to drive 
+the checkin/checkout security???
+
+I'am not remember if it's for linux or a other GNU package, but the checkin
+system is :
+
+you download the developpement library you make some work,you send your
+modifications to the source master in a RCS-DIFF format with the devlib
+version you use, they will check your modification and they will include
+them.
+
+Error class, 
+
+I think that all error number and error string should be created in the
+same file, to provide some NLS lookup stuff.
+
+CONV_ERR_BASE 1200
+GDAL_ERR_BASE 2000
+
+GDAL_ERR_BASE+1 = "Unknown Format"
+
+this complicate the error manipulation but it create a error text standard.
+
+> === message truncated ===
+I don't know what append, I lost a part of the Danmo mail. :-(
+
+
+regards,
+stephane
+------------------------------------------------------------------------
+Free Web-based e-mail groups -- http://www.eGroups.com
+
+
+

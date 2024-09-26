@@ -1,0 +1,1386 @@
+From geos-trac at osgeo.org  Tue Jul  5 05:49:19 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 05 Jul 2016 12:49:19 -0000
+Subject: [geos-devel] [GEOS] #783: 2 GEOS specific Memory leaks when using
+	spatialite
+Message-ID: <045.28609a9996945f82a56f88e094668f4f@osgeo.org>
+
+#783: 2 GEOS specific Memory leaks when using spatialite
+-------------------------+-------------------------------------------------
+ Reporter:  mj10777      |      Owner:  geos-devel@…
+     Type:  defect       |     Status:  new
+ Priority:  trivial      |  Milestone:  3.5.1
+Component:  Default      |    Version:  3.5.0
+ Severity:  Unassigned   |   Keywords:  memory leak, GEOS_init_r,
+                         |  GeometryFactory
+-------------------------+-------------------------------------------------
+ Here is a summery of 2 small memory leaks that occur when using
+ spatialite:
+
+ https://www.gaia-gis.it/fossil/libspatialite/info/9183e58794
+
+ == Valgrind messages ==
+ {{{
+ by 0x9279260: geos::geom::GeometryFactory::GeometryFactory()
+ (GeometryFactory.cpp:86)
+ by 0x927B764: geos::geom::GeometryFactory::getDefaultInstance()
+ (GeometryFactory.cpp:728)
+ by 0x740CA6B: GEOS_init_r (geos_ts_c.cpp:165)
+ }}}
+
+ == summery of my assumptions ^([#hn which may be wrong])^ ==
+ The GEOS structure, created in GEOS_init_r and deleted in finishGEOS_r, is
+ called GEOSContextHandle_HS and contains 3 pointers:
+
+ {{{
+ const GeometryFactory *geomFactory;
+ void *noticeData;
+ void *errorData;
+ }}}
+
+ This structure is deleted in
+ geos-3.5.0/capi/geos_ts_c.cpp:finishGEOS_r(GEOSContextHandle_t
+ extHandle)[[br]]
+ without any checking if these pointer need to be freed.[[br]]
+ geomFactory is the pointer that seems to be causing the memory leaks[[br]]
+
+ == reproduction ^([#hn select_tables.sql contains 'SELECT name FROM
+ sqlite_master;'])^ ==
+ {{{
+ valgrind -v --leak-check=full --show-leak-kinds=all spatialite
+ memory_leak.db < select_tables.sql
+ }}}
+ ---
+
+ I attempted to find a way to resolved this, but the solution that worked
+ well for spatialite/rasterlite2 (first part), caused very bad side effects
+ (crashing QGIS when called from within gdal-ogr) in other applications
+ (second part).
+
+ Sandro Furieri has confirmed the existence of this minor leak.
+
+ It is, however, when using rasterlite2, the last leak from a spatial-
+ related projects, libpixman being then being the only cause of leaks when
+ using both of the libraries togeather. So it would be nice to get rid of
+ this.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/783>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Jul  5 05:55:56 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue, 05 Jul 2016 12:55:56 -0000
+Subject: [geos-devel] [GEOS] #783: 2 GEOS specific Memory leaks when
+	using spatialite
+In-Reply-To: <045.28609a9996945f82a56f88e094668f4f@osgeo.org>
+References: <045.28609a9996945f82a56f88e094668f4f@osgeo.org>
+Message-ID: <060.2d80ae64ada6e7aa9e6b971d3199f5d3@osgeo.org>
+
+#783: 2 GEOS specific Memory leaks when using spatialite
+-------------------------------------------------+-------------------------
+ Reporter:  mj10777                              |       Owner:  geos-
+                                                 |  devel@…
+     Type:  defect                               |      Status:  new
+ Priority:  trivial                              |   Milestone:  3.5.1
+Component:  Default                              |     Version:  3.5.0
+ Severity:  Unassigned                           |  Resolution:
+ Keywords:  memory leak, GEOS_init_r,            |
+  GeometryFactory                                |
+-------------------------------------------------+-------------------------
+
+Comment (by strk):
+
+ One way to resolve this would be for the re-entrant interface not to use
+ the lazily-created GeometryFactory singleton but rather use an explicitly
+ created / explicitly deleted GeometryFactory.
+
+ Doing so won't guarantee that the singleton won't be used by some internal
+ operation, so the singleton leak is still pending as an issue.
+
+ The singleton changed from a stack allocated to an heap-allocated objet
+ with r3632, to fix #540, so if it has to change, #540 should be checked
+ for not being still a problem
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/783#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Tue Jul  5 23:42:41 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 06 Jul 2016 06:42:41 -0000
+Subject: [geos-devel] [GEOS] #783: 2 GEOS specific Memory leaks when
+	using spatialite
+In-Reply-To: <045.28609a9996945f82a56f88e094668f4f@osgeo.org>
+References: <045.28609a9996945f82a56f88e094668f4f@osgeo.org>
+Message-ID: <060.c7a7e4deae698917e6b0d080b745877a@osgeo.org>
+
+#783: 2 GEOS specific Memory leaks when using spatialite
+-------------------------------------------------+-------------------------
+ Reporter:  mj10777                              |       Owner:  geos-
+                                                 |  devel@…
+     Type:  defect                               |      Status:  closed
+ Priority:  trivial                              |   Milestone:  3.5.1
+Component:  Default                              |     Version:  3.5.0
+ Severity:  Unassigned                           |  Resolution:  duplicate
+ Keywords:  memory leak, GEOS_init_r,            |
+  GeometryFactory                                |
+-------------------------------------------------+-------------------------
+Changes (by strk):
+
+ * status:  new => closed
+ * resolution:   => duplicate
+
+
+Comment:
+
+ I turns out, this is a duplicate of #587
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/783#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Wed Jul  6 03:14:43 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 06 Jul 2016 10:14:43 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+Message-ID: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+--------------------------
+ Reporter:  rsbivand    |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  major       |  Milestone:  3.5.1
+Component:  Default     |    Version:  3.5.0
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ Further to https://lists.osgeo.org/pipermail/geos-
+ devel/2016-March/007433.html, and success with the suggested patch for
+ 3.5.0 for some of the make, on Fedora 24, g++ 6.1.1 20160621, I see later
+ on, in tests/xmltester:
+
+ {{{
+ g++ -DHAVE_CONFIG_H -I. -I../../include -I../../include/geos
+ -I../../include -I../../src/io/tinyxml -DTIXML_USE_STL  -DGEOS_INLINE -g
+ -O2 -MT XMLTester-XMLTester.o -MD -MP -MF .deps/XMLTester-XMLTester.Tpo -c
+ -o XMLTester-XMLTester.o `test -f 'XMLTester.cpp' || echo
+ './'`XMLTester.cpp
+ In file included from ../../include/geos/geom/Point.h:25:0,
+                  from XMLTester.cpp:27:
+ ../../include/geos/geom/Coordinate.inl: In member function ‘bool
+ geos::geom::Coordinate::isNull() const’:
+ ../../include/geos/platform.h:90:27: error: ‘isnan’ was not declared in
+ this scope
+  # define ISNAN(x) (isnan(x))
+                            ^
+ ../../include/geos/geom/Coordinate.inl:38:10: note: in expansion of macro
+ ‘ISNAN’
+   return (ISNAN(x) && ISNAN(y) && ISNAN(z));
+           ^~~~~
+ ../../include/geos/platform.h:90:27: note: suggested alternative:
+  # define ISNAN(x) (isnan(x))
+                            ^
+ ../../include/geos/geom/Coordinate.inl:38:10: note: in expansion of macro
+ ‘ISNAN’
+   return (ISNAN(x) && ISNAN(y) && ISNAN(z));
+           ^~~~~
+ In file included from ../../include/geos/geom/Coordinate.inl:22:0,
+                  from ../../include/geos/geom/Coordinate.h:158,
+                  from ../../include/geos/geom/Envelope.h:25,
+                  from ../../include/geos/geom/Geometry.h:27,
+                  from ../../include/geos/geom/Point.h:26,
+                  from XMLTester.cpp:27:
+ /usr/include/c++/6.1.1/cmath:655:5: note:   ‘std::isnan’
+      isnan(_Tp __x)
+      ^~~~~
+ }}}
+
+ This means that 3.5.0 cannot be built on Fedora 24 without further changes
+ to configure.ac, and possibly elsewhere, to pass through the settings seen
+ earlier in the make process.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/784>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Wed Jul  6 03:24:26 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 06 Jul 2016 10:24:26 -0000
+Subject: [geos-devel] [GEOS] #785: g++ 6 auto_ptr
+Message-ID: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+
+#785: g++ 6 auto_ptr
+------------------------+--------------------------
+ Reporter:  rsbivand    |      Owner:  geos-devel@…
+     Type:  defect      |     Status:  new
+ Priority:  minor       |  Milestone:  3.5.1
+Component:  Default     |    Version:  3.5.0
+ Severity:  Unassigned  |   Keywords:
+------------------------+--------------------------
+ The use of auto_ptr throws warnings in g++ 6 in Fedora 24, chiefly in
+ XMLTester:
+
+ {{{
+ In file included from ../../include/geos/geom/Geometry.h:27:0,
+                  from ../../include/geos/geom/Point.h:26,
+                  from XMLTester.cpp:27:
+ ../../include/geos/geom/Envelope.h: At global scope:
+ ../../include/geos/geom/Envelope.h:57:15: warning: ‘template<class> class
+ std::auto_ptr’ is deprecated [-Wdeprecated-declarations]
+   typedef std::auto_ptr<Envelope> AutoPtr;
+                ^~~~~~~~
+ In file included from /usr/include/c++/6.1.1/memory:81:0,
+                  from ../../include/geos/geom/Envelope.h:29,
+                  from ../../include/geos/geom/Geometry.h:27,
+                  from ../../include/geos/geom/Point.h:26,
+                  from XMLTester.cpp:27:
+ /usr/include/c++/6.1.1/bits/unique_ptr.h:49:28: note: declared here
+    template<typename> class auto_ptr;
+                             ^~~~~~~~
+ }}}
+
+ There are other wanings for other types of -W, such as the following, so
+ it looks as though g++ 6 is stricter in checking:
+
+ {{{
+ WKTWriter.cpp: In member function ‘void
+ geos::io::WKTWriter::appendPointTaggedText(const geos::geom::Coordinate*,
+ int, geos::io::Writer*)’:
+ WKTWriter.cpp:239:5: warning: this ‘if’ clause does not guard...
+ [-Wmisleading-indentation]
+      if( outputDimension == 3 && !old3D && coordinate != NULL )
+      ^~
+ WKTWriter.cpp:242:2: note: ...this statement, but the latter is
+ misleadingly indented as if it is guarded by the ‘if’
+   appendPointText(coordinate, level, writer);
+   ^~~~~~~~~~~~~~~
+ }}}
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/785>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Wed Jul  6 03:26:04 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 06 Jul 2016 10:26:04 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.9da76a81eefc12f40bca57ed3906fda2@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+Changes (by rsbivand):
+
+ * priority:  major => blocker
+
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/784#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Wed Jul  6 03:44:27 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 06 Jul 2016 10:44:27 -0000
+Subject: [geos-devel] [GEOS] #785: g++ 6 auto_ptr
+In-Reply-To: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+References: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+Message-ID: <061.369377a4961ec5d8d89ac34e701ad557@osgeo.org>
+
+#785: g++ 6 auto_ptr
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  minor       |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ I'm afraid we are not ready to deprecate auto_ptr yet.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/785#comment:1>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Wed Jul  6 03:57:18 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Wed, 06 Jul 2016 10:57:18 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.a6a9a0ab97c1f8c60f017ff7a41d2a01@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by rsbivand):
+
+ Work-around by setting:
+
+ {{{
+ export CXX="g++ -std=c++98"
+ }}}
+
+ before running ./configure (without the patch, from the release tarball).
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/784#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul  7 09:49:30 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 07 Jul 2016 16:49:30 -0000
+Subject: [geos-devel] [GEOS] #785: g++ 6 auto_ptr
+In-Reply-To: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+References: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+Message-ID: <061.ce30ceaeb01206cc635b8a5c6c172c69@osgeo.org>
+
+#785: g++ 6 auto_ptr
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  minor       |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by rouault):
+
+ auto_ptr and unique_ptr have very similar behaviour and API and can be
+ used equivalently if you make basic uses of them (check the differences to
+ see if you're not running into them)
+
+ In GDAL there's a driver making use of auto_ptr, and I've finally done
+ {{{
+ #if __cplusplus >= 201103L
+ #define UNIQUEPTR       std::unique_ptr
+ #else
+ #define UNIQUEPTR       std::auto_ptr
+ #endif
+ }}}
+
+ A bit ugly, but works fine.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/785#comment:2>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul  7 11:00:08 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 07 Jul 2016 18:00:08 -0000
+Subject: [geos-devel] [GEOS] #785: g++ 6 auto_ptr
+In-Reply-To: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+References: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+Message-ID: <061.bd745632afb12b3d0a3da45feea749d9@osgeo.org>
+
+#785: g++ 6 auto_ptr
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  minor       |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by mloskot):
+
+ Replying to [comment:2 rouault]:
+ > In GDAL there's a driver making use of auto_ptr, and I've finally done
+ > {{{
+ > #if __cplusplus >= 201103L
+ > #define UNIQUEPTR       std::unique_ptr
+ > #else
+ > #define UNIQUEPTR       std::auto_ptr
+ > #endif
+ > }}}
+
+
+ For sake, typedef!
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/785#comment:3>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul  7 15:27:25 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 07 Jul 2016 22:27:25 -0000
+Subject: [geos-devel] [GEOS] #785: g++ 6 auto_ptr
+In-Reply-To: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+References: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+Message-ID: <061.a769bf54e753bcb35e7bd057e67f74f4@osgeo.org>
+
+#785: g++ 6 auto_ptr
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  minor       |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ An uniqueptr typedef sounds like a good idea. Patches welcome !
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/785#comment:4>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul  7 15:38:59 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 07 Jul 2016 22:38:59 -0000
+Subject: [geos-devel] [GEOS] #785: g++ 6 auto_ptr
+In-Reply-To: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+References: <046.872d5877427a17995df94f2e08448c2c@osgeo.org>
+Message-ID: <061.9751acc6c210683174c740462a2b00ce@osgeo.org>
+
+#785: g++ 6 auto_ptr
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  minor       |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by mloskot):
+
+ I'd rather leave it as it is and wait until we can switch to c++0x/11
+ compilers and to `std::unique_ptr` only.
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/785#comment:5>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From andrew at dcs.bbk.ac.uk  Fri Jul  8 03:55:18 2016
+From: andrew at dcs.bbk.ac.uk (Andrew Watkins)
+Date: Fri, 8 Jul 2016 11:55:18 +0100
+Subject: [geos-devel] src/libgeos.la missing from tests/perf/Makefile.in
+Message-ID: <b51cee7b-ee33-05a9-05c4-703aff25e212@dcs.bbk.ac.uk>
+
+Hello,
+
+I have been working on compiling geos-3.6.0 on Solaris using Solaris 
+Studio 12 compiler.
+I am am nearly there (full details is for another email), but when 
+building ClassSizes i get the following error:
+
+gmake[4]: Entering directory `/tmp/geos-3.5.0/tests/perf'
+source='ClassSizes.cpp' object='ClassSizes.o' libtool=no \
+DEPDIR=.deps depmode=none /bin/sh ../../depcomp \
+CC -D__C99FEATURES__ -DHAVE_CONFIG_H -I. -I../../include 
+-I../../include/geos  -I../../include -m64 -pedantic -Wall 
+-Wno-long-long  -m64 -c -o ClassSizes.o ClassSizes.cpp
+"../../include/geos/geom/CoordinateArraySequence.h", line 124: Warning: 
+geos::geom::CoordinateArraySequence::add hides the function 
+geos::geom::CoordinateSequence::add(const 
+std::vector<geos::geom::Coordinate>*, bool).
+"../../include/geos/geom/CoordinateArraySequence.h", line 124: Warning: 
+geos::geom::CoordinateArraySequence::add hides the function 
+geos::geom::CoordinateSequence::add(const 
+geos::geom::CoordinateSequence*, bool, bool).
+2 Warning(s) detected.
+/bin/sh ../../libtool  --tag=CXX   --mode=link CC -D__C99FEATURES__ 
+-pedantic -Wall -Wno-long-long  -m64  -lm -m64 -lCrun -lCstd -o 
+ClassSizes ClassSizes.o
+libtool: link: CC -D__C99FEATURES__ -pedantic -Wall -Wno-long-long -m64 
+-m64 -o ClassSizes ClassSizes.o  -lm -lCrun -lCstd
+Undefined                       first referenced
+  symbol                             in file
+geos::geom::MultiPoint::__descr  ClassSizes.o
+[Hint: static member geos::geom::MultiPoint::__descr must be defined in 
+the program]
+ld: fatal: symbol referencing errors
+gmake[4]: *** [ClassSizes] Error 2
+gmake[4]: Leaving directory `/tmp/geos-3.5.0/tests/perf'
+
+I have tracked it down that the Makefile.in is missing libgeos.la
+
+geos-3.5.0-origin/tests/perf/Makefile.in geos-3.5.0/tests/perf/Makefile.in
+278c278
+< LIBS = @LIBS@
+---
+ > LIBS = $(top_builddir)/src/libgeos.la
+
+Not sure how it works with GNU, but I wonder if the above is correct.
+
+Thanks,
+
+Andrew
+
+-- 
+Andrew Watkins * Birkbeck, University of London * Computer Science *
+* http://notallmicrosoft.blogspot.com *
+* UKOUG Systems SIG Chair *
+* UKOUG Tech committee *
+* tel: 020 7631 6720 *
+
+  
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20160708/1f0ae7a6/attachment.html>
+
+From andrew at dcs.bbk.ac.uk  Fri Jul  8 04:52:56 2016
+From: andrew at dcs.bbk.ac.uk (Andrew Watkins)
+Date: Fri, 8 Jul 2016 12:52:56 +0100
+Subject: [geos-devel] Building Geos 64-bit using Oracle Developer Studio
+	12.5 on Solaris11
+Message-ID: <1c408173-5a81-a24b-a9fa-9ac46c55f9ed@dcs.bbk.ac.uk>
+
+
+I thought I would report on my work on building geos-3.5.0 on Solaris 11 
+using  Oracle Developer Studio 12.5 (formally  Sun Studio12)
+
+I have now compiled it so I will report back with my findings and ask a 
+couple of questions.
+
+- I used the following tickets for my starting points:
+
+     "Need to compile the libGeos using Sun Studio12 on Solaris10" 
+https://trac.osgeo.org/geos/ticket/224#no1
+
+Updated the patches in the above to work with 3.5.0 a few modifications 
+due to code alterations in original
+
+     "GEOS build fails on linking on Solaris" 
+https://trac.osgeo.org/geos/ticket/331
+
+Add the LIBS="-lm " to configure from the above ticket
+
+Then I also addeed:
+
+Add the LIBS="-lm -lCrun -lCstd" to configure
+
+Added "__C99FEATURES__" so C99 support is added to configure
+
+So configuration becomes
+
+# ./configure CC='cc' CXX='CC -D__C99FEATURES__' CPPFLAGS=-m64 
+CXXFLAGS=-m64 LIBS='-lm -lCrun -lCstd' --disable-inline --enable-cassert
+
+Altered LIBS in geos-3.5.0/tests/perf/Makefile.in "LIBS = 
+$(top_builddir)/src/libgeos.la"
+
+With all the above I got nearly to compile, but I get
+
+DEPDIR=.deps depmode=none /bin/sh ../depcomp \
+CC -D__C99FEATURES__ -DHAVE_CONFIG_H -I. -I../include -I../include/geos  
+-I../include -m64 -pedantic -Wall -ansi -Wno-long-long  -m64 -c -o 
+example.o example.cpp
+CC: Warning: Option -ansi passed to ld, if ld is invoked, ignored otherwise
+/bin/sh ../libtool  --tag=CXX   --mode=link CC -D__C99FEATURES__ 
+-pedantic -Wall -ansi -Wno-long-long  -m64   -o example example.o 
+../src/libgeos.la ../src/libgeos.la
+libtool: link: CC -D__C99FEATURES__ -pedantic -Wall -ansi -Wno-long-long 
+-m64 -o .libs/example example.o ../src/.libs/libgeos.so -lm -lCrun 
+-lCstd -R/usr/local/postgres/geoss/lib
+CC: Warning: Option -ansi passed to ld, if ld is invoked, ignored otherwise
+ld: fatal: unrecognized option '-n'
+ld: fatal: use the '-z help' option for usage information
+gmake[2]: *** [example] Error 2
+gmake[2]: Leaving directory `/tmp/geos-3.5.0/doc'
+gmake[1]: *** [all-recursive] Error 1
+gmake[1]: Leaving directory `/tmp/geos-3.5.0'
+gmake: *** [all] Error 2
+bash-4.1$ GEOS build fails on linking on Solaris
+
+The reason is "-ansi" is not a flag with CC, but I am not sure how to 
+clearly remove it. I did a dirty version by removing it from configure!
+
+if test yes = "$dummy_cv_ansi"; then
+     WARNFLAGS="$WARNFLAGS -ansi"
+else
+     :
+fi
+
+Thanks,
+
+Andrew
+
+
+-- 
+Andrew Watkins * Birkbeck, University of London * Computer Science *
+* http://notallmicrosoft.blogspot.com *
+* UKOUG Systems SIG Chair *
+* UKOUG Tech committee *
+* tel: 020 7631 6720 *
+
+  
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20160708/3c3cd224/attachment.html>
+
+From strk at kbt.io  Fri Jul  8 09:05:03 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Fri, 8 Jul 2016 18:05:03 +0200
+Subject: [geos-devel] src/libgeos.la missing from tests/perf/Makefile.in
+In-Reply-To: <b51cee7b-ee33-05a9-05c4-703aff25e212@dcs.bbk.ac.uk>
+References: <b51cee7b-ee33-05a9-05c4-703aff25e212@dcs.bbk.ac.uk>
+Message-ID: <20160708160503.GA22088@localhost>
+
+On Fri, Jul 08, 2016 at 11:55:18AM +0100, Andrew Watkins wrote:
+
+> I have tracked it down that the Makefile.in is missing libgeos.la
+> 
+> geos-3.5.0-origin/tests/perf/Makefile.in geos-3.5.0/tests/perf/Makefile.in
+> 278c278
+> < LIBS = @LIBS@
+> ---
+> > LIBS = $(top_builddir)/src/libgeos.la
+> 
+> Not sure how it works with GNU, but I wonder if the above is correct.
+
+@LIBS@ should be expanded by the ./configure call
+(How) is it expanded ?
+
+--strk;
+
+From strk at kbt.io  Fri Jul  8 09:32:21 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Fri, 8 Jul 2016 18:32:21 +0200
+Subject: [geos-devel] Building Geos 64-bit using Oracle Developer Studio
+ 12.5 on Solaris11
+In-Reply-To: <1c408173-5a81-a24b-a9fa-9ac46c55f9ed@dcs.bbk.ac.uk>
+References: <1c408173-5a81-a24b-a9fa-9ac46c55f9ed@dcs.bbk.ac.uk>
+Message-ID: <20160708163221.GB22088@localhost>
+
+On Fri, Jul 08, 2016 at 12:52:56PM +0100, Andrew Watkins wrote:
+
+> The reason is "-ansi" is not a flag with CC, but I am not sure how
+> to clearly remove it. I did a dirty version by removing it from
+> configure!
+
+See configure.ac, search "ansi", you'll find this:
+
+AC_LIBTOOL_COMPILER_OPTION([if $compiler supports -ansi], [dummy_cv_ansi], [-ansi], [], [WARNFLAGS="$WARNFLAGS -ansi"], [])
+
+So it looks AC_LIBTOOL_COMPILER_OPTION thinks -ansi is supported,
+while you're saying it is not, correct ? Could be worth reporting
+this upstream, to the libtool developers.
+
+--strk;
+
+From andrew at dcs.bbk.ac.uk  Fri Jul  8 13:16:57 2016
+From: andrew at dcs.bbk.ac.uk (Andrew Watkins)
+Date: Fri, 8 Jul 2016 21:16:57 +0100
+Subject: [geos-devel] src/libgeos.la missing from tests/perf/Makefile.in
+In-Reply-To: <20160708160503.GA22088@localhost>
+References: <b51cee7b-ee33-05a9-05c4-703aff25e212@dcs.bbk.ac.uk>
+ <20160708160503.GA22088@localhost>
+Message-ID: <9494416d-a97f-c19f-fdbe-54c009a1fec7@dcs.bbk.ac.uk>
+
+On 08/07/2016 17:05, Sandro Santilli wrote:
+> On Fri, Jul 08, 2016 at 11:55:18AM +0100, Andrew Watkins wrote:
+>
+>> I have tracked it down that the Makefile.in is missing libgeos.la
+>>
+>> geos-3.5.0-origin/tests/perf/Makefile.in geos-3.5.0/tests/perf/Makefile.in
+>> 278c278
+>> < LIBS = @LIBS@
+>> ---
+>>> LIBS = $(top_builddir)/src/libgeos.la
+>> Not sure how it works with GNU, but I wonder if the above is correct.
+> @LIBS@ should be expanded by the ./configure call
+> (How) is it expanded ?
+>
+After ./configure LIBS is empty.
+I forgot to say that I found the
+
+LIBS = $(top_builddir)/src/libgeos.la
+
+in all the following files:
+
+tests/xmltester/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+tests/perf/operation/buffer/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+tests/perf/operation/predicate/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+tests/bigtest/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+
+That is why I thought it need to be intests/perf/Makefile.in Thanks, Andrew
+
+-- 
+Andrew Watkins * Birkbeck, University of London * Computer Science *
+* http://notallmicrosoft.blogspot.com *
+* UKOUG Systems SIG Chair * formaly Solaris SIG *
+* UKOUG Tech15 committee *
+
+
+From strk at kbt.io  Fri Jul  8 22:34:18 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Sat, 9 Jul 2016 07:34:18 +0200
+Subject: [geos-devel] src/libgeos.la missing from tests/perf/Makefile.in
+In-Reply-To: <9494416d-a97f-c19f-fdbe-54c009a1fec7@dcs.bbk.ac.uk>
+References: <b51cee7b-ee33-05a9-05c4-703aff25e212@dcs.bbk.ac.uk>
+ <20160708160503.GA22088@localhost>
+ <9494416d-a97f-c19f-fdbe-54c009a1fec7@dcs.bbk.ac.uk>
+Message-ID: <20160709053418.GA6265@localhost>
+
+On Fri, Jul 08, 2016 at 09:16:57PM +0100, Andrew Watkins wrote:
+
+> I forgot to say that I found the
+> 
+> LIBS = $(top_builddir)/src/libgeos.la
+> 
+> in all the following files:
+> 
+> tests/xmltester/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+> tests/perf/operation/buffer/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+> tests/perf/operation/predicate/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+> tests/bigtest/Makefile.in:LIBS = $(top_builddir)/src/libgeos.la
+> 
+> That is why I thought it need to be intests/perf/Makefile.in Thanks, Andrew
+
+You're right, it was missing (the source being Makefile.am).
+Fixed with r4220 in trunk
+
+--strk;
+
+From andrew at dcs.bbk.ac.uk  Sun Jul 10 06:02:41 2016
+From: andrew at dcs.bbk.ac.uk (Andrew Watkins)
+Date: Sun, 10 Jul 2016 14:02:41 +0100
+Subject: [geos-devel] Building Geos 64-bit using Oracle Developer Studio
+ 12.5 on Solaris11
+In-Reply-To: <20160708163221.GB22088@localhost>
+References: <1c408173-5a81-a24b-a9fa-9ac46c55f9ed@dcs.bbk.ac.uk>
+ <20160708163221.GB22088@localhost>
+Message-ID: <ccdfa4c6-b873-a076-92d3-549c29789251@dcs.bbk.ac.uk>
+
+On 08/07/2016 17:32, Sandro Santilli wrote:
+> On Fri, Jul 08, 2016 at 12:52:56PM +0100, Andrew Watkins wrote:
+>
+>> The reason is "-ansi" is not a flag with CC, but I am not sure how
+>> to clearly remove it. I did a dirty version by removing it from
+>> configure!
+> See configure.ac, search "ansi", you'll find this:
+>
+> AC_LIBTOOL_COMPILER_OPTION([if $compiler supports -ansi], [dummy_cv_ansi], [-ansi], [], [WARNFLAGS="$WARNFLAGS -ansi"], [])
+>
+> So it looks AC_LIBTOOL_COMPILER_OPTION thinks -ansi is supported,
+> while you're saying it is not, correct ? Could be worth reporting
+> this upstream, to the libtool developers.
+>
+> --strk;
+>
+I just looked at it a little more and to me the configure is check the C 
+compiler and not C++ compiler:
+Looking at config.log
+
+# ./configure CC='cc' CXX='CC'
+configure:17560: checking if CC supports -ansi
+configure:17578: cc -c -g  -ansi conftest.c >&5
+configure:17582: $? = 0
+configure:17594: result: yes
+
+double checked with gcc:
+# ./configure
+configure:17575: checking if g++ supports -ansi
+configure:17593: gcc -c -g -O2  -ansi conftest.c >&5
+configure:17597: $? = 0
+configure:17610: result: yes
+
+Unless, i am looking at the wrong things?
+
+Andrew
+
+
+-- 
+Andrew Watkins * Birkbeck, University of London * Computer Science *
+* http://notallmicrosoft.blogspot.com *
+* UKOUG Systems SIG Chair * formaly Solaris SIG *
+* UKOUG Tech15 committee *
+
+
+From strk at kbt.io  Sun Jul 10 13:00:37 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Sun, 10 Jul 2016 22:00:37 +0200
+Subject: [geos-devel] Building Geos 64-bit using Oracle Developer Studio
+ 12.5 on Solaris11
+In-Reply-To: <ccdfa4c6-b873-a076-92d3-549c29789251@dcs.bbk.ac.uk>
+References: <1c408173-5a81-a24b-a9fa-9ac46c55f9ed@dcs.bbk.ac.uk>
+ <20160708163221.GB22088@localhost>
+ <ccdfa4c6-b873-a076-92d3-549c29789251@dcs.bbk.ac.uk>
+Message-ID: <20160710200037.GA5805@tuscia.pallamondo.net>
+
+On Sun, Jul 10, 2016 at 02:02:41PM +0100, Andrew Watkins wrote:
+> On 08/07/2016 17:32, Sandro Santilli wrote:
+
+> >So it looks AC_LIBTOOL_COMPILER_OPTION thinks -ansi is supported,
+> >while you're saying it is not, correct ? Could be worth reporting
+> >this upstream, to the libtool developers.
+> 
+> I just looked at it a little more and to me the configure is check the C
+> compiler and not C++ compiler:
+> Looking at config.log
+> 
+> # ./configure CC='cc' CXX='CC'
+> configure:17560: checking if CC supports -ansi
+> configure:17578: cc -c -g  -ansi conftest.c >&5
+> configure:17582: $? = 0
+> configure:17594: result: yes
+
+Good catch !
+So we need to figure out how to tell autoconf
+that AC_LIBTOOL_COMPILER_OPTION has to check C++
+compiler instead. I think it's something like:
+
+   AC_LANG_PUSH([C++])
+   .. code here ..
+   AC_LANG_POP([C++])
+
+See the configure.ac file, it is already used
+later, for the isnan check.
+
+Looking forward for a working patch !
+
+--strk;
+
+From geos-trac at osgeo.org  Thu Jul 14 03:09:07 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 14 Jul 2016 10:09:07 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.a36e66c78b1aec1d2a0e88f88726ec04@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by sebastic):
+
+ The GCC 6 isnan issue is causing a Release Critical bug in the geos Debian
+ package too, [https://bugs.debian.org/831177 Debian Bug #831177] reported
+ by Lucas Nussbaum.
+
+ It looks like the `std::isnan` change from r4169 also needs to be applied
+ to `include/geos/platform.h.in` to use that instead of plain `isnan`.
+ attachment:gcc6-isnan.patch fixes this issue for the Debian package with
+ GCC 6.1.1 from Debian unstable (in addition to the change from r4169).
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/784#comment:3>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul 14 03:09:37 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 14 Jul 2016 10:09:37 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.7831868dac3db6b13b3bb81155832bde@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  new
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:
+ Keywords:              |
+------------------------+---------------------------
+Changes (by sebastic):
+
+ * Attachment "gcc6-isnan.patch" added.
+
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/784>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul 14 03:38:39 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 14 Jul 2016 10:38:39 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.6ef2a9d3412c03805e8c2d181b24a84b@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+Changes (by strk):
+
+ * status:  new => closed
+ * resolution:   => fixed
+
+
+Comment:
+
+ In [changeset:"4224" 4224]:
+ {{{
+ #!CommitTicketReference repository="" revision="4224"
+ Fully qualify isnan call when HAVE_ISNAN is defined
+
+ Fixes build with GCC-5.3.0 and higher.
+ Closes #784
+ }}}
+
+--
+Ticket URL: </ticket/784#comment:4>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul 14 04:06:52 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 14 Jul 2016 11:06:52 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.bdf374dd1372aa1606df4744263dc9e9@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ In [changeset:"4225" 4225]:
+ {{{
+ #!CommitTicketReference repository="" revision="4225"
+ Look for isnan in std:: namespace
+
+ Fully qualify isnan call when HAVE_ISNAN is defined
+ Tested with gcc 4.8.4
+
+ Fixes build with GCC-5.3.0 and higher.
+ Closes #784
+ }}}
+
+--
+Ticket URL: </ticket/784#comment:5>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul 14 04:27:39 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 14 Jul 2016 11:27:39 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.de410dda0325ab131150a10ad5d88037@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ In [changeset:"4227" 4227]:
+ {{{
+ #!CommitTicketReference repository="" revision="4227"
+ Look for isnan in std:: namespace
+
+ Fully qualify isnan call when HAVE_ISNAN is defined
+ Tested with gcc 4.8.4
+
+ Fixes build with GCC-5.3.0 and higher.
+ Closes #784
+ }}}
+
+--
+Ticket URL: </ticket/784#comment:6>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From geos-trac at osgeo.org  Thu Jul 14 09:12:59 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu, 14 Jul 2016 16:12:59 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.7c2f8bd8360d833495e3ca5834a13170@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by strk):
+
+ In [changeset:"4229" 4229]:
+ {{{
+ #!CommitTicketReference repository="" revision="4229"
+ Look for isnan in std:: namespace
+
+ Fully qualify isnan call when HAVE_ISNAN is defined
+ Tested with gcc 4.8.4
+
+ Fixes build with GCC-5.3.0 and higher.
+ Closes #784
+ }}}
+
+--
+Ticket URL: </ticket/784#comment:7>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From strk at kbt.io  Sat Jul 16 00:38:28 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Sat, 16 Jul 2016 09:38:28 +0200
+Subject: [geos-devel] Docker and Drone
+Message-ID: <20160716073828.GA5927@localhost>
+
+I've setup a Drone server to experiment with a completely self-hosted
+build service. Current url is: https://drone.osgeo.kbt.io.
+
+You can login with your OSGeo Userid and register projects that
+are hosted on the OSGeo Git Service: https://git.osgeo.org/gogs/
+
+I've registered GEOS ( https://drone.osgeo.kbt.io/geos/geos )
+and added a .drone.yml file in the repository containing the
+instruction for build agents (drone agents):
+https://git.osgeo.org/gogs/geos/geos/src/svn-trunk/.drone.yml
+
+The yaml file instructs build agents to build GEOS inside
+a docker prepared for the task:
+
+  docker.kbt.io/geos/build-test:alpine
+
+The instructions to create the docker are checked into the
+GEOS repository:
+https://git.osgeo.org/gogs/geos/geos/src/svn-trunk/docker/build-test/Dockerfile
+
+The docker image is served by my own docker registry, currently
+NOT using to the OSGeo Userid authentication (I'd love to setup
+such service at the OSGeo level).
+
+At the moment there's a single build agent running on my own laptop
+(so only while my laptop is turned on). Running an agent is very
+simple, as long as you can run a docker container. If you want to
+contribute some time of your machine (even development machines)
+let me know and I'll give you detailed instructions.
+
+Other useful contributions would be tweaks to the build-test docker
+image to allow for building with different configurations.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   https://strk.kbt.io/services.html
+
+From geos-trac at osgeo.org  Mon Jul 18 11:54:56 2016
+From: geos-trac at osgeo.org (GEOS)
+Date: Mon, 18 Jul 2016 18:54:56 -0000
+Subject: [geos-devel] [GEOS] #784: g++ 6 isnan issues
+In-Reply-To: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+References: <046.a84ca85fb978b92c2b01dfac388239b0@osgeo.org>
+Message-ID: <061.770140cd9e6e5fe3c3d1fe503dfc7474@osgeo.org>
+
+#784: g++ 6 isnan issues
+------------------------+---------------------------
+ Reporter:  rsbivand    |       Owner:  geos-devel@…
+     Type:  defect      |      Status:  closed
+ Priority:  blocker     |   Milestone:  3.5.1
+Component:  Default     |     Version:  3.5.0
+ Severity:  Unassigned  |  Resolution:  fixed
+ Keywords:              |
+------------------------+---------------------------
+
+Comment (by rsbivand):
+
+ Confirmed resolved for Fedora 24, and #4229, GEOS builds cleanly, and
+ rgeos builds and checks as expected. Thanks for fixing this!
+
+--
+Ticket URL: <https://trac.osgeo.org/geos/ticket/784#comment:8>
+GEOS <http://trac.osgeo.org/geos>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+
+From strk at kbt.io  Tue Jul 19 10:35:39 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Tue, 19 Jul 2016 19:35:39 +0200
+Subject: [geos-devel] PHP binding repository relocation
+Message-ID: <20160719173526.GA6055@localhost>
+
+The official home of PHP bindings source code is now
+the Experiemental OSGeo Git Service:
+
+ https://git.osgeo.org/gogs/geos/php-geos
+
+Previous GIT remote ( git://git.osgeo.org/php-geos )
+still works for backward compatibility but please update
+your remotes.
+
+The move allows to have a separate set of milestones
+and issues while also supporting pull-request kind
+of interaction.
+
+An automatic mirror is setup on gitlab.com (will pull
+from the official repository) and on github.com (will
+be pushed from gogs via a git hook).
+
+Next I'll remove the php/ subdir from core.
+
+Dark Panda: please login to the service one to be
+added to the committers team for the project.
+
+My next focus for the php bindings will be adding support
+for PHP7: https://git.osgeo.org/gogs/geos/php-geos/issues/1
+
+For now I think we can keep using this mailing list for
+coordination.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   https://strk.kbt.io/services.html
+
+From strk at kbt.io  Tue Jul 19 11:33:30 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Tue, 19 Jul 2016 20:33:30 +0200
+Subject: [geos-devel] GEOS website, any volunteers ?
+Message-ID: <20160719183330.GB7535@localhost>
+
+I've found a web/ subdir in the repository and thought
+to move it to its own repository too.
+
+It now lives here: https://git.osgeo.org/gogs/geos/website
+
+It consists of a single manually edited HTML page which is
+currently unused and was last touched in 2007 or so.
+
+Does anyone want to help bringing it up to date for publication
+on geos.osgeo.org, which currently redirects to the trac instance ?
+
+--strk; 
+
+From strk at kbt.io  Thu Jul 21 12:10:26 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Thu, 21 Jul 2016 21:10:26 +0200
+Subject: [geos-devel] geos-docker repository
+Message-ID: <20160721191026.GA32750@localhost>
+
+I've created a geos-docker repository on Gogs:
+https://git.osgeo.org/gogs/geos/geos-docker
+
+For now it contains instructions to build a geos/build-test
+docker image, which is used by the drone build.
+
+The Makefile therein also includes a "push" rule to publish
+the constructed docker image to my own docker repository, which
+doesn't have a proper authentication system yet (so won't work
+for you).
+
+Hopefully one day we can get OSGeo to host its own repository
+so to be able to use our OSGeo Userid for pushing, but I'm not
+ready for the experimentation about it.
+
+--strk;
+
+From dark.panda+lists at gmail.com  Thu Jul 21 15:42:20 2016
+From: dark.panda+lists at gmail.com (J Smith)
+Date: Thu, 21 Jul 2016 19:42:20 -0300
+Subject: [geos-devel] PHP binding repository relocation
+In-Reply-To: <20160719173526.GA6055@localhost>
+References: <20160719173526.GA6055@localhost>
+Message-ID: <CADFUPgd1k0jQVzOb0BbiH3GeGbTB7F5v6AHjvnpUp=G45OV-dA@mail.gmail.com>
+
+On Tue, Jul 19, 2016 at 2:35 PM, Sandro Santilli <strk at kbt.io> wrote:
+> The official home of PHP bindings source code is now
+> the Experiemental OSGeo Git Service:
+>
+>  https://git.osgeo.org/gogs/geos/php-geos
+>
+> Previous GIT remote ( git://git.osgeo.org/php-geos )
+> still works for backward compatibility but please update
+> your remotes.
+>
+> The move allows to have a separate set of milestones
+> and issues while also supporting pull-request kind
+> of interaction.
+>
+> An automatic mirror is setup on gitlab.com (will pull
+> from the official repository) and on github.com (will
+> be pushed from gogs via a git hook).
+>
+> Next I'll remove the php/ subdir from core.
+>
+> Dark Panda: please login to the service one to be
+> added to the committers team for the project.
+>
+> My next focus for the php bindings will be adding support
+> for PHP7: https://git.osgeo.org/gogs/geos/php-geos/issues/1
+>
+> For now I think we can keep using this mailing list for
+> coordination.
+>
+
+Sounds good. I've got some code for PHP7 on a branch that I can push,
+but haven't had as much time as I'd like to put towards the project. I
+can push what I have at the moment when I get a chance, although what
+I'd really like to do is optimize some of the code to account for both
+PHP5 and PHP7 via some macros to handle things like memory allocation
+and object fetching and so forth. The APIs have changed a little
+between the major PHP versions, but it's nothing a bit of C
+preprocessor work can't handle. At the moment, I basically have the
+extension compiling in PHP7 but have had to disable object destruction
+and memory deallocation for the time being until I can clean things up
+a bit. The current work is available at
+https://github.com/dark-panda/php-geos-native/tree/php7 and I can push
+it up to the new repo once I've been added to the committers team.
+
+Anyways, that's where things sit at the moment. Sorry there's not much
+new to report. I've logged in to the new repo and can be added to the
+committers team now.
+
+Cheers
+
+From strk at kbt.io  Fri Jul 22 00:05:29 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Fri, 22 Jul 2016 09:05:29 +0200
+Subject: [geos-devel] PHP binding repository relocation
+In-Reply-To: <CADFUPgd1k0jQVzOb0BbiH3GeGbTB7F5v6AHjvnpUp=G45OV-dA@mail.gmail.com>
+References: <20160719173526.GA6055@localhost>
+ <CADFUPgd1k0jQVzOb0BbiH3GeGbTB7F5v6AHjvnpUp=G45OV-dA@mail.gmail.com>
+Message-ID: <20160722070529.GC5715@localhost>
+
+On Thu, Jul 21, 2016 at 07:42:20PM -0300, J Smith wrote:
+
+> The current work is available at
+> https://github.com/dark-panda/php-geos-native/tree/php7 and I can push
+> it up to the new repo once I've been added to the committers team.
+
+I've added you to the team, and wrote some more info in the php7 issue:
+https://git.osgeo.org/gogs/geos/php-geos/issues/1#issuecomment-159
+
+
+--strk;
+
+From dark.panda+lists at gmail.com  Tue Jul 26 13:12:10 2016
+From: dark.panda+lists at gmail.com (J Smith)
+Date: Tue, 26 Jul 2016 17:12:10 -0300
+Subject: [geos-devel] PHP binding repository relocation
+In-Reply-To: <20160722070529.GC5715@localhost>
+References: <20160719173526.GA6055@localhost>
+ <CADFUPgd1k0jQVzOb0BbiH3GeGbTB7F5v6AHjvnpUp=G45OV-dA@mail.gmail.com>
+ <20160722070529.GC5715@localhost>
+Message-ID: <CADFUPgdMEni6Uq8c0dEiCvqbqiSMMS0Bs9gdfpJZAukM4_FrZQ@mail.gmail.com>
+
+On Fri, Jul 22, 2016 at 4:05 AM, Sandro Santilli <strk at kbt.io> wrote:
+> On Thu, Jul 21, 2016 at 07:42:20PM -0300, J Smith wrote:
+>
+>> The current work is available at
+>> https://github.com/dark-panda/php-geos-native/tree/php7 and I can push
+>> it up to the new repo once I've been added to the committers team.
+>
+> I've added you to the team, and wrote some more info in the php7 issue:
+> https://git.osgeo.org/gogs/geos/php-geos/issues/1#issuecomment-159
+>
+
+G'day Sandro.
+
+Just had a chance to look at this now (on vacation for the next week)
+and it looks pretty good. A few things I've noticed on my system in
+particular (OSX 10.11.5, using MacPorts for PHP and GEOS and whatnot).
+
+* https://git.osgeo.org/gogs/geos/php-geos/commit/eb2341878f73a6bd042322d8e00ac47c322ab5bb
+appears to break on my system, as configure doesn't add the
+/opt/local/lib that MacPorts uses to the LDFLAGS.
+
+* the PR in https://git.osgeo.org/gogs/geos/php-geos/pulls/7 also
+affects OSX, and the PR fixes the segfaults as advertised.
+
+Looks very good overall based on my initial testing. Will have a
+chance to try out on some more serious workloads next week.
+
+Cheers
+
+From strk at kbt.io  Wed Jul 27 12:03:31 2016
+From: strk at kbt.io (Sandro Santilli)
+Date: Wed, 27 Jul 2016 21:03:31 +0200
+Subject: [geos-devel] PHP binding repository relocation
+In-Reply-To: <CADFUPgdMEni6Uq8c0dEiCvqbqiSMMS0Bs9gdfpJZAukM4_FrZQ@mail.gmail.com>
+References: <20160719173526.GA6055@localhost>
+ <CADFUPgd1k0jQVzOb0BbiH3GeGbTB7F5v6AHjvnpUp=G45OV-dA@mail.gmail.com>
+ <20160722070529.GC5715@localhost>
+ <CADFUPgdMEni6Uq8c0dEiCvqbqiSMMS0Bs9gdfpJZAukM4_FrZQ@mail.gmail.com>
+Message-ID: <20160727190331.GA7829@localhost>
+
+On Tue, Jul 26, 2016 at 05:12:10PM -0300, J Smith wrote:
+
+> * https://git.osgeo.org/gogs/geos/php-geos/commit/eb2341878f73a6bd042322d8e00ac47c322ab5bb
+> appears to break on my system, as configure doesn't add the
+> /opt/local/lib that MacPorts uses to the LDFLAGS.
+
+Any chance that you could provide an OSX build slave (drone agent)
+to ensure builds succeed there ?
+
+For this case, I suggest you file an issue, so we don't forget.
+
+> * the PR in https://git.osgeo.org/gogs/geos/php-geos/pulls/7 also
+> affects OSX, and the PR fixes the segfaults as advertised.
+
+Thanks for confirmation. Will merge ASAP.
+
+> Looks very good overall based on my initial testing. Will have a
+> chance to try out on some more serious workloads next week.
+
+Thanks
+
+--strk;
+

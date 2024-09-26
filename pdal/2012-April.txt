@@ -1,0 +1,357 @@
+From edgar.ellis at caris.com  Mon Apr  2 18:51:31 2012
+From: edgar.ellis at caris.com (Edgar Ellis)
+Date: Mon Apr  2 18:52:23 2012
+Subject: [pdal] Feedback on driver development
+Message-ID: <4F7A2D73.9030509@caris.com>
+
+Hi All,
+
+I recently wrote a (read-only) PDAL driver using the plugin API for our 
+proprietary format. MPG was interested in some feedback, and it seemed 
+appropriate for the mailing list.
+
+* Documentation
+I didn't find the limited documentation to be a problem, for the most 
+part the source was easy to follow. A couple areas that required some 
+digging:
+- How should a driver create UUIDs? (How unique are they)
+- Consistency of the Schema in Iterators. Is the PointBuffer passed to 
+the Iterator guaranteed to have the same schema as the Reader?
+- (Un)SignedByte seems to duplicate (Un)SignedInteger with a size of 1. 
+Easy enough to handle, but is there a preferred form?
+
+* Converting between formats
+To get pc2pc to convert from our format to las I had to make sure I 
+exposed the position as "X", "Y", and "Z" dimensions as ints, instead of 
+the natively stored doubles. If we add write support this would mean we 
+wouldn't get an exact copy.
+Similarly I suspect there's going to be a need for users to map 
+dimensions (eg write source dimension foo into destination dimension bar).
+Our format isn't interleaved (it's banded/column major), there would be 
+some performance benefit if we only had to read dimensions that the 
+Writer was using. Not a major concern.
+
+It would be nice if file based plugins could be used directly with 
+pcinfo/pc2pc without an xml pipeline file.
+
+getField() looks dangerous, sometimes it will convert the types, but for 
+others will give you corrupt data. Also, its behavior differs from 
+setField. I have an idea for a patch if there's interest in making this 
+more robust.
+
+
+But all in all development went smoothly; Many thanks for adding the 
+plugin support.
+
+- Edgar Ellis
+From hobu.inc at gmail.com  Tue Apr  3 11:32:23 2012
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Apr  3 11:32:58 2012
+Subject: [pdal] Feedback on driver development
+In-Reply-To: <4F7A2D73.9030509@caris.com>
+References: <4F7A2D73.9030509@caris.com>
+Message-ID: <3322F7FC-4681-4DF8-A681-39035465F040@gmail.com>
+
+Thanks for the feedback, Edgar. Comments inline...
+
+On Apr 2, 2012, at 5:51 PM, Edgar Ellis wrote:
+
+> Hi All,
+> 
+> I recently wrote a (read-only) PDAL driver using the plugin API for our proprietary format. MPG was interested in some feedback, and it seemed appropriate for the mailing list.
+> 
+> * Documentation
+> I didn't find the limited documentation to be a problem, for the most part the source was easy to follow. A couple areas that required some digging:
+> - How should a driver create UUIDs? (How unique are they)
+
+This is open for debate and not settled yet. The UUIDs exist on Dimensions to support the following scenario.  When you pull data through a pipeline, there may be intermediate stages like a ScalingFilter that takes an existing Dimension like 'X', and derives a new 'X' dimension with the new scaling properties. An end-stage Writer down the line doesn't want to have to know about which 'X' stage it should ask for (which could be gotten by explicitly asking the PointBuffer for drivers.caris.reader.X or filters.scaling.X).  It just wants to ask for "the last X", which would be filters.scaling.X.  The UUIDs exist to define parent/child relationships between the 'X' dimensions in this scenario. The name/namespace of the dimension might also be used to define this relationship, but UUID made the implementation easier. The filters.scaling.X sets drivers.caris.reader.X as its parent when it adds the filters.scaling.X to the PointBuffer as part of the Iterator creation.
+
+My intent was for a reader to declare the UUIDs of the dimensions it creates at compile-time, but filters and other things that derive dimensions would create their UUID at runtime as determined by the circumstances. This only happens in filters.scaling right now AFAIK, but there may be other filters that want to derive dimensions. 
+
+> - Consistency of the Schema in Iterators. Is the PointBuffer passed to the Iterator guaranteed to have the same schema as the Reader?
+
+No, it is my opinion that PointBuffer's schema need not have any relationship to the Stage's schema. For this reason, I'd like to move away from Stage:: having a Schema:: at all, and simply have Stage be a provider of "a list of dimensions it provides with an order that might make access faster".   Instead, the PointBuffer's Schema says "here's the dimensions I want to fill, fill them if you've got them".  For all writers, this means at least some sort of 'X', 'Y', and 'Z' being available, and in the case of the LAS writer, it simply zeros out any other dimensions that the PointBuffer doesn't have.  Having Stage:: not provide Schema:: would make this intent clear in my opinion.
+
+> - (Un)SignedByte seems to duplicate (Un)SignedInteger with a size of 1. Easy enough to handle, but is there a preferred form?
+
+My original intent here was in the context of description of a Dimension. Having both forms allows the person defining the Dimension to be explicit about the interpretation of the dimension. Do I treat this field as an integer? Do I treat this field as byte data?  Maybe this distinction is not needed.  I can be easily persuaded here...
+
+> * Converting between formats
+> To get pc2pc to convert from our format to las I had to make sure I exposed the position as "X", "Y", and "Z" dimensions as ints, instead of the natively stored doubles. If we add write support this would mean we wouldn't get an exact copy.
+
+Put a scaling filter in front of the writer to create XYZ dimensions that the LAS writer can use. The scaling filter will define the precision level of the dimensions for the LAS file.  There is no way, of course, to have indefinite precision coordinates in the LAS file, so you have to specify them.  I think this property is mostly related to LAS itself and file conversion, and not PDAL's inability to provide double/float data.  I think someone using PDAL as a reader would be able to get the float/double data out without issue.
+
+Here's a pipeline document for another proprietary format that stores its data in floats:
+
+> <?xml version="1.0" encoding="utf-8"?>
+> <Pipeline version="1.0">
+>     <Writer type="drivers.las.writer">
+>         <Option name="filename">
+>             written-from-bpf.las
+>         </Option>
+>     <Filter type="filters.scaling">
+>         <Option name="dimension">
+>             X
+>             <Options>
+>                 <Option name="scale">0.00001</Option>
+>                 <Option name="offset">524974</Option>
+>             </Options>
+>         </Option>
+>         <Option name="dimension">
+>             Y
+>             <Options>
+>                 <Option name="scale">0.00001</Option>
+>                 <Option name="offset">3866496</Option>
+>             </Options>
+>         </Option>           
+>           <Reader type="drivers.bpf.reader">
+>               <Option name="filename">
+>                   ./data/somefile.bpf
+>               </Option>
+>           </Reader>
+>     </Filter>
+>     </Writer>
+> </Pipeline>
+
+> Similarly I suspect there's going to be a need for users to map dimensions (eg write source dimension foo into destination dimension bar).
+
+Yes, this is a filter that I've been meaning to write. Having this would remove the confounding of types that getField() has, and the user would have to be explicit about how they want to map dimensions and what their size/interpretation should be when doing so.
+
+> Our format isn't interleaved (it's banded/column major), there would be some performance benefit if we only had to read dimensions that the Writer was using. Not a major concern.
+
+The format that the pipeline describes above isn't interleaved either. PDAL definitely bakes in the interleavedness :)  Maybe this could be solved in a way where the reader implementation creates a mmap to the file, and then the read iterator creates pointers into this mmap.  It was a strategy I was thinking of for the above format.
+
+> It would be nice if file based plugins could be used directly with pcinfo/pc2pc without an xml pipeline file.
+
+I think this could be done now that we have a global environment startup/shutdown facility.  I didn't do it before because the pipeline stuff is the only thing that wakes up all of the stages and does any magic to determine which reader to open things with and so on.
+
+> getField() looks dangerous, sometimes it will convert the types, but for others will give you corrupt data. Also, its behavior differs from setField. I have an idea for a patch if there's interest in making this more robust.
+
+Agreed. As I said before getField confounds dimension mapping, and this should be made explicit with a Filter:: that does the work for you.  I would be very happy for patches to clean this ball of guck up.
+
+> But all in all development went smoothly; Many thanks for adding the plugin support.
+
+I'm excited things went well. I think you're one of the first developers outside of Michael and I to implement at driver, and the first to provide significant and helpful feedback on how things can improve.
+
+Howard
+From mateusz at loskot.net  Tue Apr  3 12:43:28 2012
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Tue Apr  3 12:44:05 2012
+Subject: [pdal] Feedback on driver development
+In-Reply-To: <3322F7FC-4681-4DF8-A681-39035465F040@gmail.com>
+References: <4F7A2D73.9030509@caris.com>
+	<3322F7FC-4681-4DF8-A681-39035465F040@gmail.com>
+Message-ID: <CABUeae8Vxp4ZOHakiRP7S8=9AFkMi1ehJz_VV5J=jRciCd7Syw@mail.gmail.com>
+
+On 3 April 2012 16:32, Howard Butler <hobu.inc@gmail.com> wrote:
+> On Apr 2, 2012, at 5:51 PM, Edgar Ellis wrote:
+>
+>> Hi All,
+>>
+>> I recently wrote a (read-only) PDAL driver using the plugin API for our proprietary format. MPG was interested in some feedback, and it seemed appropriate for the mailing list.
+>>
+>> * Documentation
+>> I didn't find the limited documentation to be a problem, for the most part the source was easy to follow. A couple areas that required some digging:
+>> - How should a driver create UUIDs? (How unique are they)
+>
+> This is open for debate and not settled yet.
+> The UUIDs exist on Dimensions to support the following scenario.
+
+Comment about UUID uniqueness seems missing...
+
+I think it is reasonable to take it as "practically unique" [1]
+
+I presume PDAL uses Boost.Uuid [2] implementation (as libLAS does), thus
+
+"either guaranteed to be unique (...) or it is extremely likely to be
+unique" [2]
+
+[1] http://en.wikipedia.org/wiki/Universally_unique_identifier
+[2] http://www.boost.org/libs/uuid/index.html
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From mpg at flaxen.com  Thu Apr 19 19:36:28 2012
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Apr 19 19:36:52 2012
+Subject: [pdal] Some user requests
+Message-ID: <049201cd1e85$3f18b580$bd4a2080$@flaxen.com>
+
+I had a talk with a potential/future PDAL user last night. We do much of what he needs already, but three lacking areas we identified are:
+
+* We need an ascii/xyz reader. (We already have a writer.)
+
+* We need a "geotiff reader" -- more generally, we need a way to take 2D X,Y gridded data as input (where the value at each cell is, say, Z) and treat that as arbitrary point data. This would be done via GDAL, so any rastery format would work. (and I suppose we ought to take in OGR points too...)
+
+* We need a Python wrapper around PDAL, so people can use PDAL to read data in from wherever but then process the points themselves using custom code, most likely in numpy. [Howard discussed this exact issue last week as well.]
+
+-mpg
+
+
+From mpg at flaxen.com  Thu Apr 19 19:41:49 2012
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Apr 19 19:50:18 2012
+Subject: [pdal] XYZ reader
+Message-ID: <049301cd1e85$fe4faad0$faef0070$@flaxen.com>
+
+A thought on the XZY reader driver...
+
+The xyz text file will want to be accompanied by a metadata file which gives the name and data type of each of the text columns (Dimensions). This could be done using simple text:
+
+	X float64
+	Y float64
+	Z uint16
+	T uint64
+
+But this is really just a serialization of the Schema. And we might also want to be able to push other metadata about that xyz file into the pipeline, so maybe we could use json to hold the schema, the coordinate system, and any arbitrary key-value pairs the user might want to push in there.
+
+-mpg
+
+
+From hobu.inc at gmail.com  Tue Apr 24 10:26:52 2012
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Apr 24 10:27:22 2012
+Subject: [pdal] Metadata/Option vs naked property_tree
+Message-ID: <1B004723-E080-4903-9BF6-FE1A3FCD263C@gmail.com>
+
+Michael,
+
+If we want to be able to say metadata.get<std::string>("path.to.my.metadata.entry") how should that be anything other than a naked property_tree?  As far as I can tell, the only thing we want to do different is to serialize name/attributes when going to XML (like in PipelineWriter). Maybe we can get rid of Option/Options and Metadata/Entry altogether and simply have property_trees.  Downsides?  Do you remember what moved you toward a custom class when you cooked up Option/Options?  Can you make the case for keeping these as custom classes rather than having them either be a simple string-serialized property_tree?
+
+Howard
+From mpg at flaxen.com  Wed Apr 25 13:03:22 2012
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Wed Apr 25 13:03:35 2012
+Subject: [pdal] Metadata/Option vs naked property_tree
+In-Reply-To: <1B004723-E080-4903-9BF6-FE1A3FCD263C@gmail.com>
+References: <1B004723-E080-4903-9BF6-FE1A3FCD263C@gmail.com>
+Message-ID: <00a101cd2305$52f97060$f8ec5120$@flaxen.com>
+
+Nuts -- I was afraid we'd come back to this. :-(    Yes, I wound up not exposing the raw property trees, but I can't recall why right now. At least part of it was I wanted to a tighter/cleaner/simpler interface than property_tree gives, but more than that I don't recall.
+
+When you write "path.to.data" does that imply this structure
+
+	Key: "path"
+	Value: <a ptree>
+		Key: "to:"
+		Value: <a ptree>
+			Key: "data"
+			Value: <an actual string or int or something>
+
+as opposed to just this:
+
+	Key: "path.to.data"
+	Value: <an actual string or int or something>
+
+?
+-mpg
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Howard Butler
+> Sent: Tuesday, April 24, 2012 7:27 AM
+> To: pdal@lists.osgeo.org
+> Subject: [pdal] Metadata/Option vs naked property_tree
+> 
+> Michael,
+> 
+> If we want to be able to say metadata.get<std::string>("path.to.my.metadata.entry") how should that be anything other than a
+> naked property_tree?  As far as I can tell, the only thing we want to do different is to serialize name/attributes when going to XML
+> (like in PipelineWriter). Maybe we can get rid of Option/Options and Metadata/Entry altogether and simply have property_trees.
+> Downsides?  Do you remember what moved you toward a custom class when you cooked up Option/Options?  Can you make the
+> case for keeping these as custom classes rather than having them either be a simple string-serialized property_tree?
+> 
+> Howard_______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From TSchmidt at grwinc.com  Thu Apr 26 10:27:49 2012
+From: TSchmidt at grwinc.com (Schmidt, Troy)
+Date: Thu Apr 26 10:59:19 2012
+Subject: [pdal] C# files missing in GitHub
+Message-ID: <5BA6FFC4391C88419C7310C0DFA13B8C02C9CB@GRW-MAIL.net.com>
+
+It appears that files necessary to the c# solution are missing from github.  Anyone know where I can get them?
+
+Troy Schmidt
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20120426/05fea80a/attachment.html
+From mpg at flaxen.com  Thu Apr 26 11:17:00 2012
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Thu Apr 26 11:17:43 2012
+Subject: [pdal] C# files missing in GitHub
+In-Reply-To: <5BA6FFC4391C88419C7310C0DFA13B8C02C9CB@GRW-MAIL.net.com>
+References: <5BA6FFC4391C88419C7310C0DFA13B8C02C9CB@GRW-MAIL.net.com>
+Message-ID: <005601cd23bf$a1041f20$e30c5d60$@flaxen.com>
+
+Which files?
+
+ 
+
+(The C# files are swig-generated, so I suspect they're not missing - just not being built. I'll check this weekend.)
+
+ 
+
+-mpg
+
+ 
+
+From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Schmidt, Troy
+Sent: Thursday, April 26, 2012 7:28 AM
+To: 'pdal@lists.osgeo.org'
+Subject: [pdal] C# files missing in GitHub
+
+ 
+
+It appears that files necessary to the c# solution are missing from github.  Anyone know where I can get them?
+
+ 
+
+Troy Schmidt
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20120426/4f403b3d/attachment.html
+From TSchmidt at grwinc.com  Thu Apr 26 15:07:41 2012
+From: TSchmidt at grwinc.com (Schmidt, Troy)
+Date: Thu Apr 26 15:08:27 2012
+Subject: [pdal] C# files missing in GitHub
+In-Reply-To: <005601cd23bf$a1041f20$e30c5d60$@flaxen.com>
+References: <5BA6FFC4391C88419C7310C0DFA13B8C02C9CB@GRW-MAIL.net.com>
+	<005601cd23bf$a1041f20$e30c5d60$@flaxen.com>
+Message-ID: <5BA6FFC4391C88419C7310C0DFA13B8C02CAFB@GRW-MAIL.net.com>
+
+Okay there are no files missing.  I have taken it down to the SWIG doesn't like that boost multi index container that the new implementation of Dimensions is using.  It is making a SWIGTYPE whose name is too long to save in Windows, thus not allowing the first build to find the file because it could not be created and it all trickles down from there.
+
+
+Troy Schmidt
+
+From: Michael P. Gerlek [mailto:mpg@flaxen.com]
+Sent: Thursday, April 26, 2012 11:17 AM
+To: Schmidt, Troy; pdal@lists.osgeo.org
+Subject: RE: [pdal] C# files missing in GitHub
+
+Which files?
+
+(The C# files are swig-generated, so I suspect they're not missing - just not being built. I'll check this weekend.)
+
+-mpg
+
+From: pdal-bounces@lists.osgeo.org<mailto:pdal-bounces@lists.osgeo.org> [mailto:pdal-bounces@lists.osgeo.org] On Behalf Of Schmidt, Troy
+Sent: Thursday, April 26, 2012 7:28 AM
+To: 'pdal@lists.osgeo.org'
+Subject: [pdal] C# files missing in GitHub
+
+It appears that files necessary to the c# solution are missing from github.  Anyone know where I can get them?
+
+Troy Schmidt
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20120426/d23e7381/attachment.html

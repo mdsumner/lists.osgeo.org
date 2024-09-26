@@ -1,0 +1,2888 @@
+From peter.townsend at maplarge.com  Wed Apr  5 14:44:03 2023
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Wed, 5 Apr 2023 16:44:03 -0500
+Subject: [PROJ] PROJ and Unicode on Windows
+Message-ID: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+
+I've got a bit of an annoyance with my windows proj build. Hopefully it's
+not too hard to resolve as the world of char/wchar_t/etc. isn't something
+I'm terribly familiar with.
+
+Take for example the area of use of EPSG:23031. On Linux it's fine, but on
+windows there's a unicode issue.
+
+PJ* crs = proj_create(m_ctxt, "EPSG:23031");
+ASSERT_NE(crs, nullptr);
+ObjectKeeper keeper_crsH(crs);
+
+double w, s, e, n;
+const char* a;
+proj_get_area_of_use(m_ctxt, crs, &w, &s, &e, &n, &a);
+
+Contents of a:
+"Europe - between 0??E and 6??E - Andorra; Denmark (North Sea); Germany
+offshore; Netherlands offshore; Norway including Svalbard - onshore and
+offshore; Spain - onshore (mainland and Balearic Islands); United Kingdom
+(UKCS) offshore."
+
+Is there a simple thing I'm overlooking in the build process that might
+clear up the encoding goof? Or do I need to do some bending over backwards
+with character manipulation?
+
+This is the command line I'm using to build this example:
+cmake -DBUILD_SHARED_LIBS=ON
+-DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+cmake --build . --config Debug -j 8
+
+Thanks!
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230405/4c42ce6a/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Apr  5 14:52:55 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 5 Apr 2023 23:52:55 +0200
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+Message-ID: <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+
+Peter,
+
+there isn't any issue in your build. It is just that PROJ returns UTF-8 
+encoded strings and that the typical Windows console isn't configured to 
+display UTF-8. Cf 
+https://stackoverflow.com/questions/57131654/using-utf-8-encoding-chcp-65001-in-command-prompt-windows-powershell-window 
+or similar issues
+
+Even
+
+Le 05/04/2023 ? 23:44, Peter Townsend via PROJ a ?crit?:
+> I've got a bit of an annoyance with my windows proj build. Hopefully 
+> it's not too hard to resolve as the world of char/wchar_t/etc. isn't 
+> something I'm terribly familiar with.
+>
+> Take for example the area of use of EPSG:23031. On Linux it's fine, 
+> but on windows there's a unicode issue.
+>
+> PJ* crs = proj_create(m_ctxt, "EPSG:23031");
+> ASSERT_NE(crs, nullptr);
+> ObjectKeeper keeper_crsH(crs);
+>
+> double w, s, e, n;
+> const char* a;
+> proj_get_area_of_use(m_ctxt, crs, &w, &s, &e, &n, &a);
+>
+> Contents of a:
+> "Europe - between 0??E and 6??E - Andorra; Denmark (North Sea); 
+> Germany offshore; Netherlands offshore; Norway including Svalbard - 
+> onshore and offshore; Spain - onshore (mainland and Balearic Islands); 
+> United Kingdom (UKCS) offshore."
+>
+> Is there a simple thing I'm overlooking in the build process that 
+> might clear up the encoding goof? Or do I need to do some bending over 
+> backwards with character manipulation?
+>
+> This is the command line I'm using to build this example:
+> cmake -DBUILD_SHARED_LIBS=ON 
+> -DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+> cmake --build . --config Debug -j 8
+>
+> Thanks!
+> -- 
+> Peter Townsend
+> Senior Software Developer
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230405/8ae24f16/attachment.htm>
+
+From peter.townsend at maplarge.com  Wed Apr  5 15:38:28 2023
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Wed, 5 Apr 2023 17:38:28 -0500
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+Message-ID: <CAMQBGmUwsNdhjRVqsi8pyQa0b1-_-xCt-5PN-APTB=5egL=Rmg@mail.gmail.com>
+
+Well it's not the console I'm worried about, that's coming straight from
+the VS debugger. Knowing that strings are always coming out of PROJ in
+UTF-8 is good.
+
+Ultimately I'm sending the output to a C# DLL, so I need to CoTaskMemAlloc
+my string. If I do something like this:
+
+std::wstring s2ws(const char* utf8Bytes)
+{
+const std::string& str(utf8Bytes);
+int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(),
+NULL, 0);
+std::wstring wstrTo(size_needed, 0);
+MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0],
+size_needed);
+return wstrTo;
+}
+
+Then I see the corrected UTF-8 text in the wstring. As mentioned this isn't
+something I'm terribly familiar with, and I'd like to avoid writing
+terrible C code and exploding buffers.
+CoTaskMemAlloc needs the actual number of bytes, and we'll need an extra
+spot for the null terminator.
+
+const wchar_t* u_convertResult(const char* result) {
+if (!result)
+return nullptr;
+
+std::wstring wstr = s2ws(result);
+auto wlen = wstr.length() + 1;
+auto len = wlen * sizeof(wchar_t);
+wchar_t* buff = (wchar_t*)CoTaskMemAlloc(len);
+if (buff) {
+wcscpy_s(buff, wlen, wstr.c_str());
+}
+return buff;
+}
+
+Does this sound reasonable for Windows?
+
+And as for Linux and maintaining a multi-platform compatibility, I'd define
+an alias function like this instead:
+const wchar_t* u_convertResult(const char* result) {
+std::string str(result);
+std::wstring wstr = std::wstring(str.begin(), str.end());
+
+auto wlen = wstr.length() + 1;
+auto len = wlen * sizeof(wchar_t);
+wchar_t* buff = (wchar_t*)malloc(len);
+if (buff) {
+wcscpy(buff, wstr.c_str());
+}
+return buff;
+}
+
+Since it's already happily working as UTF-8 on Linux, I should be able to
+pass in the original string to the wstring. CoTaskMemAlloc is just malloc.
+Does this sound okay too?
+
+Thanks!
+
+
+On Wed, Apr 5, 2023 at 4:52?PM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Peter,
+>
+> there isn't any issue in your build. It is just that PROJ returns UTF-8
+> encoded strings and that the typical Windows console isn't configured to
+> display UTF-8. Cf
+> https://stackoverflow.com/questions/57131654/using-utf-8-encoding-chcp-65001-in-command-prompt-windows-powershell-window
+> or similar issues
+>
+> Even
+> Le 05/04/2023 ? 23:44, Peter Townsend via PROJ a ?crit :
+>
+> I've got a bit of an annoyance with my windows proj build. Hopefully it's
+> not too hard to resolve as the world of char/wchar_t/etc. isn't something
+> I'm terribly familiar with.
+>
+> Take for example the area of use of EPSG:23031. On Linux it's fine, but on
+> windows there's a unicode issue.
+>
+> PJ* crs = proj_create(m_ctxt, "EPSG:23031");
+> ASSERT_NE(crs, nullptr);
+> ObjectKeeper keeper_crsH(crs);
+>
+> double w, s, e, n;
+> const char* a;
+> proj_get_area_of_use(m_ctxt, crs, &w, &s, &e, &n, &a);
+>
+> Contents of a:
+> "Europe - between 0??E and 6??E - Andorra; Denmark (North Sea); Germany
+> offshore; Netherlands offshore; Norway including Svalbard - onshore and
+> offshore; Spain - onshore (mainland and Balearic Islands); United Kingdom
+> (UKCS) offshore."
+>
+> Is there a simple thing I'm overlooking in the build process that might
+> clear up the encoding goof? Or do I need to do some bending over backwards
+> with character manipulation?
+>
+> This is the command line I'm using to build this example:
+> cmake -DBUILD_SHARED_LIBS=ON
+> -DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+> cmake --build . --config Debug -j 8
+>
+> Thanks!
+> --
+> Peter Townsend
+> Senior Software Developer
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230405/242d70b1/attachment.htm>
+
+From dan.crosby at lincolnagritech.co.nz  Wed Apr  5 16:09:56 2023
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Thu, 6 Apr 2023 11:09:56 +1200
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <CAMQBGmUwsNdhjRVqsi8pyQa0b1-_-xCt-5PN-APTB=5egL=Rmg@mail.gmail.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+ <CAMQBGmUwsNdhjRVqsi8pyQa0b1-_-xCt-5PN-APTB=5egL=Rmg@mail.gmail.com>
+Message-ID: <cdca058a-7f03-454f-83c0-8f0851555e14@lincolnagritech.co.nz>
+
+How does this work on Linux? is char define as wchar there?
+ 
+If Proj is returning UTF8 strings, shouldn?t the functions be using wchar, or TCHAR at the least?
+ 
+Is there a compatibility reason to use char **?
+ 
+From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of Peter Townsend via PROJ
+Sent: Thursday, 6 April 2023 10:38
+To: Even Rouault <even.rouault at spatialys.com>
+Cc: proj <proj at lists.osgeo.org>
+Subject: Re: [PROJ] PROJ and Unicode on Windows
+ 
+Well it's not the console I'm worried about, that's coming straight from the VS debugger. Knowing that strings are always coming out of PROJ in UTF-8 is good. 
+ 
+Ultimately I'm sending the output to a C# DLL, so I need to CoTaskMemAlloc my string. If I do something like this:
+ 
+std::wstring s2ws(const char* utf8Bytes)
+{
+const std::string& str(utf8Bytes);
+int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+std::wstring wstrTo(size_needed, 0);
+MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
+return wstrTo;
+}
+ 
+Then I see the corrected UTF-8 text in the wstring. As mentioned this isn't something I'm terribly familiar with, and I'd like to avoid writing terrible C code and exploding buffers.
+CoTaskMemAlloc needs the actual number of bytes, and we'll need an extra spot for the null terminator. 
+ 
+const wchar_t* u_convertResult(const char* result) {
+if (!result)
+return nullptr;
+
+std::wstring wstr = s2ws(result);
+auto wlen = wstr.length() + 1;
+auto len = wlen * sizeof(wchar_t);
+wchar_t* buff = (wchar_t*)CoTaskMemAlloc(len);
+if (buff) {
+wcscpy_s(buff, wlen, wstr.c_str());
+}
+return buff;
+}
+ 
+Does this sound reasonable for Windows?
+ 
+And as for Linux and maintaining a multi-platform compatibility, I'd define an alias function like this instead:
+const wchar_t* u_convertResult(const char* result) {
+std::string str(result);
+std::wstring wstr = std::wstring(str.begin(), str.end());
+
+auto wlen = wstr.length() + 1;
+auto len = wlen * sizeof(wchar_t);
+wchar_t* buff = (wchar_t*)malloc(len);
+if (buff) {
+wcscpy(buff, wstr.c_str());
+}
+return buff;
+}
+ 
+Since it's already happily working as UTF-8 on Linux, I should be able to pass in the original string to the wstring. CoTaskMemAlloc is just malloc. Does this sound okay too?
+ 
+Thanks!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230406/6d070271/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Wed Apr  5 16:30:20 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 6 Apr 2023 01:30:20 +0200
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <cdca058a-7f03-454f-83c0-8f0851555e14@lincolnagritech.co.nz>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+ <CAMQBGmUwsNdhjRVqsi8pyQa0b1-_-xCt-5PN-APTB=5egL=Rmg@mail.gmail.com>
+ <cdca058a-7f03-454f-83c0-8f0851555e14@lincolnagritech.co.nz>
+Message-ID: <b98d3fa6-684c-74c5-b5e4-aeebc109203f@spatialys.com>
+
+
+Le 06/04/2023 ? 01:09, Dan Crosby a ?crit?:
+>
+> How does this work on Linux? is char define as wchar there?
+>
+No. char is a single byte. wchar_t is generally a 32-bit integer on Unix.
+>
+> If Proj is returning UTF8 strings, shouldn?t the functions be using 
+> wchar, or TCHAR at the least?
+>
+I guess this is just a matter of taste/habit. Lots of open source 
+libraries that return Unicode content just return it as UTF-8 in a char* 
+(or a std::string in C++. this is typically the case of the 
+nlohmann/json library we use for JSON parsing).? If you need to access 
+the string by Unicode character, you can use iconv or 
+https://en.cppreference.com/w/cpp/locale/codecvt_utf8 in C++ (although 
+the latter has been deprecated).
+>
+> Is there a compatibility reason to use char **?
+>
+That's all the reason why UTF-8 was designed for. To be able to deal 
+with it mostly as if it was an old-school ASCII string.
+
+
+> *From:*PROJ <proj-bounces at lists.osgeo.org> *On Behalf Of *Peter 
+> Townsend via PROJ
+> *Sent:* Thursday, 6 April 2023 10:38
+> *To:* Even Rouault <even.rouault at spatialys.com>
+> *Cc:* proj <proj at lists.osgeo.org>
+> *Subject:* Re: [PROJ] PROJ and Unicode on Windows
+>
+> Well it's not the console I'm worried about, that's coming straight 
+> from the VS debugger. Knowing that strings are always coming out of 
+> PROJ in UTF-8 is good.
+>
+> Ultimately I'm sending the output to a C# DLL, so I need to 
+> CoTaskMemAlloc my string. If I do something like this:
+>
+> std::wstring s2ws(const char* utf8Bytes)
+> {
+> const std::string& str(utf8Bytes);
+> int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], 
+> (int)str.size(), NULL, 0);
+> std::wstring wstrTo(size_needed, 0);
+> MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], 
+> size_needed);
+> return wstrTo;
+> }
+>
+> Then I see the corrected UTF-8 text in the wstring. As mentioned this 
+> isn't something I'm terribly familiar with, and I'd like to avoid 
+> writing terrible C code and exploding?buffers.
+>
+> CoTaskMemAlloc needs the actual number of bytes, and we'll need an 
+> extra spot for the null terminator.
+>
+> const wchar_t* u_convertResult(const char* result) {
+> if (!result)
+> return nullptr;
+>
+> std::wstring wstr = s2ws(result);
+> auto wlen = wstr.length() + 1;
+> auto len = wlen * sizeof(wchar_t);
+> wchar_t* buff = (wchar_t*)CoTaskMemAlloc(len);
+> if (buff) {
+> wcscpy_s(buff, wlen, wstr.c_str());
+> }
+> return buff;
+> }
+>
+> Does this sound reasonable for Windows?
+>
+> And as for Linux and maintaining a multi-platform compatibility, I'd 
+> define an alias function like this instead:
+>
+> const wchar_t* u_convertResult(const char* result) {
+> std::string str(result);
+> std::wstring wstr = std::wstring(str.begin(), str.end());
+>
+> auto wlen = wstr.length() + 1;
+> auto len = wlen * sizeof(wchar_t);
+> wchar_t* buff = (wchar_t*)malloc(len);
+> if (buff) {
+> wcscpy(buff, wstr.c_str());
+> }
+> return buff;
+> }
+>
+> Since it's already happily working as UTF-8 on Linux, I should be able 
+> to pass in the original string to the wstring. CoTaskMemAlloc is just 
+> malloc. Does this sound okay too?
+>
+> Thanks!
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230406/b5614430/attachment.htm>
+
+From dan.crosby at lincolnagritech.co.nz  Wed Apr  5 16:50:54 2023
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Thu, 6 Apr 2023 11:50:54 +1200
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <b98d3fa6-684c-74c5-b5e4-aeebc109203f@spatialys.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+ <CAMQBGmUwsNdhjRVqsi8pyQa0b1-_-xCt-5PN-APTB=5egL=Rmg@mail.gmail.com>
+ <cdca058a-7f03-454f-83c0-8f0851555e14@lincolnagritech.co.nz>
+ <b98d3fa6-684c-74c5-b5e4-aeebc109203f@spatialys.com>
+Message-ID: <b58321b0-648d-42cc-a43d-8a8de2a9e75e@lincolnagritech.co.nz>
+
+I guess this is just a matter of taste/habit. Lots of open source libraries that return Unicode content just return it as UTF-8 in a char* (or a std::string in C++. this is typically the case of the nlohmann/json library we use for JSON parsing).  If you need to access the string by Unicode character, you can use iconv or https://en.cppreference.com/w/cpp/locale/codecvt_utf8 in C++ (although the latter has been deprecated).
+ 
+
+??????????? You are probably right about taste/habit, especially for projects that didn?t start as UNICODE builds. However, I sometimes think open source efforts do themselves no favours in (seemingly deliberately) making themselves harder to use. Especially to ?casual? users like myself.
+ 
+For instance, nothing in the reference documentation for proj_get_area_of_use suggests that out_area_name returns a UTF string, so if you take it ?at its word? and place the result in a char* you get encoding errors for ?unknown? reasons.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230406/db9cc11b/attachment.htm>
+
+From howard at hobu.co  Thu Apr  6 06:48:53 2023
+From: howard at hobu.co (Howard Butler)
+Date: Thu, 6 Apr 2023 08:48:53 -0500
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <b58321b0-648d-42cc-a43d-8a8de2a9e75e@lincolnagritech.co.nz>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+ <CAMQBGmUwsNdhjRVqsi8pyQa0b1-_-xCt-5PN-APTB=5egL=Rmg@mail.gmail.com>
+ <cdca058a-7f03-454f-83c0-8f0851555e14@lincolnagritech.co.nz>
+ <b98d3fa6-684c-74c5-b5e4-aeebc109203f@spatialys.com>
+ <b58321b0-648d-42cc-a43d-8a8de2a9e75e@lincolnagritech.co.nz>
+Message-ID: <6B5E6497-306B-4969-AC39-4E2555D41183@hobu.co>
+
+
+
+> On Apr 5, 2023, at 6:50 PM, Dan Crosby <dan.crosby at lincolnagritech.co.nz> wrote:
+> 
+>   You are probably right about taste/habit, especially for projects that didn?t start as UNICODE builds. However, I sometimes think open source efforts do themselves no favours in (seemingly deliberately) making themselves harder to use. Especially to ?casual? users like myself.
+
+The deliberation is with alignment of other forces impacting the software, especially as API producers and consumers. See http://utf8everywhere.org/ for some deeper discussion on the topic and reasons why projects like PROJ others have made the UTF choices they have.
+
+btw, there's no such thing as 'casual' when it comes to UTF :) 
+
+Howard
+
+
+
+From bert at qqmail.nl  Thu Apr  6 08:32:40 2023
+From: bert at qqmail.nl (Bert Huijben)
+Date: Thu, 6 Apr 2023 17:32:40 +0200
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+Message-ID: <009f01d9689d$067bef80$1373ce80$@qqmail.nl>
+
+                Hi Peter,
+
+ ?
+
+When I needed proj for my work on my previous day-job, I spend a bit extra time and created a complete wrapping C# library that is still used there and a few other places. The wrapping is specifically targeted towards Windows, but works there with .Net Framework and .Net core. See https://github.com/ampscm/sharpproj/ (or just use SharpProj from NuGet)
+
+ ?
+
+ ?
+
+The sample code I have on that page shows +- what you try here, so you should be able to use that to try your use-cases around encoding.
+
+ ?
+
+[[
+
+using SharpProj;
+
+ ?
+
+using var rd = CoordinateReferenceSystem.CreateFromEpsg(28992);
+
+using var wgs84 = CoordinateReferenceSystem.CreateFromEpsg(4326);
+
+ ?
+
+var area = rd.UsageArea;
+
+Assert.AreEqual("Netherlands - onshore, including Waddenzee, Dutch Wadden Islands and 12-mile offshore coastal zone.", area.Name);
+
+ ?
+
+using (var t = CoordinateTransform.Create(rd, wgs84))
+
+{
+
+    var r = t.Apply(new PPoint(155000, 463000));
+
+    Assert.AreEqual(new PPoint(52.155, 5.387), r.ToXY(3)); // Round to 3 decimals for easy testing
+
+}
+
+]]
+
+ ?
+
+If you pick EPSG 23031, you will see that the encodings work there.
+
+ ?
+
+ ?
+
+You can check all the sourcecode too, if you just want to check how to get the en-/decoding to work. (It is all Apache licensed, so feel free to copy&paste? or provide pull requests if you want something added to the library)
+
+ ?
+
+                Bert
+
+ ?
+
+ ?
+
+ ?
+
+From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of Even Rouault
+Sent: Wednesday, April 5, 2023 11:53 PM
+To: Peter Townsend <peter.townsend at maplarge.com>; proj <proj at lists.osgeo.org>
+Subject: Re: [PROJ] PROJ and Unicode on Windows
+
+ ?
+
+Peter,
+
+there isn't any issue in your build. It is just that PROJ returns UTF-8 encoded strings and that the typical Windows console isn't configured to display UTF-8. Cf https://stackoverflow.com/questions/57131654/using-utf-8-encoding-chcp-65001-in-command-prompt-windows-powershell-window or similar issues
+
+Even
+
+Le 05/04/2023 ? 23:44, Peter Townsend via PROJ a ?crit ?:
+
+I've got a bit of an annoyance with my windows proj build. Hopefully it's not too hard to resolve as the world of char/wchar_t/etc. isn't something I'm terribly familiar with.
+
+ ?
+
+Take for example the area of use of EPSG:23031. On Linux it's fine, but on windows there's a unicode issue.
+
+ ?
+
+PJ* crs = proj_create(m_ctxt, "EPSG:23031");
+ASSERT_NE(crs, nullptr);
+ObjectKeeper keeper_crsH(crs);
+
+double w, s, e, n;
+const char* a;
+proj_get_area_of_use(m_ctxt, crs, &w, &s, &e, &n, &a);
+
+ ?
+
+Contents of a:
+
+"Europe - between 0??E and 6??E - Andorra; Denmark (North Sea); Germany offshore; Netherlands offshore; Norway including Svalbard - onshore and offshore; Spain - onshore (mainland and Balearic Islands); United Kingdom (UKCS) offshore."
+
+
+ ?
+
+Is there a simple thing I'm overlooking in the build process that might clear up the encoding goof? Or do I need to do some bending over backwards with character manipulation?
+
+ ?
+
+This is the command line I'm using to build this example:
+
+cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+cmake --build . --config Debug -j 8
+
+ ?
+
+Thanks!
+
+-- 
+
+Peter Townsend
+
+Senior Software Developer
+
+
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230406/3a01e447/attachment.htm>
+
+From cjmce at lsu.edu  Thu Apr  6 08:43:17 2023
+From: cjmce at lsu.edu (Clifford J Mugnier)
+Date: Thu, 6 Apr 2023 15:43:17 +0000
+Subject: [PROJ] Coordinate Systems of the World
+In-Reply-To: <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+Message-ID: <DM8P221MB03091E3CE8D7A27E07288D25A8919@DM8P221MB0309.NAMP221.PROD.OUTLOOK.COM>
+
+
+20% Discount with Discount Code.
+Coordinate Systems of the World
+Datums and Grids
+Clifford J. Mugnier
+A comprehensive consolidation of data for the world, this book gives a short precis of each nation, each nation?s history, its topography and a chronology of the development of geodetic surveying and coordinate systems for that specific nation. A starting point of information for understanding the world?s datums and grids.
+20% Discount Available - enter the code AFL01 at checkout*
+Hb: 978-1-032-31034-3 | $176.00
+* Please note that this discount code cannot be used in conjunction with any other offer or discount and only applies to books purchased directly via www.routledge.com. This code expires on 30 June 2023.
+For more details, or to request a copy for review, please contact: https://m.email.taylorandfrancis.com/review-copy-request-form; Zambia; Zimbabwe.
+For more information visit: www.routledge.com/9781032310343
+
+
+
+Clifford J. Mugnier, c.p., c.m.s.
+
+Chief of Geodesy,  (Emeritus)
+
+LSU Center for GeoInformatics (ERAD 266)
+
+Dept. of Civil Engineering
+
+LOUISIANA STATE UNIVERSITY
+
+Baton Rouge, LA  70803
+
+Research:   (225) 578-4578
+
+Cell:           (225) 328-8975
+
+honorary lifetime member, lsps
+
+fellow emeritus, asprs
+
+member, apsg
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230406/6e47c0ba/attachment-0001.htm>
+
+From peter.townsend at maplarge.com  Thu Apr  6 13:31:32 2023
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Thu, 6 Apr 2023 15:31:32 -0500
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <009f01d9689d$067bef80$1373ce80$@qqmail.nl>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+ <009f01d9689d$067bef80$1373ce80$@qqmail.nl>
+Message-ID: <CAMQBGmVwbdjyKbyLkpC_tShPA9KMU_ZcL3+Fhng5jyoxkunBqw@mail.gmail.com>
+
+Thanks, but I can't really use the SharpProj way. It's kinda using the .NET
+string as an intermediary. Plus I need to support a Linux build so I can't
+use C++/CLI anyway. The utf_8string method that takes in the .NET string
+works kinda similar to doing this w/o it:
+std::string utf8_string(String^ v)
+{
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
+    pin_ptr<const wchar_t> pPath = PtrToStringChars(v);
+    std::wstring vstr(pPath);
+    std::string sstr(conv.to_bytes(vstr));
+    return sstr;
+}
+const char* convertResult4(const char* result) {
+    if (!result)
+        return result;
+
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
+    std::wstring str = conv.from_bytes(result);
+    std::string sstr(conv.to_bytes(str));
+    ...
+}
+
+The std::wstring str contains the correctly encoded string, but turning it
+back to a const char* using std::string sstr.c_str() just garbles it back
+again.
+
+I might have to just proxy everything over the managed/unmanaged pinvoke
+wall as a wchar_t* or just make everything IntPtrs and Marshal them that
+way.
+
+
+
+On Thu, Apr 6, 2023 at 10:32?AM Bert Huijben <bert at qqmail.nl> wrote:
+
+>                 Hi Peter,
+>
+>
+>
+> When I needed proj for my work on my previous day-job, I spend a bit extra
+> time and created a complete wrapping C# library that is still used there
+> and a few other places. The wrapping is specifically targeted towards
+> Windows, but works there with .Net Framework and .Net core. See
+> https://github.com/ampscm/sharpproj/ (or just use SharpProj from NuGet)
+>
+>
+>
+>
+>
+> The sample code I have on that page shows +- what you try here, so you
+> should be able to use that to try your use-cases around encoding.
+>
+>
+>
+> [[
+>
+> using SharpProj;
+>
+>
+>
+> using var rd = CoordinateReferenceSystem.CreateFromEpsg(28992);
+>
+> using var wgs84 = CoordinateReferenceSystem.CreateFromEpsg(4326);
+>
+>
+>
+> var area = rd.UsageArea;
+>
+> Assert.AreEqual("Netherlands - onshore, including Waddenzee, Dutch Wadden
+> Islands and 12-mile offshore coastal zone.", area.Name);
+>
+>
+>
+> using (var t = CoordinateTransform.Create(rd, wgs84))
+>
+> {
+>
+>     var r = t.Apply(new PPoint(155000, 463000));
+>
+>     Assert.AreEqual(new PPoint(52.155, 5.387), r.ToXY(3)); // Round to 3
+> decimals for easy testing
+>
+> }
+>
+> ]]
+>
+>
+>
+> If you pick EPSG 23031, you will see that the encodings work there.
+>
+>
+>
+>
+>
+> You can check all the sourcecode too, if you just want to check how to get
+> the en-/decoding to work. (It is all Apache licensed, so feel free to
+> copy&paste? or provide pull requests if you want something added to the
+> library)
+>
+>
+>
+>                 Bert
+>
+>
+>
+>
+>
+>
+>
+> *From:* PROJ <proj-bounces at lists.osgeo.org> *On Behalf Of *Even Rouault
+> *Sent:* Wednesday, April 5, 2023 11:53 PM
+> *To:* Peter Townsend <peter.townsend at maplarge.com>; proj <
+> proj at lists.osgeo.org>
+> *Subject:* Re: [PROJ] PROJ and Unicode on Windows
+>
+>
+>
+> Peter,
+>
+> there isn't any issue in your build. It is just that PROJ returns UTF-8
+> encoded strings and that the typical Windows console isn't configured to
+> display UTF-8. Cf
+> https://stackoverflow.com/questions/57131654/using-utf-8-encoding-chcp-65001-in-command-prompt-windows-powershell-window
+> or similar issues
+>
+> Even
+>
+> Le 05/04/2023 ? 23:44, Peter Townsend via PROJ a ?crit :
+>
+> I've got a bit of an annoyance with my windows proj build. Hopefully it's
+> not too hard to resolve as the world of char/wchar_t/etc. isn't something
+> I'm terribly familiar with.
+>
+>
+>
+> Take for example the area of use of EPSG:23031. On Linux it's fine, but on
+> windows there's a unicode issue.
+>
+>
+>
+> PJ* crs = proj_create(m_ctxt, "EPSG:23031");
+> ASSERT_NE(crs, nullptr);
+> ObjectKeeper keeper_crsH(crs);
+>
+> double w, s, e, n;
+> const char* a;
+> proj_get_area_of_use(m_ctxt, crs, &w, &s, &e, &n, &a);
+>
+>
+>
+> Contents of a:
+>
+> "Europe - between 0??E and 6??E - Andorra; Denmark (North Sea); Germany
+> offshore; Netherlands offshore; Norway including Svalbard - onshore and
+> offshore; Spain - onshore (mainland and Balearic Islands); United Kingdom
+> (UKCS) offshore."
+>
+>
+>
+> Is there a simple thing I'm overlooking in the build process that might
+> clear up the encoding goof? Or do I need to do some bending over backwards
+> with character manipulation?
+>
+>
+>
+> This is the command line I'm using to build this example:
+>
+> cmake -DBUILD_SHARED_LIBS=ON
+> -DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+> cmake --build . --config Debug -j 8
+>
+>
+>
+> Thanks!
+>
+> --
+>
+> Peter Townsend
+>
+> Senior Software Developer
+>
+>
+>
+> _______________________________________________
+>
+> PROJ mailing list
+>
+> PROJ at lists.osgeo.org
+>
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+> --
+>
+> http://www.spatialys.com
+>
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230406/0d089524/attachment.htm>
+
+From peter.townsend at maplarge.com  Fri Apr  7 15:00:21 2023
+From: peter.townsend at maplarge.com (Peter Townsend)
+Date: Fri, 7 Apr 2023 17:00:21 -0500
+Subject: [PROJ] PROJ and Unicode on Windows
+In-Reply-To: <CAMQBGmVwbdjyKbyLkpC_tShPA9KMU_ZcL3+Fhng5jyoxkunBqw@mail.gmail.com>
+References: <CAMQBGmVQeSdhy6XhDnT5ZVcJAzDEpncnLTePuqxaXr=NzUFDyg@mail.gmail.com>
+ <ba4d0419-6350-1b20-e814-65f2af4a5c1a@spatialys.com>
+ <009f01d9689d$067bef80$1373ce80$@qqmail.nl>
+ <CAMQBGmVwbdjyKbyLkpC_tShPA9KMU_ZcL3+Fhng5jyoxkunBqw@mail.gmail.com>
+Message-ID: <CAMQBGmUk-QVQDie-hevs21EfF=Gw9Nf0XNWrM+jKpH0u4JQHXg@mail.gmail.com>
+
+I got it to work finally. Here's what I did for posterity.
+
+What I've created is a C# managed wrapper, and I added a bunch of C
+functions to PROJ with some extra functionality. Part of the extra
+functionality is to CoTaskMemAlloc all the strings that PROJ can return so
+that the .NET world will be happy.
+For example, something like this:
+
+const char* proj_errno_string_proxy(int err) {
+return convertResult(proj_errno_string(err));
+}
+...
+const char* convertResult(const char* result) {
+if (!result)
+return result;
+
+//Going out, we need to CoTaskMemAlloc to pin the string memory.
+//MarshalAs LPStr will free it automatically in .NET world.
+std::string str(result);
+auto len = str.length() + 1;
+char* buff = (char*)CoTaskMemAlloc(len);
+if (buff) {
+ml_strcpy(buff, len, str);
+}
+return buff;
+}
+
+The PInvoke signature is:
+public const CharSet CHARSET = CharSet.Ansi;
+public const CallingConvention CALLING_CONVENTION = CallingConvention.Cdecl;
+public const UnmanagedType STRINGTYPE = UnmanagedType.LPStr;
+...
+[DllImport(PROJ_PROXY_DLL, EntryPoint = "proj_errno_string_proxy",
+CallingConvention = CALLING_CONVENTION)]
+[return: MarshalAs(STRINGTYPE)]
+public extern static string proj_errno_string_proxy(int err);
+
+(The built-in marshalling will take care of freeing what I've sent it.)
+
+Because PROJ is returning UTF-8 strings, this means that my strings aren't
+coming or going in the right encoding. It's been working fine though in
+practice, but sometimes you'd see the unicode garbling here and there.
+
+Here's what I did to fix it. I was originally targeting .NET standard 2.0
+and 2.1. 2.1 added UnmanagedType.LPUTF8Str from .NET Framework 4.7. And it
+"just works". Changing STRINGTYPE to LPUTF8Str makes those parameters (and
+struct members) encode correctly. I had to drop Standard 2.0 though.
+
+Except in the case of string arrays, like those const char** options
+parameters. My PInvoke signature was this:
+public const UnmanagedType STRINGTYPE = UnmanagedType.LPStr;
+public const UnmanagedType ARRAYTYPE = UnmanagedType.LPArray;
+...
+public extern static IntPtr proj_context_set_search_paths(ProjContextHandle
+ctx, int count_paths, [MarshalAs(ARRAYTYPE, ArraySubType = STRINGTYPE,
+SizeParamIndex = 1)] string[] paths);
+
+Alas, LPUTF8Str is NOT supported with ArraySubType! So in order to conquer
+that problem, I ended up using a custom marshaller.
+public extern static IntPtr proj_context_set_search_paths(ProjContextHandle
+ctx, int count_paths, [MarshalAs(UnmanagedType.CustomMarshaler,
+MarshalTypeRef = typeof(Utf8StringArrayMarshaler))] string[] paths);
+
+internal class Utf8StringMarshaler : ICustomMarshaler {
+private static readonly Utf8StringMarshaler _instance = new
+Utf8StringMarshaler();
+
+public unsafe IntPtr MarshalManagedToNative(object strObj) {
+if (strObj == null)
+return IntPtr.Zero;
+if (!(strObj is string str))
+throw new ArgumentException("Value must be string", nameof(strObj));
+
+return MarshalManagedValue(str);
+}
+public unsafe static IntPtr MarshalManagedValue(string str) {
+#if NETSTANDARD2_1_OR_GREATER
+//From core runtime's UTF8 string marshaller.
+int exactByteCount = checked(Encoding.UTF8.GetByteCount(str) + 1); // + 1
+for null terminator
+byte* mem = (byte*)Marshal.AllocCoTaskMem(exactByteCount);
+Span<byte> buffer = new(mem, exactByteCount);
+
+int byteCount = Encoding.UTF8.GetBytes(str, buffer);
+buffer[byteCount] = 0; // null-terminate
+return (IntPtr)mem;
+#else
+var bytes = Encoding.UTF8.GetBytes(str);
+var ptr = Marshal.AllocCoTaskMem(bytes.Length + 1);
+Marshal.Copy(bytes, 0, ptr, bytes.Length);
+Marshal.WriteByte(ptr, bytes.Length, 0);
+return ptr;
+#endif
+}
+
+public object MarshalNativeToManaged(IntPtr pNativeData) {
+return MarshalUnmanagedValue(pNativeData);
+}
+public static string MarshalUnmanagedValue(IntPtr pNativeData) {
+if (pNativeData == IntPtr.Zero)
+return null;
+
+#if NETSTANDARD2_1_OR_GREATER
+return Marshal.PtrToStringUTF8(pNativeData);
+#else
+var bytes = new List<byte>(4096);
+int offset = 0;
+byte b;
+do {
+b = Marshal.ReadByte(pNativeData, offset);
+if (b != 0) {
+bytes.Add(b);
+offset++;
+}
+} while (b != 0);
+
+return bytes.Count > 0 ? Encoding.UTF8.GetString(bytes.ToArray(), 0,
+bytes.Count) : "";
+#endif
+}
+
+public void CleanUpManagedData(object ManagedObj) {
+}
+
+public void CleanUpNativeData(IntPtr pNativeData) {
+Marshal.FreeCoTaskMem(pNativeData);
+}
+
+public int GetNativeDataSize() {
+return -1;
+}
+
+public static ICustomMarshaler GetInstance(string pstrCookie) {
+return _instance;
+}
+}
+
+internal class Utf8StringArrayMarshaler : ICustomMarshaler {
+
+private static readonly Utf8StringArrayMarshaler _instance = new
+Utf8StringArrayMarshaler();
+
+public unsafe IntPtr MarshalManagedToNative(object strObj) {
+if (strObj == null)
+return IntPtr.Zero;
+if (!(strObj is string[] str))
+throw new ArgumentException("Value must be string array", nameof(strObj));
+
+//Write UTF-8 arrays for each entry in the string array
+//Then end it with a nullptr.
+var len = IntPtr.Size * str.Length;
+var basePtr = Marshal.AllocHGlobal(len + IntPtr.Size);
+var ptr = basePtr;
+for (var i = 0; i < str.Length; i++) {
+var addr = Utf8StringMarshaler.MarshalManagedValue(str[i]);
+Marshal.WriteIntPtr(ptr, addr);
+ptr += IntPtr.Size;
+}
+Marshal.WriteIntPtr(ptr, IntPtr.Zero);
+return basePtr;
+}
+
+public object MarshalNativeToManaged(IntPtr pNativeData) {
+if (pNativeData == IntPtr.Zero)
+return null;
+
+//We don't have any context on how long the string array will be.
+var values = new List<string>();
+
+//Read UTF8 strings until we hit nullptr.
+var ptr = pNativeData;
+var currValue = Marshal.ReadIntPtr(ptr);
+while (currValue != IntPtr.Zero) {
+var str = Utf8StringMarshaler.MarshalUnmanagedValue(currValue);
+values.Add(str);
+
+ptr += IntPtr.Size;
+currValue = Marshal.ReadIntPtr(ptr);
+}
+return values.ToArray();
+}
+
+public void CleanUpManagedData(object ManagedObj) {
+}
+
+public void CleanUpNativeData(IntPtr pNativeData) {
+if (pNativeData == IntPtr.Zero) {
+return;
+}
+
+//Free the individual strings until we hit a nullptr.
+var ptr = pNativeData;
+var value = Marshal.ReadIntPtr(ptr);
+while (value != IntPtr.Zero) {
+Marshal.FreeCoTaskMem(value);
+ptr += IntPtr.Size;
+value = Marshal.ReadIntPtr(ptr);
+}
+
+//Free the array.
+Marshal.FreeHGlobal(pNativeData);
+}
+
+public int GetNativeDataSize() {
+return -1;
+}
+
+public static ICustomMarshaler GetInstance(string pstrCookie) {
+return _instance;
+}
+}
+
+I couldn't use the custom marshaller as a complete replacement though. You
+can't use them on struct fields. So I have to use LPUTF8Str on those.
+public const UnmanagedType STRINGTYPE = UnmanagedType.LPUTF8Str;
+...
+[StructLayout(LayoutKind.Sequential, CharSet = CHARSET)]
+public struct PROJ_UNIT_INFO {
+
+[MarshalAs(STRINGTYPE)]
+public string auth_name;
+
+[MarshalAs(STRINGTYPE)]
+public string code;
+
+[MarshalAs(STRINGTYPE)]
+public string name;
+
+[MarshalAs(STRINGTYPE)]
+public string category;
+
+public double conv_factor;
+
+[MarshalAs(STRINGTYPE)]
+public string proj_short_name;
+
+public int deprecated;
+
+}
+
+
+On Thu, Apr 6, 2023 at 3:31?PM Peter Townsend <peter.townsend at maplarge.com>
+wrote:
+
+> Thanks, but I can't really use the SharpProj way. It's kinda using the
+> .NET string as an intermediary. Plus I need to support a Linux build so I
+> can't use C++/CLI anyway. The utf_8string method that takes in the .NET
+> string works kinda similar to doing this w/o it:
+> std::string utf8_string(String^ v)
+> {
+>     std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
+>     pin_ptr<const wchar_t> pPath = PtrToStringChars(v);
+>     std::wstring vstr(pPath);
+>     std::string sstr(conv.to_bytes(vstr));
+>     return sstr;
+> }
+> const char* convertResult4(const char* result) {
+>     if (!result)
+>         return result;
+>
+>     std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
+>     std::wstring str = conv.from_bytes(result);
+>     std::string sstr(conv.to_bytes(str));
+>     ...
+> }
+>
+> The std::wstring str contains the correctly encoded string, but turning it
+> back to a const char* using std::string sstr.c_str() just garbles it back
+> again.
+>
+> I might have to just proxy everything over the managed/unmanaged pinvoke
+> wall as a wchar_t* or just make everything IntPtrs and Marshal them that
+> way.
+>
+>
+>
+> On Thu, Apr 6, 2023 at 10:32?AM Bert Huijben <bert at qqmail.nl> wrote:
+>
+>>                 Hi Peter,
+>>
+>>
+>>
+>> When I needed proj for my work on my previous day-job, I spend a bit
+>> extra time and created a complete wrapping C# library that is still used
+>> there and a few other places. The wrapping is specifically targeted towards
+>> Windows, but works there with .Net Framework and .Net core. See
+>> https://github.com/ampscm/sharpproj/ (or just use SharpProj from NuGet)
+>>
+>>
+>>
+>>
+>>
+>> The sample code I have on that page shows +- what you try here, so you
+>> should be able to use that to try your use-cases around encoding.
+>>
+>>
+>>
+>> [[
+>>
+>> using SharpProj;
+>>
+>>
+>>
+>> using var rd = CoordinateReferenceSystem.CreateFromEpsg(28992);
+>>
+>> using var wgs84 = CoordinateReferenceSystem.CreateFromEpsg(4326);
+>>
+>>
+>>
+>> var area = rd.UsageArea;
+>>
+>> Assert.AreEqual("Netherlands - onshore, including Waddenzee, Dutch Wadden
+>> Islands and 12-mile offshore coastal zone.", area.Name);
+>>
+>>
+>>
+>> using (var t = CoordinateTransform.Create(rd, wgs84))
+>>
+>> {
+>>
+>>     var r = t.Apply(new PPoint(155000, 463000));
+>>
+>>     Assert.AreEqual(new PPoint(52.155, 5.387), r.ToXY(3)); // Round to 3
+>> decimals for easy testing
+>>
+>> }
+>>
+>> ]]
+>>
+>>
+>>
+>> If you pick EPSG 23031, you will see that the encodings work there.
+>>
+>>
+>>
+>>
+>>
+>> You can check all the sourcecode too, if you just want to check how to
+>> get the en-/decoding to work. (It is all Apache licensed, so feel free to
+>> copy&paste? or provide pull requests if you want something added to the
+>> library)
+>>
+>>
+>>
+>>                 Bert
+>>
+>>
+>>
+>>
+>>
+>>
+>>
+>> *From:* PROJ <proj-bounces at lists.osgeo.org> *On Behalf Of *Even Rouault
+>> *Sent:* Wednesday, April 5, 2023 11:53 PM
+>> *To:* Peter Townsend <peter.townsend at maplarge.com>; proj <
+>> proj at lists.osgeo.org>
+>> *Subject:* Re: [PROJ] PROJ and Unicode on Windows
+>>
+>>
+>>
+>> Peter,
+>>
+>> there isn't any issue in your build. It is just that PROJ returns UTF-8
+>> encoded strings and that the typical Windows console isn't configured to
+>> display UTF-8. Cf
+>> https://stackoverflow.com/questions/57131654/using-utf-8-encoding-chcp-65001-in-command-prompt-windows-powershell-window
+>> or similar issues
+>>
+>> Even
+>>
+>> Le 05/04/2023 ? 23:44, Peter Townsend via PROJ a ?crit :
+>>
+>> I've got a bit of an annoyance with my windows proj build. Hopefully it's
+>> not too hard to resolve as the world of char/wchar_t/etc. isn't something
+>> I'm terribly familiar with.
+>>
+>>
+>>
+>> Take for example the area of use of EPSG:23031. On Linux it's fine, but
+>> on windows there's a unicode issue.
+>>
+>>
+>>
+>> PJ* crs = proj_create(m_ctxt, "EPSG:23031");
+>> ASSERT_NE(crs, nullptr);
+>> ObjectKeeper keeper_crsH(crs);
+>>
+>> double w, s, e, n;
+>> const char* a;
+>> proj_get_area_of_use(m_ctxt, crs, &w, &s, &e, &n, &a);
+>>
+>>
+>>
+>> Contents of a:
+>>
+>> "Europe - between 0??E and 6??E - Andorra; Denmark (North Sea); Germany
+>> offshore; Netherlands offshore; Norway including Svalbard - onshore and
+>> offshore; Spain - onshore (mainland and Balearic Islands); United Kingdom
+>> (UKCS) offshore."
+>>
+>>
+>>
+>> Is there a simple thing I'm overlooking in the build process that might
+>> clear up the encoding goof? Or do I need to do some bending over backwards
+>> with character manipulation?
+>>
+>>
+>>
+>> This is the command line I'm using to build this example:
+>>
+>> cmake -DBUILD_SHARED_LIBS=ON
+>> -DCMAKE_TOOLCHAIN_FILE=C:\dev\vcpkg\scripts\buildsystems\vcpkg.cmake ..
+>> cmake --build . --config Debug -j 8
+>>
+>>
+>>
+>> Thanks!
+>>
+>> --
+>>
+>> Peter Townsend
+>>
+>> Senior Software Developer
+>>
+>>
+>>
+>> _______________________________________________
+>>
+>> PROJ mailing list
+>>
+>> PROJ at lists.osgeo.org
+>>
+>> https://lists.osgeo.org/mailman/listinfo/proj
+>>
+>> --
+>>
+>> http://www.spatialys.com
+>>
+>> My software is free, but my time generally not.
+>>
+>>
+>
+> --
+> Peter Townsend
+> Senior Software Developer
+>
+
+
+-- 
+Peter Townsend
+Senior Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230407/eda9ee7b/attachment-0001.htm>
+
+From strebe at aol.com  Sat Apr  8 10:08:44 2023
+From: strebe at aol.com (DANIEL STREBE)
+Date: Sat, 8 Apr 2023 10:08:44 -0700
+Subject: [PROJ] Coordinate Systems of the World
+In-Reply-To: <DM8P221MB03091E3CE8D7A27E07288D25A8919@DM8P221MB0309.NAMP221.PROD.OUTLOOK.COM>
+References: <DM8P221MB03091E3CE8D7A27E07288D25A8919@DM8P221MB0309.NAMP221.PROD.OUTLOOK.COM>
+Message-ID: <E2B5D754-6DDA-436E-AEE1-2F7405E6C5E0@aol.com>
+
+Congratulations on the publication of your monumental work, Clifford.
+
+Cheers,
+? daan
+
+> On Apr 6, 2023, at 08:43, Clifford J Mugnier <cjmce at lsu.edu> wrote:
+> 
+> ?
+> 
+> 20% Discount with Discount Code.  
+> Coordinate Systems of the World  
+> Datums and Grids  
+> Clifford J. Mugnier  
+> A comprehensive consolidation of data for the world, this book gives a short precis of each nation, each nation?s history, its topography and a chronology of the development of geodetic surveying and coordinate systems for that specific nation. A starting point of information for understanding the world?s datums and grids.  
+> 20% Discount Available - enter the code AFL01 at checkout*  
+> Hb: 978-1-032-31034-3 | $176.00  
+> * Please note that this discount code cannot be used in conjunction with any other offer or discount and only applies to books purchased directly via www.routledge.com. This code expires on 30 June 2023.  
+> For more details, or to request a copy for review, please contact: https://m.email.taylorandfrancis.com/review-copy-request-form; Zambia; Zimbabwe. 
+> For more information visit: www.routledge.com/9781032310343 
+> 
+> 
+> Clifford J. Mugnier, c.p., c.m.s.
+> 
+> Chief of Geodesy,  (Emeritus)
+> 
+> LSU Center for GeoInformatics (ERAD 266)
+> 
+> Dept. of Civil Engineering 
+> 
+> LOUISIANA STATE UNIVERSITY
+> 
+> Baton Rouge, LA  70803
+> 
+> Research:   (225) 578-4578
+> 
+> Cell:           (225) 328-8975
+> 
+> honorary lifetime member, lsps
+> 
+> fellow emeritus, asprs
+> 
+> member, apsg
+> 
+> 
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230408/b995ec6e/attachment.htm>
+
+From j1 at jimenezshaw.com  Wed Apr 12 07:46:22 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 12 Apr 2023 16:46:22 +0200
+Subject: [PROJ] Change in behaviour (ONLY_BEST option)
+Message-ID: <CADRrdKsF0U7GHYoLg7gwR-F9gmM1ck26szw133keJbGNHFeRkQ@mail.gmail.com>
+
+Hi
+
+I am trying to migrate an application from PROJ 9.1.0 to PROJ 9.2.0, and I
+found a change in behaviour, that I was not expecting in this release:
+Transform a coordinate not having the proper geoid file (the Spanish one in
+this test). I was expecting that the z component is not changed. But I am
+getting an error instead, and "* * inf" value.
+I know that ONLY_BEST is there, but I understood that the default was to
+keep the same behaviour as before, and show a warning asking for a
+"definition".
+But that is not what I experience. See this command lines:
+
+echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=OFF cs2cs EPSG:4326+5773
+EPSG:4326+5782
+pj_open_lib(proj.ini): call
+fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+pj_open_lib(proj.db): call
+fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif) -
+failed
+pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif) -
+failed
+Attempt to use coordinate operation Inverse of WGS 84 to EGM96 height (1) +
+ETRS89 to Alicante height (1) using ETRS89 to WGS 84 (1) failed. Grid
+es_ign_egm08-rednap.tif is not available. Consult
+https://proj.org/resource_files.html for guidance. Grid us_nga_egm96_15.tif
+is not available. Consult https://proj.org/resource_files.html for
+guidance. This might become an error in a future PROJ major release. Set
+the ONLY_BEST option to YES or NO. This warning will no longer be emitted
+(for the current transformation instance).
+* * inf
+
+
+echo 39 -3 0 | PROJ_DEBUG=2 PROJ_ONLY_BEST_DEFAULT=NO PROJ_NETWORK=OFF
+cs2cs EPSG:4326+5773 EPSG:4326+5782
+pj_open_lib(proj.ini): call
+fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+pj_open_lib(proj.db): call
+fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif) -
+failed
+pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+39.00 -3.00 0.00
+
+
+echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=ON cs2cs EPSG:4326+5773
+EPSG:4326+5782
+pj_open_lib(proj.ini): call
+fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+pj_open_lib(proj.db): call
+fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+Using https://cdn.proj.org/us_nga_egm96_15.tif
+pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif) -
+failed
+pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif) -
+failed
+Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+Using https://cdn.proj.org/us_nga_egm96_15.tif
+pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif) -
+failed
+Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+39.00 -3.00 0.30
+
+
+The behaviour in 9.1.0 was the same as with "PROJ_ONLY_BEST_DEFAULT=NO",
+that is what I was expecting now (plus warning message).
+
+Am I missing something? Is this a bug?
+
+Thanks.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230412/b012db84/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Apr 12 10:24:26 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 12 Apr 2023 19:24:26 +0200
+Subject: [PROJ] Change in behaviour (ONLY_BEST option)
+In-Reply-To: <CADRrdKsF0U7GHYoLg7gwR-F9gmM1ck26szw133keJbGNHFeRkQ@mail.gmail.com>
+References: <CADRrdKsF0U7GHYoLg7gwR-F9gmM1ck26szw133keJbGNHFeRkQ@mail.gmail.com>
+Message-ID: <f611a732-d65e-d2e1-2962-abfd9fb9af84@spatialys.com>
+
+Hi Javier,
+
+Fixed per https://github.com/OSGeo/PROJ/pull/3707
+
+doh, I hadn't anticipated that the only_best functionality would 
+introduce such complexity. The fundamental issue is that the pipeline 
+computation engine has subtle behavioral differences depending if you 
+ask it to assume that all registered grids are available (which is used 
+to get the "universe of possible", from which we can see if we are 
+missing the "best" transformation), which corresponds projinfo 
+--grid-check known_available mode, or if you ask it to discard early 
+transformations using grid not available. In the former case, PROJ may 
+sometimes not need to synthetize the ballkpark transformation when it 
+sees that the extent of the grids cover the extent of the CRS. So in the 
+warn-only mode of only_best we must actually hybrid the 2 strategies to 
+discover both missing best transformation, and get a ballpark 
+transformation. Not sure if the above makes sense...
+
+Even
+
+Le 12/04/2023 ? 16:46, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> I am trying to migrate an application from PROJ 9.1.0 to PROJ 9.2.0, 
+> and I found a change in behaviour, that I was not expecting in this 
+> release:
+> Transform a coordinate not having the proper geoid file (the Spanish 
+> one in this test). I was expecting that the z component is not 
+> changed. But I am getting an error instead, and "* * inf" value.
+> I know that ONLY_BEST is there, but I understood that the default was 
+> to keep the same behaviour as before, and show a warning asking for a 
+> "definition".
+> But that is not what I experience. See this command lines:
+>
+> echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=OFF cs2cs EPSG:4326+5773 
+> EPSG:4326+5782
+> pj_open_lib(proj.ini): call 
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+> pj_open_lib(proj.db): call 
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call 
+> fopen(es_ign_egm08-rednap.tif) - failed
+> pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+> pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call 
+> fopen(es_ign_egm08-rednap.tif) - failed
+> Attempt to use coordinate operation Inverse of WGS 84 to EGM96 height 
+> (1) + ETRS89 to Alicante height (1) using ETRS89 to WGS 84 (1) failed. 
+> Grid es_ign_egm08-rednap.tif is not available. Consult 
+> https://proj.org/resource_files.html for guidance. Grid 
+> us_nga_egm96_15.tif is not available. Consult 
+> https://proj.org/resource_files.html for guidance. This might become 
+> an error in a future PROJ major release. Set the ONLY_BEST option to 
+> YES or NO. This warning will no longer be emitted (for the current 
+> transformation instance).
+> * * inf
+>
+>
+> echo 39 -3 0 | PROJ_DEBUG=2 PROJ_ONLY_BEST_DEFAULT=NO PROJ_NETWORK=OFF 
+> cs2cs EPSG:4326+5773 EPSG:4326+5782
+> pj_open_lib(proj.ini): call 
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+> pj_open_lib(proj.db): call 
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call 
+> fopen(es_ign_egm08-rednap.tif) - failed
+> pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+> pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+> 39.00 -3.00 0.00
+>
+>
+> echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=ON cs2cs EPSG:4326+5773 
+> EPSG:4326+5782
+> pj_open_lib(proj.ini): call 
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+> pj_open_lib(proj.db): call 
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> Using https://cdn.proj.org/us_nga_egm96_15.tif
+> pj_open_lib(es_ign_egm08-rednap.tif): call 
+> fopen(es_ign_egm08-rednap.tif) - failed
+> pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+> pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call 
+> fopen(es_ign_egm08-rednap.tif) - failed
+> Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> Using https://cdn.proj.org/us_nga_egm96_15.tif
+> pj_open_lib(es_ign_egm08-rednap.tif): call 
+> fopen(es_ign_egm08-rednap.tif) - failed
+> Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+> 39.00 -3.00 0.30
+>
+>
+> The behaviour in 9.1.0 was the same as with 
+> "PROJ_ONLY_BEST_DEFAULT=NO", that is what I was expecting now (plus 
+> warning message).
+>
+> Am I missing something? Is this a bug?
+>
+> Thanks.
+>
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230412/c0dd148e/attachment.htm>
+
+From j1 at jimenezshaw.com  Wed Apr 12 11:57:16 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 12 Apr 2023 20:57:16 +0200
+Subject: [PROJ] Change in behaviour (ONLY_BEST option)
+In-Reply-To: <f611a732-d65e-d2e1-2962-abfd9fb9af84@spatialys.com>
+References: <CADRrdKsF0U7GHYoLg7gwR-F9gmM1ck26szw133keJbGNHFeRkQ@mail.gmail.com>
+ <f611a732-d65e-d2e1-2962-abfd9fb9af84@spatialys.com>
+Message-ID: <CADRrdKtp=g=QXwpTSQsx20Yzn0S4LZoovyj3452ZmsXvTaEuZg@mail.gmail.com>
+
+Thanks Even for the quick fix.
+
+Is there a way in C++ to set the option to "NO" or "YES"?
+I saw that I can use proj.ini file and a environment variable, that
+overwrites the value in proj.ini. So if a user of my application plays with
+the environment variables, they can change the behaviour (already happened
+with PROJ_LIB some time ago)
+I would like to set the behaviour directly in the C++ code. Is that
+possible?
+
+Thanks
+
+On Wed, 12 Apr 2023 at 19:24, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Hi Javier,
+>
+> Fixed per https://github.com/OSGeo/PROJ/pull/3707
+>
+> doh, I hadn't anticipated that the only_best functionality would introduce
+> such complexity. The fundamental issue is that the pipeline computation
+> engine has subtle behavioral differences depending if you ask it to assume
+> that all registered grids are available (which is used to get the "universe
+> of possible", from which we can see if we are missing the "best"
+> transformation), which corresponds projinfo --grid-check known_available
+> mode, or if you ask it to discard early transformations using grid not
+> available. In the former case, PROJ may sometimes not need to synthetize
+> the ballkpark transformation when it sees that the extent of the grids
+> cover the extent of the CRS. So in the warn-only mode of only_best we must
+> actually hybrid the 2 strategies to discover both missing best
+> transformation, and get a ballpark transformation. Not sure if the above
+> makes sense...
+>
+> Even
+> Le 12/04/2023 ? 16:46, Javier Jimenez Shaw a ?crit :
+>
+> Hi
+>
+> I am trying to migrate an application from PROJ 9.1.0 to PROJ 9.2.0, and I
+> found a change in behaviour, that I was not expecting in this release:
+> Transform a coordinate not having the proper geoid file (the Spanish one
+> in this test). I was expecting that the z component is not changed. But I
+> am getting an error instead, and "* * inf" value.
+> I know that ONLY_BEST is there, but I understood that the default was to
+> keep the same behaviour as before, and show a warning asking for a
+> "definition".
+> But that is not what I experience. See this command lines:
+>
+> echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=OFF cs2cs EPSG:4326+5773
+> EPSG:4326+5782
+> pj_open_lib(proj.ini): call
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+> pj_open_lib(proj.db): call
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif)
+> - failed
+> pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+> pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif)
+> - failed
+> Attempt to use coordinate operation Inverse of WGS 84 to EGM96 height (1)
+> + ETRS89 to Alicante height (1) using ETRS89 to WGS 84 (1) failed. Grid
+> es_ign_egm08-rednap.tif is not available. Consult
+> https://proj.org/resource_files.html for guidance. Grid
+> us_nga_egm96_15.tif is not available. Consult
+> https://proj.org/resource_files.html for guidance. This might become an
+> error in a future PROJ major release. Set the ONLY_BEST option to YES or
+> NO. This warning will no longer be emitted (for the current transformation
+> instance).
+> * * inf
+>
+>
+> echo 39 -3 0 | PROJ_DEBUG=2 PROJ_ONLY_BEST_DEFAULT=NO PROJ_NETWORK=OFF
+> cs2cs EPSG:4326+5773 EPSG:4326+5782
+> pj_open_lib(proj.ini): call
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+> pj_open_lib(proj.db): call
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif)
+> - failed
+> pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+> pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+> 39.00 -3.00 0.00
+>
+>
+> echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=ON cs2cs EPSG:4326+5773
+> EPSG:4326+5782
+> pj_open_lib(proj.ini): call
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) - succeeded
+> pj_open_lib(proj.db): call
+> fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) - succeeded
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> Using https://cdn.proj.org/us_nga_egm96_15.tif
+> pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif)
+> - failed
+> pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+> pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+> pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif)
+> - failed
+> Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+> pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif) - failed
+> pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+> Using https://cdn.proj.org/us_nga_egm96_15.tif
+> pj_open_lib(es_ign_egm08-rednap.tif): call fopen(es_ign_egm08-rednap.tif)
+> - failed
+> Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+> 39.00 -3.00 0.30
+>
+>
+> The behaviour in 9.1.0 was the same as with "PROJ_ONLY_BEST_DEFAULT=NO",
+> that is what I was expecting now (plus warning message).
+>
+> Am I missing something? Is this a bug?
+>
+> Thanks.
+>
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230412/52b09981/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Wed Apr 12 12:33:24 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 12 Apr 2023 21:33:24 +0200
+Subject: [PROJ] Change in behaviour (ONLY_BEST option)
+In-Reply-To: <CADRrdKtp=g=QXwpTSQsx20Yzn0S4LZoovyj3452ZmsXvTaEuZg@mail.gmail.com>
+References: <CADRrdKsF0U7GHYoLg7gwR-F9gmM1ck26szw133keJbGNHFeRkQ@mail.gmail.com>
+ <f611a732-d65e-d2e1-2962-abfd9fb9af84@spatialys.com>
+ <CADRrdKtp=g=QXwpTSQsx20Yzn0S4LZoovyj3452ZmsXvTaEuZg@mail.gmail.com>
+Message-ID: <709d1cae-0eaf-d4b8-cef2-b1e8ddf0cb35@spatialys.com>
+
+
+Le 12/04/2023 ? 20:57, Javier Jimenez Shaw a ?crit?:
+> Thanks Even for the quick fix.
+>
+> Is there a way in C++ to set the option to "NO" or "YES"?
+> I saw that I can use proj.ini file and a environment variable, that 
+> overwrites the value in proj.ini. So if a user of my application plays 
+> with the environment variables, they can change the behaviour (already 
+> happened with PROJ_LIB some time ago)
+> I would like to set the behaviour directly in the C++ code. Is that 
+> possible?
+
+You can specify ONLY_BEST=YES/NO in the options argument of 
+proj_create_crs_to_crs[_from_pj](). This is what cs2cs does when 
+specifying the --only-best switch
+
+Even
+
+
+>
+> Thanks
+>
+> On Wed, 12 Apr 2023 at 19:24, Even Rouault 
+> <even.rouault at spatialys.com> wrote:
+>
+>     Hi Javier,
+>
+>     Fixed per https://github.com/OSGeo/PROJ/pull/3707
+>
+>     doh, I hadn't anticipated that the only_best functionality would
+>     introduce such complexity. The fundamental issue is that the
+>     pipeline computation engine has subtle behavioral differences
+>     depending if you ask it to assume that all registered grids are
+>     available (which is used to get the "universe of possible", from
+>     which we can see if we are missing the "best" transformation),
+>     which corresponds projinfo --grid-check known_available mode, or
+>     if you ask it to discard early transformations using grid not
+>     available. In the former case, PROJ may sometimes not need to
+>     synthetize the ballkpark transformation when it sees that the
+>     extent of the grids cover the extent of the CRS. So in the
+>     warn-only mode of only_best we must actually hybrid the 2
+>     strategies to discover both missing best transformation, and get a
+>     ballpark transformation. Not sure if the above makes sense...
+>
+>     Even
+>
+>     Le 12/04/2023 ? 16:46, Javier Jimenez Shaw a ?crit?:
+>>     Hi
+>>
+>>     I am trying to migrate an application from PROJ 9.1.0 to PROJ
+>>     9.2.0, and I found a change in behaviour, that I was not
+>>     expecting in this release:
+>>     Transform a coordinate not having the proper geoid file (the
+>>     Spanish one in this test). I was expecting that the z component
+>>     is not changed. But I am getting an error instead, and "* * inf"
+>>     value.
+>>     I know that ONLY_BEST is there, but I understood that the default
+>>     was to keep the same behaviour as before, and show a warning
+>>     asking for a "definition".
+>>     But that is not what I experience. See this command lines:
+>>
+>>     echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=OFF cs2cs EPSG:4326+5773
+>>     EPSG:4326+5782
+>>     pj_open_lib(proj.ini): call
+>>     fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) -
+>>     succeeded
+>>     pj_open_lib(proj.db): call
+>>     fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) -
+>>     succeeded
+>>     pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif)
+>>     - failed
+>>     pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+>>     pj_open_lib(es_ign_egm08-rednap.tif): call
+>>     fopen(es_ign_egm08-rednap.tif) - failed
+>>     pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+>>     pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+>>     pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif)
+>>     - failed
+>>     pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+>>     pj_open_lib(es_ign_egm08-rednap.tif): call
+>>     fopen(es_ign_egm08-rednap.tif) - failed
+>>     Attempt to use coordinate operation Inverse of WGS 84 to EGM96
+>>     height (1) + ETRS89 to Alicante height (1) using ETRS89 to WGS 84
+>>     (1) failed. Grid es_ign_egm08-rednap.tif is not available.
+>>     Consult https://proj.org/resource_files.html for guidance. Grid
+>>     us_nga_egm96_15.tif is not available. Consult
+>>     https://proj.org/resource_files.html for guidance. This might
+>>     become an error in a future PROJ major release. Set the ONLY_BEST
+>>     option to YES or NO. This warning will no longer be emitted (for
+>>     the current transformation instance).
+>>     * * inf
+>>
+>>
+>>     echo 39 -3 0 | PROJ_DEBUG=2 PROJ_ONLY_BEST_DEFAULT=NO
+>>     PROJ_NETWORK=OFF cs2cs EPSG:4326+5773 EPSG:4326+5782
+>>     pj_open_lib(proj.ini): call
+>>     fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) -
+>>     succeeded
+>>     pj_open_lib(proj.db): call
+>>     fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) -
+>>     succeeded
+>>     pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif)
+>>     - failed
+>>     pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+>>     pj_open_lib(es_ign_egm08-rednap.tif): call
+>>     fopen(es_ign_egm08-rednap.tif) - failed
+>>     pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+>>     pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+>>     39.00 -3.00 0.00
+>>
+>>
+>>     echo 39 -3 0 | PROJ_DEBUG=2 PROJ_NETWORK=ON cs2cs EPSG:4326+5773
+>>     EPSG:4326+5782
+>>     pj_open_lib(proj.ini): call
+>>     fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.ini) -
+>>     succeeded
+>>     pj_open_lib(proj.db): call
+>>     fopen(/home/jshaw/work/PROJ/install-sh/share/proj/proj.db) -
+>>     succeeded
+>>     pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif)
+>>     - failed
+>>     pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+>>     pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif)
+>>     - failed
+>>     pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+>>     Using https://cdn.proj.org/us_nga_egm96_15.tif
+>>     pj_open_lib(es_ign_egm08-rednap.tif): call
+>>     fopen(es_ign_egm08-rednap.tif) - failed
+>>     pj_open_lib(es_2019m.asc): call fopen(es_2019m.asc) - failed
+>>     pj_open_lib(es_2019z.asc): call fopen(es_2019z.asc) - failed
+>>     pj_open_lib(es_ign_egm08-rednap.tif): call
+>>     fopen(es_ign_egm08-rednap.tif) - failed
+>>     Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+>>     pj_open_lib(us_nga_egm96_15.tif): call fopen(us_nga_egm96_15.tif)
+>>     - failed
+>>     pj_open_lib(egm96_15.gtx): call fopen(egm96_15.gtx) - failed
+>>     Using https://cdn.proj.org/us_nga_egm96_15.tif
+>>     pj_open_lib(es_ign_egm08-rednap.tif): call
+>>     fopen(es_ign_egm08-rednap.tif) - failed
+>>     Using https://cdn.proj.org/es_ign_egm08-rednap.tif
+>>     39.00 -3.00 0.30
+>>
+>>
+>>     The behaviour in 9.1.0 was the same as with
+>>     "PROJ_ONLY_BEST_DEFAULT=NO", that is what I was expecting now
+>>     (plus warning message).
+>>
+>>     Am I missing something? Is this a bug?
+>>
+>>     Thanks.
+>>
+>>     .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>>
+>>     _______________________________________________
+>>     PROJ mailing list
+>>     PROJ at lists.osgeo.org
+>>     https://lists.osgeo.org/mailman/listinfo/proj
+>
+>     -- 
+>     http://www.spatialys.com
+>     My software is free, but my time generally not.
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230412/b3a34f82/attachment.htm>
+
+From Alain.Orsoni at ign.fr  Thu Apr 13 23:29:20 2023
+From: Alain.Orsoni at ign.fr (Alain Orsoni)
+Date: Fri, 14 Apr 2023 08:29:20 +0200
+Subject: [PROJ] Coordinates in Lat/Lon or Lon/Lat
+Message-ID: <365A02E4-8676-497F-9BEC-99879F4893C5@ign.fr>
+
+Hello,
+
+Basic question but necessary for me :
+
+We use PROJ Version 8.2.1
+Exemple : I convert from Longitude=10 Latitude=70 from 4326 to UPS stereo North Pole (5041)
+
+projinfo -s EPSG:4326 -t EPSG:5041 -o PROJ
+Gives output :
+
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +proj=stere +lat_0=90 +lon_0=0 +k=0.994 +x_0=2000000 +y_0=2000000
+        +ellps=WGS84
+
+But
+echo "10 70 0" | cs2cs EPSG:4326 EPSG:5041
+
+Gives output : 11976062.58	-1630989.83 0.00
+The good result given by EPSG.IO is  : 2389386.90	-208322.83 0.00
+I get the good result with : echo ? 70 10 0" | cs2cs EPSG:4326 EPSG:5041
+
+So it seems that the syntax. cs2cs EPSG:4326 EPSG:5041  doesn?t apply the step axisswap 
+
+Can someone confirm this behavior ?
+
+Second question : 
+In C++ API the proj_create_crs_to_crs() associated to  proj_normalize_for_visualization() allows to avoid this problem.
+But we use also PROJ in shell scripts. It seems to me that some geodetic_crs expect lat-lon entry and some other Lon-lat.
+Is there a way in the SQL database (proj.db) to find this information?
+
+Thanks for any answer.
+
+Alain
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230414/55f356c9/attachment.htm>
+
+From kreve at sdfi.dk  Thu Apr 13 23:57:46 2023
+From: kreve at sdfi.dk (Kristian Evers)
+Date: Fri, 14 Apr 2023 06:57:46 +0000
+Subject: [PROJ] Coordinates in Lat/Lon or Lon/Lat
+In-Reply-To: <365A02E4-8676-497F-9BEC-99879F4893C5@ign.fr>
+References: <365A02E4-8676-497F-9BEC-99879F4893C5@ign.fr>
+Message-ID: <c34066613cfb4ce8889b718d6304b2d7@sdfi.dk>
+
+Alain,
+
+See the FAQ [0] for an answer to your question about axis ordering. In short, everything works as intended but for historical reasons it seems a bit weird.
+
+/Kristian
+
+[0] https://proj.org/faq.html#why-is-the-axis-ordering-in-proj-not-consistent
+
+From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of Alain Orsoni
+Sent: 14. april 2023 08:29
+To: PROJ at lists.osgeo.org
+Subject: [PROJ] Coordinates in Lat/Lon or Lon/Lat
+
+Hello,
+
+Basic question but necessary for me :
+
+We use PROJ Version 8.2.1
+Exemple : I convert from Longitude=10 Latitude=70 from 4326 to UPS stereo North Pole (5041)
+
+projinfo -s EPSG:4326 -t EPSG:5041 -o PROJ
+Gives output :
+
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +proj=stere +lat_0=90 +lon_0=0 +k=0.994 +x_0=2000000 +y_0=2000000
+        +ellps=WGS84
+
+
+But
+echo "10 70 0" | cs2cs EPSG:4326 EPSG:5041
+
+
+Gives output : 11976062.58             -1630989.83 0.00
+The good result given by EPSG.IO is  : 2389386.90                                  -208322.83 0.00
+I get the good result with : echo ? 70 10 0" | cs2cs EPSG:4326 EPSG:5041
+
+So it seems that the syntax. cs2cs EPSG:4326 EPSG:5041  doesn?t apply the step axisswap
+
+Can someone confirm this behavior ?
+
+Second question :
+In C++ API the proj_create_crs_to_crs() associated to  proj_normalize_for_visualization() allows to avoid this problem.
+But we use also PROJ in shell scripts. It seems to me that some geodetic_crs expect lat-lon entry and some other Lon-lat.
+Is there a way in the SQL database (proj.db) to find this information?
+
+Thanks for any answer.
+
+Alain
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230414/2d1f0728/attachment-0001.htm>
+
+From j1 at jimenezshaw.com  Fri Apr 14 00:49:03 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 14 Apr 2023 09:49:03 +0200
+Subject: [PROJ] Coordinates in Lat/Lon or Lon/Lat
+In-Reply-To: <365A02E4-8676-497F-9BEC-99879F4893C5@ign.fr>
+References: <365A02E4-8676-497F-9BEC-99879F4893C5@ign.fr>
+Message-ID: <CADRrdKtzwcds2MOivj+Tzx5W3KjwjWZaepNO8=QT3wDnh2nZSw@mail.gmail.com>
+
+Hi Alain
+
+EPSG:4326 is expecting lat-long. So the proper way is
+echo "70 10 0" | cs2cs EPSG:4326 EPSG:5041
+
+The axis swap is because internally all the projections are expecting
+easing-northing coordinates, so they should be swapped from the
+northing-easing that is the input.
+
+An easy way to see the axis order is looking at the WKT2 representation of
+a CRS.
+
+On Fri, 14 Apr 2023 at 08:29, Alain Orsoni <Alain.Orsoni at ign.fr> wrote:
+
+> Hello,
+>
+> Basic question but necessary for me :
+>
+> We use PROJ Version 8.2.1
+> Exemple : I convert from Longitude=10 Latitude=70 from 4326 to UPS stereo
+> North Pole (5041)
+>
+> projinfo -s EPSG:4326 -t EPSG:5041 -o PROJ
+> Gives output :
+>
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=stere +lat_0=90 +lon_0=0 +k=0.994 +x_0=2000000 +y_0=2000000
+>         +ellps=WGS84
+>
+> But
+> echo "10 70 0" | cs2cs EPSG:4326 EPSG:5041
+>
+> Gives output : 11976062.58 -1630989.83 0.00
+> The good result given by EPSG.IO is  : 2389386.90 -208322.83 0.00
+> I get the good result with : echo ? 70 10 0" | cs2cs EPSG:4326 EPSG:5041
+>
+> So it seems that the syntax. cs2cs EPSG:4326 EPSG:5041  doesn?t apply the
+> step axisswap
+>
+> Can someone confirm this behavior ?
+>
+> Second question :
+> In C++ API the proj_create_crs_to_crs() associated to
+>  proj_normalize_for_visualization() allows to avoid this problem.
+> But we use also PROJ in shell scripts. It seems to me that some
+> geodetic_crs expect lat-lon entry and some other Lon-lat.
+> Is there a way in the SQL database (proj.db) to find this information?
+>
+> Thanks for any answer.
+>
+> Alain
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230414/019ff60d/attachment.htm>
+
+From peter.loewe at gmx.de  Mon Apr 24 22:51:09 2023
+From: peter.loewe at gmx.de (=?UTF-8?Q?Peter_L=C3=B6we?=)
+Date: Tue, 25 Apr 2023 07:51:09 +0200
+Subject: [PROJ] PROJ / Springer Handbook of Geographic Information
+Message-ID: <trinity-ac76305c-0400-422e-90ba-3290e520c9dc-1682401869453@3c-app-gmx-bs71>
+
+Dear PROJ community,
+
+get your free copy of the Open Source GIS chapter of the Springer Handbook of Geographic Information before the paywall goes up by the end of April: https://link.springer.com/content/pdf/10.1007/978-3-030-53125-6_30.pdf
+
+The chapter covers PROJ and related tools, such as GDAL/OGR, GeoBlackLight, Geopaparazzi, GeoPython, GeoServer, GeoTools, GMT,
+GPlates, GRASS GIS, gvSIG, Java Topolgy Suite, Mapserver, leaflet, NASA WorldWind, OSGeoLive, PostGIS, QGIS and rasdaman
+? including links to conference videos and the 1987 GRASS GIS video narrated by William Shatner (of Star Trek fame) for additional content !
+
+New: Learn how to cite PROJ by its Digital Object Identifier (DOI) to give scientific credit to the PROJ developer team:
+https://doi.org/10.5281/zenodo.5884394
+
+Kind regards,
+Peter
+
+<peter.loewe at gmx.de>
+
+
+
+
+From j1 at jimenezshaw.com  Sat Apr 29 09:32:28 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sat, 29 Apr 2023 18:32:28 +0200
+Subject: [PROJ] Problems with last EPSG update in Germany
+Message-ID: <CADRrdKvj+fBtb6r53Bpp4BrG7CzW2kvGFTc3n9padk=pwsSabA@mail.gmail.com>
+
+Hi
+
+When doing transformations from WGS84 (or ETRS89) to "DHDN + DHHN2016
+height" in PROJ 9.2.0 (using a German geoid file), it works fine.
+However in master it is only doing the vertical part, producing an error of
+more than a hundred meters horizontally.
+
+I was going to open an issue, but then I realized that EPSG was recently
+updated, and maybe that is the reason.
+
+I have a "proper" German geoid mode grid file. For this example I just
+copied the EGM2008 tif file into GCG2016.txt, and put it next to proj.db.
+The accuracy of the vertical component is not important in this case.
+
+(Note: BKG is working on releasing the German geoid model free. Let's see
+when it finally happens and the license they use.)
+
+In PROJ 9.2.0, the pipelines obtained with projinfo make sense to me,
+including both, horizontal and vertical operations:
+
+PROJ_NETWORK=ON projinfo -o proj --spatial-test intersects -s
+EPSG:4979 -t EPSG:31468+7837
+Candidate operations found: 10
+-------------------------------------
+Operation No. 1:
+
+unknown id, Inverse of ETRS89 to WGS 84 (1) + ETRS89 to DHHN2016
+height (1) + Inverse of DHDN to ETRS89 (8) + 3-degree Gauss-Kruger
+zone 4, 1.92 m, Germany - onshore - states of Baden-Wurtemberg,
+Bayern, Berlin, Brandenburg, Bremen, Hamburg, Hessen,
+Mecklenburg-Vorpommern, Niedersachsen, Nordrhein-Westfalen,
+Rheinland-Pfalz, Saarland, Sachsen, Sachsen-Anhalt,
+Schleswig-Holstein, Thuringen.
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+  +step +inv +proj=hgridshift +grids=de_adv_BETA2007.tif
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+-------------------------------------
+Operation No. 2:
+
+unknown id, Inverse of ETRS89 to WGS 84 (1) + ETRS89 to DHHN2016
+height (1) + Inverse of DHDN to ETRS89 (2) + 3-degree Gauss-Kruger
+zone 4, 4.02 m, Germany - states of former West Germany onshore -
+Baden-Wurtemberg, Bayern, Bremen, Hamburg, Hessen, Niedersachsen,
+Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Schleswig-Holstein.
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+  +step +proj=push +v_3
+  +step +proj=cart +ellps=GRS80
+  +step +inv +proj=helmert +x=598.1 +y=73.7 +z=418.2 +rx=0.202 +ry=0.045
+        +rz=-2.455 +s=6.7 +convention=position_vector
+  +step +inv +proj=cart +ellps=bessel
+  +step +proj=pop +v_3
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+-------------------------------------
+
+However The pipelines in master do use the vertical or horizontal
+transformation, but not both:
+
+PROJ_NETWORK=ON projinfo -o proj --spatial-test intersects -s
+EPSG:4979 -t EPSG:31468+7837
+Candidate operations found: 5
+-------------------------------------
+Operation No. 1:
+
+unknown id, Inverse of Ballpark geographic offset from
+ETRS89/DREF91/2016 to WGS 84 + ETRS89/DREF91/2016 to DHHN2016 height
+(1) + Inverse of Ballpark geographic offset
+from DHDN to ETRS89/DREF91/2016 + 3-degree Gauss-Kruger zone 4,
+unknown accuracy, Germany - onshore and offshore., has ballpark
+transformation
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+-------------------------------------
+Operation No. 2:
+
+unknown id, Inverse of Transformation from DHHN2016 height to WGS 84
+(ballpark vertical transformation, without ellipsoid height to
+vertical height correction) + Inverse of
+DHDN to WGS 84 (4) + 3-degree Gauss-Kruger zone 4, unknown accuracy,
+Germany - onshore - states of Baden-Wurtemberg, Bayern, Berlin,
+Brandenburg, Bremen,
+Hamburg, Hessen, Mecklenburg-Vorpommern, Niedersachsen,
+Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Sachsen,
+Sachsen-Anhalt, Schleswig-Holstein, Thuringen., has ballpark
+transformation
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +inv +proj=hgridshift +grids=de_adv_BETA2007.tif
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+-------------------------------------
+Operation No. 3:
+
+unknown id, Inverse of Transformation from DHHN2016 height to WGS 84
+(ballpark vertical transformation, without ellipsoid height to
+vertical height correction) + Inverse of
+Ballpark geographic offset from DHDN to WGS 84 + 3-degree Gauss-Kruger
+zone 4, unknown accuracy, World, has ballpark transformation
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+-------------------------------------
+Operation No. 4:
+
+unknown id, Inverse of Transformation from DHHN2016 height to WGS 84
+(ballpark vertical transformation, without ellipsoid height to
+vertical height correction) + Inverse of
+DHDN to WGS 84 (2) + 3-degree Gauss-Kruger zone 4, unknown accuracy,
+Germany - states of former West Germany onshore - Baden-Wurtemberg,
+Bayern, Bremen, Hamburg, Hessen,
+Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland,
+Schleswig-Holstein., has ballpark transformation
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +proj=push +v_3
+  +step +proj=cart +ellps=WGS84
+  +step +inv +proj=helmert +x=598.1 +y=73.7 +z=418.2 +rx=0.202 +ry=0.045
+        +rz=-2.455 +s=6.7 +convention=position_vector
+  +step +inv +proj=cart +ellps=bessel
+  +step +proj=pop +v_3
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+-------------------------------------
+Operation No. 5:
+
+unknown id, Inverse of Transformation from DHHN2016 height to WGS 84
+(ballpark vertical transformation, without ellipsoid height to
+vertical height correction) + Inverse of
+DHDN to WGS 84 (3) + 3-degree Gauss-Kruger zone 4, unknown accuracy,
+Germany - states of former East Germany - Berlin, Brandenburg;
+Mecklenburg-Vorpommern; Sachsen;
+Sachsen-Anhalt; Thuringen., has ballpark transformation
+
+PROJ string:
++proj=pipeline
+  +step +proj=axisswap +order=2,1
+  +step +proj=unitconvert +xy_in=deg +xy_out=rad
+  +step +proj=push +v_3
+  +step +proj=cart +ellps=WGS84
+  +step +inv +proj=helmert +x=612.4 +y=77 +z=440.2 +rx=-0.054 +ry=0.057
+        +rz=-2.797 +s=2.55 +convention=position_vector
+  +step +inv +proj=cart +ellps=bessel
+  +step +proj=pop +v_3
+  +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+  +step +proj=axisswap +order=2,1
+
+
+I think that the reason is that they deprecated the transformations
+EPSG:9925 'ETRS89 to DHHN2016 height (1)' and EPSG:9926 'ETRS89 to
+ETRS89 + DHHN2016 height (1)',
+creating instead EPSG:10294 'ETRS89/DREF91/2016 to DHHN2016 height
+(1)' and EPSG:10295 'ETRS89/DREF91/2016 to ETRS89/DREF91/2016 +
+DHHN2016 height (1)'.
+I have not found any transformation from WGS84 or ETRS89 to
+ETRS89/DREF91/2016, only 'ETRS89/DREF91/2016 to ETRF2000 (1)', that is
+not very useful I guess.
+The PRs that update the DB:
+https://github.com/OSGeo/PROJ/pull/3643/files ,
+https://github.com/OSGeo/PROJ/pull/3646/files
+
+(I don't know why I cannot find the transformation EPSG:9925 in
+epsg.org, asking to include deprecated entries)
+
+What can I do to perform the transformation from EPSG:4979 to
+EPSG:31468+7837 as in PROJ 9.2.0?
+
+Thanks.
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230429/c12926b0/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Apr 29 10:03:02 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 29 Apr 2023 19:03:02 +0200
+Subject: [PROJ] Problems with last EPSG update in Germany
+In-Reply-To: <CADRrdKvj+fBtb6r53Bpp4BrG7CzW2kvGFTc3n9padk=pwsSabA@mail.gmail.com>
+References: <CADRrdKvj+fBtb6r53Bpp4BrG7CzW2kvGFTc3n9padk=pwsSabA@mail.gmail.com>
+Message-ID: <8f7cb829-94db-6ba5-405a-d4799874aec9@spatialys.com>
+
+Javier,
+
+I believe PROJ behaves as best as it can given what it has in the 
+database. The related change record in the postgreSQL dump is:
+
+INSERT INTO epsg_change (change_id, report_date, date_closed, reporter, 
+request, tables_affected, codes_affected, change_comment, action) VALUES 
+(2023.006, '2023-01-24', '2023-03-01', 'Martina Sacher; BKG, for AdV', 
+'Add Germany DREF91 2016 realization.', 'Coordinate Reference System; 
+Datum; Coordinate Operation', '4647 5649 5650 5651 5652 5653 7837 8395 
+9924; 1170; 9925 9926', 'National realization of ETRS89. Extends 
+DHHN2016 from onshore to onshore and offshore. Continued in change 
+requests 2023.007 and 2023.008.', 'Added datum 1353, CRSs 10282-10291 
+and 10293, CTs 10292 and 10294-10295. Deprecated CRSs 8395 and 9924 and 
+CTs 9925 and 9926. For CRSs 4647 and 5649-5653, added supersession 
+trail. For datum 1170, amended origin information and changed extent 
+code from 3339 to 1103. For CRS 7837, amended remarks and changed extent 
+code from 3339 to 1103.');
+
+Either you locally patch your proj.db to set the deprecated flag of 
+EPSG:9925 and EPSG:9926 back to 0.
+
+Or more future proof, try to coordinate with IOGP and/or BKG/AdV so they 
+undeprecate them, possibly with an (in)accuracy greater than the 2cm one 
+that probably only applies to ETRS89/DREF91/2016 to DHHN2016, but not to 
+generic ETRS89 to DHHN2016.
+
+Even
+
+Le 29/04/2023 ? 18:32, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> When doing transformations from WGS84 (or ETRS89) to "DHDN + DHHN2016 
+> height" in PROJ 9.2.0 (using a German geoid file), it works fine.
+> However in master it is only doing the vertical part, producing an 
+> error of more than a hundred meters horizontally.
+>
+> I was going to open an issue, but then I realized that EPSG was 
+> recently updated, and maybe that is the reason.
+>
+> I have a "proper" German geoid mode grid file. For this example I just 
+> copied the EGM2008 tif file into GCG2016.txt, and put it next to 
+> proj.db. The accuracy of the vertical component is not important in 
+> this case.
+>
+> (Note: BKG is working on releasing the German geoid model free. Let's 
+> see when it finally happens and the license they use.)
+>
+> In PROJ 9.2.0, the pipelines obtained with projinfo make sense to me, 
+> including both, horizontal and vertical operations:
+> PROJ_NETWORK=ON projinfo -o proj --spatial-test intersects -s EPSG:4979 -t EPSG:31468+7837
+> Candidate operations found: 10
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, Inverse of ETRS89 to WGS 84 (1) + ETRS89 to DHHN2016 height (1) + Inverse of DHDN to ETRS89 (8) + 3-degree Gauss-Kruger zone 4, 1.92 m, Germany - onshore - states of Baden-Wurtemberg,
+> Bayern, Berlin, Brandenburg, Bremen, Hamburg, Hessen, Mecklenburg-Vorpommern, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Sachsen, Sachsen-Anhalt, Schleswig-Holstein, Thuringen.
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+>    +step +inv +proj=hgridshift +grids=de_adv_BETA2007.tif
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 2:
+>
+> unknown id, Inverse of ETRS89 to WGS 84 (1) + ETRS89 to DHHN2016 height (1) + Inverse of DHDN to ETRS89 (2) + 3-degree Gauss-Kruger zone 4, 4.02 m, Germany - states of former West Germany onshore -
+> Baden-Wurtemberg, Bayern, Bremen, Hamburg, Hessen, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Schleswig-Holstein.
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+>    +step +proj=push +v_3
+>    +step +proj=cart +ellps=GRS80
+>    +step +inv +proj=helmert +x=598.1 +y=73.7 +z=418.2 +rx=0.202 +ry=0.045
+>          +rz=-2.455 +s=6.7 +convention=position_vector
+>    +step +inv +proj=cart +ellps=bessel
+>    +step +proj=pop +v_3
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+>
+> However The pipelines in master do use the vertical or horizontal 
+> transformation, but not both:
+> PROJ_NETWORK=ON projinfo -o proj --spatial-test intersects -s EPSG:4979 -t EPSG:31468+7837
+> Candidate operations found: 5
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, Inverse of Ballpark geographic offset from ETRS89/DREF91/2016 to WGS 84 + ETRS89/DREF91/2016 to DHHN2016 height (1) + Inverse of Ballpark geographic offset
+> from DHDN to ETRS89/DREF91/2016 + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - onshore and offshore., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 2:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> DHDN to WGS 84 (4) + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - onshore - states of Baden-Wurtemberg, Bayern, Berlin, Brandenburg, Bremen,
+> Hamburg, Hessen, Mecklenburg-Vorpommern, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Sachsen, Sachsen-Anhalt, Schleswig-Holstein, Thuringen., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +inv +proj=hgridshift +grids=de_adv_BETA2007.tif
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 3:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> Ballpark geographic offset from DHDN to WGS 84 + 3-degree Gauss-Kruger zone 4, unknown accuracy, World, has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 4:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> DHDN to WGS 84 (2) + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - states of former West Germany onshore - Baden-Wurtemberg, Bayern, Bremen, Hamburg, Hessen,
+> Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Schleswig-Holstein., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +proj=push +v_3
+>    +step +proj=cart +ellps=WGS84
+>    +step +inv +proj=helmert +x=598.1 +y=73.7 +z=418.2 +rx=0.202 +ry=0.045
+>          +rz=-2.455 +s=6.7 +convention=position_vector
+>    +step +inv +proj=cart +ellps=bessel
+>    +step +proj=pop +v_3
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 5:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> DHDN to WGS 84 (3) + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - states of former East Germany - Berlin, Brandenburg;  Mecklenburg-Vorpommern;  Sachsen;  
+> Sachsen-Anhalt;  Thuringen., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>    +step +proj=axisswap +order=2,1
+>    +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>    +step +proj=push +v_3
+>    +step +proj=cart +ellps=WGS84
+>    +step +inv +proj=helmert +x=612.4 +y=77 +z=440.2 +rx=-0.054 +ry=0.057
+>          +rz=-2.797 +s=2.55 +convention=position_vector
+>    +step +inv +proj=cart +ellps=bessel
+>    +step +proj=pop +v_3
+>    +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>    +step +proj=axisswap +order=2,1
+>
+>
+> I think that the reason is that they deprecated the transformations 
+> EPSG:9925 'ETRS89 to DHHN2016 height (1)' and EPSG:9926 'ETRS89 to 
+> ETRS89 + DHHN2016 height (1)', creating instead EPSG:10294 
+> 'ETRS89/DREF91/2016 to DHHN2016 height (1)' and EPSG:10295 
+> 'ETRS89/DREF91/2016 to ETRS89/DREF91/2016+ DHHN2016 height (1)'. I 
+> have not found any transformation from WGS84 or ETRS89 to 
+> ETRS89/DREF91/2016, only 'ETRS89/DREF91/2016 to ETRF2000 (1)', that is 
+> not very useful I guess. The PRs that update the DB: 
+> https://github.com/OSGeo/PROJ/pull/3643/files , 
+> https://github.com/OSGeo/PROJ/pull/3646/files
+> (I don't know why I cannot find the transformation EPSG:9925 in 
+> epsg.org <http://epsg.org>, asking to include deprecated entries)
+> What can I do to perform the transformation from EPSG:4979 to 
+> EPSG:31468+7837 as in PROJ 9.2.0?
+> Thanks.
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230429/9f3ee563/attachment-0001.htm>
+
+From j1 at jimenezshaw.com  Sat Apr 29 10:58:04 2023
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sat, 29 Apr 2023 19:58:04 +0200
+Subject: [PROJ] Problems with last EPSG update in Germany
+In-Reply-To: <8f7cb829-94db-6ba5-405a-d4799874aec9@spatialys.com>
+References: <CADRrdKvj+fBtb6r53Bpp4BrG7CzW2kvGFTc3n9padk=pwsSabA@mail.gmail.com>
+ <8f7cb829-94db-6ba5-405a-d4799874aec9@spatialys.com>
+Message-ID: <CADRrdKuPcnyqSHtBs--h6yvSf368ge-7r498tUf6k=gtguigSg@mail.gmail.com>
+
+Thanks Even.
+
+Yes, I will contact BKG.
+
+I was thinking on another option: defining a Helmert transformation between
+ETRS89/DREF91/2016 and ETRS89, (probably with 0,0,0 params) and some
+(in)accuracy, to "connect" the new system with the old ones. Otherwise the
+"new" systems and the "old" ones are disconnected and only ballpark
+transformations are possible. Something like
+https://epsg.org/transformation_9703/ETRF2000-PL-to-ETRS89-1.html for
+Poland. (https://epsg.org/search/by-name/?query=ETRF2000-PL sounds very
+similar to
+https://epsg.org/search/by-name?searchedTerms=ETRS89%2FDREF91%2F2016 but
+without that "link" to the "old" systems).
+What do you think about this? Would it work?
+
+Thanks.
+
+On Sat, 29 Apr 2023 at 19:03, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Javier,
+>
+> I believe PROJ behaves as best as it can given what it has in the
+> database. The related change record in the postgreSQL dump is:
+>
+> INSERT INTO epsg_change (change_id, report_date, date_closed, reporter,
+> request, tables_affected, codes_affected, change_comment, action) VALUES
+> (2023.006, '2023-01-24', '2023-03-01', 'Martina Sacher; BKG, for AdV', 'Add
+> Germany DREF91 2016 realization.', 'Coordinate Reference System; Datum;
+> Coordinate Operation', '4647 5649 5650 5651 5652 5653 7837 8395 9924; 1170;
+> 9925 9926', 'National realization of ETRS89. Extends DHHN2016 from onshore
+> to onshore and offshore. Continued in change requests 2023.007 and
+> 2023.008.', 'Added datum 1353, CRSs 10282-10291 and 10293, CTs 10292 and
+> 10294-10295. Deprecated CRSs 8395 and 9924 and CTs 9925 and 9926. For CRSs
+> 4647 and 5649-5653, added supersession trail. For datum 1170, amended
+> origin information and changed extent code from 3339 to 1103. For CRS 7837,
+> amended remarks and changed extent code from 3339 to 1103.');
+>
+> Either you locally patch your proj.db to set the deprecated flag of
+> EPSG:9925 and EPSG:9926 back to 0.
+>
+> Or more future proof, try to coordinate with IOGP and/or BKG/AdV so they
+> undeprecate them, possibly with an (in)accuracy greater than the 2cm one
+> that probably only applies to ETRS89/DREF91/2016 to DHHN2016, but not to
+> generic ETRS89 to DHHN2016.
+>
+> Even
+> Le 29/04/2023 ? 18:32, Javier Jimenez Shaw a ?crit :
+>
+> Hi
+>
+> When doing transformations from WGS84 (or ETRS89) to "DHDN + DHHN2016
+> height" in PROJ 9.2.0 (using a German geoid file), it works fine.
+> However in master it is only doing the vertical part, producing an error
+> of more than a hundred meters horizontally.
+>
+> I was going to open an issue, but then I realized that EPSG was recently
+> updated, and maybe that is the reason.
+>
+> I have a "proper" German geoid mode grid file. For this example I just
+> copied the EGM2008 tif file into GCG2016.txt, and put it next to proj.db.
+> The accuracy of the vertical component is not important in this case.
+>
+> (Note: BKG is working on releasing the German geoid model free. Let's see
+> when it finally happens and the license they use.)
+>
+> In PROJ 9.2.0, the pipelines obtained with projinfo make sense to me,
+> including both, horizontal and vertical operations:
+>
+> PROJ_NETWORK=ON projinfo -o proj --spatial-test intersects -s EPSG:4979 -t EPSG:31468+7837
+> Candidate operations found: 10
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, Inverse of ETRS89 to WGS 84 (1) + ETRS89 to DHHN2016 height (1) + Inverse of DHDN to ETRS89 (8) + 3-degree Gauss-Kruger zone 4, 1.92 m, Germany - onshore - states of Baden-Wurtemberg,
+> Bayern, Berlin, Brandenburg, Bremen, Hamburg, Hessen, Mecklenburg-Vorpommern, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Sachsen, Sachsen-Anhalt, Schleswig-Holstein, Thuringen.
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+>   +step +inv +proj=hgridshift +grids=de_adv_BETA2007.tif
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 2:
+>
+> unknown id, Inverse of ETRS89 to WGS 84 (1) + ETRS89 to DHHN2016 height (1) + Inverse of DHDN to ETRS89 (2) + 3-degree Gauss-Kruger zone 4, 4.02 m, Germany - states of former West Germany onshore -
+> Baden-Wurtemberg, Bayern, Bremen, Hamburg, Hessen, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Schleswig-Holstein.
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+>   +step +proj=push +v_3
+>   +step +proj=cart +ellps=GRS80
+>   +step +inv +proj=helmert +x=598.1 +y=73.7 +z=418.2 +rx=0.202 +ry=0.045
+>         +rz=-2.455 +s=6.7 +convention=position_vector
+>   +step +inv +proj=cart +ellps=bessel
+>   +step +proj=pop +v_3
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+>
+>
+> However The pipelines in master do use the vertical or horizontal
+> transformation, but not both:
+>
+> PROJ_NETWORK=ON projinfo -o proj --spatial-test intersects -s EPSG:4979 -t EPSG:31468+7837
+> Candidate operations found: 5
+> -------------------------------------
+> Operation No. 1:
+>
+> unknown id, Inverse of Ballpark geographic offset from ETRS89/DREF91/2016 to WGS 84 + ETRS89/DREF91/2016 to DHHN2016 height (1) + Inverse of Ballpark geographic offset
+> from DHDN to ETRS89/DREF91/2016 + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - onshore and offshore., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +inv +proj=vgridshift +grids=GCG2016.txt +multiplier=1
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 2:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> DHDN to WGS 84 (4) + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - onshore - states of Baden-Wurtemberg, Bayern, Berlin, Brandenburg, Bremen,
+> Hamburg, Hessen, Mecklenburg-Vorpommern, Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Sachsen, Sachsen-Anhalt, Schleswig-Holstein, Thuringen., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +inv +proj=hgridshift +grids=de_adv_BETA2007.tif
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 3:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> Ballpark geographic offset from DHDN to WGS 84 + 3-degree Gauss-Kruger zone 4, unknown accuracy, World, has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 4:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> DHDN to WGS 84 (2) + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - states of former West Germany onshore - Baden-Wurtemberg, Bayern, Bremen, Hamburg, Hessen,
+> Niedersachsen, Nordrhein-Westfalen, Rheinland-Pfalz, Saarland, Schleswig-Holstein., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=push +v_3
+>   +step +proj=cart +ellps=WGS84
+>   +step +inv +proj=helmert +x=598.1 +y=73.7 +z=418.2 +rx=0.202 +ry=0.045
+>         +rz=-2.455 +s=6.7 +convention=position_vector
+>   +step +inv +proj=cart +ellps=bessel
+>   +step +proj=pop +v_3
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+> -------------------------------------
+> Operation No. 5:
+>
+> unknown id, Inverse of Transformation from DHHN2016 height to WGS 84 (ballpark vertical transformation, without ellipsoid height to vertical height correction) + Inverse of
+> DHDN to WGS 84 (3) + 3-degree Gauss-Kruger zone 4, unknown accuracy, Germany - states of former East Germany - Berlin, Brandenburg; Mecklenburg-Vorpommern; Sachsen;
+> Sachsen-Anhalt; Thuringen., has ballpark transformation
+>
+> PROJ string:
+> +proj=pipeline
+>   +step +proj=axisswap +order=2,1
+>   +step +proj=unitconvert +xy_in=deg +xy_out=rad
+>   +step +proj=push +v_3
+>   +step +proj=cart +ellps=WGS84
+>   +step +inv +proj=helmert +x=612.4 +y=77 +z=440.2 +rx=-0.054 +ry=0.057
+>         +rz=-2.797 +s=2.55 +convention=position_vector
+>   +step +inv +proj=cart +ellps=bessel
+>   +step +proj=pop +v_3
+>   +step +proj=tmerc +lat_0=0 +lon_0=12 +k=1 +x_0=4500000 +y_0=0 +ellps=bessel
+>   +step +proj=axisswap +order=2,1
+>
+>
+>
+> I think that the reason is that they deprecated the transformations EPSG:9925 'ETRS89 to DHHN2016 height (1)' and EPSG:9926 'ETRS89 to ETRS89 + DHHN2016 height (1)',
+> creating instead EPSG:10294 'ETRS89/DREF91/2016 to DHHN2016 height (1)' and EPSG:10295 'ETRS89/DREF91/2016 to ETRS89/DREF91/2016 + DHHN2016 height (1)'.
+> I have not found any transformation from WGS84 or ETRS89 to ETRS89/DREF91/2016, only 'ETRS89/DREF91/2016 to ETRF2000 (1)', that is not very useful I guess.
+> The PRs that update the DB: https://github.com/OSGeo/PROJ/pull/3643/files , https://github.com/OSGeo/PROJ/pull/3646/files
+>
+> (I don't know why I cannot find the transformation EPSG:9925 in epsg.org, asking to include deprecated entries)
+>
+>
+> What can I do to perform the transformation from EPSG:4979 to EPSG:31468+7837 as in PROJ 9.2.0?
+>
+>
+> Thanks.
+>
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20230429/5d44bf5b/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Apr 29 11:31:12 2023
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 29 Apr 2023 20:31:12 +0200
+Subject: [PROJ] Problems with last EPSG update in Germany
+In-Reply-To: <CADRrdKuPcnyqSHtBs--h6yvSf368ge-7r498tUf6k=gtguigSg@mail.gmail.com>
+References: <CADRrdKvj+fBtb6r53Bpp4BrG7CzW2kvGFTc3n9padk=pwsSabA@mail.gmail.com>
+ <8f7cb829-94db-6ba5-405a-d4799874aec9@spatialys.com>
+ <CADRrdKuPcnyqSHtBs--h6yvSf368ge-7r498tUf6k=gtguigSg@mail.gmail.com>
+Message-ID: <35883941-6b37-9837-785b-132dd4c1edd2@spatialys.com>
+
+
+Le 29/04/2023 ? 19:58, Javier Jimenez Shaw a ?crit?:
+> Thanks Even.
+>
+> Yes, I will contact BKG.
+>
+> I was thinking on another option: defining a Helmert transformation 
+> between ETRS89/DREF91/2016 and ETRS89, (probably with 0,0,0 params) 
+> and some (in)accuracy, to "connect" the new system with the old ones. 
+> Otherwise the "new" systems and the "old" ones are disconnected and 
+> only ballpark transformations are possible. Something like 
+> https://epsg.org/transformation_9703/ETRF2000-PL-to-ETRS89-1.html for 
+> Poland. (https://epsg.org/search/by-name/?query=ETRF2000-PL sounds 
+> very similar to 
+> https://epsg.org/search/by-name?searchedTerms=ETRS89%2FDREF91%2F2016 
+> but without that "link" to the "old" systems).
+> What do you think about this? Would it work?
+
+Yes that also crossed through my mind. I believe it should work (but 
+beware of the limitations of PROJ inference logic of guessing at most a 
+single intermediate CRS, but for doing WGS84 -> ETRS89 -> 
+ETRS89/DREF91/2016, that should work). You might simulate that 
+beforehand by creating such a Helmert transformation.
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+

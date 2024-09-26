@@ -1,0 +1,880 @@
+From ulisesmartinibarra at gmail.com  Mon Jan  2 07:02:54 2023
+From: ulisesmartinibarra at gmail.com (Ulises Ibarra)
+Date: Mon, 2 Jan 2023 09:02:54 -0600
+Subject: [pdal] About litree filter output: "PDAL: All points collinear"
+In-Reply-To: <67AB1051-6EF6-4274-9CE9-5A809E65D332@hobu.co>
+References: <CAP=Ak6g1b7x7DyBSU5Zn3Xa1VWY4gvAe6qdDHCB6gGP9rvEXGA@mail.gmail.com>
+ <2ef1db6a-6d25-cf7a-868b-71e70d3a2014@gmail.com>
+ <CAP=Ak6irp8NtLMddKb2Ejsf4x7yW3TCDTsFSzUgCa52LW1h72A@mail.gmail.com>
+ <67AB1051-6EF6-4274-9CE9-5A809E65D332@hobu.co>
+Message-ID: <CAP=Ak6iLV7BdxVF+-T=Er63AZDMnxq=_Zx=45-m0qXPvxcDJNw@mail.gmail.com>
+
+Hi Howard:
+
+
+El mi?, 28 dic 2022 a las 12:45, Howard Butler (<howard at hobu.co>) escribi?:
+
+>
+>
+> > On Dec 27, 2022, at 9:28 PM, Ulises Ibarra <ulisesmartinibarra at gmail.com>
+> wrote:
+> >
+> > In total I have 47 scans of that piece of rainforest. A question: What
+> do you think about the processing time of a large file that contains the 47
+> scans: Could it take 24 hours X 47 files = 1128 hours?
+>
+> The AWS spot rate for a c7g.2xlarge in the Oregon region is $0.142. That's
+> 8 cpus and 16gb of RAM. Naively splitting your 1128 compute hours over that
+> (1128/8 * 0.142) brings up a total cost of $20.002
+>
+> PDAL purposefully does not split up data and try to internally optimize
+> the computing of pipelines because they are extremely sensitive to the
+> various filters and their configurations. It is on users to divide and
+> conquer on their own with PDAL. For filters.litree, that means breaking the
+> data up and trying to find the filters.sample.radius setting that gives you
+> good enough results without blowing up memory or computation time.
+>
+
+I thought it was my job to send filters.litree a file that already had a
+suitable subsampling, something like just a point inside a sphere with
+radius 2 cm. I have to read the paper or the litree code to understand, if
+I can understand, what's going on there.
+
+>
+> Your pipeline with filters.litree is obviously not very efficient, but the
+> cost in effort to optimize it for one-time compute jobs far outstrips the
+> cost of parallelizing the computation in the cloud somewhere and being done
+> with it. That math obviously changes if you need to process the entire
+> rainforest with filters.litree :)
+>
+
+Thank you Howard.
+Happy new year!
+
+
+>
+> Howard
+>
+>
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230102/969bfe93/attachment.htm>
+
+From howard at hobu.co  Fri Jan 13 09:34:22 2023
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 13 Jan 2023 11:34:22 -0600
+Subject: [pdal] PDAL 2.5.0 Released
+Message-ID: <D731B765-69D1-4B34-8E5C-488FC10AC058@hobu.co>
+
+All,
+
+It is my pleasure to announce the release of PDAL 2.5.0.
+
+Tons of new features and bug fixes. Dig into the release notes to learn more.
+
+https://github.com/PDAL/PDAL/releases/tag/2.5.0
+
+Conda packaging will be forthcoming.
+
+Howard
+
+From ulisesmartinibarra at gmail.com  Mon Jan 16 14:13:21 2023
+From: ulisesmartinibarra at gmail.com (Ulises Ibarra)
+Date: Mon, 16 Jan 2023 16:13:21 -0600
+Subject: [pdal] About litree filter: too much computation time,
+ and other questions.
+Message-ID: <CAP=Ak6h9usCF86ZuC9zKs-d3qxyBG35AC9U0hkX=5D=MNQEheQ@mail.gmail.com>
+
+Hello everyone:
+I have a few questions about the "litree" filter and the computation time.
+
+After reading the paper: "2021-Li-PERS.pdf" which talks about the "litree"
+filter to segment trees, I thought I understood the mechanics of the
+"litree" filter, but most likely not.
+
+When applying filters.litree to a file
+"L3_0+L3_1_sample_cada_4cm_suelo_dalaunay.las" with 2 million points, the
+processing time I have so far is a little over 72 hours.
+
+My pipeline is the following:
+{
+"pipeline":
+[
+        {
+        "type":"readers.las"
+        },
+    {
+        "type":"filters.litree",
+        "min_points":3000,
+        "min_height":3.0,
+        "radius":2.0
+    },
+    {
+        "type":"writers.las",
+        "minor_version":4,
+        "scale_x":"0.001",
+        "scale_y":"0.001",
+        "scale_z":"0.001",
+        "extra_dims":"all"
+    }
+]
+}
+
+But I applied previous pipelines to identify where in the process I'm
+missing:
+
+L3_0.las +L3_1.las
+|
+(filters.merge) (1)
+|
+L3_0+L3_1.las
+|
+(filters.sample) (2)
+|
+L3_0+L3_1_sample_cada_4cm.las
+|
+(filters.elm+filters.outlier+filters.smrf) (3)
+|
+L3_0+L3_1_sample_cada_4cm_suelo.las
+|
+(filters.hag_delaunay+filters.sort,dimension:HeihtAboveGround,order:DESC)
+(4)
+|
+L3_0+L3_1_sample_cada_4cm_suelo_dalaunay.las (Here is where I am)
+|
+(filteres.litree) (5)
+|
+L3_0+L3_1_sample_cada_4cm_suelo_dalaunay_litree.las (This is where I want
+to arrive)
+
+*Questions:*
+
+1. What could I be doing wrong?
+2. Does the "radius" option refer to the "spacing threshold" they talk
+about in the paper? I set radios:2. May be I wil  a get a
+3. I set the value of min_points to 3000, thinking that any cluster of
+points better than that value would not be considered and would facilitate
+the computation. I'm wrong?
+
+
+I hope you can help me. I feel really confused.
+
+Tthak you.
+
+Ulises M. Ibarra
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230116/cd329e36/attachment.htm>
+
+From brad.chambers at gmail.com  Tue Jan 17 09:46:20 2023
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Tue, 17 Jan 2023 11:46:20 -0600
+Subject: [pdal] About litree filter: too much computation time,
+ and other questions.
+In-Reply-To: <CAP=Ak6h9usCF86ZuC9zKs-d3qxyBG35AC9U0hkX=5D=MNQEheQ@mail.gmail.com>
+References: <CAP=Ak6h9usCF86ZuC9zKs-d3qxyBG35AC9U0hkX=5D=MNQEheQ@mail.gmail.com>
+Message-ID: <CAJyqqPzGMRyToXsdM8hzp0rzRh5O6QCwJG5gZ7fN-rB_smKFXQ@mail.gmail.com>
+
+Ulises,
+
+What version of PDAL are you using? I think this method will always be
+fairly computationally complex, but we did have a nice speed-up with
+https://github.com/PDAL/PDAL/pull/3520 prior to the 2.4 PDAL release.
+
+Radius is distance used to select a dummy point. We default to 100 m, the
+same as is used in the paper. The purpose of the dummy point is to seed the
+class of points that will NOT belong to the tree currently being segmented.
+
+min_points is only used after the current tree has been clustered. If it's
+too small, it is skipped. Changing the min_points will not speed things up
+significantly.
+
+I think the biggest opportunities for speeding computation would be to
+downsample the data prior to running the filter or to tile the data into
+smaller chunks. Whether that is a satisfactory solution for your workflow
+or not is really up to you.
+
+Brad
+
+On Mon, Jan 16, 2023 at 4:13 PM Ulises Ibarra <ulisesmartinibarra at gmail.com>
+wrote:
+
+> Hello everyone:
+> I have a few questions about the "litree" filter and the computation time.
+>
+> After reading the paper: "2021-Li-PERS.pdf" which talks about the "litree"
+> filter to segment trees, I thought I understood the mechanics of the
+> "litree" filter, but most likely not.
+>
+> When applying filters.litree to a file
+> "L3_0+L3_1_sample_cada_4cm_suelo_dalaunay.las" with 2 million points, the
+> processing time I have so far is a little over 72 hours.
+>
+> My pipeline is the following:
+> {
+> "pipeline":
+> [
+>         {
+>         "type":"readers.las"
+>         },
+>     {
+>         "type":"filters.litree",
+>         "min_points":3000,
+>         "min_height":3.0,
+>         "radius":2.0
+>     },
+>     {
+>         "type":"writers.las",
+>         "minor_version":4,
+>         "scale_x":"0.001",
+>         "scale_y":"0.001",
+>         "scale_z":"0.001",
+>         "extra_dims":"all"
+>     }
+> ]
+> }
+>
+> But I applied previous pipelines to identify where in the process I'm
+> missing:
+>
+> L3_0.las +L3_1.las
+> |
+> (filters.merge) (1)
+> |
+> L3_0+L3_1.las
+> |
+> (filters.sample) (2)
+> |
+> L3_0+L3_1_sample_cada_4cm.las
+> |
+> (filters.elm+filters.outlier+filters.smrf) (3)
+> |
+> L3_0+L3_1_sample_cada_4cm_suelo.las
+> |
+> (filters.hag_delaunay+filters.sort,dimension:HeihtAboveGround,order:DESC)
+> (4)
+> |
+> L3_0+L3_1_sample_cada_4cm_suelo_dalaunay.las (Here is where I am)
+> |
+> (filteres.litree) (5)
+> |
+> L3_0+L3_1_sample_cada_4cm_suelo_dalaunay_litree.las (This is where I want
+> to arrive)
+>
+> *Questions:*
+>
+> 1. What could I be doing wrong?
+> 2. Does the "radius" option refer to the "spacing threshold" they talk
+> about in the paper? I set radios:2. May be I wil  a get a
+> 3. I set the value of min_points to 3000, thinking that any cluster of
+> points better than that value would not be considered and would facilitate
+> the computation. I'm wrong?
+>
+>
+> I hope you can help me. I feel really confused.
+>
+> Tthak you.
+>
+> Ulises M. Ibarra
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230117/58823b1a/attachment.htm>
+
+From ulisesmartinibarra at gmail.com  Tue Jan 17 11:36:25 2023
+From: ulisesmartinibarra at gmail.com (Ulises Ibarra)
+Date: Tue, 17 Jan 2023 13:36:25 -0600
+Subject: [pdal] About litree filter: too much computation time,
+ and other questions.
+In-Reply-To: <CAJyqqPzGMRyToXsdM8hzp0rzRh5O6QCwJG5gZ7fN-rB_smKFXQ@mail.gmail.com>
+References: <CAP=Ak6h9usCF86ZuC9zKs-d3qxyBG35AC9U0hkX=5D=MNQEheQ@mail.gmail.com>
+ <CAJyqqPzGMRyToXsdM8hzp0rzRh5O6QCwJG5gZ7fN-rB_smKFXQ@mail.gmail.com>
+Message-ID: <CAP=Ak6iLMjuw268fmaY6BQMSYB2Ta3BLKJ___26gKf9RJux9CQ@mail.gmail.com>
+
+Brad, hello:
+
+
+El mar, 17 ene 2023 a las 11:46, Bradley Chambers (<brad.chambers at gmail.com>)
+escribi?:
+
+> Ulises,
+>
+> What version of PDAL are you using? I think this method will always be
+> fairly computationally complex, but we did have a nice speed-up with
+> https://github.com/PDAL/PDAL/pull/3520 prior to the 2.4 PDAL release.
+>
+
+pdal 2.4.3 (git-version: dcef18)
+
+
+>
+> Radius is distance used to select a dummy point. We default to 100 m, the
+> same as is used in the paper. The purpose of the dummy point is to seed the
+> class of points that will NOT belong to the tree currently being segmented.
+>
+
+Oh, I see that the paper says "We then insert a dummy point n0 that is far
+away (e.g., 100 m) from t0 into Ni."
+
+>
+> min_points is only used after the current tree has been clustered. If it's
+> too small, it is skipped. Changing the min_points will not speed things up
+> significantly.
+>
+
+ Thanks for the explanation.
+
+>
+> I think the biggest opportunities for speeding computation would be to
+> downsample the data prior to running the filter or to tile the data into
+> smaller chunks. Whether that is a satisfactory solution for your workflow
+> or not is really up to you.
+>
+
+Please, let me ask you a few questions:
+
+1. Sampling a point inside a cube with a size of about 10 centimeters on
+each side, would this seem like a good level of subsampling to you?
+
+2. I could cut the cloud of points into tiles, but would something serious
+happen if a tree is half in one tile and half in another?
+
+3. Would each of the files for each tile be processed by batch processing?
+
+Thanks you very much
+
+Ulises
+
+
+> Brad
+>
+> On Mon, Jan 16, 2023 at 4:13 PM Ulises Ibarra <
+> ulisesmartinibarra at gmail.com> wrote:
+>
+>> Hello everyone:
+>> I have a few questions about the "litree" filter and the computation
+>> time.
+>>
+>> After reading the paper: "2021-Li-PERS.pdf" which talks about the
+>> "litree" filter to segment trees, I thought I understood the mechanics of
+>> the "litree" filter, but most likely not.
+>>
+>> When applying filters.litree to a file
+>> "L3_0+L3_1_sample_cada_4cm_suelo_dalaunay.las" with 2 million points, the
+>> processing time I have so far is a little over 72 hours.
+>>
+>> My pipeline is the following:
+>> {
+>> "pipeline":
+>> [
+>>         {
+>>         "type":"readers.las"
+>>         },
+>>     {
+>>         "type":"filters.litree",
+>>         "min_points":3000,
+>>         "min_height":3.0,
+>>         "radius":2.0
+>>     },
+>>     {
+>>         "type":"writers.las",
+>>         "minor_version":4,
+>>         "scale_x":"0.001",
+>>         "scale_y":"0.001",
+>>         "scale_z":"0.001",
+>>         "extra_dims":"all"
+>>     }
+>> ]
+>> }
+>>
+>> But I applied previous pipelines to identify where in the process I'm
+>> missing:
+>>
+>> L3_0.las +L3_1.las
+>> |
+>> (filters.merge) (1)
+>> |
+>> L3_0+L3_1.las
+>> |
+>> (filters.sample) (2)
+>> |
+>> L3_0+L3_1_sample_cada_4cm.las
+>> |
+>> (filters.elm+filters.outlier+filters.smrf) (3)
+>> |
+>> L3_0+L3_1_sample_cada_4cm_suelo.las
+>> |
+>> (filters.hag_delaunay+filters.sort,dimension:HeihtAboveGround,order:DESC)
+>> (4)
+>> |
+>> L3_0+L3_1_sample_cada_4cm_suelo_dalaunay.las (Here is where I am)
+>> |
+>> (filteres.litree) (5)
+>> |
+>> L3_0+L3_1_sample_cada_4cm_suelo_dalaunay_litree.las (This is where I want
+>> to arrive)
+>>
+>> *Questions:*
+>>
+>> 1. What could I be doing wrong?
+>> 2. Does the "radius" option refer to the "spacing threshold" they talk
+>> about in the paper? I set radios:2. May be I wil  a get a
+>> 3. I set the value of min_points to 3000, thinking that any cluster of
+>> points better than that value would not be considered and would facilitate
+>> the computation. I'm wrong?
+>>
+>>
+>> I hope you can help me. I feel really confused.
+>>
+>> Tthak you.
+>>
+>> Ulises M. Ibarra
+>>
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230117/d1d98ebf/attachment-0001.htm>
+
+From brad.chambers at gmail.com  Tue Jan 17 11:41:58 2023
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Tue, 17 Jan 2023 13:41:58 -0600
+Subject: [pdal] About litree filter: too much computation time,
+ and other questions.
+In-Reply-To: <CAP=Ak6iLMjuw268fmaY6BQMSYB2Ta3BLKJ___26gKf9RJux9CQ@mail.gmail.com>
+References: <CAP=Ak6h9usCF86ZuC9zKs-d3qxyBG35AC9U0hkX=5D=MNQEheQ@mail.gmail.com>
+ <CAJyqqPzGMRyToXsdM8hzp0rzRh5O6QCwJG5gZ7fN-rB_smKFXQ@mail.gmail.com>
+ <CAP=Ak6iLMjuw268fmaY6BQMSYB2Ta3BLKJ___26gKf9RJux9CQ@mail.gmail.com>
+Message-ID: <CAJyqqPy9b-xJ405N21ySbx2v+GPjjca+NsaaisOTXT+5nEG2WA@mail.gmail.com>
+
+On Tue, Jan 17, 2023 at 1:36 PM Ulises Ibarra <ulisesmartinibarra at gmail.com>
+wrote:
+
+>
+> 1. Sampling a point inside a cube with a size of about 10 centimeters on
+> each side, would this seem like a good level of subsampling to you?
+>
+
+I have not thoroughly studied this topic and it will be data dependent, but
+I would guess that this would still work quite well. You might just have to
+experiment on a small patch to tune the settings to your liking before
+expanding to the full scene.
+
+
+> 2. I could cut the cloud of points into tiles, but would something serious
+> happen if a tree is half in one tile and half in another?
+>
+
+Correct. In the best case, you'd have two correctly segmented half trees in
+each tile that you'd need to stitch together somehow.
+
+
+> 3. Would each of the files for each tile be processed by batch processing?
+>
+
+ Any batch processing or parallelization of your workflow will be external
+to PDAL, but would be a reasonable approach to the problem.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230117/829b0e6e/attachment.htm>
+
+From ulisesmartinibarra at gmail.com  Tue Jan 17 12:11:35 2023
+From: ulisesmartinibarra at gmail.com (Ulises Ibarra)
+Date: Tue, 17 Jan 2023 14:11:35 -0600
+Subject: [pdal] About litree filter: too much computation time,
+ and other questions.
+In-Reply-To: <CAJyqqPy9b-xJ405N21ySbx2v+GPjjca+NsaaisOTXT+5nEG2WA@mail.gmail.com>
+References: <CAP=Ak6h9usCF86ZuC9zKs-d3qxyBG35AC9U0hkX=5D=MNQEheQ@mail.gmail.com>
+ <CAJyqqPzGMRyToXsdM8hzp0rzRh5O6QCwJG5gZ7fN-rB_smKFXQ@mail.gmail.com>
+ <CAP=Ak6iLMjuw268fmaY6BQMSYB2Ta3BLKJ___26gKf9RJux9CQ@mail.gmail.com>
+ <CAJyqqPy9b-xJ405N21ySbx2v+GPjjca+NsaaisOTXT+5nEG2WA@mail.gmail.com>
+Message-ID: <CAP=Ak6gj0LdB6d+w0=JyMg8SGoJnF9XEidV7ygedYGdcCU0FkA@mail.gmail.com>
+
+Brad:
+
+Thank you very much for your kind answers.
+
+Ulises
+
+El mar, 17 ene 2023 a las 13:42, Bradley Chambers (<brad.chambers at gmail.com>)
+escribi?:
+
+>
+> On Tue, Jan 17, 2023 at 1:36 PM Ulises Ibarra <
+> ulisesmartinibarra at gmail.com> wrote:
+>
+>>
+>> 1. Sampling a point inside a cube with a size of about 10 centimeters on
+>> each side, would this seem like a good level of subsampling to you?
+>>
+>
+> I have not thoroughly studied this topic and it will be data dependent,
+> but I would guess that this would still work quite well. You might just
+> have to experiment on a small patch to tune the settings to your liking
+> before expanding to the full scene.
+>
+>
+>> 2. I could cut the cloud of points into tiles, but would something
+>> serious happen if a tree is half in one tile and half in another?
+>>
+>
+> Correct. In the best case, you'd have two correctly segmented half trees
+> in each tile that you'd need to stitch together somehow.
+>
+>
+>> 3. Would each of the files for each tile be processed by batch processing?
+>>
+>
+>  Any batch processing or parallelization of your workflow will be external
+> to PDAL, but would be a reasonable approach to the problem.
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230117/46c2baf0/attachment.htm>
+
+From calba at lillemetropole.fr  Thu Jan 19 02:44:19 2023
+From: calba at lillemetropole.fr (=?iso-8859-1?Q?ALBA_Cl=E9ment?=)
+Date: Thu, 19 Jan 2023 10:44:19 +0000
+Subject: [pdal] pdal-parallelizer 2.0.1 is now available
+Message-ID: <77368fe1a2974baa8b41aebcdd1c5051@lillemetropole.fr>
+
+Hi everyone,
+
+The new version of pdal-parallelizer (v 2.0.1) is now available !
+
+This new version includes a Python API (import pdal_parallelizer) which allows you to use the process-pipelines function directly in your Python code. Thanks to this, you can also specify a timeout value directly in the parameters of the function, which can be useful if you want to run several processes in a row without having to specify this value each time.
+
+The API is documented in the new Read The Docs documentation available here : https://pdal-parallelizer.readthedocs.io/
+
+Regards,
+Cl?ment Alba
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230119/4883ee32/attachment.htm>
+
+From theo.hartsook at gmail.com  Fri Jan 27 12:12:13 2023
+From: theo.hartsook at gmail.com (Theo Hartsook)
+Date: Fri, 27 Jan 2023 12:12:13 -0800
+Subject: [pdal] Troubleshooting GDAL writer and "Grid width out of range."
+Message-ID: <CAL-SYDx_vn+qwXkJzwebQa1q_qrkW5+1BSkC_nCs_v+7M34G_Q@mail.gmail.com>
+
+Hi everyone,
+
+I am having trouble figuring out where the problem is with a script I am
+working on.
+
+My goal is to rasterize a point cloud at different height ranges (i.e.
+0-10m height above ground, 10.1-20m height above ground, etc.).
+
+The point cloud stored HeightAboveGround to an extra dimension and I
+confirmed that the values are correct by viewing in CloudCompare.
+
+The steps I use are the following:
+
+{'type':'readers.las', 'filename':input_las,
+'extra_dims':'HeightAboveGround=float32'}
+{'type':'filters.range', 'limits':'HeightAboveGround[0:10]'}
+{'filename':band,'gdaldriver':'GTiff','output_type':'count','resolution':'1','type':'writers.gdal'}
+
+This leads to a strange part. Mostly these steps work and produce rasters
+that look how I expect at that height range. It has never failed on the
+lowest height range, say 0-10m. However, on following height ranges, say
+10-20m, I receive the following error:
+"RuntimeError: writers.gdal: Grid width out of range."
+I am not sure where in my process is triggering this error, since it works
+on the prior height range. The range filter works at each height range,
+even when the GDAL step fails. I confirmed this by writing the filtered
+point clouds to disc instead of rasterizing them and viewing them in
+CloudCompare.
+
+I created another version of this same point cloud where the Z values were
+replaced with HeightAboveGround using the ferry filter and then saved to
+disc. When I change the range filter to select for Z instead of height
+above ground, the raster step doesn't throw an error at any height range
+and produces the results I expect. However, if I try to add these steps to
+the pipeline when reading the original point cloud (read point cloud with
+HeightAboveGround, ferry HeightAboveGround to Z, then range filter for Z
+values), I still get the Grid width out of range error on the second height
+range.
+
+I tested one last thing. I wondered if there was some error with how my
+script generated the height ranges. So I manually ran the filter at the
+next increment (10-20m) and unfortunately still got the same error. This
+scenario has me quite confused and I would appreciate any help and advice!
+My best guess from my tests is that the problem lies with the GDAL step,
+not prior.
+
+Best regards,
+Theo Hartsook
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230127/40b241b2/attachment.htm>
+
+From howard at hobu.co  Fri Jan 27 12:44:13 2023
+From: howard at hobu.co (Howard Butler)
+Date: Fri, 27 Jan 2023 14:44:13 -0600
+Subject: [pdal] Troubleshooting GDAL writer and "Grid width out of
+ range."
+In-Reply-To: <CAL-SYDx_vn+qwXkJzwebQa1q_qrkW5+1BSkC_nCs_v+7M34G_Q@mail.gmail.com>
+References: <CAL-SYDx_vn+qwXkJzwebQa1q_qrkW5+1BSkC_nCs_v+7M34G_Q@mail.gmail.com>
+Message-ID: <58237B62-C068-465C-BC1D-68A2E3F22D6F@hobu.co>
+
+Try the --nostream option when running `pdal pipeline` and see if it will calculate grid extents for you. Additionally, make sure your limits aren't causing zero points to come through your filters.
+
+Finally, take a look at filters.expression instead of filters.range, which was just added for PDAL 2.5 https://pdal.io/en/stable/stages/filters.expression.html The expression filter is more powerful than filters.range and probably easier to write.
+
+Hope this helps,
+
+Howard
+
+> On Jan 27, 2023, at 2:12 PM, Theo Hartsook <theo.hartsook at gmail.com> wrote:
+> 
+> Hi everyone,
+> 
+> I am having trouble figuring out where the problem is with a script I am working on.
+> 
+> My goal is to rasterize a point cloud at different height ranges (i.e. 0-10m height above ground, 10.1-20m height above ground, etc.). 
+> 
+> The point cloud stored HeightAboveGround to an extra dimension and I confirmed that the values are correct by viewing in CloudCompare.
+> 
+> The steps I use are the following:
+> 
+> {'type':'readers.las', 'filename':input_las, 'extra_dims':'HeightAboveGround=float32'}
+> {'type':'filters.range', 'limits':'HeightAboveGround[0:10]'}
+> {'filename':band,'gdaldriver':'GTiff','output_type':'count','resolution':'1','type':'writers.gdal'}
+> 
+> This leads to a strange part. Mostly these steps work and produce rasters that look how I expect at that height range. It has never failed on the lowest height range, say 0-10m. However, on following height ranges, say 10-20m, I receive the following error:
+> "RuntimeError: writers.gdal: Grid width out of range."
+> I am not sure where in my process is triggering this error, since it works on the prior height range. The range filter works at each height range, even when the GDAL step fails. I confirmed this by writing the filtered point clouds to disc instead of rasterizing them and viewing them in CloudCompare.
+> 
+> I created another version of this same point cloud where the Z values were replaced with HeightAboveGround using the ferry filter and then saved to disc. When I change the range filter to select for Z instead of height above ground, the raster step doesn't throw an error at any height range and produces the results I expect. However, if I try to add these steps to the pipeline when reading the original point cloud (read point cloud with HeightAboveGround, ferry HeightAboveGround to Z, then range filter for Z values), I still get the Grid width out of range error on the second height range.
+> 
+> I tested one last thing. I wondered if there was some error with how my script generated the height ranges. So I manually ran the filter at the next increment (10-20m) and unfortunately still got the same error. This scenario has me quite confused and I would appreciate any help and advice! My best guess from my tests is that the problem lies with the GDAL step, not prior.
+> 
+> Best regards,
+> Theo Hartsook
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+From theo.hartsook at gmail.com  Mon Jan 30 15:59:35 2023
+From: theo.hartsook at gmail.com (Theo Hartsook)
+Date: Mon, 30 Jan 2023 15:59:35 -0800
+Subject: [pdal] Troubleshooting GDAL writer and "Grid width out of
+ range."
+In-Reply-To: <58237B62-C068-465C-BC1D-68A2E3F22D6F@hobu.co>
+References: <CAL-SYDx_vn+qwXkJzwebQa1q_qrkW5+1BSkC_nCs_v+7M34G_Q@mail.gmail.com>
+ <58237B62-C068-465C-BC1D-68A2E3F22D6F@hobu.co>
+Message-ID: <CAL-SYDwPy3VHOJm-xbCrS0zeaegNT8f76D0wbFWJA9mbwTaHMw@mail.gmail.com>
+
+Hi Howard,
+
+Thank you for very fast reply. Unfortunately the --nostream option did not
+help. I confirmed that my filters are returning points. As a workaround I
+decided to generate a new copy of the point cloud each time and save it to
+disc before creating the rasters. Thank you for sharing the
+expressions filter, that will be a very useful tool!
+
+Best,
+Theo
+
+On Fri, Jan 27, 2023 at 12:44 PM Howard Butler <howard at hobu.co> wrote:
+
+> Try the --nostream option when running `pdal pipeline` and see if it will
+> calculate grid extents for you. Additionally, make sure your limits aren't
+> causing zero points to come through your filters.
+>
+> Finally, take a look at filters.expression instead of filters.range, which
+> was just added for PDAL 2.5
+> https://pdal.io/en/stable/stages/filters.expression.html The expression
+> filter is more powerful than filters.range and probably easier to write.
+>
+> Hope this helps,
+>
+> Howard
+>
+> > On Jan 27, 2023, at 2:12 PM, Theo Hartsook <theo.hartsook at gmail.com>
+> wrote:
+> >
+> > Hi everyone,
+> >
+> > I am having trouble figuring out where the problem is with a script I am
+> working on.
+> >
+> > My goal is to rasterize a point cloud at different height ranges (i.e.
+> 0-10m height above ground, 10.1-20m height above ground, etc.).
+> >
+> > The point cloud stored HeightAboveGround to an extra dimension and I
+> confirmed that the values are correct by viewing in CloudCompare.
+> >
+> > The steps I use are the following:
+> >
+> > {'type':'readers.las', 'filename':input_las,
+> 'extra_dims':'HeightAboveGround=float32'}
+> > {'type':'filters.range', 'limits':'HeightAboveGround[0:10]'}
+> >
+> {'filename':band,'gdaldriver':'GTiff','output_type':'count','resolution':'1','type':'writers.gdal'}
+> >
+> > This leads to a strange part. Mostly these steps work and produce
+> rasters that look how I expect at that height range. It has never failed on
+> the lowest height range, say 0-10m. However, on following height ranges,
+> say 10-20m, I receive the following error:
+> > "RuntimeError: writers.gdal: Grid width out of range."
+> > I am not sure where in my process is triggering this error, since it
+> works on the prior height range. The range filter works at each height
+> range, even when the GDAL step fails. I confirmed this by writing the
+> filtered point clouds to disc instead of rasterizing them and viewing them
+> in CloudCompare.
+> >
+> > I created another version of this same point cloud where the Z values
+> were replaced with HeightAboveGround using the ferry filter and then saved
+> to disc. When I change the range filter to select for Z instead of height
+> above ground, the raster step doesn't throw an error at any height range
+> and produces the results I expect. However, if I try to add these steps to
+> the pipeline when reading the original point cloud (read point cloud with
+> HeightAboveGround, ferry HeightAboveGround to Z, then range filter for Z
+> values), I still get the Grid width out of range error on the second height
+> range.
+> >
+> > I tested one last thing. I wondered if there was some error with how my
+> script generated the height ranges. So I manually ran the filter at the
+> next increment (10-20m) and unfortunately still got the same error. This
+> scenario has me quite confused and I would appreciate any help and advice!
+> My best guess from my tests is that the problem lies with the GDAL step,
+> not prior.
+> >
+> > Best regards,
+> > Theo Hartsook
+> > _______________________________________________
+> > pdal mailing list
+> > pdal at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230130/c41bd88c/attachment.htm>
+
+From andrew.bell.ia at gmail.com  Mon Jan 30 16:36:55 2023
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 30 Jan 2023 19:36:55 -0500
+Subject: [pdal] Troubleshooting GDAL writer and "Grid width out of
+ range."
+In-Reply-To: <CAL-SYDwPy3VHOJm-xbCrS0zeaegNT8f76D0wbFWJA9mbwTaHMw@mail.gmail.com>
+References: <CAL-SYDx_vn+qwXkJzwebQa1q_qrkW5+1BSkC_nCs_v+7M34G_Q@mail.gmail.com>
+ <58237B62-C068-465C-BC1D-68A2E3F22D6F@hobu.co>
+ <CAL-SYDwPy3VHOJm-xbCrS0zeaegNT8f76D0wbFWJA9mbwTaHMw@mail.gmail.com>
+Message-ID: <CACJ51z08iLZHsbzuhfE+OTAgvJ0QFAHcvkq1p8ojA3X+M-3OFg@mail.gmail.com>
+
+Your specified resolution appears to be too small.
+
+On Mon, Jan 30, 2023, 6:59 PM Theo Hartsook <theo.hartsook at gmail.com> wrote:
+
+> Hi Howard,
+>
+> Thank you for very fast reply. Unfortunately the --nostream option did not
+> help. I confirmed that my filters are returning points. As a workaround I
+> decided to generate a new copy of the point cloud each time and save it to
+> disc before creating the rasters. Thank you for sharing the
+> expressions filter, that will be a very useful tool!
+>
+> Best,
+> Theo
+>
+> On Fri, Jan 27, 2023 at 12:44 PM Howard Butler <howard at hobu.co> wrote:
+>
+>> Try the --nostream option when running `pdal pipeline` and see if it will
+>> calculate grid extents for you. Additionally, make sure your limits aren't
+>> causing zero points to come through your filters.
+>>
+>> Finally, take a look at filters.expression instead of filters.range,
+>> which was just added for PDAL 2.5
+>> https://pdal.io/en/stable/stages/filters.expression.html The expression
+>> filter is more powerful than filters.range and probably easier to write.
+>>
+>> Hope this helps,
+>>
+>> Howard
+>>
+>> > On Jan 27, 2023, at 2:12 PM, Theo Hartsook <theo.hartsook at gmail.com>
+>> wrote:
+>> >
+>> > Hi everyone,
+>> >
+>> > I am having trouble figuring out where the problem is with a script I
+>> am working on.
+>> >
+>> > My goal is to rasterize a point cloud at different height ranges (i.e.
+>> 0-10m height above ground, 10.1-20m height above ground, etc.).
+>> >
+>> > The point cloud stored HeightAboveGround to an extra dimension and I
+>> confirmed that the values are correct by viewing in CloudCompare.
+>> >
+>> > The steps I use are the following:
+>> >
+>> > {'type':'readers.las', 'filename':input_las,
+>> 'extra_dims':'HeightAboveGround=float32'}
+>> > {'type':'filters.range', 'limits':'HeightAboveGround[0:10]'}
+>> >
+>> {'filename':band,'gdaldriver':'GTiff','output_type':'count','resolution':'1','type':'writers.gdal'}
+>> >
+>> > This leads to a strange part. Mostly these steps work and produce
+>> rasters that look how I expect at that height range. It has never failed on
+>> the lowest height range, say 0-10m. However, on following height ranges,
+>> say 10-20m, I receive the following error:
+>> > "RuntimeError: writers.gdal: Grid width out of range."
+>> > I am not sure where in my process is triggering this error, since it
+>> works on the prior height range. The range filter works at each height
+>> range, even when the GDAL step fails. I confirmed this by writing the
+>> filtered point clouds to disc instead of rasterizing them and viewing them
+>> in CloudCompare.
+>> >
+>> > I created another version of this same point cloud where the Z values
+>> were replaced with HeightAboveGround using the ferry filter and then saved
+>> to disc. When I change the range filter to select for Z instead of height
+>> above ground, the raster step doesn't throw an error at any height range
+>> and produces the results I expect. However, if I try to add these steps to
+>> the pipeline when reading the original point cloud (read point cloud with
+>> HeightAboveGround, ferry HeightAboveGround to Z, then range filter for Z
+>> values), I still get the Grid width out of range error on the second height
+>> range.
+>> >
+>> > I tested one last thing. I wondered if there was some error with how my
+>> script generated the height ranges. So I manually ran the filter at the
+>> next increment (10-20m) and unfortunately still got the same error. This
+>> scenario has me quite confused and I would appreciate any help and advice!
+>> My best guess from my tests is that the problem lies with the GDAL step,
+>> not prior.
+>> >
+>> > Best regards,
+>> > Theo Hartsook
+>> > _______________________________________________
+>> > pdal mailing list
+>> > pdal at lists.osgeo.org
+>> > https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230130/e3d3cc0e/attachment.htm>
+

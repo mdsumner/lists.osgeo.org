@@ -1,0 +1,1700 @@
+From beckley at unavco.org  Wed Feb  6 09:35:41 2019
+From: beckley at unavco.org (Matt Beckley)
+Date: Wed, 6 Feb 2019 10:35:41 -0700
+Subject: [pdal] obtaining classifications from a .ept file
+Message-ID: <CACrek76po0DeRwFEikrmBcP-KabDBBtXEkWv4ccapLtpR=gzeg@mail.gmail.com>
+
+Hello all,
+
+Just wondering if it is possible to get a list of all possible
+classifications contained in an .ept file?
+
+I've tried the 'summary' option:
+pdal info --summary ept://
+https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015
+
+it runs quickly and provides the metadata, but doesn't give the range of
+available classifications.  A 'pdal info' without the summary option runs
+for a long time and then crashes.
+
+I also tried:
+pdal info --stats --filters.stats.dimensions=Classification
+--filters.stats.count=Classification ept://
+https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015
+
+But this also runs for a long time, and then crashes.
+
+Sorry, but I'm still learning PDAL, and entwine, so there might be an
+obvious answer that I just missed (or maybe it just isn't possible)?
+
+Thanks,
+
+matt.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190206/dfc5caf4/attachment.html>
+
+From connor at hobu.co  Wed Feb  6 11:07:20 2019
+From: connor at hobu.co (Connor Manning)
+Date: Wed, 6 Feb 2019 13:07:20 -0600
+Subject: [pdal] obtaining classifications from a .ept file
+In-Reply-To: <CACrek76po0DeRwFEikrmBcP-KabDBBtXEkWv4ccapLtpR=gzeg@mail.gmail.com>
+References: <CACrek76po0DeRwFEikrmBcP-KabDBBtXEkWv4ccapLtpR=gzeg@mail.gmail.com>
+Message-ID: <CAO=FyjL5Qkbf2ufgKac5-5PMBUSmjFATZ_Z7rL5WuF-WOjbQ0A@mail.gmail.com>
+
+The `pdal info --summary` command simply summarizes the metadata from
+https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015/ept.json,
+so it won't let you get the classification values.
+
+On the other hand, the `pdal info --stats` command will read all of the
+data into memory, which will attempt to create a 30-billion point buffer
+for this dataset.  This giant buffer could potentially be skipped if
+streaming capability were added to the EPT reader, but you'd still have to
+read the 30-billion points in this scenario, so even with compression you'd
+be looking at a ~100GB download.
+
+What you might consider is not reading *all* of the data.  The EPT reader
+in 1.9 (currently on master, but not included in 1.8) will support a
+`resolution` option.  See doc here:
+https://github.com/PDAL/PDAL/blob/master/doc/stages/readers.ept.rst
+
+You could then use your current `translate` command and add to it
+`--readers.ept.resolution=20` to read the data only to approximately a 20
+meter resolution (for example).  While this is not a bulletproof approach
+since all of the data is not read, with some experimentation of the
+resolution you could potentially get a list of the contained
+classifications with reasonable confidence.  Keep in mind that the lack of
+EPT streaming means that the points will still be read into an ever-growing
+buffer, so you may still run into memory limitations with too high of a
+resolution.
+
+Here is a sample output for the dataset you asked about to a 20 meter
+resolution with 12 threads.  For me, it took about 1.5 minutes and used
+about 2.5 GB of RAM:
+
+$ time pdal info --stats --filters.stats.dimensions=Classification
+--filters.stats.count=Classification ept://
+https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015
+--readers.ept.resolution=20 --readers.ept.threads=12
+{
+  "filename": "ept://
+https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015
+",
+  "pdal_version": "1.8.0 (git-version: 755ac1)",
+  "stats":
+  {
+    "statistic":
+    [
+      {
+        "average": 5.63230439,
+        "count": 54747896,
+        "counts":
+        [
+          "1.000000/24956352",
+          "2.000000/13821592",
+          "7.000000/102236",
+          "9.000000/2314365",
+          "10.000000/15019",
+          "11.000000/30058",
+          "17.000000/10022141",
+          "18.000000/3399744",
+          "25.000000/86389"
+        ],
+        "maximum": 25,
+        "minimum": 1,
+        "name": "Classification",
+        "position": 0,
+        "stddev": 6.882052297,
+        "variance": 47.36264381
+      }
+    ]
+  }
+}
+
+real 1m24.623s
+user 1m24.079s
+sys 0m4.859s
+
+
+Hopefully this is helpful.
+
+- Connor
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190206/5e75a16b/attachment.html>
+
+From dlewi146 at gmail.com  Fri Feb  8 08:39:04 2019
+From: dlewi146 at gmail.com (David Lewis)
+Date: Fri, 8 Feb 2019 11:39:04 -0500
+Subject: [pdal] PDAL Extraction / Un-compression
+Message-ID: <CADD7pkP=reVXj9L9zA6y=6gXNO6Hu79fM+YA22ZRYAiTOULLmw@mail.gmail.com>
+
+Hello,
+
+I am attempting to use PDAL to perform some processing and conversion on  a
+large SLPK file. Extracting the file into the temporary directory of the
+local machine is not viable and I was wondering if there was any way to
+direct the file extraction to a different location, such as a network
+drive. I have read through the documentation, but I don't seem to have
+located anything like this option. Is there some viable way of achieving
+this?
+
+Thank you for your time,
+David Lewis
+Undergraduate Imaging Science
+Chester F. Carlson Center for Imaging Science
+Rochester Institute of Technology
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190208/208c1db2/attachment.html>
+
+From andrew.bell.ia at gmail.com  Fri Feb  8 08:49:49 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Fri, 8 Feb 2019 11:49:49 -0500
+Subject: [pdal] PDAL Extraction / Un-compression
+In-Reply-To: <CADD7pkP=reVXj9L9zA6y=6gXNO6Hu79fM+YA22ZRYAiTOULLmw@mail.gmail.com>
+References: <CADD7pkP=reVXj9L9zA6y=6gXNO6Hu79fM+YA22ZRYAiTOULLmw@mail.gmail.com>
+Message-ID: <CACJ51z024xXF4QAp3NrfovsyfqggksLk7uMLCvu_PEOpb4Y1iQ@mail.gmail.com>
+
+What do mean by "extract"?  Are you trying to fetch a subset of points from
+an SLPK source and write that subset to another SLPK source?
+
+On Fri, Feb 8, 2019 at 11:39 AM David Lewis <dlewi146 at gmail.com> wrote:
+
+> Hello,
+>
+> I am attempting to use PDAL to perform some processing and conversion on
+> a large SLPK file. Extracting the file into the temporary directory of the
+> local machine is not viable and I was wondering if there was any way to
+> direct the file extraction to a different location, such as a network
+> drive. I have read through the documentation, but I don't seem to have
+> located anything like this option. Is there some viable way of achieving
+> this?
+>
+> Thank you for your time,
+> David Lewis
+> Undergraduate Imaging Science
+> Chester F. Carlson Center for Imaging Science
+> Rochester Institute of Technology
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190208/2c875d83/attachment.html>
+
+From dlewi146 at gmail.com  Fri Feb  8 09:21:39 2019
+From: dlewi146 at gmail.com (David Lewis)
+Date: Fri, 8 Feb 2019 12:21:39 -0500
+Subject: [pdal] PDAL Extraction / Un-compression
+In-Reply-To: <CACJ51z024xXF4QAp3NrfovsyfqggksLk7uMLCvu_PEOpb4Y1iQ@mail.gmail.com>
+References: <CADD7pkP=reVXj9L9zA6y=6gXNO6Hu79fM+YA22ZRYAiTOULLmw@mail.gmail.com>
+ <CACJ51z024xXF4QAp3NrfovsyfqggksLk7uMLCvu_PEOpb4Y1iQ@mail.gmail.com>
+Message-ID: <CADD7pkP30qE2_JAByYL7GtTD-T7ko4GmDRdj3oSjLjW3HnJr9w@mail.gmail.com>
+
+I'm trying to read the file so that I can save out a smaller subset of the
+points using a Crop filter. The problem is that the file is much too large
+for PDAL to extract to my temporary folder when it tries to initially read
+in the file.
+
+I'm hoping there is some way to direct PDAL to extract the file in a
+different location instead of the temporary files folder.
+
+On Fri, Feb 8, 2019, 11:50 AM Andrew Bell <andrew.bell.ia at gmail.com wrote:
+
+> What do mean by "extract"?  Are you trying to fetch a subset of points
+> from an SLPK source and write that subset to another SLPK source?
+>
+> On Fri, Feb 8, 2019 at 11:39 AM David Lewis <dlewi146 at gmail.com> wrote:
+>
+>> Hello,
+>>
+>> I am attempting to use PDAL to perform some processing and conversion on
+>> a large SLPK file. Extracting the file into the temporary directory of the
+>> local machine is not viable and I was wondering if there was any way to
+>> direct the file extraction to a different location, such as a network
+>> drive. I have read through the documentation, but I don't seem to have
+>> located anything like this option. Is there some viable way of achieving
+>> this?
+>>
+>> Thank you for your time,
+>> David Lewis
+>> Undergraduate Imaging Science
+>> Chester F. Carlson Center for Imaging Science
+>> Rochester Institute of Technology
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190208/8cb18738/attachment.html>
+
+From andrew.bell.ia at gmail.com  Fri Feb  8 09:33:38 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Fri, 8 Feb 2019 12:33:38 -0500
+Subject: [pdal] PDAL Extraction / Un-compression
+In-Reply-To: <CADD7pkP30qE2_JAByYL7GtTD-T7ko4GmDRdj3oSjLjW3HnJr9w@mail.gmail.com>
+References: <CADD7pkP=reVXj9L9zA6y=6gXNO6Hu79fM+YA22ZRYAiTOULLmw@mail.gmail.com>
+ <CACJ51z024xXF4QAp3NrfovsyfqggksLk7uMLCvu_PEOpb4Y1iQ@mail.gmail.com>
+ <CADD7pkP30qE2_JAByYL7GtTD-T7ko4GmDRdj3oSjLjW3HnJr9w@mail.gmail.com>
+Message-ID: <CACJ51z2Tuz17qLMVNsOrTWh8EFo4x9xHr1Ag=1NEd3aupJafAw@mail.gmail.com>
+
+SLPK files are really gzip files inside an uncompressed zip archive.  The
+current code extracts the gzip file from the zip archive by writing it to a
+temporary location.  You should be able to use the TMP or TEMP environment
+variable to set the path as you choose.
+
+In the future it may be possible to eliminate the temporary file creation,
+but the current behavior of the code is as described above.
+
+Hope that helps,
+
+
+On Fri, Feb 8, 2019 at 12:21 PM David Lewis <dlewi146 at gmail.com> wrote:
+
+> I'm trying to read the file so that I can save out a smaller subset of the
+> points using a Crop filter. The problem is that the file is much too large
+> for PDAL to extract to my temporary folder when it tries to initially read
+> in the file.
+>
+> I'm hoping there is some way to direct PDAL to extract the file in a
+> different location instead of the temporary files folder.
+>
+> On Fri, Feb 8, 2019, 11:50 AM Andrew Bell <andrew.bell.ia at gmail.com wrote:
+>
+>> What do mean by "extract"?  Are you trying to fetch a subset of points
+>> from an SLPK source and write that subset to another SLPK source?
+>>
+>> On Fri, Feb 8, 2019 at 11:39 AM David Lewis <dlewi146 at gmail.com> wrote:
+>>
+>>> Hello,
+>>>
+>>> I am attempting to use PDAL to perform some processing and conversion
+>>> on  a large SLPK file. Extracting the file into the temporary directory of
+>>> the local machine is not viable and I was wondering if there was any way to
+>>> direct the file extraction to a different location, such as a network
+>>> drive. I have read through the documentation, but I don't seem to have
+>>> located anything like this option. Is there some viable way of achieving
+>>> this?
+>>>
+>>> Thank you for your time,
+>>> David Lewis
+>>> Undergraduate Imaging Science
+>>> Chester F. Carlson Center for Imaging Science
+>>> Rochester Institute of Technology
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+>>
+>> --
+>> Andrew Bell
+>> andrew.bell.ia at gmail.com
+>>
+>
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190208/bd041572/attachment-0001.html>
+
+From dlewi146 at gmail.com  Fri Feb  8 15:41:45 2019
+From: dlewi146 at gmail.com (David Lewis)
+Date: Fri, 8 Feb 2019 18:41:45 -0500
+Subject: [pdal] PDAL Extraction / Un-compression
+In-Reply-To: <CACJ51z2Tuz17qLMVNsOrTWh8EFo4x9xHr1Ag=1NEd3aupJafAw@mail.gmail.com>
+References: <CADD7pkP=reVXj9L9zA6y=6gXNO6Hu79fM+YA22ZRYAiTOULLmw@mail.gmail.com>
+ <CACJ51z024xXF4QAp3NrfovsyfqggksLk7uMLCvu_PEOpb4Y1iQ@mail.gmail.com>
+ <CADD7pkP30qE2_JAByYL7GtTD-T7ko4GmDRdj3oSjLjW3HnJr9w@mail.gmail.com>
+ <CACJ51z2Tuz17qLMVNsOrTWh8EFo4x9xHr1Ag=1NEd3aupJafAw@mail.gmail.com>
+Message-ID: <CADD7pkOoWvpUC-bouVagTqCjs1ctj9+XhS2DuR9Skzg07xchGw@mail.gmail.com>
+
+It does help! Thank you, that's a smart work around I wouldn't have seen.
+Thanks for your help!
+
+David
+
+On Fri, Feb 8, 2019, 12:33 PM Andrew Bell <andrew.bell.ia at gmail.com wrote:
+
+> SLPK files are really gzip files inside an uncompressed zip archive.  The
+> current code extracts the gzip file from the zip archive by writing it to
+> a temporary location.  You should be able to use the TMP or TEMP
+> environment variable to set the path as you choose.
+>
+> In the future it may be possible to eliminate the temporary file creation,
+> but the current behavior of the code is as described above.
+>
+> Hope that helps,
+>
+>
+> On Fri, Feb 8, 2019 at 12:21 PM David Lewis <dlewi146 at gmail.com> wrote:
+>
+>> I'm trying to read the file so that I can save out a smaller subset of
+>> the points using a Crop filter. The problem is that the file is much too
+>> large for PDAL to extract to my temporary folder when it tries to initially
+>> read in the file.
+>>
+>> I'm hoping there is some way to direct PDAL to extract the file in a
+>> different location instead of the temporary files folder.
+>>
+>> On Fri, Feb 8, 2019, 11:50 AM Andrew Bell <andrew.bell.ia at gmail.com
+>> wrote:
+>>
+>>> What do mean by "extract"?  Are you trying to fetch a subset of points
+>>> from an SLPK source and write that subset to another SLPK source?
+>>>
+>>> On Fri, Feb 8, 2019 at 11:39 AM David Lewis <dlewi146 at gmail.com> wrote:
+>>>
+>>>> Hello,
+>>>>
+>>>> I am attempting to use PDAL to perform some processing and conversion
+>>>> on  a large SLPK file. Extracting the file into the temporary directory of
+>>>> the local machine is not viable and I was wondering if there was any way to
+>>>> direct the file extraction to a different location, such as a network
+>>>> drive. I have read through the documentation, but I don't seem to have
+>>>> located anything like this option. Is there some viable way of achieving
+>>>> this?
+>>>>
+>>>> Thank you for your time,
+>>>> David Lewis
+>>>> Undergraduate Imaging Science
+>>>> Chester F. Carlson Center for Imaging Science
+>>>> Rochester Institute of Technology
+>>>> _______________________________________________
+>>>> pdal mailing list
+>>>> pdal at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>>
+>>>
+>>>
+>>> --
+>>> Andrew Bell
+>>> andrew.bell.ia at gmail.com
+>>>
+>>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190208/849e89a1/attachment.html>
+
+From massoud.pourmandi at gmail.com  Mon Feb 11 16:19:27 2019
+From: massoud.pourmandi at gmail.com (massoud pourmandi)
+Date: Tue, 12 Feb 2019 03:19:27 +0300
+Subject: [pdal] unresolved external symbol in examples/writing (VS 2015)
+Message-ID: <CAM+1jtftc-Q=S2onznVywKSpMG2kx5mpcRABf35cA+BB9-1LTg@mail.gmail.com>
+
+when I build an example of PDAL library I'm getting following errors, it is
+originated from Extractor.hpp and Insertor.hpp. did I miss something with
+I'm building PDAL project?. I used OSGeo4W64 for downloading dependencies.
+I would appreciate any help, thanks in advance.
+
+Building Custom Rule
+C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/CMakeLists.txt
+CMake does not need to re-run because
+C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/CMakeFiles/generate.stamp
+is up-to-date.
+tutorial.cpp
+C:\pdal\pdal_maintance1.7\install\include\pdal/util/Uuid.hpp(174): warning
+C4996: 'sprintf': This function or variable may be unsafe. Consider using
+sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See
+online help for details.
+C:\Program Files (x86)\Windows
+Kits\10\Include\10.0.14393.0\ucrt\stdio.h(1769): note: see declaration of
+'sprintf'
+C:\pdal\pdal_maintance1.7\install\include\pdal/Metadata.hpp(586): warning
+C4800: 'unsigned __int64': forcing value to bool 'true' or 'false'
+(performance warning)
+C:\pdal\pdal_maintance1.7\install\include\pdal/PipelineManager.hpp(104):
+warning C4800: 'pdal::Stage *': forcing value to bool 'true' or 'false'
+(performance warning)
+Creating library
+C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/Release/tutorial.lib
+and object
+C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/Release/tutorial.exp
+tutorial.obj : error LNK2019: unresolved external symbol __imp_htonl
+referenced in function "public: virtual class pdal::BeInserter & __cdecl
+pdal::BeInserter::operator<<(int)" (??6BeInserter at pdal@@UEAAAEAV01 at H@Z)
+tutorial.obj : error LNK2019: unresolved external symbol __imp_htons
+referenced in function "public: virtual class pdal::BeInserter & __cdecl
+pdal::BeInserter::operator<<(short)" (??6BeInserter at pdal@@UEAAAEAV01 at F@Z)
+tutorial.obj : error LNK2019: unresolved external symbol __imp_ntohl
+referenced in function "public: virtual class pdal::BeExtractor & __cdecl
+pdal::BeExtractor::operator>>(int &)" (??5BeExtractor at pdal@@UEAAAEAV01 at AEAH
+@Z)
+tutorial.obj : error LNK2019: unresolved external symbol __imp_ntohs
+referenced in function "public: virtual class pdal::BeExtractor & __cdecl
+pdal::BeExtractor::operator>>(short &)" (??5BeExtractor at pdal
+@@UEAAAEAV01 at AEAF@Z)
+C:\pdal\pdal_maintance1.8\PDAL-1.8-maintenance\examples\writing\build\Release\tutorial.exe
+: fatal error LNK1120: 4 unresolved externals
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190212/43d5204a/attachment.html>
+
+From andrew.bell.ia at gmail.com  Mon Feb 11 17:15:21 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 11 Feb 2019 20:15:21 -0500
+Subject: [pdal] unresolved external symbol in examples/writing (VS 2015)
+In-Reply-To: <CAM+1jtftc-Q=S2onznVywKSpMG2kx5mpcRABf35cA+BB9-1LTg@mail.gmail.com>
+References: <CAM+1jtftc-Q=S2onznVywKSpMG2kx5mpcRABf35cA+BB9-1LTg@mail.gmail.com>
+Message-ID: <CACJ51z1vYrLVuxODB1SqLMUf9O7jWgAbTMyysXGkOGWxFs5RPg@mail.gmail.com>
+
+It appears to not be linking the example code.  You can ignore those errors.
+
+On Mon, Feb 11, 2019 at 7:19 PM massoud pourmandi <
+massoud.pourmandi at gmail.com> wrote:
+
+> when I build an example of PDAL library I'm getting following errors, it
+> is originated from Extractor.hpp and Insertor.hpp. did I miss something
+> with I'm building PDAL project?. I used OSGeo4W64 for downloading
+> dependencies.
+> I would appreciate any help, thanks in advance.
+>
+> Building Custom Rule
+> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/CMakeLists.txt
+> CMake does not need to re-run because
+> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/CMakeFiles/generate.stamp
+> is up-to-date.
+> tutorial.cpp
+> C:\pdal\pdal_maintance1.7\install\include\pdal/util/Uuid.hpp(174): warning
+> C4996: 'sprintf': This function or variable may be unsafe. Consider using
+> sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See
+> online help for details.
+> C:\Program Files (x86)\Windows
+> Kits\10\Include\10.0.14393.0\ucrt\stdio.h(1769): note: see declaration of
+> 'sprintf'
+> C:\pdal\pdal_maintance1.7\install\include\pdal/Metadata.hpp(586): warning
+> C4800: 'unsigned __int64': forcing value to bool 'true' or 'false'
+> (performance warning)
+> C:\pdal\pdal_maintance1.7\install\include\pdal/PipelineManager.hpp(104):
+> warning C4800: 'pdal::Stage *': forcing value to bool 'true' or 'false'
+> (performance warning)
+> Creating library
+> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/Release/tutorial.lib
+> and object
+> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/Release/tutorial.exp
+> tutorial.obj : error LNK2019: unresolved external symbol __imp_htonl
+> referenced in function "public: virtual class pdal::BeInserter & __cdecl
+> pdal::BeInserter::operator<<(int)" (??6BeInserter at pdal@@UEAAAEAV01 at H@Z)
+> tutorial.obj : error LNK2019: unresolved external symbol __imp_htons
+> referenced in function "public: virtual class pdal::BeInserter & __cdecl
+> pdal::BeInserter::operator<<(short)" (??6BeInserter at pdal@@UEAAAEAV01 at F@Z)
+> tutorial.obj : error LNK2019: unresolved external symbol __imp_ntohl
+> referenced in function "public: virtual class pdal::BeExtractor & __cdecl
+> pdal::BeExtractor::operator>>(int &)" (??5BeExtractor at pdal
+> @@UEAAAEAV01 at AEAH@Z)
+> tutorial.obj : error LNK2019: unresolved external symbol __imp_ntohs
+> referenced in function "public: virtual class pdal::BeExtractor & __cdecl
+> pdal::BeExtractor::operator>>(short &)" (??5BeExtractor at pdal
+> @@UEAAAEAV01 at AEAF@Z)
+> C:\pdal\pdal_maintance1.8\PDAL-1.8-maintenance\examples\writing\build\Release\tutorial.exe
+> : fatal error LNK1120: 4 unresolved externals
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190211/6dff8bbe/attachment.html>
+
+From massoud.pourmandi at gmail.com  Mon Feb 11 17:18:00 2019
+From: massoud.pourmandi at gmail.com (massoud pourmandi)
+Date: Tue, 12 Feb 2019 04:18:00 +0300
+Subject: [pdal] unresolved external symbol in examples/writing (VS 2015)
+In-Reply-To: <CACJ51z1vYrLVuxODB1SqLMUf9O7jWgAbTMyysXGkOGWxFs5RPg@mail.gmail.com>
+References: <CAM+1jtftc-Q=S2onznVywKSpMG2kx5mpcRABf35cA+BB9-1LTg@mail.gmail.com>
+ <CACJ51z1vYrLVuxODB1SqLMUf9O7jWgAbTMyysXGkOGWxFs5RPg@mail.gmail.com>
+Message-ID: <CAM+1jtespTFX7qv1DcAKrvR-m75K50Sjh34HJHz5atRVLHhSrg@mail.gmail.com>
+
+what do you mean "you can ignore those errors". it is not making exe file.
+
+On Tue, Feb 12, 2019 at 4:15 AM Andrew Bell <andrew.bell.ia at gmail.com>
+wrote:
+
+> It appears to not be linking the example code.  You can ignore those
+> errors.
+>
+> On Mon, Feb 11, 2019 at 7:19 PM massoud pourmandi <
+> massoud.pourmandi at gmail.com> wrote:
+>
+>> when I build an example of PDAL library I'm getting following errors, it
+>> is originated from Extractor.hpp and Insertor.hpp. did I miss something
+>> with I'm building PDAL project?. I used OSGeo4W64 for downloading
+>> dependencies.
+>> I would appreciate any help, thanks in advance.
+>>
+>> Building Custom Rule
+>> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/CMakeLists.txt
+>> CMake does not need to re-run because
+>> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/CMakeFiles/generate.stamp
+>> is up-to-date.
+>> tutorial.cpp
+>> C:\pdal\pdal_maintance1.7\install\include\pdal/util/Uuid.hpp(174):
+>> warning C4996: 'sprintf': This function or variable may be unsafe. Consider
+>> using sprintf_s instead. To disable deprecation, use
+>> _CRT_SECURE_NO_WARNINGS. See online help for details.
+>> C:\Program Files (x86)\Windows
+>> Kits\10\Include\10.0.14393.0\ucrt\stdio.h(1769): note: see declaration of
+>> 'sprintf'
+>> C:\pdal\pdal_maintance1.7\install\include\pdal/Metadata.hpp(586): warning
+>> C4800: 'unsigned __int64': forcing value to bool 'true' or 'false'
+>> (performance warning)
+>> C:\pdal\pdal_maintance1.7\install\include\pdal/PipelineManager.hpp(104):
+>> warning C4800: 'pdal::Stage *': forcing value to bool 'true' or 'false'
+>> (performance warning)
+>> Creating library
+>> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/Release/tutorial.lib
+>> and object
+>> C:/pdal/pdal_maintance1.8/PDAL-1.8-maintenance/examples/writing/build/Release/tutorial.exp
+>> tutorial.obj : error LNK2019: unresolved external symbol __imp_htonl
+>> referenced in function "public: virtual class pdal::BeInserter & __cdecl
+>> pdal::BeInserter::operator<<(int)" (??6BeInserter at pdal@@UEAAAEAV01 at H@Z)
+>> tutorial.obj : error LNK2019: unresolved external symbol __imp_htons
+>> referenced in function "public: virtual class pdal::BeInserter & __cdecl
+>> pdal::BeInserter::operator<<(short)" (??6BeInserter at pdal@@UEAAAEAV01 at F@Z)
+>> tutorial.obj : error LNK2019: unresolved external symbol __imp_ntohl
+>> referenced in function "public: virtual class pdal::BeExtractor & __cdecl
+>> pdal::BeExtractor::operator>>(int &)" (??5BeExtractor at pdal
+>> @@UEAAAEAV01 at AEAH@Z)
+>> tutorial.obj : error LNK2019: unresolved external symbol __imp_ntohs
+>> referenced in function "public: virtual class pdal::BeExtractor & __cdecl
+>> pdal::BeExtractor::operator>>(short &)" (??5BeExtractor at pdal
+>> @@UEAAAEAV01 at AEAF@Z)
+>> C:\pdal\pdal_maintance1.8\PDAL-1.8-maintenance\examples\writing\build\Release\tutorial.exe
+>> : fatal error LNK1120: 4 unresolved externals
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+>
+> --
+> Andrew Bell
+> andrew.bell.ia at gmail.com
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190212/6a4dea92/attachment.html>
+
+From jrmorreale_ml at enoreth.net  Mon Feb 18 06:36:11 2019
+From: jrmorreale_ml at enoreth.net (=?utf-8?q?jrmorreale=5Fml=40enoreth=2Enet?=)
+Date: Mon, 18 Feb 2019 15:36:11 +0100
+Subject: [pdal] =?utf-8?q?Entwine/EPT_build_failures?=
+Message-ID: <479b-5c6ac300-15-144c0a80@265422161>
+
+
+Hi,
+
+I am trying to build an EPT with entwine 2.0 (conda) on a classified lidar cloud (1220 tiles, 22billion points) but I did not succeed in getting a usable result.
+
+The command used is :
+entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip" -i input_dir -o output_dir
+
+The errors are
+* Exception in pool task: writers.las: legacy flags and extended flags are not identical
+* During input_xx.laz: readers.las: File signature is not 'LASF', is this an LAS/LAZ file?
+* Unable to open stream for 'input_xx.laz' with error 'Too many open files'
+
+The last error is only shown when trying to work on the 1220 files at once. The attempts have been made on the original terrascan tiles and on pdal translated laz tiles, the generated ept-data output is empty laz files.
+
+pdal info --all of 1 laz tiles
+https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+
+pdal info all on the same tile but on the original las file from terrascan
+https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+
+las sample
+https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+
+laz sample
+https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+
+log of entwine build on 5 tiles (run 5)
+https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+
+log of entwine build with on 1220 tiles
+https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+
+Could you point to the mistake(s) I've made ? My aim is to publish our data online, the latest usgs example is a great incentive.
+
+Regards,
+Jean-Roc Morreale
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190218/f379d3a9/attachment.html>
+
+From andrew.bell.ia at gmail.com  Mon Feb 18 07:04:22 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 18 Feb 2019 10:04:22 -0500
+Subject: [pdal] Entwine/EPT build failures
+In-Reply-To: <479b-5c6ac300-15-144c0a80@265422161>
+References: <479b-5c6ac300-15-144c0a80@265422161>
+Message-ID: <CACJ51z0aW68vC5C9MP9N-2Bo1YgF44G+U28Cpsi358Zah+p+pg@mail.gmail.com>
+
+The first error (about legacy flags) is due to an issue in the LASzip API
+code.  You can see this issue https://github.com/PDAL/PDAL/issues/2320 for
+details.  You can build the 1.8-maintenance branch of PDAL to eliminate the
+error.
+
+The file signature error is what it says.  LAS files have a signature at
+the beginning of the file.  If the signature isn't found, your LAS file is
+corrupt.
+
+I'm not sure why you'd get a "too many files" open error.  I think this is
+an issue in entwine.
+
+On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <
+jrmorreale_ml at enoreth.net> wrote:
+
+> Hi,
+>
+> I am trying to build an EPT with entwine 2.0 (conda) on a classified lidar
+> cloud (1220 tiles, 22billion points) but I did not succeed in getting a
+> usable result.
+>
+> The command used is :
+> entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip" -i
+> input_dir -o output_dir
+>
+> The errors are
+> * Exception in pool task: writers.las: legacy flags and extended flags are
+> not identical
+> * During input_xx.laz: readers.las: File signature is not 'LASF', is this
+> an LAS/LAZ file?
+> * Unable to open stream for 'input_xx.laz' with error 'Too many open files'
+>
+> The last error is only shown when trying to work on the 1220 files at
+> once. The attempts have been made on the original terrascan tiles and on
+> pdal translated laz tiles, the generated ept-data output is empty laz files.
+>
+> pdal info --all of 1 laz tiles
+> https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+>
+> pdal info all on the same tile but on the original las file from terrascan
+> https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+>
+> las sample
+> https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+>
+> laz sample
+> https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+>
+> log of entwine build on 5 tiles (run 5)
+> https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+>
+> log of entwine build with on 1220 tiles
+> https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+>
+> Could you point to the mistake(s) I've made ? My aim is to publish our
+> data online, the latest usgs example is a great incentive.
+>
+> Regards,
+> Jean-Roc Morreale _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190218/5d381785/attachment.html>
+
+From jrmorreale_ml at enoreth.net  Mon Feb 18 10:20:02 2019
+From: jrmorreale_ml at enoreth.net (Jean-Roc Morreale (ml))
+Date: Mon, 18 Feb 2019 19:20:02 +0100
+Subject: [pdal] Entwine/EPT build failures
+In-Reply-To: <CACJ51z0aW68vC5C9MP9N-2Bo1YgF44G+U28Cpsi358Zah+p+pg@mail.gmail.com>
+References: <479b-5c6ac300-15-144c0a80@265422161>
+ <CACJ51z0aW68vC5C9MP9N-2Bo1YgF44G+U28Cpsi358Zah+p+pg@mail.gmail.com>
+Message-ID: <c28ce2cce9e72dd85efa404b5a2fb304f0f02bb7.camel@enoreth.net>
+
+Hi Andrew, thank you for your reply.
+
+Unfortunatly, our Windows system configuration prevents me to setup a
+msvc build toolchain so I will wait for the next release on this point.
+
+About the LAS missing signature, for now entwine build seems to be the
+only tool blocked by it as I have been using many pdal tools an others
+(lastools, cloudcompare, fme, potreeconverter) in the last past weeks.
+My first reaction was to convert the las files to laz using pdal
+stating minor_version=4 in the hope it would automagically solves it.
+
+regards,
+jean-roc
+
+
+Le lundi 18 février 2019 à 10:04 -0500, Andrew Bell a écrit :
+> The first error (about legacy flags) is due to an issue in the LASzip
+> API code.  You can see this issue 
+> https://github.com/PDAL/PDAL/issues/2320 for details.  You can build
+> the 1.8-maintenance branch of PDAL to eliminate the error.
+> 
+> The file signature error is what it says.  LAS files have a signature
+> at the beginning of the file.  If the signature isn't found, your LAS
+> file is corrupt.
+> 
+> I'm not sure why you'd get a "too many files" open error.  I think
+> this is an issue in entwine.
+> 
+> On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <
+> jrmorreale_ml at enoreth.net> wrote:
+> > Hi,
+> > 
+> > I am trying to build an EPT with entwine 2.0 (conda) on a
+> > classified lidar cloud (1220 tiles, 22billion points) but I did not
+> > succeed in getting a usable result.
+> > 
+> > The command used is :
+> > entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip"
+> > -i input_dir -o output_dir
+> > 
+> > The errors are
+> > * Exception in pool task: writers.las: legacy flags and extended
+> > flags are not identical
+> > * During input_xx.laz: readers.las: File signature is not 'LASF',
+> > is this an LAS/LAZ file?
+> > * Unable to open stream for 'input_xx.laz' with error 'Too many
+> > open files'
+> > 
+> > The last error is only shown when trying to work on the 1220 files
+> > at once. The attempts have been made on the original terrascan
+> > tiles and on pdal translated laz tiles, the generated ept-data
+> > output is empty laz files.
+> > 
+> > pdal info --all of 1 laz tiles
+> > https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+> > 
+> > pdal info all on the same tile but on the original las file from
+> > terrascan
+> > https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+> > 
+> > las sample
+> > https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+> > 
+> > laz sample
+> > https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+> > 
+> > log of entwine build on 5 tiles (run 5)
+> > https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+> > 
+> > log of entwine build with on 1220 tiles
+> > https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+> > 
+> > Could you point to the mistake(s) I've made ? My aim is to publish
+> > our data online, the latest usgs example is a great incentive.
+> > 
+> > Regards,
+> > Jean-Roc Morreale _______________________________________________
+> > pdal mailing list
+> > pdal at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/pdal
+> 
+> 
+
+
+From connor at hobu.co  Mon Feb 18 10:23:54 2019
+From: connor at hobu.co (Connor Manning)
+Date: Mon, 18 Feb 2019 12:23:54 -0600
+Subject: [pdal] Entwine/EPT build failures
+In-Reply-To: <c28ce2cce9e72dd85efa404b5a2fb304f0f02bb7.camel@enoreth.net>
+References: <479b-5c6ac300-15-144c0a80@265422161>
+ <CACJ51z0aW68vC5C9MP9N-2Bo1YgF44G+U28Cpsi358Zah+p+pg@mail.gmail.com>
+ <c28ce2cce9e72dd85efa404b5a2fb304f0f02bb7.camel@enoreth.net>
+Message-ID: <CAO=FyjJL-kixiLtSPD7H-dqAx9tLP7OZVc0V0sVF5spyOH4OxA@mail.gmail.com>
+
+If you submit this as an issue on Entwine (
+https://github.com/connormanning/entwine/issues) and upload samples of the
+problematic files, or email them to me, I will take a look.
+
+- Connor
+
+On Mon, Feb 18, 2019 at 12:20 PM Jean-Roc Morreale (ml) <
+jrmorreale_ml at enoreth.net> wrote:
+
+> Hi Andrew, thank you for your reply.
+>
+> Unfortunatly, our Windows system configuration prevents me to setup a
+> msvc build toolchain so I will wait for the next release on this point.
+>
+> About the LAS missing signature, for now entwine build seems to be the
+> only tool blocked by it as I have been using many pdal tools an others
+> (lastools, cloudcompare, fme, potreeconverter) in the last past weeks.
+> My first reaction was to convert the las files to laz using pdal
+> stating minor_version=4 in the hope it would automagically solves it.
+>
+> regards,
+> jean-roc
+>
+>
+> Le lundi 18 février 2019 à 10:04 -0500, Andrew Bell a écrit :
+> > The first error (about legacy flags) is due to an issue in the LASzip
+> > API code.  You can see this issue
+> > https://github.com/PDAL/PDAL/issues/2320 for details.  You can build
+> > the 1.8-maintenance branch of PDAL to eliminate the error.
+> >
+> > The file signature error is what it says.  LAS files have a signature
+> > at the beginning of the file.  If the signature isn't found, your LAS
+> > file is corrupt.
+> >
+> > I'm not sure why you'd get a "too many files" open error.  I think
+> > this is an issue in entwine.
+> >
+> > On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <
+> > jrmorreale_ml at enoreth.net> wrote:
+> > > Hi,
+> > >
+> > > I am trying to build an EPT with entwine 2.0 (conda) on a
+> > > classified lidar cloud (1220 tiles, 22billion points) but I did not
+> > > succeed in getting a usable result.
+> > >
+> > > The command used is :
+> > > entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip"
+> > > -i input_dir -o output_dir
+> > >
+> > > The errors are
+> > > * Exception in pool task: writers.las: legacy flags and extended
+> > > flags are not identical
+> > > * During input_xx.laz: readers.las: File signature is not 'LASF',
+> > > is this an LAS/LAZ file?
+> > > * Unable to open stream for 'input_xx.laz' with error 'Too many
+> > > open files'
+> > >
+> > > The last error is only shown when trying to work on the 1220 files
+> > > at once. The attempts have been made on the original terrascan
+> > > tiles and on pdal translated laz tiles, the generated ept-data
+> > > output is empty laz files.
+> > >
+> > > pdal info --all of 1 laz tiles
+> > > https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+> > >
+> > > pdal info all on the same tile but on the original las file from
+> > > terrascan
+> > > https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+> > >
+> > > las sample
+> > >
+> https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+> > >
+> > > laz sample
+> > >
+> https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+> > >
+> > > log of entwine build on 5 tiles (run 5)
+> > > https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+> > >
+> > > log of entwine build with on 1220 tiles
+> > > https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+> > >
+> > > Could you point to the mistake(s) I've made ? My aim is to publish
+> > > our data online, the latest usgs example is a great incentive.
+> > >
+> > > Regards,
+> > > Jean-Roc Morreale _______________________________________________
+> > > pdal mailing list
+> > > pdal at lists.osgeo.org
+> > > https://lists.osgeo.org/mailman/listinfo/pdal
+> >
+> >
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190218/4e41fab6/attachment-0001.html>
+
+From connor at hobu.co  Mon Feb 18 10:37:50 2019
+From: connor at hobu.co (Connor Manning)
+Date: Mon, 18 Feb 2019 12:37:50 -0600
+Subject: [pdal] Entwine/EPT build failures
+In-Reply-To: <CAO=FyjJL-kixiLtSPD7H-dqAx9tLP7OZVc0V0sVF5spyOH4OxA@mail.gmail.com>
+References: <479b-5c6ac300-15-144c0a80@265422161>
+ <CACJ51z0aW68vC5C9MP9N-2Bo1YgF44G+U28Cpsi358Zah+p+pg@mail.gmail.com>
+ <c28ce2cce9e72dd85efa404b5a2fb304f0f02bb7.camel@enoreth.net>
+ <CAO=FyjJL-kixiLtSPD7H-dqAx9tLP7OZVc0V0sVF5spyOH4OxA@mail.gmail.com>
+Message-ID: <CAO=FyjK=c2yn1cjrAJOqTogAWO+MrmP_SWPA75Ty2NUSzQwp8w@mail.gmail.com>
+
+Oh I missed that you added links to the files in your original message.
+I'll see if I can discover anything from them.  If your data is working
+fine in PDAL but not Entwine though, you may still prefer to submit this as
+an issue on Entwine.
+
+On Mon, Feb 18, 2019 at 12:23 PM Connor Manning <connor at hobu.co> wrote:
+
+> If you submit this as an issue on Entwine (
+> https://github.com/connormanning/entwine/issues) and upload samples of
+> the problematic files, or email them to me, I will take a look.
+>
+> - Connor
+>
+> On Mon, Feb 18, 2019 at 12:20 PM Jean-Roc Morreale (ml) <
+> jrmorreale_ml at enoreth.net> wrote:
+>
+>> Hi Andrew, thank you for your reply.
+>>
+>> Unfortunatly, our Windows system configuration prevents me to setup a
+>> msvc build toolchain so I will wait for the next release on this point.
+>>
+>> About the LAS missing signature, for now entwine build seems to be the
+>> only tool blocked by it as I have been using many pdal tools an others
+>> (lastools, cloudcompare, fme, potreeconverter) in the last past weeks.
+>> My first reaction was to convert the las files to laz using pdal
+>> stating minor_version=4 in the hope it would automagically solves it.
+>>
+>> regards,
+>> jean-roc
+>>
+>>
+>> Le lundi 18 février 2019 à 10:04 -0500, Andrew Bell a écrit :
+>> > The first error (about legacy flags) is due to an issue in the LASzip
+>> > API code.  You can see this issue
+>> > https://github.com/PDAL/PDAL/issues/2320 for details.  You can build
+>> > the 1.8-maintenance branch of PDAL to eliminate the error.
+>> >
+>> > The file signature error is what it says.  LAS files have a signature
+>> > at the beginning of the file.  If the signature isn't found, your LAS
+>> > file is corrupt.
+>> >
+>> > I'm not sure why you'd get a "too many files" open error.  I think
+>> > this is an issue in entwine.
+>> >
+>> > On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <
+>> > jrmorreale_ml at enoreth.net> wrote:
+>> > > Hi,
+>> > >
+>> > > I am trying to build an EPT with entwine 2.0 (conda) on a
+>> > > classified lidar cloud (1220 tiles, 22billion points) but I did not
+>> > > succeed in getting a usable result.
+>> > >
+>> > > The command used is :
+>> > > entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip"
+>> > > -i input_dir -o output_dir
+>> > >
+>> > > The errors are
+>> > > * Exception in pool task: writers.las: legacy flags and extended
+>> > > flags are not identical
+>> > > * During input_xx.laz: readers.las: File signature is not 'LASF',
+>> > > is this an LAS/LAZ file?
+>> > > * Unable to open stream for 'input_xx.laz' with error 'Too many
+>> > > open files'
+>> > >
+>> > > The last error is only shown when trying to work on the 1220 files
+>> > > at once. The attempts have been made on the original terrascan
+>> > > tiles and on pdal translated laz tiles, the generated ept-data
+>> > > output is empty laz files.
+>> > >
+>> > > pdal info --all of 1 laz tiles
+>> > > https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+>> > >
+>> > > pdal info all on the same tile but on the original las file from
+>> > > terrascan
+>> > > https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+>> > >
+>> > > las sample
+>> > >
+>> https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+>> > >
+>> > > laz sample
+>> > >
+>> https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+>> > >
+>> > > log of entwine build on 5 tiles (run 5)
+>> > > https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+>> > >
+>> > > log of entwine build with on 1220 tiles
+>> > > https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+>> > >
+>> > > Could you point to the mistake(s) I've made ? My aim is to publish
+>> > > our data online, the latest usgs example is a great incentive.
+>> > >
+>> > > Regards,
+>> > > Jean-Roc Morreale _______________________________________________
+>> > > pdal mailing list
+>> > > pdal at lists.osgeo.org
+>> > > https://lists.osgeo.org/mailman/listinfo/pdal
+>> >
+>> >
+>>
+>> _______________________________________________
+>> pdal mailing list
+>> pdal at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190218/3b5968d3/attachment.html>
+
+From connor at hobu.co  Mon Feb 18 12:13:49 2019
+From: connor at hobu.co (Connor Manning)
+Date: Mon, 18 Feb 2019 14:13:49 -0600
+Subject: [pdal] Entwine/EPT build failures
+In-Reply-To: <CAO=FyjK=c2yn1cjrAJOqTogAWO+MrmP_SWPA75Ty2NUSzQwp8w@mail.gmail.com>
+References: <479b-5c6ac300-15-144c0a80@265422161>
+ <CACJ51z0aW68vC5C9MP9N-2Bo1YgF44G+U28Cpsi358Zah+p+pg@mail.gmail.com>
+ <c28ce2cce9e72dd85efa404b5a2fb304f0f02bb7.camel@enoreth.net>
+ <CAO=FyjJL-kixiLtSPD7H-dqAx9tLP7OZVc0V0sVF5spyOH4OxA@mail.gmail.com>
+ <CAO=FyjK=c2yn1cjrAJOqTogAWO+MrmP_SWPA75Ty2NUSzQwp8w@mail.gmail.com>
+Message-ID: <CAO=FyjKfn3hdypWd4sPL6ds6wJOP2CZG4VYsUBHc4wA0FWZ=Aw@mail.gmail.com>
+
+This looks specific to the Windows/Conda environment, since both the
+LAS/LAZ file you posted work fine for me.  It looks like Entwine isn't
+properly able to open your files at all for some reason, considering the
+error message stating that the LASF file signature is incorrect.  I think
+the error messages stem from a bad interpretation of the file data rather
+than the data itself, though I'm not sure why this would be the case.
+Perhaps there is a permissions issue of some sort, or a newly introduced
+bug in Entwine's file handling on Windows.
+
+On Mon, Feb 18, 2019 at 12:37 PM Connor Manning <connor at hobu.co> wrote:
+
+> Oh I missed that you added links to the files in your original message.
+> I'll see if I can discover anything from them.  If your data is working
+> fine in PDAL but not Entwine though, you may still prefer to submit this as
+> an issue on Entwine.
+>
+> On Mon, Feb 18, 2019 at 12:23 PM Connor Manning <connor at hobu.co> wrote:
+>
+>> If you submit this as an issue on Entwine (
+>> https://github.com/connormanning/entwine/issues) and upload samples of
+>> the problematic files, or email them to me, I will take a look.
+>>
+>> - Connor
+>>
+>> On Mon, Feb 18, 2019 at 12:20 PM Jean-Roc Morreale (ml) <
+>> jrmorreale_ml at enoreth.net> wrote:
+>>
+>>> Hi Andrew, thank you for your reply.
+>>>
+>>> Unfortunatly, our Windows system configuration prevents me to setup a
+>>> msvc build toolchain so I will wait for the next release on this point.
+>>>
+>>> About the LAS missing signature, for now entwine build seems to be the
+>>> only tool blocked by it as I have been using many pdal tools an others
+>>> (lastools, cloudcompare, fme, potreeconverter) in the last past weeks.
+>>> My first reaction was to convert the las files to laz using pdal
+>>> stating minor_version=4 in the hope it would automagically solves it.
+>>>
+>>> regards,
+>>> jean-roc
+>>>
+>>>
+>>> Le lundi 18 février 2019 à 10:04 -0500, Andrew Bell a écrit :
+>>> > The first error (about legacy flags) is due to an issue in the LASzip
+>>> > API code.  You can see this issue
+>>> > https://github.com/PDAL/PDAL/issues/2320 for details.  You can build
+>>> > the 1.8-maintenance branch of PDAL to eliminate the error.
+>>> >
+>>> > The file signature error is what it says.  LAS files have a signature
+>>> > at the beginning of the file.  If the signature isn't found, your LAS
+>>> > file is corrupt.
+>>> >
+>>> > I'm not sure why you'd get a "too many files" open error.  I think
+>>> > this is an issue in entwine.
+>>> >
+>>> > On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <
+>>> > jrmorreale_ml at enoreth.net> wrote:
+>>> > > Hi,
+>>> > >
+>>> > > I am trying to build an EPT with entwine 2.0 (conda) on a
+>>> > > classified lidar cloud (1220 tiles, 22billion points) but I did not
+>>> > > succeed in getting a usable result.
+>>> > >
+>>> > > The command used is :
+>>> > > entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip"
+>>> > > -i input_dir -o output_dir
+>>> > >
+>>> > > The errors are
+>>> > > * Exception in pool task: writers.las: legacy flags and extended
+>>> > > flags are not identical
+>>> > > * During input_xx.laz: readers.las: File signature is not 'LASF',
+>>> > > is this an LAS/LAZ file?
+>>> > > * Unable to open stream for 'input_xx.laz' with error 'Too many
+>>> > > open files'
+>>> > >
+>>> > > The last error is only shown when trying to work on the 1220 files
+>>> > > at once. The attempts have been made on the original terrascan
+>>> > > tiles and on pdal translated laz tiles, the generated ept-data
+>>> > > output is empty laz files.
+>>> > >
+>>> > > pdal info --all of 1 laz tiles
+>>> > > https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+>>> > >
+>>> > > pdal info all on the same tile but on the original las file from
+>>> > > terrascan
+>>> > > https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+>>> > >
+>>> > > las sample
+>>> > >
+>>> https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+>>> > >
+>>> > > laz sample
+>>> > >
+>>> https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+>>> > >
+>>> > > log of entwine build on 5 tiles (run 5)
+>>> > > https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+>>> > >
+>>> > > log of entwine build with on 1220 tiles
+>>> > > https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+>>> > >
+>>> > > Could you point to the mistake(s) I've made ? My aim is to publish
+>>> > > our data online, the latest usgs example is a great incentive.
+>>> > >
+>>> > > Regards,
+>>> > > Jean-Roc Morreale _______________________________________________
+>>> > > pdal mailing list
+>>> > > pdal at lists.osgeo.org
+>>> > > https://lists.osgeo.org/mailman/listinfo/pdal
+>>> >
+>>> >
+>>>
+>>> _______________________________________________
+>>> pdal mailing list
+>>> pdal at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190218/f3947ffb/attachment.html>
+
+From jrmorreale_ml at enoreth.net  Tue Feb 19 00:27:32 2019
+From: jrmorreale_ml at enoreth.net (=?utf-8?q?jrmorreale=5Fml=40enoreth=2Enet?=)
+Date: Tue, 19 Feb 2019 09:27:32 +0100
+Subject: [pdal]
+ =?utf-8?b?Pz09P3V0Zi04P3E/ID89PT91dGYtOD9xPyBFbnR3aW5lL0VQ?=
+ =?utf-8?q?T_build_failures?=
+In-Reply-To: <CAO=FyjKfn3hdypWd4sPL6ds6wJOP2CZG4VYsUBHc4wA0FWZ=Aw@mail.gmail.com>
+Message-ID: <af2-5c6bbe00-3-7d66ad80@261947940>
+
+
+Hi Connor,
+
+Since you are mentionning the conda env, I did a try with its pdal version :
+C:\>pdal translate --writer "las" --writers.las.compression="laszip" --writers.las.minor_version=4 --writers.las.a_srs="EPSG:2154" --input "680000_7058000.las" --output "680000_7058000_test.laz"
+PDAL: writers.las: legacy flags and extended flags are not identical
+
+The pdal 1.8.0 runtime provided by osgeo4w works fine on this file, without printing this error.
+
+
+Le Lundi, Février 18, 2019 21:13 CET, Connor Manning <connor at hobu.co> a écrit:
+ This looks specific to the Windows/Conda environment, since both the LAS/LAZ file you posted work fine for me.  It looks like Entwine isn't properly able to open your files at all for some reason, considering the error message stating that the LASF file signature is incorrect.  I think the error messages stem from a bad interpretation of the file data rather than the data itself, though I'm not sure why this would be the case.  Perhaps there is a permissions issue of some sort, or a newly introduced bug in Entwine's file handling on Windows. On Mon, Feb 18, 2019 at 12:37 PM Connor Manning <connor at hobu.co> wrote:Oh I missed that you added links to the files in your original message.  I'll see if I can discover anything from them.  If your data is working fine in PDAL but not Entwine though, you may still prefer to submit this as an issue on Entwine. On Mon, Feb 18, 2019 at 12:23 PM Connor Manning <connor at hobu.co> wrote:If you submit this as an issue on Entwine (https://github.com/connormanning/entwine/issues) and upload samples of the problematic files, or email them to me, I will take a look. - Connor On Mon, Feb 18, 2019 at 12:20 PM Jean-Roc Morreale (ml) <jrmorreale_ml at enoreth.net> wrote:Hi Andrew, thank you for your reply.
+
+Unfortunatly, our Windows system configuration prevents me to setup a
+msvc build toolchain so I will wait for the next release on this point.
+
+About the LAS missing signature, for now entwine build seems to be the
+only tool blocked by it as I have been using many pdal tools an others
+(lastools, cloudcompare, fme, potreeconverter) in the last past weeks.
+My first reaction was to convert the las files to laz using pdal
+stating minor_version=4 in the hope it would automagically solves it.
+
+regards,
+jean-roc
+
+
+Le lundi 18 février 2019 à 10:04 -0500, Andrew Bell a écrit :
+> The first error (about legacy flags) is due to an issue in the LASzip
+> API code.  You can see this issue
+> https://github.com/PDAL/PDAL/issues/2320 for details.  You can build
+> the 1.8-maintenance branch of PDAL to eliminate the error.
+>
+> The file signature error is what it says.  LAS files have a signature
+> at the beginning of the file.  If the signature isn't found, your LAS
+> file is corrupt.
+>
+> I'm not sure why you'd get a "too many files" open error.  I think
+> this is an issue in entwine.
+>
+> On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <
+> jrmorreale_ml at enoreth.net> wrote:
+> > Hi,
+> >
+> > I am trying to build an EPT with entwine 2.0 (conda) on a
+> > classified lidar cloud (1220 tiles, 22billion points) but I did not
+> > succeed in getting a usable result.
+> >
+> > The command used is :
+> > entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip"
+> > -i input_dir -o output_dir
+> >
+> > The errors are
+> > * Exception in pool task: writers.las: legacy flags and extended
+> > flags are not identical
+> > * During input_xx.laz: readers.las: File signature is not 'LASF',
+> > is this an LAS/LAZ file?
+> > * Unable to open stream for 'input_xx.laz' with error 'Too many
+> > open files'
+> >
+> > The last error is only shown when trying to work on the 1220 files
+> > at once. The attempts have been made on the original terrascan
+> > tiles and on pdal translated laz tiles, the generated ept-data
+> > output is empty laz files.
+> >
+> > pdal info --all of 1 laz tiles
+> > https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+> >
+> > pdal info all on the same tile but on the original las file from
+> > terrascan
+> > https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+> >
+> > las sample
+> > https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+> >
+> > laz sample
+> > https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+> >
+> > log of entwine build on 5 tiles (run 5)
+> > https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+> >
+> > log of entwine build with on 1220 tiles
+> > https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+> >
+> > Could you point to the mistake(s) I've made ? My aim is to publish
+> > our data online, the latest usgs example is a great incentive.
+> >
+> > Regards,
+> > Jean-Roc Morreale _______________________________________________
+> > pdal mailing list
+> > pdal at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+
+_______________________________________________
+pdal mailing list
+pdal at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190219/e8e01ad9/attachment-0001.html>
+
+From klassen.js at gmail.com  Tue Feb 19 06:15:10 2019
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Tue, 19 Feb 2019 08:15:10 -0600
+Subject: [pdal] ?= =?utf-8?q? Entwine/EPT build failures
+In-Reply-To: <af2-5c6bbe00-3-7d66ad80@261947940>
+References: <af2-5c6bbe00-3-7d66ad80@261947940>
+Message-ID: <b4d95d0d-b3f3-71e0-54b7-f3fc1dee3d4e@gmail.com>
+
+I ran into this error awhile back compiling everything (entwine/pdal/liblaszip/...) from source on Linux.  I can't remember exactly how I got past it, but I think it was a version mismatch issue between pdal and LASZIP.
+
+Looks like this was solved here:
+
+https://github.com/PDAL/PDAL/issues/2329
+
+On 2/19/19 2:27 AM, jrmorreale_ml at enoreth.net wrote:
+> Hi Connor,
+>
+> Since you are mentionning the conda env, I did a try with its pdal version :
+> C:\>pdal translate --writer "las" --writers.las.compression="laszip" --writers.las.minor_version=4 --writers.las.a_srs="EPSG:2154" --input "680000_7058000.las" --output "680000_7058000_test.laz"
+> PDAL: writers.las: legacy flags and extended flags are not identical
+>
+> The pdal 1.8.0 runtime provided by osgeo4w works fine on this file, without printing this error.
+>
+>
+> Le Lundi, Février 18, 2019 21:13 CET, Connor Manning <connor at hobu.co> a écrit:
+>> This looks specific to the Windows/Conda environment, since both the LAS/LAZ file you posted work fine for me.  It looks like Entwine isn't properly able to open your files at all for some reason, considering the error message stating that the LASF file signature is incorrect.  I think the error messages stem from a bad interpretation of the file data rather than the data itself, though I'm not sure why this would be the case.  Perhaps there is a permissions issue of some sort, or a newly introduced bug in Entwine's file handling on Windows.
+>> On Mon, Feb 18, 2019 at 12:37 PM Connor Manning <connor at hobu.co <mailto:connor at hobu.co>> wrote:
+>>
+>>     Oh I missed that you added links to the files in your original message.  I'll see if I can discover anything from them.  If your data is working fine in PDAL but not Entwine though, you may still prefer to submit this as an issue on Entwine.
+>>     On Mon, Feb 18, 2019 at 12:23 PM Connor Manning <connor at hobu.co <mailto:connor at hobu.co>> wrote:
+>>
+>>         If you submit this as an issue on Entwine (https://github.com/connormanning/entwine/issues) and upload samples of the problematic files, or email them to me, I will take a look.
+>>         - Connor
+>>         On Mon, Feb 18, 2019 at 12:20 PM Jean-Roc Morreale (ml) <jrmorreale_ml at enoreth.net <mailto:jrmorreale_ml at enoreth.net>> wrote:
+>>
+>>             Hi Andrew, thank you for your reply.
+>>
+>>             Unfortunatly, our Windows system configuration prevents me to setup a
+>>             msvc build toolchain so I will wait for the next release on this point.
+>>
+>>             About the LAS missing signature, for now entwine build seems to be the
+>>             only tool blocked by it as I have been using many pdal tools an others
+>>             (lastools, cloudcompare, fme, potreeconverter) in the last past weeks.
+>>             My first reaction was to convert the las files to laz using pdal
+>>             stating minor_version=4 in the hope it would automagically solves it.
+>>
+>>             regards,
+>>             jean-roc
+>>
+>>
+>>             Le lundi 18 février 2019 à 10:04 -0500, Andrew Bell a écrit :
+>>             > The first error (about legacy flags) is due to an issue in the LASzip
+>>             > API code.  You can see this issue
+>>             > https://github.com/PDAL/PDAL/issues/2320 for details.  You can build
+>>             > the 1.8-maintenance branch of PDAL to eliminate the error.
+>>             >
+>>             > The file signature error is what it says.  LAS files have a signature
+>>             > at the beginning of the file.  If the signature isn't found, your LAS
+>>             > file is corrupt.
+>>             >
+>>             > I'm not sure why you'd get a "too many files" open error.  I think
+>>             > this is an issue in entwine.
+>>             >
+>>             > On Mon, Feb 18, 2019 at 9:49 AM jrmorreale_ml at enoreth.net <mailto:jrmorreale_ml at enoreth.net> <
+>>             > jrmorreale_ml at enoreth.net <mailto:jrmorreale_ml at enoreth.net>> wrote:
+>>             > > Hi,
+>>             > >
+>>             > > I am trying to build an EPT with entwine 2.0 (conda) on a
+>>             > > classified lidar cloud (1220 tiles, 22billion points) but I did not
+>>             > > succeed in getting a usable result.
+>>             > >
+>>             > > The command used is :
+>>             > > entwine build --srs "EPSG:2154" --threads "4" --dataType "laszip"
+>>             > > -i input_dir -o output_dir
+>>             > >
+>>             > > The errors are
+>>             > > * Exception in pool task: writers.las: legacy flags and extended
+>>             > > flags are not identical
+>>             > > * During input_xx.laz: readers.las: File signature is not 'LASF',
+>>             > > is this an LAS/LAZ file?
+>>             > > * Unable to open stream for 'input_xx.laz' with error 'Too many
+>>             > > open files'
+>>             > >
+>>             > > The last error is only shown when trying to work on the 1220 files
+>>             > > at once. The attempts have been made on the original terrascan
+>>             > > tiles and on pdal translated laz tiles, the generated ept-data
+>>             > > output is empty laz files.
+>>             > >
+>>             > > pdal info --all of 1 laz tiles
+>>             > > https://gist.github.com/Jean-Roc/bb045bd1e01edbadf7f49e97df0d2568
+>>             > >
+>>             > > pdal info all on the same tile but on the original las file from
+>>             > > terrascan
+>>             > > https://gist.github.com/Jean-Roc/50145b3b7a0b2b432f0b2956807eb181
+>>             > >
+>>             > > las sample
+>>             > > https://dl.lillemetropole.fr/file.php?h=Rc3bb7eeace8c2923b565e2b7ba7f2370
+>>             > >
+>>             > > laz sample
+>>             > > https://dl.lillemetropole.fr/file.php?h=R9e3f147ea2f928b9f4437697faad3e51
+>>             > >
+>>             > > log of entwine build on 5 tiles (run 5)
+>>             > > https://gist.github.com/Jean-Roc/ce231d6770fdaafa5bba307d79c0e992
+>>             > >
+>>             > > log of entwine build with on 1220 tiles
+>>             > > https://gist.github.com/Jean-Roc/29fcffa60886168e73d0e7146e897801
+>>             > >
+>>             > > Could you point to the mistake(s) I've made ? My aim is to publish
+>>             > > our data online, the latest usgs example is a great incentive.
+>>             > >
+>>             > > Regards,
+>>             > > Jean-Roc Morreale _______________________________________________
+>>             > > pdal mailing list
+>>             > > pdal at lists.osgeo.org <mailto:pdal at lists.osgeo.org>
+>>             > > https://lists.osgeo.org/mailman/listinfo/pdal
+>>             >
+>>             >
+>>
+>>             _______________________________________________
+>>             pdal mailing list
+>>             pdal at lists.osgeo.org <mailto:pdal at lists.osgeo.org>
+>>             https://lists.osgeo.org/mailman/listinfo/pdal
+>>
+>
+>
+>
+>
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190219/cab11192/attachment.html>
+
+From ahuarte47 at yahoo.es  Tue Feb 19 08:43:45 2019
+From: ahuarte47 at yahoo.es (A Huarte)
+Date: Tue, 19 Feb 2019 16:43:45 +0000 (UTC)
+Subject: [pdal] About mathematical expressions in AssignFilter
+References: <1237077323.2908813.1550594625698.ref@mail.yahoo.com>
+Message-ID: <1237077323.2908813.1550594625698@mail.yahoo.com>
+
+Hi PDAL community, I would like to propose a new feature for the Assign filter. This filter allows you assign a new value to a specific dimension. This is great but I think that it could have a new interesting feature.
+My proposal is that you can define a mathematical expresion to assign the value. 
+For example:
+{      "type": "filters.assign",      "assignment": "Z[-1000:1000]=$( 10 * [Z] )"},{
+      "type": "filters.assign",      "assignment": "Z[-1000:1000]=$( 10 * 2 + [Z] + (25 * [X]) )"},{      "type": "filters.assign",      "assignment": "Classification[0:10]=PointSourceId:$( [PointSourceId] == 3 )"},{      "type": "filters.assign",      "assignment": "Classification[0:10]=Z:$( 10 * ([Classification]>=2 && [Classification]<=4) )"},
+The optional expression could be marked with a $(....) text. 
+I have implemented my own version in a simple manner. It supports the tipical calc operators ( * / + -  && || >= == != <= > < ) and "(...)" for priorizing them. You can write "[dimension_name]" to extract the attribute value of a dimension in the current point. Also you can define an optional dimension target, different of the first dimension that acts as filter, specifing it just after the "=" item.
+For a fully calc parser (Including functions) I could use the amazing https://www.antlr.org, but It would add a new dependency to the PDAL software. I think these simple operators already give a plus to this filter.
+Any opinions?If you agree I could try to create a pull request with my code.
+
+Best regards
+https://github.com/ahuarte47
+Alvaro
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190219/f63dc031/attachment-0001.html>
+
+From beckley at unavco.org  Thu Feb 21 16:23:49 2019
+From: beckley at unavco.org (Matt Beckley)
+Date: Thu, 21 Feb 2019 17:23:49 -0700
+Subject: [pdal] count option with .ept files
+Message-ID: <CACrek77Cu5DdkX+iKVVzNjJmKrKwWBvN-+3sZukGoCVr32PuqA@mail.gmail.com>
+
+Hello all,
+
+I would like to limit the number of points read from a .ept file - or at
+least get a notification if the number of points is greater than a certain
+number.  The "count" option seems to be what I want, but it doesn't seem to
+work as I expected.  Here is my pipeline:
+
+{
+>   "pipeline": [
+>     {
+>       "type": "readers.ept",
+>         "filename": "ept://
+> https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015
+> ",
+>         "bounds": "([-8577627, -8575100], [4705400,4706300])",
+>       "count":"25"},
+>       "test_DC_25Pts.laz"
+>   ]
+> }
+
+
+This will run without errors, but the "count" option never seems to be
+read.  I've tried with and without quotes.
+
+However, when I run a similar pipeline on a local las file, I am able to
+limit the number of points in the output file.  For example:
+
+{
+>   "pipeline": [
+>     {
+>       "type": "readers.las",
+>         "filename": "C02_ns.las",
+>       "count":250},
+>       "test_250Pts.laz"
+>   ]
+> }
+
+
+This produces an output LAZ file with only 250 pts - as I expected.
+
+
+When using reader.ept does the count refer to the number of tiles, and not
+actual data points?
+
+
+Any info would be appreciated.  Thanks for your time,
+
+
+matt.
+
+
+---------------------------
+Matthew Beckley
+Data Engineer
+UNAVCO/OpenTopography
+beckley at unavco.org
+303-381-7487
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190221/5ab152eb/attachment.html>
+
+From connor at hobu.co  Fri Feb 22 08:01:30 2019
+From: connor at hobu.co (Connor Manning)
+Date: Fri, 22 Feb 2019 10:01:30 -0600
+Subject: [pdal] count option with .ept files
+In-Reply-To: <CACrek77Cu5DdkX+iKVVzNjJmKrKwWBvN-+3sZukGoCVr32PuqA@mail.gmail.com>
+References: <CACrek77Cu5DdkX+iKVVzNjJmKrKwWBvN-+3sZukGoCVr32PuqA@mail.gmail.com>
+Message-ID: <CAO=Fyj+x0WRw+wtSesnGLNYRWped=bP=R=UTyxZkB00EuN3SYA@mail.gmail.com>
+
+The EPT reader currently doesn't respect the `count` option at all.  This
+is a default reader option inherited by all readers, which is why it
+appears in the docs even though the EPT reader itself doesn't use it.
+
+For now, the only possibility would be limiting EPT reads by bounds or
+resolution, and then using the head filter to limit the point count exactly.
+
+This would be worthy of an issue on PDAL's github if you'd like to track
+the status of adding support for the `count` option by the EPT reader.
+
+- Connor
+
+On Thu, Feb 21, 2019 at 6:24 PM Matt Beckley <beckley at unavco.org> wrote:
+
+> Hello all,
+>
+> I would like to limit the number of points read from a .ept file - or at
+> least get a notification if the number of points is greater than a certain
+> number.  The "count" option seems to be what I want, but it doesn't seem to
+> work as I expected.  Here is my pipeline:
+>
+> {
+>>   "pipeline": [
+>>     {
+>>       "type": "readers.ept",
+>>         "filename": "ept://
+>> https://s3-us-west-2.amazonaws.com/usgs-lidar-public/USGS_LPC_MD_VA_Sandy_NCR_2014_LAS_2015
+>> ",
+>>         "bounds": "([-8577627, -8575100], [4705400,4706300])",
+>>       "count":"25"},
+>>       "test_DC_25Pts.laz"
+>>   ]
+>> }
+>
+>
+> This will run without errors, but the "count" option never seems to be
+> read.  I've tried with and without quotes.
+>
+> However, when I run a similar pipeline on a local las file, I am able to
+> limit the number of points in the output file.  For example:
+>
+> {
+>>   "pipeline": [
+>>     {
+>>       "type": "readers.las",
+>>         "filename": "C02_ns.las",
+>>       "count":250},
+>>       "test_250Pts.laz"
+>>   ]
+>> }
+>
+>
+> This produces an output LAZ file with only 250 pts - as I expected.
+>
+>
+> When using reader.ept does the count refer to the number of tiles, and not
+> actual data points?
+>
+>
+> Any info would be appreciated.  Thanks for your time,
+>
+>
+> matt.
+>
+>
+> ---------------------------
+> Matthew Beckley
+> Data Engineer
+> UNAVCO/OpenTopography
+> beckley at unavco.org
+> 303-381-7487
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190222/1dacd31c/attachment.html>
+
+From vollmer at scanvision.ch  Mon Feb 25 03:33:20 2019
+From: vollmer at scanvision.ch (vollmer at scanvision.ch)
+Date: Mon, 25 Feb 2019 12:33:20 +0100
+Subject: [pdal] PLY Writer
+Message-ID: <0835825F-EEB4-48DC-B7E3-6EC2B53525A6@scanvision.ch>
+
+
+Hello,
+
+I’m quite new to pdal and coding. My questions are about the writer.ply. I want to translate from .laz files to .ply files.
+
+1) It works on my PC when using „little endian“ (default is faulty), but on my Mac the colors turn black. (low priority question)
+
+2) I want to use the files in unity, together with PCX which can read .ply files. When using the files coming from pdal an error occurs: unsupported property type = 'float64 x‘. When I open the file in CloudCompare and save it again as ply it works fine. 
+I guess the pdal writer uses a property type that is not readable from the PCX. So is there a way to change the property type of the values? (f.ex. to uint8) To open every file in CloudCompare and save them again is not an option, I’m translating thousands of files. 
+
+Thanks a lot and with best regards,
+Mat
+
+From andrew.bell.ia at gmail.com  Mon Feb 25 05:33:06 2019
+From: andrew.bell.ia at gmail.com (Andrew Bell)
+Date: Mon, 25 Feb 2019 08:33:06 -0500
+Subject: [pdal] PLY Writer
+In-Reply-To: <0835825F-EEB4-48DC-B7E3-6EC2B53525A6@scanvision.ch>
+References: <0835825F-EEB4-48DC-B7E3-6EC2B53525A6@scanvision.ch>
+Message-ID: <CACJ51z133GQSkoBTRhvW81JQc5PrjNf4+BUbQj8xwA15KFyGBw@mail.gmail.com>
+
+1) Yes, the documentation is wrong in that the "default" option is not
+supported.
+2) No, there is no way to specify the output types for the PLY writer.  If
+PCX cannot read double-precision floating point, I would open a ticket with
+that application. However, this ticket seems to indicate that it has
+double-precision floating point support:
+
+https://github.com/keijiro/Pcx/issues/10
+
+On Mon, Feb 25, 2019 at 7:16 AM vollmer at scanvision.ch <vollmer at scanvision.ch>
+wrote:
+
+>
+> Hello,
+>
+> I’m quite new to pdal and coding. My questions are about the writer.ply. I
+> want to translate from .laz files to .ply files.
+>
+> 1) It works on my PC when using „little endian“ (default is faulty), but
+> on my Mac the colors turn black. (low priority question)
+>
+> 2) I want to use the files in unity, together with PCX which can read .ply
+> files. When using the files coming from pdal an error occurs: unsupported
+> property type = 'float64 x‘. When I open the file in CloudCompare and save
+> it again as ply it works fine.
+> I guess the pdal writer uses a property type that is not readable from the
+> PCX. So is there a way to change the property type of the values? (f.ex. to
+> uint8) To open every file in CloudCompare and save them again is not an
+> option, I’m translating thousands of files.
+>
+> Thanks a lot and with best regards,
+> Mat
+> _______________________________________________
+> pdal mailing list
+> pdal at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/pdal
+
+
+
+-- 
+Andrew Bell
+andrew.bell.ia at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20190225/a9b3e758/attachment.html>
+

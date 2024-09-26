@@ -1,0 +1,1276 @@
+From stevejking at talktalk.net  Mon Jun 10 06:07:55 2013
+From: stevejking at talktalk.net (stevejking)
+Date: Mon, 10 Jun 2013 06:07:55 -0700 (PDT)
+Subject: [Proj] Eric Miller VB Wrapper +nadgrids=
+In-Reply-To: <1342305134718-4988410.post@n6.nabble.com>
+References: <1309443749365-6533462.post@n2.nabble.com>
+	<4E0C35D2.95FD.00E4.0@dfg.ca.gov>
+	<1309473660558-6535330.post@n2.nabble.com>
+	<1309480422655-6535733.post@n2.nabble.com>
+	<4E0CBDA8.95FD.00E4.0@dfg.ca.gov>
+	<1309523274368-6537569.post@n2.nabble.com>
+	<1340293505419-4983048.post@n6.nabble.com>
+	<1340367089043-4983206.post@n6.nabble.com>
+	<1342305134718-4988410.post@n6.nabble.com>
+Message-ID: <1370869675433-5059114.post@n6.nabble.com>
+
+Compiled the updated wrapper using VC++ express
+
+Modified Eric's original wrapper c for
+pjDatumTransform 
+pjGeocentricToGeodetic
+pjGeodeticToGeocentric
+as per the current api reference (ie. nolonger x y z arrays)
+
+and put _ prefix in the decorated .def names.
+
+and changed "PVALUE" in projects.h and pj_param.c to "_P_VALUE"
+
+Otherwise appears to have compiled to proj 4.8.0. Thanks for the headstart
+with your early files Eric Miller.
+
+
+
+--
+View this message in context: http://osgeo-org.1560.x6.nabble.com/Eric-Miller-VB-Wrapper-nadgrids-tp3841233p5059114.html
+Sent from the PROJ.4 mailing list archive at Nabble.com.
+
+
+From Ben.Caradoc-Davies at csiro.au  Tue Jun 11 02:37:36 2013
+From: Ben.Caradoc-Davies at csiro.au (Ben Caradoc-Davies)
+Date: Tue, 11 Jun 2013 17:37:36 +0800
+Subject: [Proj] Height and ellipse conversions
+Message-ID: <51B6EFE0.10502@csiro.au>
+
+Are height adjustments expected when converting between ellipses?
+
+I am trying to understand some unexpected behaviour I found in OGR (via 
+the Python bindings) while validating the correctness of 3D conversions 
+between ellipses. In the original form I was using OGC WKT definitions, 
+but I have boiled the behaviour down to a simple Proj.4 example. I am 
+using proj 4.7.0 (proj-bin 4.7.0-2 amd64 debian/sid).
+
+The example:
+
+WGS84 has an ellipsoid with semimajor axis of 6378137 m.
+WGS66 has an ellipsoid with semimajor axis of 6378145 m.
+
+So, let's take a point on the WGS84 ellipsoid at the intersection of the 
+meridian and the equator, (6378137, 0, 0) in geocentric X, Y, Z metres. 
+This point should be 8 m *below* the WGS66 ellipsoid, so I expect that 
+if I convert it to WGS66 longlat, the height should be -8.0 metres 
+exactly, by definition.
+
+$ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to 
++proj=longlat +ellps=WGS66 +no_defs
+0dE	0dN 0.000
+
+What? That can't be right. This height should be -8.000 in WGS66.
+
+$ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to 
++proj=longlat +ellps=WGS84 +no_defs
+0dE	0dN 0.000
+
+Yes, I get the same result if the destination is WGS84. This is correct.
+
+$ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS66 +no_defs +to 
++proj=longlat +ellps=WGS84 +no_defs
+0dE	0dN -8.000
+
+But I get the *right* answer if I set the *source* ellps to WGS66. What?
+
+$ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS66 +no_defs +to 
++proj=longlat +ellps=WGS66 +no_defs
+0dE	0dN -8.000
+
+And the *target* ellps does not seem to matter. This does not seem to 
+make sense. In each case, it looks to me like the source ellipse is 
+being used as the target. (And what does an ellipse mean for geocent 
+anyway?)
+
+Furthermore, no combination of ellps options results in a height 
+adjustment when going from longlat to longlat with an ellipse 
+adjustment. For example:
+
+$ echo "0dE 0dN 0.0" | cs2cs +proj=longlat +ellps=WGS84 +no_defs +to 
++proj=longlat +ellps=WGS66 +no_defs
+0dE	0dN 0.000
+
+If I go straight geocent to geocent, I get different points, It looks 
+like the height relative to the ellipse is preserved, but that is a 
+different point:
+
+$ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to 
++proj=geocent +ellps=WGS66 +no_defs
+6378145.00	0.00 0.00
+
+Is this behaviour expected, or have I misunderstood?
+
+Here is the Python version of the WGS84 geocent to WGS66 lonlat. I got 
+the same behaviour with OGC WKT SpatialReference as well as Proj.4 
+versions, which led me to the source and here.
+
+import ogr
+import osr
+point = ogr.Geometry(ogr.wkbPoint)
+point.AddPoint(6378137.0, 0.0, 0.0)
+sourceSR = osr.SpatialReference()
+targetSR = osr.SpatialReference()
+sourceSR.ImportFromProj4("+proj=geocent +ellps=WGS84 +no_defs")
+print sourceSR
+targetSR.ImportFromProj4("+proj=longlat +ellps=WGS66 +no_defs")
+print targetSR
+transform = osr.CoordinateTransformation(sourceSR, targetSR)
+print point.GetX(), point.GetY(), point.GetZ()
+point.Transform(transform)
+print point.GetX(), point.GetY(), point.GetZ()
+
+Sample output:
+
+GEOCCS["Geocentric",
+     DATUM["unknown",
+         SPHEROID["WGS84",6378137,298.257223563]],
+     PRIMEM["Greenwich",0]]
+GEOGCS["WGS 66",
+     DATUM["unknown",
+         SPHEROID["WGS66",6378145,298.25]],
+     PRIMEM["Greenwich",0],
+     UNIT["degree",0.0174532925199433]]
+6378137.0 0.0 0.0
+0.0 0.0 0.0
+
+Wrong height.
+
+And here is an example of a WGS84 to WGS66 conversion:
+
+import ogr
+import osr
+# http://spatialreference.org/ref/epsg/4979/prettywkt/
+EPSG_4979_WKT = """GEOGCS["WGS 84",
+     DATUM["World Geodetic System 1984",
+         SPHEROID["WGS 84",6378137.0,298.257223563,
+             AUTHORITY["EPSG","7030"]],
+         AUTHORITY["EPSG","6326"]],
+     PRIMEM["Greenwich",0.0,
+         AUTHORITY["EPSG","8901"]],
+     UNIT["degree",0.017453292519943295],
+     AXIS["Geodetic latitude",NORTH],
+     AXIS["Geodetic longitude",EAST],
+     AXIS["Ellipsoidal height",UP],
+     AUTHORITY["EPSG","4979"]]
+"""
+# http://spatialreference.org/ref/epsg/4891/prettywkt/
+EPSG_4891_WKT = """GEOGCS["WGS 66",
+     DATUM["World Geodetic System 1966",
+         SPHEROID["NWL 9D",6378145.0,298.25,
+             AUTHORITY["EPSG","7025"]],
+         AUTHORITY["EPSG","6760"]],
+     PRIMEM["Greenwich",0.0,
+         AUTHORITY["EPSG","8901"]],
+     UNIT["degree",0.017453292519943295],
+     AXIS["Geodetic latitude",NORTH],
+     AXIS["Geodetic longitude",EAST],
+     AXIS["Ellipsoidal height",UP],
+     AUTHORITY["EPSG","4891"]]
+"""
+point = ogr.Geometry(ogr.wkbPoint)
+point.AddPoint(0.0, 0.0, 0.0)
+sourceSR = osr.SpatialReference()
+targetSR = osr.SpatialReference()
+sourceSR.ImportFromWkt(EPSG_4979_WKT)
+print sourceSR
+targetSR.ImportFromWkt(EPSG_4891_WKT)
+print targetSR
+transform = osr.CoordinateTransformation(sourceSR, targetSR)
+print point.GetX(), point.GetY(), point.GetZ()
+point.Transform(transform)
+print point.GetX(), point.GetY(), point.GetZ()
+
+The output:
+
+GEOGCS["WGS 84",
+     DATUM["World Geodetic System 1984",
+         SPHEROID["WGS 84",6378137.0,298.257223563,
+             AUTHORITY["EPSG","7030"]],
+         AUTHORITY["EPSG","6326"]],
+     PRIMEM["Greenwich",0.0,
+         AUTHORITY["EPSG","8901"]],
+     UNIT["degree",0.017453292519943295],
+     AXIS["Geodetic latitude",NORTH],
+     AXIS["Geodetic longitude",EAST],
+     AXIS["Ellipsoidal height",UP],
+     AUTHORITY["EPSG","4979"]]
+GEOGCS["WGS 66",
+     DATUM["World Geodetic System 1966",
+         SPHEROID["NWL 9D",6378145.0,298.25,
+             AUTHORITY["EPSG","7025"]],
+         AUTHORITY["EPSG","6760"]],
+     PRIMEM["Greenwich",0.0,
+         AUTHORITY["EPSG","8901"]],
+     UNIT["degree",0.017453292519943295],
+     AXIS["Geodetic latitude",NORTH],
+     AXIS["Geodetic longitude",EAST],
+     AXIS["Ellipsoidal height",UP],
+     AUTHORITY["EPSG","4891"]]
+0.0 0.0 0.0
+0.0 0.0 0.0
+
+Note that the heights are the same, which is not expected.
+
+Kind regards,
+
+-- 
+Ben Caradoc-Davies <Ben.Caradoc-Davies at csiro.au>
+Software Engineer
+CSIRO Earth Science and Resource Engineering
+Australian Resources Research Centre
+
+
+From support.mn at elisanet.fi  Tue Jun 11 16:02:44 2013
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Wed, 12 Jun 2013 02:02:44 +0300 (EEST)
+Subject: [Proj] Height and ellipse conversions
+Message-ID: <11265265.169911370991764996.JavaMail.support.mn@elisanet.fi>
+
+Hello,
+
+You might try -->
+
+http://trac.osgeo.org/proj/wiki/VerticalDatums
+
+Janne.
+
+------------------------------------------------------------------------------------------
+
+Ben Caradoc-Davies [Ben.Caradoc-Davies at csiro.au] kirjoitti: 
+> Are height adjustments expected when converting between ellipses?
+> 
+> I am trying to understand some unexpected behaviour I found in OGR (via 
+> the Python bindings) while validating the correctness of 3D conversions 
+> between ellipses. In the original form I was using OGC WKT definitions, 
+> but I have boiled the behaviour down to a simple Proj.4 example. I am 
+> using proj 4.7.0 (proj-bin 4.7.0-2 amd64 debian/sid).
+> 
+> The example:
+> 
+> WGS84 has an ellipsoid with semimajor axis of 6378137 m.
+> WGS66 has an ellipsoid with semimajor axis of 6378145 m.
+> 
+> So, let's take a point on the WGS84 ellipsoid at the intersection of the 
+> meridian and the equator, (6378137, 0, 0) in geocentric X, Y, Z metres. 
+> This point should be 8 m *below* the WGS66 ellipsoid, so I expect that 
+> if I convert it to WGS66 longlat, the height should be -8.0 metres 
+> exactly, by definition.
+> 
+> $ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to 
+> +proj=longlat +ellps=WGS66 +no_defs
+> 0dE	0dN 0.000
+> 
+> What? That can't be right. This height should be -8.000 in WGS66.
+> 
+> $ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to 
+> +proj=longlat +ellps=WGS84 +no_defs
+> 0dE	0dN 0.000
+> 
+> Yes, I get the same result if the destination is WGS84. This is correct.
+> 
+> $ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS66 +no_defs +to 
+> +proj=longlat +ellps=WGS84 +no_defs
+> 0dE	0dN -8.000
+> 
+> But I get the *right* answer if I set the *source* ellps to WGS66. What?
+> 
+> $ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS66 +no_defs +to 
+> +proj=longlat +ellps=WGS66 +no_defs
+> 0dE	0dN -8.000
+> 
+> And the *target* ellps does not seem to matter. This does not seem to 
+> make sense. In each case, it looks to me like the source ellipse is 
+> being used as the target. (And what does an ellipse mean for geocent 
+> anyway?)
+> 
+> Furthermore, no combination of ellps options results in a height 
+> adjustment when going from longlat to longlat with an ellipse 
+> adjustment. For example:
+> 
+> $ echo "0dE 0dN 0.0" | cs2cs +proj=longlat +ellps=WGS84 +no_defs +to 
+> +proj=longlat +ellps=WGS66 +no_defs
+> 0dE	0dN 0.000
+> 
+> If I go straight geocent to geocent, I get different points, It looks 
+> like the height relative to the ellipse is preserved, but that is a 
+> different point:
+> 
+> $ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to 
+> +proj=geocent +ellps=WGS66 +no_defs
+> 6378145.00	0.00 0.00
+> 
+> Is this behaviour expected, or have I misunderstood?
+> 
+> Here is the Python version of the WGS84 geocent to WGS66 lonlat. I got 
+> the same behaviour with OGC WKT SpatialReference as well as Proj.4 
+> versions, which led me to the source and here.
+> 
+> import ogr
+> import osr
+> point = ogr.Geometry(ogr.wkbPoint)
+> point.AddPoint(6378137.0, 0.0, 0.0)
+> sourceSR = osr.SpatialReference()
+> targetSR = osr.SpatialReference()
+> sourceSR.ImportFromProj4("+proj=geocent +ellps=WGS84 +no_defs")
+> print sourceSR
+> targetSR.ImportFromProj4("+proj=longlat +ellps=WGS66 +no_defs")
+> print targetSR
+> transform = osr.CoordinateTransformation(sourceSR, targetSR)
+> print point.GetX(), point.GetY(), point.GetZ()
+> point.Transform(transform)
+> print point.GetX(), point.GetY(), point.GetZ()
+> 
+> Sample output:
+> 
+> GEOCCS["Geocentric",
+>      DATUM["unknown",
+>          SPHEROID["WGS84",6378137,298.257223563]],
+>      PRIMEM["Greenwich",0]]
+> GEOGCS["WGS 66",
+>      DATUM["unknown",
+>          SPHEROID["WGS66",6378145,298.25]],
+>      PRIMEM["Greenwich",0],
+>      UNIT["degree",0.0174532925199433]]
+> 6378137.0 0.0 0.0
+> 0.0 0.0 0.0
+> 
+> Wrong height.
+> 
+> And here is an example of a WGS84 to WGS66 conversion:
+> 
+> import ogr
+> import osr
+> # http://spatialreference.org/ref/epsg/4979/prettywkt/
+> EPSG_4979_WKT = """GEOGCS["WGS 84",
+>      DATUM["World Geodetic System 1984",
+>          SPHEROID["WGS 84",6378137.0,298.257223563,
+>              AUTHORITY["EPSG","7030"]],
+>          AUTHORITY["EPSG","6326"]],
+>      PRIMEM["Greenwich",0.0,
+>          AUTHORITY["EPSG","8901"]],
+>      UNIT["degree",0.017453292519943295],
+>      AXIS["Geodetic latitude",NORTH],
+>      AXIS["Geodetic longitude",EAST],
+>      AXIS["Ellipsoidal height",UP],
+>      AUTHORITY["EPSG","4979"]]
+> """
+> # http://spatialreference.org/ref/epsg/4891/prettywkt/
+> EPSG_4891_WKT = """GEOGCS["WGS 66",
+>      DATUM["World Geodetic System 1966",
+>          SPHEROID["NWL 9D",6378145.0,298.25,
+>              AUTHORITY["EPSG","7025"]],
+>          AUTHORITY["EPSG","6760"]],
+>      PRIMEM["Greenwich",0.0,
+>          AUTHORITY["EPSG","8901"]],
+>      UNIT["degree",0.017453292519943295],
+>      AXIS["Geodetic latitude",NORTH],
+>      AXIS["Geodetic longitude",EAST],
+>      AXIS["Ellipsoidal height",UP],
+>      AUTHORITY["EPSG","4891"]]
+> """
+> point = ogr.Geometry(ogr.wkbPoint)
+> point.AddPoint(0.0, 0.0, 0.0)
+> sourceSR = osr.SpatialReference()
+> targetSR = osr.SpatialReference()
+> sourceSR.ImportFromWkt(EPSG_4979_WKT)
+> print sourceSR
+> targetSR.ImportFromWkt(EPSG_4891_WKT)
+> print targetSR
+> transform = osr.CoordinateTransformation(sourceSR, targetSR)
+> print point.GetX(), point.GetY(), point.GetZ()
+> point.Transform(transform)
+> print point.GetX(), point.GetY(), point.GetZ()
+> 
+> The output:
+> 
+> GEOGCS["WGS 84",
+>      DATUM["World Geodetic System 1984",
+>          SPHEROID["WGS 84",6378137.0,298.257223563,
+>              AUTHORITY["EPSG","7030"]],
+>          AUTHORITY["EPSG","6326"]],
+>      PRIMEM["Greenwich",0.0,
+>          AUTHORITY["EPSG","8901"]],
+>      UNIT["degree",0.017453292519943295],
+>      AXIS["Geodetic latitude",NORTH],
+>      AXIS["Geodetic longitude",EAST],
+>      AXIS["Ellipsoidal height",UP],
+>      AUTHORITY["EPSG","4979"]]
+> GEOGCS["WGS 66",
+>      DATUM["World Geodetic System 1966",
+>          SPHEROID["NWL 9D",6378145.0,298.25,
+>              AUTHORITY["EPSG","7025"]],
+>          AUTHORITY["EPSG","6760"]],
+>      PRIMEM["Greenwich",0.0,
+>          AUTHORITY["EPSG","8901"]],
+>      UNIT["degree",0.017453292519943295],
+>      AXIS["Geodetic latitude",NORTH],
+>      AXIS["Geodetic longitude",EAST],
+>      AXIS["Ellipsoidal height",UP],
+>      AUTHORITY["EPSG","4891"]]
+> 0.0 0.0 0.0
+> 0.0 0.0 0.0
+> 
+> Note that the heights are the same, which is not expected.
+> 
+> Kind regards,
+> 
+> -- 
+> Ben Caradoc-Davies <Ben.Caradoc-Davies at csiro.au>
+> Software Engineer
+> CSIRO Earth Science and Resource Engineering
+> Australian Resources Research Centre
+> _______________________________________________
+> Proj mailing list
+> Proj at lists.maptools.org
+> http://lists.maptools.org/mailman/listinfo/proj
+> 
+
+
+
+From warmerdam at pobox.com  Tue Jun 11 16:33:03 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 11 Jun 2013 16:33:03 -0700
+Subject: [Proj] Height and ellipse conversions
+In-Reply-To: <51B6EFE0.10502@csiro.au>
+References: <51B6EFE0.10502@csiro.au>
+Message-ID: <CA+YzLBcNK__2GSAZEFFeDrW4wkXd_vAj_iA-YKtMu62At6ZiPg@mail.gmail.com>
+
+On Tue, Jun 11, 2013 at 2:37 AM, Ben Caradoc-Davies <
+Ben.Caradoc-Davies at csiro.au> wrote:
+
+> Are height adjustments expected when converting between ellipses?
+>
+> I am trying to understand some unexpected behaviour I found in OGR (via
+> the Python bindings) while validating the correctness of 3D conversions
+> between ellipses. In the original form I was using OGC WKT definitions,
+> but I have boiled the behaviour down to a simple Proj.4 example. I am
+> using proj 4.7.0 (proj-bin 4.7.0-2 amd64 debian/sid).
+>
+> The example:
+>
+> WGS84 has an ellipsoid with semimajor axis of 6378137 m.
+> WGS66 has an ellipsoid with semimajor axis of 6378145 m.
+>
+> So, let's take a point on the WGS84 ellipsoid at the intersection of the
+> meridian and the equator, (6378137, 0, 0) in geocentric X, Y, Z metres.
+> This point should be 8 m *below* the WGS66 ellipsoid, so I expect that
+> if I convert it to WGS66 longlat, the height should be -8.0 metres
+> exactly, by definition.
+>
+> $ echo "6378137 0 0" | cs2cs +proj=geocent +ellps=WGS84 +no_defs +to
+> +proj=longlat +ellps=WGS66 +no_defs
+> 0dE     0dN 0.000
+>
+> What? That can't be right. This height should be -8.000 in WGS66.
+
+
+Ben,
+
+In a somewhat recent version of PROJ.4 the behavior was changed so that if
+no proper datum information is given, no attempt is made to convert between
+datums based on bare ellipsoid information.  So in the cases given, there
+is no attempt made to translate between the ellipses.
+
+The behavior used to be different but it seemed to lead to many unexpected
+results when people did not provide datum shift info and it was decided
+those results were doing more harm than good.
+
+Of course it is still a bit invisible to the user whether datum shifting is
+being applied or not which is unfortunate.
+
+Contrast what you see with:
+
+echo "6378137 0 0" | cs2cs +proj=geocent +datum=WGS84 +no_defs +to
++proj=longlat +ellps=WGS66 +towgs84=0,0,0 +no_defs
+0dE 0dN -8.000
+
+In this case the eight meter change in height is entirely done based on the
+ellipsoid difference but it is only applied because we have provided
+information declaring datum relationship of the two datums (the first as
+WGS84, and the second as "equivelent to WGS84").
+
+Best regards,
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130611/5fca81ba/attachment.html>
+
+From Ben.Caradoc-Davies at csiro.au  Tue Jun 11 20:40:55 2013
+From: Ben.Caradoc-Davies at csiro.au (Ben Caradoc-Davies)
+Date: Wed, 12 Jun 2013 11:40:55 +0800
+Subject: [Proj] Height and ellipse conversions
+In-Reply-To: <CA+YzLBcNK__2GSAZEFFeDrW4wkXd_vAj_iA-YKtMu62At6ZiPg@mail.gmail.com>
+References: <51B6EFE0.10502@csiro.au>
+	<CA+YzLBcNK__2GSAZEFFeDrW4wkXd_vAj_iA-YKtMu62At6ZiPg@mail.gmail.com>
+Message-ID: <51B7EDC7.8060906@csiro.au>
+
+On 12/06/13 07:33, Frank Warmerdam wrote:
+> In a somewhat recent version of PROJ.4 the behavior was changed so that
+> if no proper datum information is given, no attempt is made to convert
+> between datums based on bare ellipsoid information.  So in the cases
+> given, there is no attempt made to translate between the ellipses.
+> The behavior used to be different but it seemed to lead to many
+> unexpected results when people did not provide datum shift info and it
+> was decided those results were doing more harm than good.
+> Of course it is still a bit invisible to the user whether datum shifting
+> is being applied or not which is unfortunate.
+> Contrast what you see with:
+> echo "6378137 0 0" | cs2cs +proj=geocent +datum=WGS84 +no_defs +to
+> +proj=longlat +ellps=WGS66 +towgs84=0,0,0 +no_defs
+> 0dE0dN -8.000
+> In this case the eight meter change in height is entirely done based on
+> the ellipsoid difference but it is only applied because we have provided
+> information declaring datum relationship of the two datums (the first as
+> WGS84, and the second as "equivelent to WGS84").
+
+Thanks, Frank. That is a huge help and explains the behaviour I see.
+
+One unfortunate side-effect of this new behaviour is that published 
+Proj.4 settings lacking +towgs84=0,0,0 such as this are incomplete:
+http://spatialreference.org/ref/epsg/4891/proj4/
+
+Furthermore, it appears that OGR does not set enough datum information 
+when importing OGC WKT, so conversions between WGS84 and WGS66 do not 
+change height. Or do you consider this OGC WKT incomplete because it 
+lacks TOWGS84?
+http://spatialreference.org/ref/epsg/4891/prettywkt/
+
+The OGR workaround is to import Proj.4 with +towgs84=0,0,0 rather than 
+OGC WKT.
+
+Kind regards,
+
+-- 
+Ben Caradoc-Davies <Ben.Caradoc-Davies at csiro.au>
+Software Engineer
+CSIRO Earth Science and Resource Engineering
+Australian Resources Research Centre
+
+
+From warmerdam at pobox.com  Tue Jun 11 23:58:25 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 11 Jun 2013 23:58:25 -0700
+Subject: [Proj] Height and ellipse conversions
+In-Reply-To: <51B7EDC7.8060906@csiro.au>
+References: <51B6EFE0.10502@csiro.au>
+	<CA+YzLBcNK__2GSAZEFFeDrW4wkXd_vAj_iA-YKtMu62At6ZiPg@mail.gmail.com>
+	<51B7EDC7.8060906@csiro.au>
+Message-ID: <CA+YzLBcAALTcR+S4GsCWg2JR+6dxwdgWDa1bhbTJWkLCtuRSQg@mail.gmail.com>
+
+On Tue, Jun 11, 2013 at 8:40 PM, Ben Caradoc-Davies <
+Ben.Caradoc-Davies at csiro.au> wrote:
+
+> On 12/06/13 07:33, Frank Warmerdam wrote:
+>
+>> In a somewhat recent version of PROJ.4 the behavior was changed so that
+>> if no proper datum information is given, no attempt is made to convert
+>> between datums based on bare ellipsoid information.  So in the cases
+>> given, there is no attempt made to translate between the ellipses.
+>> The behavior used to be different but it seemed to lead to many
+>> unexpected results when people did not provide datum shift info and it
+>> was decided those results were doing more harm than good.
+>> Of course it is still a bit invisible to the user whether datum shifting
+>> is being applied or not which is unfortunate.
+>> Contrast what you see with:
+>> echo "6378137 0 0" | cs2cs +proj=geocent +datum=WGS84 +no_defs +to
+>> +proj=longlat +ellps=WGS66 +towgs84=0,0,0 +no_defs
+>> 0dE0dN -8.000
+>>
+>> In this case the eight meter change in height is entirely done based on
+>> the ellipsoid difference but it is only applied because we have provided
+>> information declaring datum relationship of the two datums (the first as
+>> WGS84, and the second as "equivelent to WGS84").
+>>
+>
+> Thanks, Frank. That is a huge help and explains the behaviour I see.
+>
+> One unfortunate side-effect of this new behaviour is that published Proj.4
+> settings lacking +towgs84=0,0,0 such as this are incomplete:
+> http://spatialreference.org/**ref/epsg/4891/proj4/<http://spatialreference.org/ref/epsg/4891/proj4/>
+
+
+Ben,
+
+Yes, that is true, though I'd claim there is no clear right transformation
+to use in this case.
+
+
+>
+> Furthermore, it appears that OGR does not set enough datum information
+> when importing OGC WKT, so conversions between WGS84 and WGS66 do not
+> change height. Or do you consider this OGC WKT incomplete because it lacks
+> TOWGS84?
+> http://spatialreference.org/**ref/epsg/4891/prettywkt/<http://spatialreference.org/ref/epsg/4891/prettywkt/>
+
+
+It might be nice if GDAL/OGR would lookup a preferred datum shift when
+there is an explicit reference to an OGC datum like this.  It certainly
+does not provide explicit information on how to transform to other datums
+in the WKT itself.
+
+
+
+>
+> The OGR workaround is to import Proj.4 with +towgs84=0,0,0 rather than OGC
+> WKT.
+
+
+Assuming towgs84=0,0,0 is an acceptable approximation.  I would claim it
+often is not a very good choice.
+
+Best regards,
+Frank
+
+
+>
+>
+> Kind regards,
+>
+> --
+> Ben Caradoc-Davies <Ben.Caradoc-Davies at csiro.au>
+> Software Engineer
+> CSIRO Earth Science and Resource Engineering
+> Australian Resources Research Centre
+>
+
+
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130611/57794974/attachment.html>
+
+From dan.crosby at lincolnagritech.co.nz  Wed Jun 12 16:59:30 2013
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Thu, 13 Jun 2013 11:59:30 +1200
+Subject: [Proj] pj_transform for the GIS novice
+Message-ID: <0f25c501-b1bd-4bc5-9228-bb164962361d@lincolnagritech.co.nz>
+
+Dear List,
+ 
+I'm using the latest libgeotiff library to read GeoTIFF files . I want to get the corner coordinates in planar UTM metres (with ZONE info) and/or WGS84 lats and longs.
+ 
+It looks like pj_transform will do the job, but I'm at a bit of a loss as to how to get from libgeotiff to Proj and back again.
+ 
+Can anyone give me any pointers? It would be greatly appreciated!
+ 
+Thanks,
+Dan
+ 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130613/07c54ce5/attachment.html>
+
+From dan.crosby at lincolnagritech.co.nz  Mon Jun 17 22:12:49 2013
+From: dan.crosby at lincolnagritech.co.nz (Dan Crosby)
+Date: Tue, 18 Jun 2013 17:12:49 +1200
+Subject: [Proj] Is this correct?
+Message-ID: <5ccbacfd-c6d9-464a-8719-e0e0030181a8@lincolnagritech.co.nz>
+
+Dear List,
+
+I'm trying to generically take the info from a GeoTIFF and get the corners in WGS84/UTM using libgeotiff and proj.
+
+I've pieced together some code, but I don't seem to be getting the right results (negative UTM coords)
+
+Can anyone spot any problems with this (apologies for the ugly code, I'm just hacking at the moment!):
+
+    if (m_bIsGeoTIFF)
+    {
+        x = -DBL_MAX;
+        y = -DBL_MAX;
+        double xtmp = -DBL_MAX;
+        double ytmp = -DBL_MAX;
+
+        switch (cnr)
+        {
+            case LowerLeft: x = 0.0; y = m_Ypx; break;
+            case LowerRight: x = m_Xpx; y = m_Ypx; break;
+            case UpperLeft: x = 0.0; y = 0.0; break;
+            case UpperRight: x = m_Xpx; y = 0.0; break;
+        }
+
+        // Try to transform the coordinate into PCS space
+        bRet = GTIFImageToPCS(m_pGTF, &x, &y);
+
+        if (bRet && m_GTFDef.Zone != 0)
+        {
+            xtmp = x; ytmp = y;
+            if (m_GTFDef.Model == ModelTypeGeographic)
+            {
+            }
+            else if (!GTIFProj4ToLatLong(&m_GTFDef, 1, &xtmp, &ytmp))
+            {
+                return FALSE;
+            }
+            CString spjUTM = "";
+            spjUTM.Format("+proj=utm +zone=%d +ellps=WGS84", UTMZone(xtmp));
+            projPJ pjUTM;
+            pjUTM = pj_init_plus(spjUTM);
+
+            if (pjUTM == NULL)
+            {
+                return FALSE;
+            }
+            char *pszProjection, **papszArgs;
+            projPJ psPJ;
+
+            pszProjection = GTIFGetProj4Defn(&m_GTFDef);
+
+            if (pszProjection == NULL)
+            {
+                return FALSE;
+            }
+            papszArgs = CSLTokenizeStringComplex(pszProjection, " +", TRUE, FALSE);
+            free(pszProjection);
+
+            psPJ = pj_init(CSLCount(papszArgs), papszArgs);
+            CSLDestroy(papszArgs);
+
+            if (psPJ == NULL)
+            {
+                return FALSE;
+            }
+
+            //x *= DEG_TO_RAD;
+            //y *= DEG_TO_RAD;
+
+            bRet = (pj_transform(psPJ, pjUTM, 1, 1, &x, &y, NULL) == 0);
+        }
+    }
+
+
+
+From warmerdam at pobox.com  Sat Jun 22 10:32:48 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Sat, 22 Jun 2013 10:32:48 -0700
+Subject: [Proj] Virtual File Access
+Message-ID: <CA+YzLBf7OtLdbgKmkqO7KR+NStUpR_8V+n=pQvBpY6zFsrvw+A@mail.gmail.com>
+
+Folks,
+
+To smooth out deployment of PROJ.4 at my workplace, I have made some
+changes so that all file access can go through a virtual layer. This
+virtual file
+api looks like the following, and is associated with a "context" (projCtx).
+
+typedef struct projFileAPI_t {
+    PAFile  (*FOpen)(projCtx ctx, const char *filename, const char *access);
+    size_t  (*FRead)(void *buffer, size_t size, size_t nmemb, PAFile file);
+    int     (*FSeek)(PAFile file, long offset, int whence);
+    long    (*FTell)(PAFile file);
+    void    (*FClose)(PAFile);
+} projFileAPI;
+
+I have reworked the the init file and grid shift file access goes through
+this
+and provided a default "stdio" based implementation.  These changes are
+now available in svn and I have yet to actually try it out beyond use of the
+stdio based implementation, but I'm interested in if anyone sees this as
+useful or has thoughts on how it ought to be done better.
+
+I'm also contemplating an optional build mechanism that will build grid
+shift files and init files right into the shared library for easy deployment
+though I'm not sure exactly how I'll do that yet.
+
+I have also updated svn in preparation for a 4.9.0 beta release which I
+hope to do in the next week or so.  I'll try to review the bug database and
+fix anything I can but this is a good time to bring any pressing bugs to the
+table.  So far the NEWS file contains:
+
+4.9.0 Release Notes
+-------------------
+
+ o Implement new virtual file api (projFileAPI) so that all access to grid
+   shift and init files can be hooked.
+
+ o Replace geodesic implementation with one from Charles Karney and add a
+   supported public interface (geod_interface.h).
+
+ o Upgraded to EPSG 8.0.
+
+ o Removed old (deprecated) Java bindings in favor of the new api introduced
+   in 4.8.0.
+
+ o Various bug fixes and cleanup.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130622/6f8c2cc2/attachment.html>
+
+From pelson.pub at gmail.com  Sun Jun 23 04:52:42 2013
+From: pelson.pub at gmail.com (Phil Elson)
+Date: Sun, 23 Jun 2013 12:52:42 +0100
+Subject: [Proj] Virtual File Access
+In-Reply-To: <CA+YzLBf7OtLdbgKmkqO7KR+NStUpR_8V+n=pQvBpY6zFsrvw+A@mail.gmail.com>
+References: <CA+YzLBf7OtLdbgKmkqO7KR+NStUpR_8V+n=pQvBpY6zFsrvw+A@mail.gmail.com>
+Message-ID: <CA+L60sArm_tZ_VFoKQH92BhAC_+pptSOcnTbSC7P1UrcyR=86g@mail.gmail.com>
+
+The release sounds good. I'm really looking forward to trying out Charles'
+geod interface too.
+
+Just wondering if the Robinson issue raised by Edward Campbell on this list
+was on the radar for this release? As it stands the Robinson projection is
+pretty broke at latitudes of around 40°...
+
+All the best,
+
+Phil Elson
+Folks,
+
+To smooth out deployment of PROJ.4 at my workplace, I have made some
+changes so that all file access can go through a virtual layer. This
+virtual file
+api looks like the following, and is associated with a "context" (projCtx).
+
+typedef struct projFileAPI_t {
+    PAFile  (*FOpen)(projCtx ctx, const char *filename, const char *access);
+    size_t  (*FRead)(void *buffer, size_t size, size_t nmemb, PAFile file);
+    int     (*FSeek)(PAFile file, long offset, int whence);
+    long    (*FTell)(PAFile file);
+    void    (*FClose)(PAFile);
+} projFileAPI;
+
+I have reworked the the init file and grid shift file access goes through
+this
+and provided a default "stdio" based implementation.  These changes are
+now available in svn and I have yet to actually try it out beyond use of the
+stdio based implementation, but I'm interested in if anyone sees this as
+useful or has thoughts on how it ought to be done better.
+
+I'm also contemplating an optional build mechanism that will build grid
+shift files and init files right into the shared library for easy deployment
+though I'm not sure exactly how I'll do that yet.
+
+I have also updated svn in preparation for a 4.9.0 beta release which I
+hope to do in the next week or so.  I'll try to review the bug database and
+fix anything I can but this is a good time to bring any pressing bugs to the
+table.  So far the NEWS file contains:
+
+4.9.0 Release Notes
+-------------------
+
+ o Implement new virtual file api (projFileAPI) so that all access to grid
+   shift and init files can be hooked.
+
+ o Replace geodesic implementation with one from Charles Karney and add a
+   supported public interface (geod_interface.h).
+
+ o Upgraded to EPSG 8.0.
+
+ o Removed old (deprecated) Java bindings in favor of the new api introduced
+   in 4.8.0.
+
+ o Various bug fixes and cleanup.
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+
+_______________________________________________
+Proj mailing list
+Proj at lists.maptools.org
+http://lists.maptools.org/mailman/listinfo/proj
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130623/0957a914/attachment.html>
+
+From charles.karney at sri.com  Sun Jun 23 05:37:07 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Sun, 23 Jun 2013 08:37:07 -0400
+Subject: [Proj] Virtual File Access
+In-Reply-To: <CA+YzLBf7OtLdbgKmkqO7KR+NStUpR_8V+n=pQvBpY6zFsrvw+A@mail.gmail.com>
+References: <CA+YzLBf7OtLdbgKmkqO7KR+NStUpR_8V+n=pQvBpY6zFsrvw+A@mail.gmail.com>
+Message-ID: <51C6EBF3.8070608@sri.com>
+
+On 06/22/2013 01:32 PM, Frank Warmerdam wrote:
+>   o Replace geodesic implementation with one from Charles Karney and add a
+>     supported public interface (geod_interface.h).
+>
+
+Clarification:
+
+geod_interface.h is a wrapper to support the old geod/invgeod utilities.
+It presents only a subset of the new functionality; it uses a global
+structure for holding the results of geodesic calculations so it is not
+thread safe.
+
+Thus the interface which will actually be installed in geodesic.h.  This
+interface is documented at
+
+  http://geographiclib.sourceforge.net/1.31/C
+  http://geographiclib.sourceforge.net/1.31/C/geodesic_8h.html
+
+   --Charles
+
+
+
+From warmerdam at pobox.com  Tue Jun 25 00:21:04 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Tue, 25 Jun 2013 00:21:04 -0700
+Subject: [Proj] Virtual File Access
+In-Reply-To: <CA+L60sArm_tZ_VFoKQH92BhAC_+pptSOcnTbSC7P1UrcyR=86g@mail.gmail.com>
+References: <CA+YzLBf7OtLdbgKmkqO7KR+NStUpR_8V+n=pQvBpY6zFsrvw+A@mail.gmail.com>
+	<CA+L60sArm_tZ_VFoKQH92BhAC_+pptSOcnTbSC7P1UrcyR=86g@mail.gmail.com>
+Message-ID: <CA+YzLBdLTqCPHdEXUtuFcJYE-UrJUtmTOvEOWMM=7r6J95ff4Q@mail.gmail.com>
+
+On Sun, Jun 23, 2013 at 4:52 AM, Phil Elson <pelson.pub at gmail.com> wrote:
+
+> The release sounds good. I'm really looking forward to trying out Charles'
+> geod interface too.
+>
+> Just wondering if the Robinson issue raised by Edward Campbell on this
+> list was on the radar for this release? As it stands the Robinson
+> projection is pretty broke at latitudes of around 40°...
+>
+>
+Phil,
+
+I'm not taking any action on Robinson relates issues currently.  Is there an
+open ticket?  Proposed patches?
+
+Best regards,
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130625/d21fdd9f/attachment.html>
+
+From j.l.h.hartmann at uva.nl  Tue Jun 25 02:12:41 2013
+From: j.l.h.hartmann at uva.nl (Jan Hartmann)
+Date: Tue, 25 Jun 2013 11:12:41 +0200
+Subject: [Proj] NTV2 Grid Shift files and gdalwarp
+In-Reply-To: <CA+YzLBeiCSvYpmwdGHPgbntce_aFOzRgk54puUOOeAP26BjRvw@mail.gmail.com>
+References: <CAMH-RbZax0b=Qz4RcgSoBmfqGg2nQ8=WGBJcNEueQ7h4nx7RpA@mail.gmail.com>
+	<CA+YzLBfQh=jJSMRo5PvQxYW1WsQHOvKpD0roJ9b10-=-u=PdJQ@mail.gmail.com>
+	<CA+TxYvPH=+HhABzN6uYwseRdrP-whk2Ve30jj_fNPthmLmnbqQ@mail.gmail.com>
+	<CAMH-RbZ9-FfXDoKvWJXfboGNqrX1i7D28R6cwyo=c2RsjVmG8A@mail.gmail.com>
+	<CA+YzLBeiCSvYpmwdGHPgbntce_aFOzRgk54puUOOeAP26BjRvw@mail.gmail.com>
+Message-ID: <51C95F09.2010900@uva.nl>
+
+Hi all,
+
+I've been experimenting with grid-shift files in ntv2 format to 
+rubbersheet old maps. I created a working ntv2-file as described in
+
+http://lists.maptools.org/pipermail/proj/2013-January/006539.html
+
+and added an epsg definition for PROJ and PostGIS. The thing works with 
+cs2cs and with vector transforms in PostGIS, but when I try to warp a 
+raster file I get lots of errors like:
+
+  Inverse grid shift iterator failed to converge.
+pj_apply_gridshift(): failed to find a grid shift table for
+                       location (6.7638472dW,53.0926086dN)
+    tried: MIN03001A01.ntv2
+
+and an output file with rubbish
+
+The location is within the grid.
+
+The source raster has epsg:28992, without the +towgs84 parameters but 
+with the ntv2 file, the output raster has epsg:28992 with the towgs84 
+numbers. Essentially, the ntv2 file contains the distances between the 
+scanned map locations translated to an approximate position in 
+epsg:28992, and the correct ones. I computed the grid with boundaries 
+far outside the mapped regions, but this does not seem to make a difference.
+
+Can anyone help?
+
+Jan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130625/7991c05b/attachment.html>
+
+From j.l.h.hartmann at uva.nl  Tue Jun 25 09:04:24 2013
+From: j.l.h.hartmann at uva.nl (Jan Hartmann)
+Date: Tue, 25 Jun 2013 18:04:24 +0200
+Subject: [Proj] [gdal-dev] NTV2 Grid Shift files and gdalwarp
+In-Reply-To: <kqca02$u1$1@ger.gmane.org>
+References: <CAMH-RbZax0b=Qz4RcgSoBmfqGg2nQ8=WGBJcNEueQ7h4nx7RpA@mail.gmail.com>
+	<CA+YzLBfQh=jJSMRo5PvQxYW1WsQHOvKpD0roJ9b10-=-u=PdJQ@mail.gmail.com>
+	<CA+TxYvPH=+HhABzN6uYwseRdrP-whk2Ve30jj_fNPthmLmnbqQ@mail.gmail.com>
+	<CAMH-RbZ9-FfXDoKvWJXfboGNqrX1i7D28R6cwyo=c2RsjVmG8A@mail.gmail.com>
+	<CA+YzLBeiCSvYpmwdGHPgbntce_aFOzRgk54puUOOeAP26BjRvw@mail.gmail.com>
+	<51C95F09.2010900@uva.nl> <kqca02$u1$1@ger.gmane.org>
+Message-ID: <51C9BF88.4050201@uva.nl>
+
+Hi Andre,
+
+As far as I know, the transformation from one coordinate system to 
+another goes as follow:
+
+- convert source coordinate to latlon
+- compute grid shift,  either with +towgs84 parameters or by a grid 
+shift raster
+- convert resulting latlon to target coordinate
+
+Ntv2 is a Canadian format, where longitudes west of Greenwich are 
+positive, and east negative. This is horrible, but that is what things are
+
+So this coordinate is really East. And it works for cs2cs and vector 
+data. Could it be that Gdal makes a mistake about this Canadian aspect 
+of ntv2?
+
+On 06/25/2013 04:36 PM, Andre Joost wrote:
+> Hi Jan,
+>
+> what strikes me is that
+>
+>> pj_apply_gridshift(): failed to find a grid shift table for
+>> location (6.7638472dW,53.0926086dN)
+>
+> and
+>
+>> The source raster has epsg:28992
+>
+> does not fit together. The first is in Ireland, and EPSG:28992 is 
+> valid in the Netherlands. Should it not rather be 6.76 East?
+>
+> Greetings,
+> André Joost
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130625/a8abdde4/attachment.html>
+
+From charles.karney at sri.com  Fri Jun 28 15:17:52 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Fri, 28 Jun 2013 18:17:52 -0400
+Subject: [Proj] Using cmake of osgeo projects?
+Message-ID: <51CE0B90.6070109@sri.com>
+
+Sorry for hitting multiple mailing lists...
+
+I'm currently going through the process of compiling various packages
+for Windows (proj, libtiff/geotiff, gdal, libLAS) and hitting the
+various (but typical) bumps...
+
+In my group at SRI, we've more-or-less completely switched to cmake for
+configuring and building our software.   The benefits are:
+
+* a single set of configuration files for Linux/Windows;
+* makes the process by which dependent packages are discovered
+   systematic;
+* makes the process of installing software systematic;
+* thus making the package you're building easy for other packages to
+   discover;
+* running tests can be integrated into the build.
+
+While cmake has its warts, it is much less arcane and easier to
+use than autoconf scripts used for Unix and Linux systems.  It has
+been a godsend when building software which depends on several third
+party packages, several of our own packages, and where the selection of
+package versions, compiler, and 32-bit vs 64-bit, may depend on the
+particular project.
+
+libLAS already uses cmake.  But it appears to be the exception in the
+realm of geospatial software.  Is there any interest in adopting cmake
+for other packages?  Incidentally, the choice is not either/or...  For
+example, GeographicLib supports Windows solution files, vanilla
+makefiles, autoconf, and cmake.  (And I know from this experience that
+the cmake configuration is much the easiest to maintain.)
+
+Unfortunately, I'm not in a position to undertake this work myself.  But
+if people have questions about cmake, I may be able to help.
+
+   --Charles
+-- 
+Charles Karney <charles.karney at sri.com>
+SRI International, Princeton, NJ 08543-5300
+
+Tel: +1 609 734 2312
+Fax: +1 609 734 2662
+
+
+From charles.karney at sri.com  Sat Jun 29 07:10:51 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Sat, 29 Jun 2013 10:10:51 -0400
+Subject: [Proj] [osgeo4w-dev] Using cmake of osgeo projects?
+In-Reply-To: <CABUeae-u=P9JpwieXrDY1QA=_ss8crkMEtu+xXfbcPPVKUcvSw@mail.gmail.com>
+References: <51CE0B90.6070109@sri.com>
+	<CABUeae-u=P9JpwieXrDY1QA=_ss8crkMEtu+xXfbcPPVKUcvSw@mail.gmail.com>
+Message-ID: <51CEEAEB.9080208@sri.com>
+
+On 06/28/2013 06:48 PM, Mateusz Loskot wrote:
+> Experiences show, that unless a project core team is willing to switch to
+> a new build system, then it is very difficult to keep the additional build
+> configuration maintained.
+
+This goes without saying.  I will note that because cmake so obviously
+fills an otherwise unmet need, it typically faces little resistance from
+developers who have to maintain platforms on multiple cross-platforms.
+As far as end users are concerned, there is the requirement to install
+cmake on their machine.  However, the process of configuring and
+building a package is straightforward (and this may be, depending on the
+package, much easier than the alternatives).
+
+   --Charles
+
+
+
+From warmerdam at pobox.com  Sat Jun 29 09:40:24 2013
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Sat, 29 Jun 2013 09:40:24 -0700
+Subject: [Proj] [osgeo4w-dev] Using cmake of osgeo projects?
+In-Reply-To: <51CEEAEB.9080208@sri.com>
+References: <51CE0B90.6070109@sri.com>
+	<CABUeae-u=P9JpwieXrDY1QA=_ss8crkMEtu+xXfbcPPVKUcvSw@mail.gmail.com>
+	<51CEEAEB.9080208@sri.com>
+Message-ID: <CA+YzLBdgY42X-Vun77cJaMTfA0sqg0OM3AKvK6BR0axrxJQTmA@mail.gmail.com>
+
+Folks,
+
+Oddly, I am one of those resisters.  I've had bad experiences trying to
+figure out how to make liblas and qgis builds work when the cmake magic
+fails and frankly I have almost no idea how to cope and thus end up a bit
+of a hater.
+
+So I'm not eager to take on responsibility for cmake in PROJ.4, or GDAL and
+maintaining multiple build systems tends to be problematic.
+
+That said, PROJ.4 has minimal dependencies and so could likely be converted
+fairly trivially.  It seems to me it is the "complex dependencies" projects
+like GDAL or QGIS where you can run into problems and I want to understand
+how to make things work.
+
+Best regards,
+Frank
+
+
+On Sat, Jun 29, 2013 at 7:10 AM, Charles Karney <charles.karney at sri.com>wrote:
+
+> On 06/28/2013 06:48 PM, Mateusz Loskot wrote:
+>
+>> Experiences show, that unless a project core team is willing to switch to
+>> a new build system, then it is very difficult to keep the additional build
+>> configuration maintained.
+>>
+>
+> This goes without saying.  I will note that because cmake so obviously
+> fills an otherwise unmet need, it typically faces little resistance from
+> developers who have to maintain platforms on multiple cross-platforms.
+> As far as end users are concerned, there is the requirement to install
+> cmake on their machine.  However, the process of configuring and
+> building a package is straightforward (and this may be, depending on the
+> package, much easier than the alternatives).
+>
+>   --Charles
+>
+>
+> ______________________________**_________________
+> osgeo4w-dev mailing list
+> osgeo4w-dev at lists.osgeo.org
+> http://lists.osgeo.org/**mailman/listinfo/osgeo4w-dev<http://lists.osgeo.org/mailman/listinfo/osgeo4w-dev>
+>
+
+
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | http://pobox.com/~warmerdam
+and watch the world go round - Rush    | Geospatial Software Developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20130629/f21840a7/attachment.html>
+
+From charles.karney at sri.com  Sat Jun 29 18:26:45 2013
+From: charles.karney at sri.com (Charles Karney)
+Date: Sat, 29 Jun 2013 21:26:45 -0400
+Subject: [Proj] [osgeo4w-dev] Using cmake of osgeo projects?
+In-Reply-To: <CABUeae__1m-sHM8pivN8muOTyffD=DN1iMg8ivjzJzVHGumk_A@mail.gmail.com>
+References: <51CE0B90.6070109@sri.com>
+	<CABUeae-u=P9JpwieXrDY1QA=_ss8crkMEtu+xXfbcPPVKUcvSw@mail.gmail.com>
+	<51CEEAEB.9080208@sri.com>
+	<CABUeae__1m-sHM8pivN8muOTyffD=DN1iMg8ivjzJzVHGumk_A@mail.gmail.com>
+Message-ID: <51CF8955.7@sri.com>
+
+On 06/29/2013 09:05 PM, Mateusz Loskot wrote:
+> I don't know what's typical, regarding developer's reaction on CMake adoption
+> proposal, but as a big fan of CMake, I wouldn't paint it in pink colours only.
+>
+> Thus, I understand, for example, Frank's experience may be very different.
+>
+> Finally, if a software has a build system that is usable and works on
+> all supported
+> platforms, I also understand a team may go for lean approach: don't change it.
+>
+
+I basically agree.  However, let's not forget those users who need, for
+one reason or another, to compile these packages themselves.
+
+   --Charles
+
+
+
+From support.mn at elisanet.fi  Sun Jun 30 03:17:08 2013
+From: support.mn at elisanet.fi (support.mn at elisanet.fi)
+Date: Sun, 30 Jun 2013 13:17:08 +0300 (EEST)
+Subject: [Proj] [osgeo4w-dev] Using cmake of osgeo projects?
+Message-ID: <12850781.3976681372587429205.JavaMail.support.mn@elisanet.fi>
+
+Yes,
+
+we really like to compile our self.
+
+Pre built libraries and automatic makes are ok as long as somebody
+makes them but become a huge problem after that ends .. so better
+to live like that already ended!?
+
+Janne.
+
+
+Charles Karney [charles.karney at sri.com] kirjoitti: 
+> On 06/29/2013 09:05 PM, Mateusz Loskot wrote:
+> > I don't know what's typical, regarding developer's reaction on CMake adoption
+> > proposal, but as a big fan of CMake, I wouldn't paint it in pink colours only.
+> >
+> 
+> I basically agree.  However, let's not forget those users who need, for
+> one reason or another, to compile these packages themselves.
+> 
+>    --Charles
+> 
+
+
+
+

@@ -1,0 +1,3243 @@
+From alex.trofast at ingres.com  Wed Jan  6 11:27:14 2010
+From: alex.trofast at ingres.com (Alex Trofast)
+Date: Wed Jan  6 11:27:17 2010
+Subject: [geos-devel] Patch to expose more methods in the CAPI
+Message-ID: <4B44B9E2.6050805@ingres.com>
+
+Greetings GEOS-devel
+
+I've attached a patch that exposes these C++ class methods as CAPI 
+functions:
+
+LineString::getPointN -> GEOSGetPointN
+LineString::getStartPoint -> GEOSGetStartPoint
+LineString::getEndPoint -> GEOSGetEndPoint
+LineString::isClosed -> GEOSisClosed
+LineString::getLength -> GEOSGetLength
+LineString::getNumPoints -> GEOSGetNumPoints
+Point::getX -> GEOSGetX
+Point::getY -> GEOSGetY
+
+Additionally I wrote a small test case for the new functions. Any 
+feedback is greatly appreciated.
+Thank you,
+
+Alex Trofast
+Software Engineer
+Ingres
+-------------- next part --------------
+Index: tests/unit/Makefile.am
+===================================================================
+--- tests/unit/Makefile.am	(revision 2835)
++++ tests/unit/Makefile.am	(working copy)
+@@ -90,7 +90,8 @@
+ 	capi/GEOSSimplifyTest.cpp \
+ 	capi/GEOSPreparedGeometryTest.cpp \
+ 	capi/GEOSPolygonizer_getCutEdgesTest.cpp \
+-	capi/GEOSBufferTest.cpp
++	capi/GEOSBufferTest.cpp \
++	capi/GEOSLineString_PointTest.cpp
+ 
+ noinst_HEADERS = \
+ 	utility.h
+Index: tests/unit/capi/GEOSLineString_PointTest.cpp
+===================================================================
+--- tests/unit/capi/GEOSLineString_PointTest.cpp	(revision 0)
++++ tests/unit/capi/GEOSLineString_PointTest.cpp	(revision 0)
+@@ -0,0 +1,123 @@
++// Test Suite for C-API LineString and Point functions
++
++#include <tut.hpp>
++// geos
++#include <geos_c.h>
++// std
++#include <cstdarg>
++#include <cstdio>
++#include <cstdlib>
++
++namespace tut
++{
++    //
++    // Test Group
++    //
++
++    // Common data used in test cases.
++    struct test_capilinestringpoint_data
++    {
++        GEOSGeometry* geom1_;
++
++        static void notice(const char *fmt, ...)
++        {
++            std::fprintf( stdout, "NOTICE: ");
++
++            va_list ap;
++            va_start(ap, fmt);
++            std::vfprintf(stdout, fmt, ap);
++            va_end(ap);
++
++            std::fprintf(stdout, "\n");
++        }
++
++        test_capilinestringpoint_data()
++            : geom1_(0)
++        {
++            initGEOS(notice, notice);
++        }
++
++        ~test_capilinestringpoint_data()
++        {
++            GEOSGeom_destroy(geom1_);
++            geom1_ = 0;
++            finishGEOS();
++        }
++
++    };
++
++    typedef test_group<test_capilinestringpoint_data> group;
++    typedef group::object object;
++
++    group test_capilinestringpoint_group("capi::GEOSLineStringPoint");
++
++    //
++    // Test Cases
++    //
++
++    template<>
++    template<>
++    void object::test<1>()
++    {
++        geom1_ = GEOSGeomFromWKT("LINESTRING(0 0, 5 5, 10 10)");
++        GEOSGeometry *geom2;
++        double x, y;
++        ensure( 0 != geom1_ );
++
++        char const r1 = GEOSisClosed(geom1_);
++
++        ensure_equals(r1, 0);
++
++        geom2 = GEOSGetPointN(geom1_, 0);
++        GEOSGetX(geom2, &x);
++        GEOSGetY(geom2, &y);
++
++        ensure_equals(x, 0);
++        ensure_equals(y, 0);
++
++        GEOSGeom_destroy(geom2);
++
++        geom2 = GEOSGetStartPoint(geom1_);
++        GEOSGetX(geom2, &x);
++        GEOSGetY(geom2, &y);
++
++        ensure_equals(x, 0);
++        ensure_equals(y, 0);
++
++        GEOSGeom_destroy(geom2);
++
++        geom2 = GEOSGetEndPoint(geom1_);
++        GEOSGetX(geom2, &x);
++        GEOSGetY(geom2, &y);
++
++        ensure_equals(x, 10);
++        ensure_equals(y, 10);
++
++        GEOSGeom_destroy(geom2);
++    }
++
++    template<>
++    template<>
++    void object::test<2>()
++    {
++        geom1_ = GEOSGeomFromWKT("LINESTRING(0 0, 5 5, 10 10)");
++        double length;
++        ensure( 0 != geom1_ );
++
++        GEOSGetLength(geom1_, &length);
++        ensure(length != 0.0);
++    }
++
++    template<>
++    template<>
++    void object::test<3>()
++    {
++        geom1_ = GEOSGeomFromWKT("LINESTRING(0 0, 5 5, 10 10)");
++        int points;
++        ensure( 0 != geom1_ );
++
++        points = GEOSGetNumPoints(geom1_);
++        ensure_equals(points, 3);
++    }
++} // namespace tut
++
+Index: capi/geos_c.cpp
+===================================================================
+--- capi/geos_c.cpp	(revision 2835)
++++ capi/geos_c.cpp	(working copy)
+@@ -452,8 +452,85 @@
+     return GEOSGetGeometryN_r( handle, g1, n );
+ }
+ 
++/*
++ * Call only on LINESTRING
++ * Returns NULL on exception
++ */
++Geometry *
++GEOSGetPointN(const Geometry *g1, int n)
++{
++	return GEOSGetPointN_r(handle, g1, n);
++}
+ 
+ /*
++ * Call only on LINESTRING
++ */
++Geometry *
++GEOSGetStartPoint(const Geometry *g1)
++{
++	return GEOSGetStartPoint_r(handle, g1);
++}
++
++/*
++ * Call only on LINESTRING
++ */
++Geometry *
++GEOSGetEndPoint(const Geometry *g1)
++{
++	return GEOSGetEndPoint_r(handle, g1);
++}
++
++/*
++ * Call only on LINESTRING
++ * return 2 on exception, 1 on true, 0 on false
++ */
++char
++GEOSisClosed(const Geometry *g1)
++{
++	return GEOSisClosed_r(handle, g1);
++}
++
++/*
++ * Call only on LINESTRING
++ * returns 0 on exception, otherwise 1
++ */
++int
++GEOSGetLength(const Geometry *g1, double *length)
++{
++	return GEOSGetLength_r(handle, g1, length);
++}
++
++/*
++ * Call only on LINESTRING
++ * returns -1 on exception
++ */
++int
++GEOSGetNumPoints(const Geometry *g1)
++{
++	return GEOSGetNumPoints_r(handle, g1);
++}
++
++/*
++ * For POINT
++ * returns 0 on exception, otherwise 1
++ */
++int
++GEOSGetX(const Geometry *g1, double *x)
++{
++	return GEOSGetX_r(handle, g1, x);
++}
++
++/*
++ * For POINT
++ * returns 0 on exception, otherwise 1
++ */
++int
++GEOSGetY(const Geometry *g1, double *y)
++{
++	return GEOSGetY_r(handle, g1, y);
++}
++
++/*
+  * Call only on polygon
+  * Return a copy of the internal Geometry.
+  */
+Index: capi/geos_ts_c.cpp
+===================================================================
+--- capi/geos_ts_c.cpp	(revision 2835)
++++ capi/geos_ts_c.cpp	(working copy)
+@@ -1991,8 +1991,343 @@
+     return NULL;
+ }
+ 
++/*
++ * Call only on LINESTRING
++ * Returns NULL on exception
++ */
++Geometry *
++GEOSGetPointN_r(GEOSContextHandle_t extHandle, const Geometry *g1, int n)
++{
++    if ( 0 == extHandle )
++    {
++        return NULL;
++    }
+ 
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return NULL;
++    }
++
++    try
++    {
++    	using geos::geom::LineString;
++    	const LineString *ls = dynamic_cast<const LineString *>(g1);
++    	if ( ! ls )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a LineString");
++    		return NULL;
++    	}
++    	return ls->getPointN(n);
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return NULL;
++}
++
+ /*
++ * Call only on LINESTRING
++ */
++Geometry *
++GEOSGetStartPoint_r(GEOSContextHandle_t extHandle, const Geometry *g1)
++{
++    if ( 0 == extHandle )
++    {
++        return NULL;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return NULL;
++    }
++
++    try
++    {
++    	using geos::geom::LineString;
++    	const LineString *ls = dynamic_cast<const LineString *>(g1);
++    	if ( ! ls )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a LineString");
++    		return NULL;
++    	}
++    	return ls->getStartPoint();
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return NULL;
++}
++
++/*
++ * Call only on LINESTRING
++ */
++Geometry *
++GEOSGetEndPoint_r(GEOSContextHandle_t extHandle, const Geometry *g1)
++{
++    if ( 0 == extHandle )
++    {
++        return NULL;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return NULL;
++    }
++
++    try
++    {
++    	using geos::geom::LineString;
++    	const LineString *ls = dynamic_cast<const LineString *>(g1);
++    	if ( ! ls )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a LineString");
++    		return NULL;
++    	}
++    	return ls->getEndPoint();
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return NULL;
++}
++
++/*
++ * Call only on LINESTRING
++ * return 2 on exception, 1 on true, 0 on false
++ */
++char
++GEOSisClosed_r(GEOSContextHandle_t extHandle, const Geometry *g1)
++{
++    if ( 0 == extHandle )
++    {
++        return 2;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return 2;
++    }
++
++    try
++    {
++    	using geos::geom::LineString;
++    	const LineString *ls = dynamic_cast<const LineString *>(g1);
++    	if ( ! ls )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a LineString");
++    		return 2;
++    	}
++    	return ls->isClosed();
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return 2;
++}
++
++/*
++ * Call only on LINESTRING
++ * return 0 on exception, otherwise 1
++ */
++int
++GEOSGetLength_r(GEOSContextHandle_t extHandle, const Geometry *g1, double *length)
++{
++    if ( 0 == extHandle )
++    {
++        return 0;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return 0;
++    }
++
++    try
++    {
++    	using geos::geom::LineString;
++    	const LineString *ls = dynamic_cast<const LineString *>(g1);
++    	if ( ! ls )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a LineString");
++    		return 0;
++    	}
++    	*length = ls->getLength();
++    	return 1;
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return 0;
++}
++
++/*
++ * Call only on LINESTRING
++ */
++int
++GEOSGetNumPoints_r(GEOSContextHandle_t extHandle, const Geometry *g1)
++{
++    if ( 0 == extHandle )
++    {
++        return -1;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return -1;
++    }
++
++    try
++    {
++    	using geos::geom::LineString;
++		const LineString *ls = dynamic_cast<const LineString *>(g1);
++		if ( ! ls )
++		{
++			handle->ERROR_MESSAGE("Argument is not a LineString");
++			return -1;
++		}
++		return ls->getNumPoints();
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return -1;
++}
++
++/*
++ * For POINT
++ * returns 0 on exception, otherwise 1
++ */
++int
++GEOSGetX_r(GEOSContextHandle_t extHandle, const Geometry *g1, double *x)
++{
++    if ( 0 == extHandle )
++    {
++        return 0;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return 0;
++    }
++
++    try
++    {
++    	using geos::geom::Point;
++    	const Point *po = dynamic_cast<const Point *>(g1);
++    	if ( ! po )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a Point");
++    		return 0;
++    	}
++    	*x = po->getX();
++    	return 1;
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return 0;
++}
++
++/*
++ * For POINT
++ * returns 0 on exception, otherwise 1
++ */
++int
++GEOSGetY_r(GEOSContextHandle_t extHandle, const Geometry *g1, double *y)
++{
++    if ( 0 == extHandle )
++    {
++        return 0;
++    }
++
++    GEOSContextHandleInternal_t *handle = 0;
++    handle = reinterpret_cast<GEOSContextHandleInternal_t*>(extHandle);
++    if ( 0 == handle->initialized )
++    {
++        return 0;
++    }
++
++    try
++    {
++    	using geos::geom::Point;
++    	const Point *po = dynamic_cast<const Point *>(g1);
++    	if ( ! po )
++    	{
++    		handle->ERROR_MESSAGE("Argument is not a Point");
++    		return 0;
++    	}
++    	*y = po->getY();
++    	return 1;
++    }
++    catch (const std::exception &e)
++    {
++        handle->ERROR_MESSAGE("%s", e.what());
++    }
++    catch (...)
++    {
++        handle->ERROR_MESSAGE("Unknown exception thrown");
++    }
++
++    return 0;
++}
++
++/*
+  * Call only on polygon
+  * Return a copy of the internal Geometry.
+  */
+Index: capi/geos_c.h.in
+===================================================================
+--- capi/geos_c.h.in	(revision 2835)
++++ capi/geos_c.h.in	(working copy)
+@@ -687,6 +687,7 @@
+ extern char GEOS_DLL GEOSisSimple(const GEOSGeometry* g1);
+ extern char GEOS_DLL GEOSisRing(const GEOSGeometry* g1);
+ extern char GEOS_DLL GEOSHasZ(const GEOSGeometry* g1);
++extern char GEOS_DLL GEOSisClosed(const GEOSGeometry *g1);
+ 
+ extern char GEOS_DLL GEOSisEmpty_r(GEOSContextHandle_t handle,
+                                    const GEOSGeometry* g1);
+@@ -700,6 +701,8 @@
+                                   const GEOSGeometry* g1);
+ extern char GEOS_DLL GEOSHasZ_r(GEOSContextHandle_t handle,
+                                 const GEOSGeometry* g1);
++extern char GEOS_DLL GEOSisClosed_r(GEOSContextHandle_t handle,
++                                const GEOSGeometry *g1);
+ 
+ /************************************************************************
+  *
+@@ -762,6 +765,19 @@
+ extern int GEOS_DLL GEOSGetNumInteriorRings_r(GEOSContextHandle_t handle,
+                                               const GEOSGeometry* g1);
+ 
++/* Return -1 on exception, Geometry must be a LineString. */
++extern int GEOS_DLL GEOSGetNumPoints(const GEOSGeometry* g1);
++
++extern int GEOS_DLL GEOSGetNumPoints_r(GEOSContextHandle_t handle,
++                                       const GEOSGeometry* g1);
++
++/* Return -1 on exception, Geometry must be a Point. */
++extern int GEOS_DLL GEOSGetX(const GEOSGeometry *g1, double *x);
++extern int GEOS_DLL GEOSGetY(const GEOSGeometry *g1, double *y);
++
++extern int GEOS_DLL GEOSGetX_r(GEOSContextHandle_t handle, const GEOSGeometry *g1, double *x);
++extern int GEOS_DLL GEOSGetY_r(GEOSContextHandle_t handle, const GEOSGeometry *g1, double *y);
++
+ /*
+  * Return NULL on exception, Geometry must be a Polygon.
+  * Returned object is a pointer to internal storage:
+@@ -809,6 +825,18 @@
+ extern int GEOS_DLL GEOSGeom_getDimensions_r(GEOSContextHandle_t handle,
+                                              const GEOSGeometry* g);
+ 
++/*
++ * Return NULL on exception.
++ * Must be LineString and must be freed by called.
++ */
++extern GEOSGeometry GEOS_DLL *GEOSGetPointN(const GEOSGeometry *g1, int n);
++extern GEOSGeometry GEOS_DLL *GEOSGetStartPoint(const GEOSGeometry *g1);
++extern GEOSGeometry GEOS_DLL *GEOSGetEndPoint(const GEOSGeometry *g1);
++
++extern GEOSGeometry GEOS_DLL *GEOSGetPointN_r(GEOSContextHandle_t handle, const GEOSGeometry *g1, int n);
++extern GEOSGeometry GEOS_DLL *GEOSGetStartPoint_r(GEOSContextHandle_t handle, const GEOSGeometry *g1);
++extern GEOSGeometry GEOS_DLL *GEOSGetEndPoint_r(GEOSContextHandle_t handle, const GEOSGeometry *g1);
++
+ /************************************************************************
+  *
+  *  Misc functions 
+@@ -824,6 +852,7 @@
+         const GEOSGeometry *g2, double *dist);
+ extern int GEOS_DLL GEOSHausdorffDistanceDensify(const GEOSGeometry *g1,
+         const GEOSGeometry *g2, double densifyFrac, double *dist);
++extern int GEOS_DLL GEOSGetLength(const GEOSGeometry *g1, double *length);       
+ extern int GEOS_DLL GEOSArea_r(GEOSContextHandle_t handle,
+                                const GEOSGeometry* g1, double *area);
+ extern int GEOS_DLL GEOSLength_r(GEOSContextHandle_t handle,
+@@ -839,6 +868,8 @@
+                                    const GEOSGeometry *g1,
+                                    const GEOSGeometry *g2,
+                                    double densifyFrac, double *dist);
++extern int GEOS_DLL GEOSGetLength_r(GEOSContextHandle_t handle,
++                                   const GEOSGeometry *g1, double *length);
+ 
+ 
+ /************************************************************************
+From mateusz at loskot.net  Wed Jan  6 11:39:30 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed Jan  6 11:35:06 2010
+Subject: [geos-devel] Patch to expose more methods in the CAPI
+In-Reply-To: <4B44B9E2.6050805@ingres.com>
+References: <4B44B9E2.6050805@ingres.com>
+Message-ID: <4B44BCC2.2080906@loskot.net>
+
+Alex Trofast wrote:
+> Greetings GEOS-devel
+> 
+> I've attached a patch that exposes these C++ class methods as CAPI 
+> functions:
+> 
+
+It's a good idea to submit patches to the Trac
+
+http://trac.osgeo.org/geos/
+
+by creating new ticket following instruction in
+"Bug Reporting" section.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From alex.trofast at ingres.com  Wed Jan  6 11:41:53 2010
+From: alex.trofast at ingres.com (Alex Trofast)
+Date: Wed Jan  6 11:41:54 2010
+Subject: [geos-devel] Patch to expose more methods in the CAPI
+In-Reply-To: <4B44BCC2.2080906@loskot.net>
+References: <4B44B9E2.6050805@ingres.com> <4B44BCC2.2080906@loskot.net>
+Message-ID: <4B44BD51.1060708@ingres.com>
+
+Good idea Mateusz, thank you.
+
+I opened the following ticket:
+http://trac.osgeo.org/geos/ticket/314
+
+Thanks!
+
+Alex
+
+On 01/06/2010 11:39 AM, Mateusz Loskot wrote:
+> Alex Trofast wrote:
+>> Greetings GEOS-devel
+>>
+>> I've attached a patch that exposes these C++ class methods as CAPI 
+>> functions:
+>>
+>
+> It's a good idea to submit patches to the Trac
+>
+> http://trac.osgeo.org/geos/
+>
+> by creating new ticket following instruction in
+> "Bug Reporting" section.
+>
+> Best regards,
+
+From Charles.Thibert at ingres.com  Wed Jan  6 12:52:34 2010
+From: Charles.Thibert at ingres.com (Chuck Thibert)
+Date: Wed Jan  6 12:53:39 2010
+Subject: [geos-devel] Patch to expose more methods in the CAPI
+In-Reply-To: <4B44BD51.1060708@ingres.com>
+References: <4B44B9E2.6050805@ingres.com> <4B44BCC2.2080906@loskot.net>
+	<4B44BD51.1060708@ingres.com>
+Message-ID: <4B44CDE2.9050600@ingres.com>
+
+Alex and I work together at Ingres, so I'll more than happily take on
+the commit 'responsibility' of this patch when it's vetted.
+
+Chuck
+
+On 01/06/2010 11:41 AM, Alex Trofast wrote:
+> Good idea Mateusz, thank you.
+>
+> I opened the following ticket:
+> http://trac.osgeo.org/geos/ticket/314
+>
+> Thanks!
+>
+> Alex
+>
+> On 01/06/2010 11:39 AM, Mateusz Loskot wrote:
+>> Alex Trofast wrote:
+>>> Greetings GEOS-devel
+>>>
+>>> I've attached a patch that exposes these C++ class methods as CAPI
+>>> functions:
+>>>
+>>
+>> It's a good idea to submit patches to the Trac
+>>
+>> http://trac.osgeo.org/geos/
+>>
+>> by creating new ticket following instruction in
+>> "Bug Reporting" section.
+>>
+>> Best regards,
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+From Barend.Gehrels at geodan.nl  Thu Jan  7 08:40:21 2010
+From: Barend.Gehrels at geodan.nl (Barend Gehrels)
+Date: Thu Jan  7 08:40:50 2010
+Subject: [geos-devel] library benchmarks in benchmarks
+Message-ID: <4B45E445.6090301@geodan.nl>
+
+Hi,
+
+We have developed benchmarks to test performance (and functionality) of 
+(Open Source) GIS / Geometry libraries.
+
+Originally the tests were created to compare our library (GGL, recently 
+accepted by Boost and renamed to Boost.Geometry) to other libraries, 
+with respect to performance and functionality.
+
+However, the test suite is broader than that because it can also be used 
+to compare for example GEOS and CGAL. Therefore we propose to move it to 
+the SVN http://svn.osgeo.org/osgeo/foss4g/benchmarking 
+<http://svn.osgeo.org/osgeo/foss4g/benchmarking/>, it seems to fit there 
+perfectly.
+
+It currently compares C++ libraries (geos, cgal, gpc, wykobi, gtl, 
+terralib, ggl) and a Java library (jts), for the functions area, 
+centroid, convex hull, intersection, clip (=intersection with 
+rectangle), simplify, within. But this can be extended.
+
+There is also a specific test, "starcomb", for more 'challenging' 
+intersections (done with a selection of the mentioned libraries only), 
+and "triangle" (intersecting polygons with 1000ths of triangular holes)
+
+I like to hear opinions if this is found a good idea, and if there are 
+possibly people interested in extending tests, performing tests and/or 
+maintenance.
+
+Regards, Barend Gehrels
+
+
+P.S. The testsuite is discussed on the geos-devel list before so I 
+include this in the cc, apologies for cross postings.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20100107/f969baae/attachment.html
+From mateusz at loskot.net  Thu Jan  7 14:14:34 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu Jan  7 14:14:43 2010
+Subject: [geos-devel] Re: [Benchmarking] library benchmarks in benchmarks
+In-Reply-To: <4B45E445.6090301@geodan.nl>
+References: <4B45E445.6090301@geodan.nl>
+Message-ID: <4B46329A.6060503@loskot.net>
+
+Barend Gehrels pisze:
+> We have developed benchmarks to test performance (and functionality) of 
+> (Open Source) GIS / Geometry libraries.
+> 
+> Originally the tests were created to compare our library (GGL, recently 
+> accepted by Boost and renamed to Boost.Geometry) to other libraries, 
+> with respect to performance and functionality.
+> 
+> However, the test suite is broader than that because it can also be used 
+> to compare for example GEOS and CGAL. Therefore we propose to move it to 
+> the SVN http://svn.osgeo.org/osgeo/foss4g/benchmarking 
+> it seems to fit there perfectly.
+
+Folks,
+
+By the way, if OSGeo supports the idea of hosting, let's call it,
+FOSS geometry libraries benchmark, I would like to take care of
+submitting it to the benchmarks module in the SVN
+and of further maintenance.
+
+Best regards,
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+From mateusz at loskot.net  Fri Jan  8 19:27:24 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Jan  8 19:27:43 2010
+Subject: [geos-devel] [#315] Separate include directory from source
+Message-ID: <59908.94.1.115.227.1262996844.squirrel@loskot.net>
+
+Folks,
+
+My I receive a feedback on this?
+
+Best regards,
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+From mateusz at loskot.net  Fri Jan  8 19:31:08 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Jan  8 19:31:26 2010
+Subject: [geos-devel] [#315] Separate include directory from source
+In-Reply-To: <59908.94.1.115.227.1262996844.squirrel@loskot.net>
+References: <59908.94.1.115.227.1262996844.squirrel@loskot.net>
+Message-ID: <51872.94.1.115.227.1262997068.squirrel@loskot.net>
+
+Mateusz Loskot wrote:
+> Folks,
+>
+> My I receive a feedback on this?
+
+http://trac.osgeo.org/geos/ticket/315
+
+Best regards,
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+
+From geos-trac at osgeo.org  Sat Jan  9 12:25:44 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Jan  9 12:25:46 2010
+Subject: [geos-devel] Re: [GEOS] #224: Need to compile the libGeos using Sun
+ Studio12 on Solaris10
+In-Reply-To: <049.909aa59ac32d43fdfa8bd453ff6587cb@osgeo.org>
+References: <049.909aa59ac32d43fdfa8bd453ff6587cb@osgeo.org>
+Message-ID: <058.2b62fea1f45bf4ccf3af919eb5ff6d70@osgeo.org>
+
+#224: Need to compile the libGeos using Sun Studio12 on Solaris10
+-------------------------+--------------------------------------------------
+ Reporter:  satyajitt    |        Owner:  geos-devel@lists.osgeo.org
+     Type:  enhancement  |       Status:  new                       
+ Priority:  blocker      |    Milestone:  3.3.0                     
+Component:  Core         |      Version:  svn-trunk                 
+ Severity:  Significant  |   Resolution:                            
+ Keywords:               |  
+-------------------------+--------------------------------------------------
+Changes (by mloskot):
+
+  * owner:  nobody => geos-devel@lists.osgeo.org
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/224#comment:19>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Sat Jan  9 12:27:09 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Jan  9 12:27:11 2010
+Subject: [geos-devel] Re: [GEOS] #177: example.rb uses c++ api methods
+In-Reply-To: <047.0cbf6fb4a707b3431a041db3d58516b3@osgeo.org>
+References: <047.0cbf6fb4a707b3431a041db3d58516b3@osgeo.org>
+Message-ID: <056.a0053d1a51b79a73b68298818b36b04d@osgeo.org>
+
+#177: example.rb uses c++ api methods
+------------------------+---------------------------------------------------
+ Reporter:  aschall     |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  minor       |    Milestone:  3.3.0                     
+Component:  SWIG Ruby   |      Version:  3.0.0                     
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by mloskot):
+
+  * owner:  csavage => geos-devel@lists.osgeo.org
+
+Comment:
+
+ It's been long time without any action on this. I'm assigning it to nobody
+ and suggest to close as wontfix.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/177#comment:6>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Sat Jan  9 12:27:39 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Jan  9 12:27:40 2010
+Subject: [geos-devel] Re: [GEOS] #299:
+ geos::geom::CoordinateArraySequenceFactory unit test failing
+In-Reply-To: <047.d99b68335c5950ad504ff227278ead4a@osgeo.org>
+References: <047.d99b68335c5950ad504ff227278ead4a@osgeo.org>
+Message-ID: <056.98101b96111ff4eeb829172ba47bbef4@osgeo.org>
+
+#299: geos::geom::CoordinateArraySequenceFactory unit test failing
+------------------------+---------------------------------------------------
+ Reporter:  pramsey     |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  new                       
+ Priority:  major       |    Milestone:  3.3.0                     
+Component:  Unit Tests  |      Version:  svn-trunk                 
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by mloskot):
+
+  * owner:  => geos-devel@lists.osgeo.org
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/299#comment:17>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From Barend.Gehrels at geodan.nl  Sat Jan  9 13:02:53 2010
+From: Barend.Gehrels at geodan.nl (Barend Gehrels)
+Date: Sat Jan  9 13:03:19 2010
+Subject: [geos-devel] Re: [Benchmarking] library benchmarks in benchmarks
+In-Reply-To: <4B46329A.6060503@loskot.net>
+References: <4B45E445.6090301@geodan.nl> <4B46329A.6060503@loskot.net>
+Message-ID: <4B48C4CD.8050409@geodan.nl>
+
+
+
+Mateusz Loskot wrote:
+> Barend Gehrels pisze:
+>> We have developed benchmarks to test performance (and functionality) 
+>> of (Open Source) GIS / Geometry libraries.
+>>
+>> Originally the tests were created to compare our library (GGL, 
+>> recently accepted by Boost and renamed to Boost.Geometry) to other 
+>> libraries, with respect to performance and functionality.
+>>
+>> However, the test suite is broader than that because it can also be 
+>> used to compare for example GEOS and CGAL. Therefore we propose to 
+>> move it to the SVN http://svn.osgeo.org/osgeo/foss4g/benchmarking it 
+>> seems to fit there perfectly.
+>
+> Folks,
+>
+> By the way, if OSGeo supports the idea of hosting, let's call it,
+> FOSS geometry libraries benchmark, I would like to take care of
+> submitting it to the benchmarks module in the SVN
+> and of further maintenance.
+That would be very welcome, thanks. The name sounds good. So, if the 
+idea is supported, it can be moved from 
+https://svn.boost.org/svn/boost/sandbox/ggl/other to that 
+osgeo/benchmarking location.
+
+Regards, Barend
+
+
+
+From strk at keybit.net  Mon Jan 11 04:03:59 2010
+From: strk at keybit.net (strk)
+Date: Mon Jan 11 04:04:07 2010
+Subject: [geos-devel] Installation of Postgis/postgresql
+In-Reply-To: <4B397ACC.8030106@noaa.gov>
+References: <4B397ACC.8030106@noaa.gov>
+Message-ID: <20100111090359.GA28684@keybit.net>
+
+On Mon, Dec 28, 2009 at 07:43:08PM -0800, Nick Uebelhor wrote:
+
+> during ./configure of geos errors out looking for g++
+> 
+> to the best of my knowledge g++ is part of gcc and we have a current
+> version of the gcc compiler on the computer
+
+GCC is big so distributors usually split the binary packages by
+different runtimes and dev environment. Make sure to install the
+GNU C++ compiler.
+
+--strk; 
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From geos-trac at osgeo.org  Tue Jan 12 15:25:14 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Tue Jan 12 15:25:16 2010
+Subject: [geos-devel] [GEOS] #316: Python library check is not 64 bits free
+Message-ID: <048.68b232cc0ac5ad0135131b5155d6752a@osgeo.org>
+
+#316: Python library check is not 64 bits free
+------------------------+---------------------------------------------------
+ Reporter:  bicatali    |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ When the system is 64bits only (on *nix systems), the Python library check
+ does not work:
+ [snip]
+ checking for python... /usr/bin/python
+ checking for python version... 2.6
+ checking for python platform... linux2
+ checking for python script directory... ${prefix}/lib/python2.6/site-
+ packages
+ checking for python extension module directory...
+ ${exec_prefix}/lib/python2.6/site-packages
+ checking for Python include path... /usr/include/python2.6
+ checking for Python library path...
+ configure: error: cannot find Python library path
+
+ In macros/ac_python_devel.m4, changing lib/python with $libdir/python
+ should resolve it.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/316>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From mateusz at loskot.net  Tue Jan 12 18:09:58 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Tue Jan 12 18:10:00 2010
+Subject: [geos-devel] [#315] Separate include directory from source
+In-Reply-To: <51872.94.1.115.227.1262997068.squirrel@loskot.net>
+References: <59908.94.1.115.227.1262996844.squirrel@loskot.net>
+	<51872.94.1.115.227.1262997068.squirrel@loskot.net>
+Message-ID: <1263337798297-4295179.post@n2.nabble.com>
+
+
+
+Mateusz Loskot wrote:
+> 
+> Mateusz Loskot wrote:
+>> Folks,
+>>
+>> My I receive a feedback on this?
+> 
+> http://trac.osgeo.org/geos/ticket/315
+> 
+
+Folks,
+
+I'm about to start making structural changes to the SVN trunk.
+I doubt it will happen in one shot, but in number of smaller commits.
+It will likely take a couple of days to apply and test the changes (#315)
+with
+number of platforms and compilers.
+
+So, please be warned that GEOS SVN trunk (only trunk will be affected)
+will likely be unstable while these works are being applied.
+It should not take more than a couple of days to get everything back to
+shape.
+
+I will drop new message when it's finished.
+
+Best regards,
+
+-----
+-- 
+Mateusz Loskot
+http://mateusz.loskot.net
+-- 
+View this message in context: http://n2.nabble.com/315-Separate-include-directory-from-source-tp4275707p4295179.html
+Sent from the GEOS Developers mailing list archive at Nabble.com.
+From strk at keybit.net  Wed Jan 13 06:09:55 2010
+From: strk at keybit.net (strk)
+Date: Wed Jan 13 06:10:00 2010
+Subject: [geos-devel] Missing file in Makefile.vc
+In-Reply-To: <70fbea790912151004q70b08179t68cada35060743e3@mail.gmail.com>
+References: <70fbea790912151004q70b08179t68cada35060743e3@mail.gmail.com>
+Message-ID: <20100113110955.GE44039@keybit.net>
+
+On Tue, Dec 15, 2009 at 01:04:11PM -0500, Glenn Waldron wrote:
+> I wish I'd caught this before the 3.2 release, but
+> geom/CoordinateSequenceFactory is missing from source/Makefile.vc. The fixed
+> makefile.vc is attached.
+
+Glen, was this applied ? If not, could you put it on trac ?
+
+--strk;
+
+ Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+ http://foo.keybit.net/~strk/services.html  /\  Keep it simple! 
+From mateusz at loskot.net  Wed Jan 13 08:10:45 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed Jan 13 08:06:14 2010
+Subject: [geos-devel] Missing file in Makefile.vc
+In-Reply-To: <20100113110955.GE44039@keybit.net>
+References: <70fbea790912151004q70b08179t68cada35060743e3@mail.gmail.com>
+	<20100113110955.GE44039@keybit.net>
+Message-ID: <4B4DC655.6040409@loskot.net>
+
+strk wrote:
+> On Tue, Dec 15, 2009 at 01:04:11PM -0500, Glenn Waldron wrote:
+>> I wish I'd caught this before the 3.2 release, but
+>> geom/CoordinateSequenceFactory is missing from source/Makefile.vc. The fixed
+>> makefile.vc is attached.
+> 
+> Glen, was this applied ? If not, could you put it on trac ?
+
+Sandro,
+
+http://trac.osgeo.org/geos/ticket/313
+
+but please note, structure is being reorganised during this week.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From gwaldron at gmail.com  Wed Jan 13 08:06:23 2010
+From: gwaldron at gmail.com (Glenn Waldron)
+Date: Wed Jan 13 08:06:27 2010
+Subject: [geos-devel] Missing file in Makefile.vc
+In-Reply-To: <20100113110955.GE44039@keybit.net>
+References: <70fbea790912151004q70b08179t68cada35060743e3@mail.gmail.com>
+	<20100113110955.GE44039@keybit.net>
+Message-ID: <70fbea791001130506v6512143fqe21fe73a0dcb62bf@mail.gmail.com>
+
+Looks like it was applied:
+http://trac.osgeo.org/geos/ticket/313
+
+Thanks - Glenn
+
+Glenn Waldron : Pelican Mapping : +1.703.652.4791
+
+
+On Wed, Jan 13, 2010 at 6:09 AM, strk <strk@keybit.net> wrote:
+
+> On Tue, Dec 15, 2009 at 01:04:11PM -0500, Glenn Waldron wrote:
+> > I wish I'd caught this before the 3.2 release, but
+> > geom/CoordinateSequenceFactory is missing from source/Makefile.vc. The
+> fixed
+> > makefile.vc is attached.
+>
+> Glen, was this applied ? If not, could you put it on trac ?
+>
+> --strk;
+>
+>  Free GIS & Flash consultant/developer      ()  ASCII Ribbon Campaign
+>  http://foo.keybit.net/~strk/services.html<http://foo.keybit.net/%7Estrk/services.html> /\  Keep it simple!
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/geos-devel/attachments/20100113/c67d575b/attachment.html
+From mateusz at loskot.net  Wed Jan 13 19:08:13 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed Jan 13 19:08:20 2010
+Subject: [geos-devel] [#315] Separate include directory from source
+In-Reply-To: <1263337798297-4295179.post@n2.nabble.com>
+References: <59908.94.1.115.227.1262996844.squirrel@loskot.net>	<51872.94.1.115.227.1262997068.squirrel@loskot.net>
+	<1263337798297-4295179.post@n2.nabble.com>
+Message-ID: <4B4E606D.1060801@loskot.net>
+
+Mateusz Loskot wrote:
+> Mateusz Loskot wrote:
+>> Mateusz Loskot wrote:
+>>> Folks,
+>>>
+>>> My I receive a feedback on this?
+>> http://trac.osgeo.org/geos/ticket/315
+>>
+> 
+> Folks,
+> 
+> I'm about to start making structural changes to the SVN trunk.
+> I doubt it will happen in one shot, but in number of smaller commits.
+> It will likely take a couple of days to apply and test the changes (#315)
+> with
+> number of platforms and compilers.
+> 
+> So, please be warned that GEOS SVN trunk (only trunk will be affected)
+> will likely be unstable while these works are being applied.
+> It should not take more than a couple of days to get everything back to
+> shape.
+> 
+> I will drop new message when it's finished.
+
+
+The mission accomplished. Full backlog in the ticket (#315)
+
+Please, report if there are any problems.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Mon Jan 18 16:31:26 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Mon Jan 18 16:31:35 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+Message-ID: <4B54D32E.1050806@loskot.net>
+
+Folks,
+
+I have added GEOS build configuration for CMake (http://www.cmake.org/)
+build system. Here are details:
+
+http://trac.osgeo.org/geos/ticket/317
+
+I decided to do it as I believe it will help to minimise efforts to
+maintain build configurations for systems and compilers GEOS supports.
+
+CMake is a cross-platform meta-build system. It generates a build
+configuration which is native to user's environment and toolset
+and does it from single source of settings, namely a bunch of
+CMakeLists.txt files.
+
+I have successfully tested using the CMake configuration to build
+GEOS using makefiles and GCC on Linux as well as Visual Studio
+projects on Windows. List of available generators (native build systems):
+
+http://cmake.org/cmake/help/cmake-2-8-docs.html#section_Generators
+
+Currently, the configuration is more or less based on default settings
+of native builders. It needs to be updated with compiler-specific tweaks
+and some other improvements. Also, CTest and CPack features have not
+been incorporated. It's matter of time.
+
+Current status is basically equivalent to Autotools command set of:
+
+./configure [OPTIONS] && make && make install and make clean of course.
+
+On Windows it works with some extra addition, it can install GEOS
+(select and build INSTALL.vcproj project in the VS IDE). By default, it
+is installed under prefix C:\Program Files\geos in to bin, lib and
+include subdirectories.
+
+My aim is to finish CMake configuration and replace Visual Studio
+hand-written makefiles and manually maintained projects for GEOS 3.3.0.
+I understand that Autotools-based configuration will stay, perhaps until
+the Community will CMake or forever, but this belongs to future.
+
+
+I would appreciate if anybody could take a look at it, test it,
+comments, critique and patches.
+
+
+
+BTW, CMake-based build of GEOS completes in ~ 60 seconds
+versus ~ 4 minutes Autotools-based build.
+
+
+BTW2, for an in-depth and easy overview of the CMake, I'd  this video
+with lecture given at Google:
+
+http://www.youtube.com/watch?v=8Ut9o4OdSC0
+
+p.s. I posted CC of this message to
+postgis-devel@postgis.refractions.net list as well.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From pramsey at cleverelephant.ca  Mon Jan 18 17:26:33 2010
+From: pramsey at cleverelephant.ca (Paul Ramsey)
+Date: Mon Jan 18 17:26:39 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B54D32E.1050806@loskot.net>
+References: <4B54D32E.1050806@loskot.net>
+Message-ID: <30fe546d1001181426i4815ed4dr8109101c7fce73@mail.gmail.com>
+
+Mats,
+
+I'm quite interested in CMake, thanks for taking the time to put one
+in for GEOS. The main thing stopping me from pursuing CMake has been
+lack of time to start from scratch and learn, and now you've provided
+me a template to work from. I think we should drop autotools once we
+can get a good build on all our platforms with CMake.
+
+P.
+
+On Mon, Jan 18, 2010 at 1:31 PM, Mateusz Loskot <mateusz@loskot.net> wrote:
+> Folks,
+>
+> I have added GEOS build configuration for CMake (http://www.cmake.org/)
+> build system. Here are details:
+>
+> http://trac.osgeo.org/geos/ticket/317
+>
+> I decided to do it as I believe it will help to minimise efforts to
+> maintain build configurations for systems and compilers GEOS supports.
+>
+> CMake is a cross-platform meta-build system. It generates a build
+> configuration which is native to user's environment and toolset
+> and does it from single source of settings, namely a bunch of
+> CMakeLists.txt files.
+>
+> I have successfully tested using the CMake configuration to build
+> GEOS using makefiles and GCC on Linux as well as Visual Studio
+> projects on Windows. List of available generators (native build systems):
+>
+> http://cmake.org/cmake/help/cmake-2-8-docs.html#section_Generators
+>
+> Currently, the configuration is more or less based on default settings
+> of native builders. It needs to be updated with compiler-specific tweaks
+> and some other improvements. Also, CTest and CPack features have not
+> been incorporated. It's matter of time.
+>
+> Current status is basically equivalent to Autotools command set of:
+>
+> ./configure [OPTIONS] && make && make install and make clean of course.
+>
+> On Windows it works with some extra addition, it can install GEOS
+> (select and build INSTALL.vcproj project in the VS IDE). By default, it
+> is installed under prefix C:\Program Files\geos in to bin, lib and
+> include subdirectories.
+>
+> My aim is to finish CMake configuration and replace Visual Studio
+> hand-written makefiles and manually maintained projects for GEOS 3.3.0.
+> I understand that Autotools-based configuration will stay, perhaps until
+> the Community will CMake or forever, but this belongs to future.
+>
+>
+> I would appreciate if anybody could take a look at it, test it,
+> comments, critique and patches.
+>
+>
+>
+> BTW, CMake-based build of GEOS completes in ~ 60 seconds
+> versus ~ 4 minutes Autotools-based build.
+>
+>
+> BTW2, for an in-depth and easy overview of the CMake, I'd ?this video
+> with lecture given at Google:
+>
+> http://www.youtube.com/watch?v=8Ut9o4OdSC0
+>
+> p.s. I posted CC of this message to
+> postgis-devel@postgis.refractions.net list as well.
+>
+> Best regards,
+> --
+> Mateusz Loskot, http://mateusz.loskot.net
+> Charter Member of OSGeo, http://osgeo.org
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+From mateusz at loskot.net  Mon Jan 18 17:39:07 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Mon Jan 18 17:39:32 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <30fe546d1001181426i4815ed4dr8109101c7fce73@mail.gmail.com>
+References: <4B54D32E.1050806@loskot.net>
+	<30fe546d1001181426i4815ed4dr8109101c7fce73@mail.gmail.com>
+Message-ID: <4B54E30B.9080809@loskot.net>
+
+Paul Ramsey wrote:
+> Mats,
+> 
+> I'm quite interested in CMake, thanks for taking the time to put one 
+> in for GEOS. The main thing stopping me from pursuing CMake has been 
+> lack of time to start from scratch and learn, and now you've provided
+>  me a template to work from. I think we should drop autotools once we
+>  can get a good build on all our platforms with CMake.
+
+Paul,
+
+I'm glad you're interested in CMake. I'm not a lonely knight then :-)
+
+I admit that it may be difficult to start crafting new configuration
+from scratch. It's easy to issue "touch CMakeLists.txt" for main file
+but then it's not clear what's next.
+
+I've been mastering CMake myself for a while and every new
+configuration I make looks much better than previous.
+Here is what I've done so far: GeoTIFF [1] and libLAS [2].
+
+It's not a secret that recent discussion about native build of PostGIS
+using Visual C++ made me thinking of trying to configure PostGIS for
+CMake as well. Let's see if folks are happy with the one for GEOS.
+
+BTW, I just tested CMake with NMAKE makefiles on Windows.
+It works, but I use x64 system and got some linker 32 vs 64 bit
+errors likely related to my environment. Perhaps some flags are need to
+be addd, but in general CMake generates correct Makefiles, and outputs
+nice colours to console ;-)
+
+[1] http://trac.osgeo.org/geotiff/ticket/17
+[2] http://liblas.org/ticket/52
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From strk at keybit.net  Tue Jan 19 13:43:38 2010
+From: strk at keybit.net (strk)
+Date: Tue Jan 19 13:43:58 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B54D32E.1050806@loskot.net>
+References: <4B54D32E.1050806@loskot.net>
+Message-ID: <20100119184338.GG489@keybit.net>
+
+On Mon, Jan 18, 2010 at 09:31:26PM +0000, Mateusz Loskot wrote:
+
+> I have added GEOS build configuration for CMake (http://www.cmake.org/)
+> build system.
+
+Great!
+
+I've tried the "cmake ../trunk && make" run and got linking error:
+
+Linking CXX executable geos_unit
+CMakeFiles/geos_unit.dir/geostest2.cpp.o: In function `main':
+geostest2.cpp:(.text+0x588): multiple definition of `main'
+CMakeFiles/geos_unit.dir/geos_unit.cpp.o:geos_unit.cpp:(.text+0x6f2): first defined here
+CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_sir()':
+bug176.cpp:(.text+0x0): multiple definition of `do_sir()'
+CMakeFiles/geos_unit.dir/geostest2.cpp.o:geostest2.cpp:(.text+0x0): first defined here
+CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_buffer()':
+bug176.cpp:(.text+0x16a): multiple definition of `do_buffer()'
+CMakeFiles/geos_unit.dir/geostest2.cpp.o:geostest2.cpp:(.text+0x16a): first defined here
+CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `main':
+bug176.cpp:(.text+0x588): multiple definition of `main'
+CMakeFiles/geos_unit.dir/geos_unit.cpp.o:geos_unit.cpp:(.text+0x6f2): first defined here
+collect2: ld returned 1 exit status
+
+Is the above expected ?
+SVN At revision 2876.
+
+Funny enough, on second 'make' run, after those error, I get
+an error earlier:
+
+[  0%] Building CXX object src/CMakeFiles/geos.dir/algorithm/distance/DiscreteHausdorffDistance.cpp.o
+In file included from /usr/src/geos/trunk/include/geos/algorithm/distance/PointPairDistance.h:24,
+                 from /usr/src/geos/trunk/include/geos/algorithm/distance/DiscreteHausdorffDistance.h:23,
+                 from /usr/src/geos/trunk/src/algorithm/distance/DiscreteHausdorffDistance.cpp:20:
+/usr/src/geos/cmake_build/include/geos/platform.h:147:3: error: #error "Could not find finite or isfinite function or macro!"
+make[2]: *** [src/CMakeFiles/geos.dir/algorithm/distance/DiscreteHausdorffDistance.cpp.o] Error 1
+make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From robe.dnd at cityofboston.gov  Wed Jan 20 14:41:26 2010
+From: robe.dnd at cityofboston.gov (Obe, Regina)
+Date: Wed Jan 20 14:42:37 2010
+Subject: [geos-devel] Topology Exception with nested collections
+Message-ID: <BD3A1BBF51D14C47B26207A076699482285875C35B@XCCMS2.cityhall.boston.cob>
+
+I'm actually not sure if this is a bug or not, but I always thought in a perfect world that if I union two valid geometries, I should not get errors.  I get a bunch of these in my torture tests (both against 3.1.1 and 3.2.0 GEOS) and verified they  pass the ST_IsValid test.
+
+One of these cases stripped down to its bear minimum - gives error :
+NOTICE:  TopologyException: side location conflict -9 50 --.  Anyway thought I would mention it in case its not a trivial thing.  I doubt anyone has monsters like this anyway.
+
+SELECT ST_Union(foo1.geom, foo2.geom)
+FROM (SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo1
+	CROSS JOIN
+	(SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo2
+-----------------------------------------
+The substance of this message, including any attachments, may be
+confidential, legally privileged and/or exempt from disclosure
+pursuant to Massachusetts law. It is intended
+solely for the addressee. If you received this in error, please
+contact the sender and delete the material from any computer.
+From mateusz at loskot.net  Wed Jan 20 18:05:40 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed Jan 20 18:05:46 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <20100119184338.GG489@keybit.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+Message-ID: <4B578C44.6010506@loskot.net>
+
+strk wrote:
+> On Mon, Jan 18, 2010 at 09:31:26PM +0000, Mateusz Loskot wrote:
+> 
+>> I have added GEOS build configuration for CMake (http://www.cmake.org/)
+>> build system.
+> 
+> Great!
+> 
+> I've tried the "cmake ../trunk && make" run and got linking error:
+> 
+> Linking CXX executable geos_unit
+> CMakeFiles/geos_unit.dir/geostest2.cpp.o: In function `main':
+> geostest2.cpp:(.text+0x588): multiple definition of `main'
+> CMakeFiles/geos_unit.dir/geos_unit.cpp.o:geos_unit.cpp:(.text+0x6f2): first defined here
+> CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_sir()':
+> bug176.cpp:(.text+0x0): multiple definition of `do_sir()'
+> CMakeFiles/geos_unit.dir/geostest2.cpp.o:geostest2.cpp:(.text+0x0): first defined here
+> CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_buffer()':
+> bug176.cpp:(.text+0x16a): multiple definition of `do_buffer()'
+> CMakeFiles/geos_unit.dir/geostest2.cpp.o:geostest2.cpp:(.text+0x16a): first defined here
+> CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `main':
+> bug176.cpp:(.text+0x588): multiple definition of `main'
+> CMakeFiles/geos_unit.dir/geos_unit.cpp.o:geos_unit.cpp:(.text+0x6f2): first defined here
+> collect2: ld returned 1 exit status
+> 
+> Is the above expected ?
+> SVN At revision 2876.
+
+Hmm, strange. I do not get any such error.
+I can do clean rebuild using GCC 4.4.1.
+
+> Funny enough, on second 'make' run, after those error, I get
+> an error earlier:
+> 
+> [  0%] Building CXX object src/CMakeFiles/geos.dir/algorithm/distance/DiscreteHausdorffDistance.cpp.o
+> In file included from /usr/src/geos/trunk/include/geos/algorithm/distance/PointPairDistance.h:24,
+>                  from /usr/src/geos/trunk/include/geos/algorithm/distance/DiscreteHausdorffDistance.h:23,
+>                  from /usr/src/geos/trunk/src/algorithm/distance/DiscreteHausdorffDistance.cpp:20:
+> /usr/src/geos/cmake_build/include/geos/platform.h:147:3: error: #error "Could not find finite or isfinite function or macro!"
+> make[2]: *** [src/CMakeFiles/geos.dir/algorithm/distance/DiscreteHausdorffDistance.cpp.o] Error 1
+> make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+
+Yes, I was playing with the platform.h a bit and then I was gradually
+fixing this kind of issues about missing isnan or isfinite on various
+systems. So, something may be still not working well on some environments.
+
+However, remember to remove old versions of platform.h
+if you have any, for instance generated by autoconf
+build in trunk/include/geos. It may cause problems.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From strk at keybit.net  Thu Jan 21 03:15:26 2010
+From: strk at keybit.net (strk)
+Date: Thu Jan 21 03:16:37 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B578C44.6010506@loskot.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net>
+Message-ID: <20100121081526.GB21632@keybit.net>
+
+On Wed, Jan 20, 2010 at 11:05:40PM +0000, Mateusz Loskot wrote:
+> strk wrote:
+
+> > /usr/src/geos/cmake_build/include/geos/platform.h:147:3: error: #error "Could not find finite or isfinite function or macro!"
+> > make[2]: *** [src/CMakeFiles/geos.dir/algorithm/distance/DiscreteHausdorffDistance.cpp.o] Error 1
+> > make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+> 
+> Yes, I was playing with the platform.h a bit and then I was gradually
+> fixing this kind of issues about missing isnan or isfinite on various
+> systems. So, something may be still not working well on some environments.
+> 
+> However, remember to remove old versions of platform.h
+> if you have any, for instance generated by autoconf
+> build in trunk/include/geos. It may cause problems.
+
+No platform.h in source tree.
+The platform.h in build tree is created by cmake from platform.h.cmake
+(I double-checked by removing and running cmake again)
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From geos-trac at osgeo.org  Thu Jan 21 16:49:40 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Jan 21 16:49:44 2010
+Subject: [geos-devel] [GEOS] #320: factory for std::vector
+Message-ID: <048.bbea100f9686cdfd90a417fddd050dc1@osgeo.org>
+
+#320: factory for std::vector
+------------------------+---------------------------------------------------
+ Reporter:  12345678    |       Owner:  geos-devel@lists.osgeo.org
+     Type:  task        |      Status:  new                       
+ Priority:  major       |   Milestone:                            
+Component:  Default     |     Version:  3.0.3                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ I am using in geos DLL.
+ create collections, for example: createMultiPolygon, demand a
+ std::vector<Geometry*>
+ but there is no creator factory for create the std::vector !
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/320>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Jan 21 16:51:12 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Jan 21 16:51:14 2010
+Subject: [geos-devel] Re: [GEOS] #320: factory for std::vector
+In-Reply-To: <048.bbea100f9686cdfd90a417fddd050dc1@osgeo.org>
+References: <048.bbea100f9686cdfd90a417fddd050dc1@osgeo.org>
+Message-ID: <057.1f1eb4a47269a94166c5a1546137dd5e@osgeo.org>
+
+#320: factory for std::vector
+------------------------+---------------------------------------------------
+ Reporter:  12345678    |        Owner:  geos-devel@lists.osgeo.org
+     Type:  task        |       Status:  new                       
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:                            
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by 12345678):
+
+  * version:  3.0.3 => 3.2.0
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/320#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Jan 21 17:06:33 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Jan 21 17:06:34 2010
+Subject: [geos-devel] [GEOS] #321: crash in geos::geom::WKTWriter
+Message-ID: <048.dd48bc1de5712e543444bfd83893917f@osgeo.org>
+
+#321: crash in geos::geom::WKTWriter
+------------------------+---------------------------------------------------
+ Reporter:  12345678    |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |      Status:  new                       
+ Priority:  major       |   Milestone:                            
+Component:  Default     |     Version:  3.2.0                     
+ Severity:  Unassigned  |    Keywords:                            
+------------------------+---------------------------------------------------
+ I works with the geos dll thru the C++ not the C API.
+ I have a crash when the distructor of:
+ geos::geom::WKTWriter is called, is any one has a guess why ?
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/321>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From mbdavis at refractions.net  Thu Jan 21 17:53:15 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Thu Jan 21 17:51:07 2010
+Subject: [geos-devel] Topology Exception with nested collections
+In-Reply-To: <BD3A1BBF51D14C47B26207A076699482285875C35B@XCCMS2.cityhall.boston.cob>
+References: <BD3A1BBF51D14C47B26207A076699482285875C35B@XCCMS2.cityhall.boston.cob>
+Message-ID: <4B58DADB.7000200@refractions.net>
+
+JTS/GEOS does not support unioning GeometryCollections.  Not sure how 
+PostGIS is sidestepping this problem - perhaps it just ignores it? 
+
+One issue is that just because a GeometryCollection of Polygons is valid 
+does not mean that the set of Polygons would form a valid MultiPolygon 
+(they might overlap).  In this case you would see this kind of failure.
+
+Obe, Regina wrote:
+> I'm actually not sure if this is a bug or not, but I always thought in a perfect world that if I union two valid geometries, I should not get errors.  I get a bunch of these in my torture tests (both against 3.1.1 and 3.2.0 GEOS) and verified they  pass the ST_IsValid test.
+>
+> One of these cases stripped down to its bear minimum - gives error :
+> NOTICE:  TopologyException: side location conflict -9 50 --.  Anyway thought I would mention it in case its not a trivial thing.  I doubt anyone has monsters like this anyway.
+>
+> SELECT ST_Union(foo1.geom, foo2.geom)
+> FROM (SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo1
+> 	CROSS JOIN
+> 	(SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo2
+> -----------------------------------------
+> The substance of this message, including any attachments, may be
+> confidential, legally privileged and/or exempt from disclosure
+> pursuant to Massachusetts law. It is intended
+> solely for the addressee. If you received this in error, please
+> contact the sender and delete the material from any computer.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+
+From robe.dnd at cityofboston.gov  Thu Jan 21 21:09:22 2010
+From: robe.dnd at cityofboston.gov (Obe, Regina)
+Date: Thu Jan 21 21:13:19 2010
+Subject: [geos-devel] Topology Exception with nested collections
+In-Reply-To: <4B58DADB.7000200@refractions.net>
+References: <BD3A1BBF51D14C47B26207A076699482285875C35B@XCCMS2.cityhall.boston.cob>,
+	<4B58DADB.7000200@refractions.net>
+Message-ID: <BD3A1BBF51D14C47B26207A076699482285875C366@XCCMS2.cityhall.boston.cob>
+
+Hmm more smurf code but in PostGIS.  I guess its been there for a while since my PostGIS 1.3.6 exhibits the same behavior.  I presume it must be then dumping out the collection before feeding it to GEOS if GEOS  doesn't support this directly.
+
+
+Martin -- If all the Polygons are valid though, then when I union them it should form a valid Polygon/Multipolygon since it would dissolve whatever boundaries are there correct?
+
+Anyrate I'll dump this out use an aggregate union and see if I end up with the same error.
+
+________________________________________
+From: geos-devel-bounces@lists.osgeo.org [geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis [mbdavis@refractions.net]
+Sent: Thursday, January 21, 2010 5:53 PM
+To: GEOS Development List
+Subject: Re: [geos-devel] Topology Exception with nested collections
+
+JTS/GEOS does not support unioning GeometryCollections.  Not sure how
+PostGIS is sidestepping this problem - perhaps it just ignores it?
+
+One issue is that just because a GeometryCollection of Polygons is valid
+does not mean that the set of Polygons would form a valid MultiPolygon
+(they might overlap).  In this case you would see this kind of failure.
+
+Obe, Regina wrote:
+> I'm actually not sure if this is a bug or not, but I always thought in a perfect world that if I union two valid geometries, I should not get errors.  I get a bunch of these in my torture tests (both against 3.1.1 and 3.2.0 GEOS) and verified they  pass the ST_IsValid test.
+>
+> One of these cases stripped down to its bear minimum - gives error :
+> NOTICE:  TopologyException: side location conflict -9 50 --.  Anyway thought I would mention it in case its not a trivial thing.  I doubt anyone has monsters like this anyway.
+>
+> SELECT ST_Union(foo1.geom, foo2.geom)
+> FROM (SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo1
+>       CROSS JOIN
+>       (SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo2
+> -----------------------------------------
+> The substance of this message, including any attachments, may be
+> confidential, legally privileged and/or exempt from disclosure
+> pursuant to Massachusetts law. It is intended
+> solely for the addressee. If you received this in error, please
+> contact the sender and delete the material from any computer.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>
+
+--
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+
+_______________________________________________
+geos-devel mailing list
+geos-devel@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/geos-devel
+-----------------------------------------
+The substance of this message, including any attachments, may be
+confidential, legally privileged and/or exempt from disclosure
+pursuant to Massachusetts law. It is intended
+solely for the addressee. If you received this in error, please
+contact the sender and delete the material from any computer.
+From geos-trac at osgeo.org  Fri Jan 22 07:42:53 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Fri Jan 22 07:42:54 2010
+Subject: [geos-devel] Re: [GEOS] #321: crash in geos::geom::WKTWriter
+In-Reply-To: <048.dd48bc1de5712e543444bfd83893917f@osgeo.org>
+References: <048.dd48bc1de5712e543444bfd83893917f@osgeo.org>
+Message-ID: <057.f0c93481db9c0b8ae97b3d6b1d9b4aee@osgeo.org>
+
+#321: crash in geos::geom::WKTWriter
+------------------------+---------------------------------------------------
+ Reporter:  12345678    |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect      |       Status:  closed                    
+ Priority:  major       |    Milestone:                            
+Component:  Default     |      Version:  3.2.0                     
+ Severity:  Unassigned  |   Resolution:  invalid                   
+ Keywords:              |  
+------------------------+---------------------------------------------------
+Changes (by mloskot):
+
+  * status:  new => closed
+  * resolution:  => invalid
+
+Comment:
+
+ No clue, unless you stick to
+ http://www.chiark.greenend.org.uk/~sgtatham/bugs.html principles of bug
+ reporting] and provide us with minimum information required to investigate
+ your problem.
+
+ Otherwise, the report is invalid.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/321#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From mateusz at loskot.net  Fri Jan 22 20:40:38 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Jan 22 20:40:44 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <20100121081526.GB21632@keybit.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+Message-ID: <4B5A5396.7090909@loskot.net>
+
+strk wrote:
+> On Wed, Jan 20, 2010 at 11:05:40PM +0000, Mateusz Loskot wrote:
+>> strk wrote:
+> 
+>>> /usr/src/geos/cmake_build/include/geos/platform.h:147:3: error:
+>>> #error "Could not find finite or isfinite function or macro!" 
+>>> make[2]: ***
+>>> [src/CMakeFiles/geos.dir/algorithm/distance/DiscreteHausdorffDistance.cpp.o]
+>>> Error 1 make[1]: *** [src/CMakeFiles/geos.dir/all] Error 2
+>> Yes, I was playing with the platform.h a bit and then I was
+>> gradually fixing this kind of issues about missing isnan or
+>> isfinite on various systems. So, something may be still not working
+>> well on some environments.
+>> 
+>> However, remember to remove old versions of platform.h if you have
+>> any, for instance generated by autoconf build in
+>> trunk/include/geos. It may cause problems.
+> 
+> No platform.h in source tree. The platform.h in build tree is created
+> by cmake from platform.h.cmake (I double-checked by removing and
+> running cmake again)
+
+Sandro,
+
+The CMakeLists.txt in root was performing incorrect checks.
+It should be fine now, I hope.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From strk at keybit.net  Sun Jan 24 11:27:54 2010
+From: strk at keybit.net (Sandro Santilli)
+Date: Sun Jan 24 11:27:56 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B5A5396.7090909@loskot.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+Message-ID: <1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+
+On Sat, Jan 23, 2010 at 2:40 AM, Mateusz Loskot <mateusz@loskot.net> wrote:
+
+> The CMakeLists.txt in root was performing incorrect checks.
+> It should be fine now, I hope.
+
+Still no lack. platform.h dropped, cmake ../trunk re-run.
+The new platform still doesn't contain any valid FINITE function:
+
+/* Set to 1 if C++/C99 std::isfinite is defined */
+/* #undef HAVE_STD_ISFINITE */
+
+/* Set to 1 if C99 isfinite is defined */
+/* #undef HAVE_ISFINITE */
+
+/* Set to 1 if Visual C++ finite is defined */
+/* #undef HAVE_FINITE */
+
+This is r2888.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From mbdavis at refractions.net  Mon Jan 25 11:47:23 2010
+From: mbdavis at refractions.net (Martin Davis)
+Date: Mon Jan 25 11:44:48 2010
+Subject: [geos-devel] Topology Exception with nested collections
+In-Reply-To: <BD3A1BBF51D14C47B26207A076699482285875C366@XCCMS2.cityhall.boston.cob>
+References: <BD3A1BBF51D14C47B26207A076699482285875C35B@XCCMS2.cityhall.boston.cob>,
+	<4B58DADB.7000200@refractions.net>
+	<BD3A1BBF51D14C47B26207A076699482285875C366@XCCMS2.cityhall.boston.cob>
+Message-ID: <4B5DCB1B.8040805@refractions.net>
+
+Yes, if you union all the polygons together they will produce a valid 
+(Multi)Polygon. 
+
+In fact, unary union *does* handle GeometryCollections - at least in 
+JTS, hopefully GEOS & PostGIS as well.  So that's a simpler way to 
+compute the union of the collection.
+
+M
+
+Obe, Regina wrote:
+> Hmm more smurf code but in PostGIS.  I guess its been there for a while since my PostGIS 1.3.6 exhibits the same behavior.  I presume it must be then dumping out the collection before feeding it to GEOS if GEOS  doesn't support this directly.
+>
+>
+> Martin -- If all the Polygons are valid though, then when I union them it should form a valid Polygon/Multipolygon since it would dissolve whatever boundaries are there correct?
+>
+> Anyrate I'll dump this out use an aggregate union and see if I end up with the same error.
+>
+> ________________________________________
+> From: geos-devel-bounces@lists.osgeo.org [geos-devel-bounces@lists.osgeo.org] On Behalf Of Martin Davis [mbdavis@refractions.net]
+> Sent: Thursday, January 21, 2010 5:53 PM
+> To: GEOS Development List
+> Subject: Re: [geos-devel] Topology Exception with nested collections
+>
+> JTS/GEOS does not support unioning GeometryCollections.  Not sure how
+> PostGIS is sidestepping this problem - perhaps it just ignores it?
+>
+> One issue is that just because a GeometryCollection of Polygons is valid
+> does not mean that the set of Polygons would form a valid MultiPolygon
+> (they might overlap).  In this case you would see this kind of failure.
+>
+> Obe, Regina wrote:
+>   
+>> I'm actually not sure if this is a bug or not, but I always thought in a perfect world that if I union two valid geometries, I should not get errors.  I get a bunch of these in my torture tests (both against 3.1.1 and 3.2.0 GEOS) and verified they  pass the ST_IsValid test.
+>>
+>> One of these cases stripped down to its bear minimum - gives error :
+>> NOTICE:  TopologyException: side location conflict -9 50 --.  Anyway thought I would mention it in case its not a trivial thing.  I doubt anyone has monsters like this anyway.
+>>
+>> SELECT ST_Union(foo1.geom, foo2.geom)
+>> FROM (SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo1
+>>       CROSS JOIN
+>>       (SELECT ST_GeomFromEWKT('SRID=4326;GEOMETRYCOLLECTION(GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-9 50,51 -11,-10 50,-9 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-9 70,71 -11,-10 70,-9 70))),GEOMETRYCOLLECTION(POINT(-10 50),POLYGON((-8 50,52 -12,-10 50,-8 50))),GEOMETRYCOLLECTION(POINT(-10 70),POLYGON((-8 70,72 -12,-10 70,-8 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((11 50,51 9,10 50,11 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((11 70,71 9,10 70,11 70))),GEOMETRYCOLLECTION(POINT(10 50),POLYGON((12 50,52 8,10 50,12 50))),GEOMETRYCOLLECTION(POINT(10 70),POLYGON((12 70,72 8,10 70,12 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((31 50,51 29,30 50,31 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((31 70,71 29,30 70,31 70))),GEOMETRYCOLLECTION(POINT(30 50),POLYGON((32 50,52 28,30 50,32 50))),GEOMETRYCOLLECTION(POINT(30 70),POLYGON((32 70,72 28,30 70,32 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((51 50,51 49,50 50,51 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((51 70,71 49,50 70,51 70))),GEOMETRYCOLLECTION(POINT(50 50),POLYGON((52 50,52 48,50 50,52 50))),GEOMETRYCOLLECTION(POINT(50 70),POLYGON((52 70,72 48,50 70,52 70))))') As geom) As foo2
+>> -----------------------------------------
+>> The substance of this message, including any attachments, may be
+>> confidential, legally privileged and/or exempt from disclosure
+>> pursuant to Massachusetts law. It is intended
+>> solely for the addressee. If you received this in error, please
+>> contact the sender and delete the material from any computer.
+>> _______________________________________________
+>> geos-devel mailing list
+>> geos-devel@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>>
+>>
+>>     
+>
+> --
+> Martin Davis
+> Senior Technical Architect
+> Refractions Research, Inc.
+> (250) 383-3022
+>
+>
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+> -----------------------------------------
+> The substance of this message, including any attachments, may be
+> confidential, legally privileged and/or exempt from disclosure
+> pursuant to Massachusetts law. It is intended
+> solely for the addressee. If you received this in error, please
+> contact the sender and delete the material from any computer.
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+>
+>   
+
+-- 
+Martin Davis
+Senior Technical Architect
+Refractions Research, Inc.
+(250) 383-3022
+
+
+From mateusz at loskot.net  Mon Jan 25 17:17:34 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Mon Jan 25 17:17:42 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>	
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>	
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+Message-ID: <4B5E187E.2080807@loskot.net>
+
+Sandro Santilli wrote:
+> On Sat, Jan 23, 2010 at 2:40 AM, Mateusz Loskot <mateusz@loskot.net> wrote:
+> 
+>> The CMakeLists.txt in root was performing incorrect checks.
+>> It should be fine now, I hope.
+> 
+> Still no lack. platform.h dropped, cmake ../trunk re-run.
+> The new platform still doesn't contain any valid FINITE function:
+> 
+> /* Set to 1 if C++/C99 std::isfinite is defined */
+> /* #undef HAVE_STD_ISFINITE */
+> 
+> /* Set to 1 if C99 isfinite is defined */
+> /* #undef HAVE_ISFINITE */
+> 
+> /* Set to 1 if Visual C++ finite is defined */
+> /* #undef HAVE_FINITE */
+> 
+> This is r2888.
+
+Sandro,
+
+Thanks for testing!
+
+The problem is not with CMake, but looks like GCC is a mess :-)
+
+I'm a bit sick of the mess in how GCC handles C and C++ standards, it is
+by one big pollution.
+
+I've made a test by compiling this small program with two versions,
+fairly close versions, of GCC:
+
+#include <math.h>
+#ifdef isfinite
+#error isfinite defined
+#else
+#error isfinite NOT defined
+#endif
+int main() { return 0; }
+
+
+1)
+
+mloskot@dog:~/tmp$ gcc --version
+gcc (Ubuntu 4.4.1-4ubuntu9) 4.4.1
+
+mloskot@dog:~/tmp$ gcc isfinite.c
+isfinite.c:3:2: error: #error isfinite defined
+mloskot@dog:~/tmp$
+
+
+2)
+
+mloskot@vb-ubuntu904:~/tmp$ gcc --version
+gcc (Ubuntu 4.3.3-5ubuntu4) 4.3.3
+
+mloskot@vb-ubuntu904:~/tmp$ gcc isfinite.c
+isfinite.c:5:2: error: #error isfinite NOT defined
+
+To make it working with GCC 4.3, one has to specify -std=c99 option.
+
+3) What should we expect from GCC 4.5 ?
+
+
+Getting used to default behaviour of GCC from version to version
+is like chasing my own tail :-)
+I tried to force the isfinite with definitiosn of __USE_ISOC99 or
+_GNU_SOURCE but it doesn't help. I'll have to figure out best platform
+and GCC version independent option.
+
+The simplest one would be to define something like this:
+
+inline bool isfinite(double v)
+{
+   return v >= -(std::numeric_limits<double>::max)()
+       && v <=  (std::numeric_limits<double>::max)();
+}
+
+but I'm concerned if it is robust enough on variety of platforms.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From strk at keybit.net  Tue Jan 26 11:23:08 2010
+From: strk at keybit.net (Sandro Santilli)
+Date: Tue Jan 26 11:23:26 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B5E187E.2080807@loskot.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+	<4B5E187E.2080807@loskot.net>
+Message-ID: <20100126162308.GC47144@keybit.net>
+
+On Mon, Jan 25, 2010 at 10:17:34PM +0000, Mateusz Loskot wrote:
+
+> The problem is not with CMake, but looks like GCC is a mess :-)
+
+Interesting analisys :)
+
+> #include <math.h>
+> #ifdef isfinite
+> #error isfinite defined
+> #else
+> #error isfinite NOT defined
+> #endif
+
+I guess you just can't expect isfinite to necessarely be a macro.
+It could be a real function too.
+
+The autotool based version of the check actually attempts linking
+to figure out:
+
+  dnl - Look for finite and/or isfinite macros/functions
+  ...
+   [AC_TRY_LINK([#include <math.h>],
+  ...
+
+> The simplest one would be to define something like this:
+> 
+> inline bool isfinite(double v)
+> {
+>    return v >= -(std::numeric_limits<double>::max)()
+>        && v <=  (std::numeric_limits<double>::max)();
+> }
+> 
+> but I'm concerned if it is robust enough on variety of platforms.
+
+I suggest you do some more research on how cmake handles the case
+in which a symbol may be a macro or function.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From mateusz at loskot.net  Tue Jan 26 17:51:35 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Tue Jan 26 17:51:40 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <20100126162308.GC47144@keybit.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+	<4B5E187E.2080807@loskot.net> <20100126162308.GC47144@keybit.net>
+Message-ID: <4B5F71F7.2030308@loskot.net>
+
+Sandro Santilli wrote:
+> On Mon, Jan 25, 2010 at 10:17:34PM +0000, Mateusz Loskot wrote:
+>> #include <math.h> #ifdef isfinite #error isfinite defined #else 
+>> #error isfinite NOT defined #endif
+> 
+> I guess you just can't expect isfinite to necessarely be a macro. It 
+> could be a real function too.
+
+No. Talking about standard library, the C99
+in "7.12.3.2 The isfinite macro" clearly specifies that
+isfinte is defined as macro, not a function.
+POSIX defines it exactly the same way, moreover, it specifies that it
+shall be defined as in C standard.
+gnulib does the same.
+
+This is what I test and what I expect to work in consistent way.
+
+> The autotool based version of the check actually attempts linking to 
+> figure out:
+> 
+> dnl - Look for finite and/or isfinite macros/functions ... 
+> [AC_TRY_LINK([#include <math.h>], ...
+
+Right, so another paranoid behaviour of one GNU tool against
+another GNU tool :-)
+Sure, I can perform the same tests with CMake...
+
+>> The simplest one would be to define something like this:
+>> 
+>> inline bool isfinite(double v) { return v >= 
+>> -(std::numeric_limits<double>::max)() && v <= 
+>> (std::numeric_limits<double>::max)(); }
+>> 
+>> but I'm concerned if it is robust enough on variety of platforms.
+> 
+> I suggest you do some more research on how cmake handles the case in 
+> which a symbol may be a macro or function.
+
+That's exactly what I've done of course.
+
+The check_symbol_exists tests if a symbol is macro, if not,
+it performs test if a symbol is function.
+The test is a compilation test, no linking.
+
+Here is complete log what the CMake check_symbol_exists
+using GCC 4.3.3 with glibc 2.9 from Ubuntu 9.04:
+
+/////////////////////////////////////////////////////////////////
+Building C object CMakeFiles/cmTryCompileExec.dir/CheckSymbolExists.c.o
+/usr/bin/gcc    -o CMakeFiles/cmTryCompileExec.dir/CheckSymbolExists.c.o
+  -c
+/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c
+/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:
+In function ?main?:
+/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:8:
+error: ?isfinite? undeclared (first use in this function)
+/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:8:
+error: (Each undeclared identifier is reported only once
+/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:8:
+error: for each function it appears in.)
+make[1]: *** [CMakeFiles/cmTryCompileExec.dir/CheckSymbolExists.c.o] Error 1
+make[1]: Leaving directory
+`/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp'
+make: *** [cmTryCompileExec/fast] Error 2
+
+File
+/home/mloskot/dev/geos/_svn/build/CMakeFiles/CMakeTmp/CheckSymbolExists.c:
+/* */
+#include <math.h>
+
+void cmakeRequireSymbol(int dummy,...){(void)dummy;}
+int main()
+{
+#ifndef isfinite
+  cmakeRequireSymbol(0,&isfinite);
+#endif
+  return 0;
+}
+/////////////////////////////////////////////////////////////////
+
+
+Let's repeat it manually, this is exactly the same test:
+
+mloskot@vb-ubuntu904:~/tmp$ cat isfinite.c
+#include <math.h>
+void cmakeRequireSymbol(int dummy,...){(void)dummy;}
+int main()
+{
+#ifndef isfinite
+  cmakeRequireSymbol(0,&isfinite);
+#endif
+  return 0;
+}
+mloskot@vb-ubuntu904:~/tmp$ gcc -c isfinite.c
+isfinite.c: In function ?main?:
+isfinite.c:6: error: ?isfinite? undeclared (first use in this function)
+isfinite.c:6: error: (Each undeclared identifier is reported only once
+isfinite.c:6: error: for each function it appears in.)
+
+
+but if I ask for C99, what seems logical, then everything works well:
+
+
+mloskot@vb-ubuntu904:~/tmp$ gcc -std=c99 -c isfinite.c
+mloskot@vb-ubuntu904:~/tmp$
+
+
+But why the heck I don't have to specify -std=c99 when using GCC 4.4.1
+with glibc 2.10?
+
+Either the former environment with GCC 4.3.3 is correct but GCC 4.4.1 is
+buggy, or the other way around.
+I reported it anyway:
+https://bugs.launchpad.net/ubuntu/+source/gcc-4.3/+bug/512741
+
+...in the meantime, I suppose the only way to deal with such problems
+is to replicate the same tests as Autotools perform.
+
+I'll take care of it.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Wed Jan 27 17:13:45 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed Jan 27 17:13:52 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>	
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>	
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+Message-ID: <4B60BA99.6030005@loskot.net>
+
+Sandro Santilli wrote:
+> On Sat, Jan 23, 2010 at 2:40 AM, Mateusz Loskot <mateusz@loskot.net> wrote:
+> 
+>> The CMakeLists.txt in root was performing incorrect checks.
+>> It should be fine now, I hope.
+> 
+> Still no lack. platform.h dropped, cmake ../trunk re-run.
+> The new platform still doesn't contain any valid FINITE function:
+> 
+> /* Set to 1 if C++/C99 std::isfinite is defined */
+> /* #undef HAVE_STD_ISFINITE */
+> 
+> /* Set to 1 if C99 isfinite is defined */
+> /* #undef HAVE_ISFINITE */
+> 
+> /* Set to 1 if Visual C++ finite is defined */
+> /* #undef HAVE_FINITE */
+> 
+> This is r2888.
+
+Sandro,
+
+I hope I've fixed it:
+
+http://trac.osgeo.org/geos/ticket/317#comment:21
+
+I explicitly add -D_ISOC99_SOURCE=1 for checks of isfinite and it passes
+for me.
+
+Could you give it another shot and test?
+
+Thanks!
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Wed Jan 27 18:52:47 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Wed Jan 27 18:52:54 2010
+Subject: [geos-devel] Build and install instructions
+Message-ID: <4B60D1CF.7050200@loskot.net>
+
+Hi,
+
+I reorganised the Build and Install instructions a bit:
+
+http://trac.osgeo.org/geos/wiki#BuildandInstall
+
+Please, update if anything is missing or buggy.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From strk at keybit.net  Thu Jan 28 03:23:36 2010
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Jan 28 03:23:54 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B60BA99.6030005@loskot.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+	<4B60BA99.6030005@loskot.net>
+Message-ID: <20100128082336.GC89012@keybit.net>
+
+On Wed, Jan 27, 2010 at 10:13:45PM +0000, Mateusz Loskot wrote:
+
+> http://trac.osgeo.org/geos/ticket/317#comment:21
+> 
+> I explicitly add -D_ISOC99_SOURCE=1 for checks of isfinite and it passes
+> for me.
+> 
+> Could you give it another shot and test?
+
+I will shortly. Meanwhile here's a test on OpenSUSE:
+
+In file included from /net/lafont/home/santisa/src/geos/trunk/include/geos/io/WKBWriter.h:26,
+                 from /net/lafont/home/santisa/src/geos/trunk/src/geom/Geometry.cpp:53:
+/net/lafont/home/santisa/src/geos/trunk/include/geos/util/Machine.h: In function ???int getMachineByteOrder()???:
+/net/lafont/home/santisa/src/geos/trunk/include/geos/util/Machine.h:22: error: redefinition of ???int getMachineByteOrder()???
+/net/lafont/home/santisa/src/geos/trunk/include/geos/platform.h:99: error: ???int getMachineByteOrder()??? previously defined here
+
+-> gcc (GCC) 4.3.2
+-> cmake version 2.6-patch 2
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From strk at keybit.net  Thu Jan 28 03:25:19 2010
+From: strk at keybit.net (strk)
+Date: Thu Jan 28 03:25:22 2010
+Subject: [geos-devel] Build and install instructions
+In-Reply-To: <4B60D1CF.7050200@loskot.net>
+References: <4B60D1CF.7050200@loskot.net>
+Message-ID: <20100128082519.GD89012@keybit.net>
+
+On Wed, Jan 27, 2010 at 11:52:47PM +0000, Mateusz Loskot wrote:
+> Hi,
+> 
+> I reorganised the Build and Install instructions a bit:
+> 
+> http://trac.osgeo.org/geos/wiki#BuildandInstall
+> 
+> Please, update if anything is missing or buggy.
+
+May I ask for 'make check' rather than 'make test' for the Test
+TODO item ? 'check' is a GNU standard rule.
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From mateusz at loskot.net  Thu Jan 28 13:42:00 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu Jan 28 13:42:59 2010
+Subject: [geos-devel] Build and install instructions
+In-Reply-To: <20100128082519.GD89012@keybit.net>
+References: <4B60D1CF.7050200@loskot.net> <20100128082519.GD89012@keybit.net>
+Message-ID: <4B61DA78.7010203@loskot.net>
+
+strk wrote:
+> On Wed, Jan 27, 2010 at 11:52:47PM +0000, Mateusz Loskot wrote:
+>>
+>> I reorganised the Build and Install instructions a bit:
+>>
+>> http://trac.osgeo.org/geos/wiki#BuildandInstall
+>>
+>> Please, update if anything is missing or buggy.
+> 
+> May I ask for 'make check' rather than 'make test' for the Test
+> TODO item ? 'check' is a GNU standard rule.
+
+Sandro,
+
+GNU != OSGeo ;-)
+
+Seriously, no problem. "make test" is standard target
+name of CTest run by CMake, and I'd like to not to disable it,
+But there is no problem to provide both. OK?
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+From strk at keybit.net  Thu Jan 28 15:26:40 2010
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Jan 28 15:26:42 2010
+Subject: [geos-devel] Build and install instructions
+In-Reply-To: <4B61DA78.7010203@loskot.net>
+References: <4B60D1CF.7050200@loskot.net> <20100128082519.GD89012@keybit.net>
+	<4B61DA78.7010203@loskot.net>
+Message-ID: <1af0b2b21001281226w35c6a9c9oab5e411dd0dc2cb5@mail.gmail.com>
+
+On Thu, Jan 28, 2010 at 7:42 PM, Mateusz Loskot <mateusz@loskot.net> wrote:
+
+> Seriously, no problem. "make test" is standard target
+> name of CTest run by CMake, and I'd like to not to disable it,
+> But there is no problem to provide both. OK?
+
+No problem. Both is fine.
+
+-- strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From strk at keybit.net  Thu Jan 28 15:41:02 2010
+From: strk at keybit.net (Sandro Santilli)
+Date: Thu Jan 28 15:41:18 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <4B60BA99.6030005@loskot.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+	<4B60BA99.6030005@loskot.net>
+Message-ID: <20100128204102.GW89012@keybit.net>
+
+On Wed, Jan 27, 2010 at 10:13:45PM +0000, Mateusz Loskot wrote:
+
+> I explicitly add -D_ISOC99_SOURCE=1 for checks of isfinite and it passes
+> for me.
+> 
+> Could you give it another shot and test?
+
+
+ -- Performing Test HAVE_STD_ISNAN
+ -- Performing Test HAVE_STD_ISNAN - Success
+ -- Performing Test HAVE_STD_ISFINITE
+ -- Performing Test HAVE_STD_ISFINITE - Failed
+ -- Looking for isfinite
+ -- Looking for isfinite - found
+
+Sounds good.
+
+Next:
+
+Linking CXX executable geos_unit
+CMakeFiles/geos_unit.dir/geostest2.cpp.o: In function `main':
+/usr/src/geos/trunk/tests/unit/geostest2.cpp:56: multiple definition of `main'
+CMakeFiles/geos_unit.dir/geos_unit.cpp.o:/usr/src/geos/trunk/tests/unit/geos_unit.cpp:56: first defined here
+CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_sir()':
+/usr/src/geos/trunk/include/geos/io/WKTReader.inl:56: multiple definition of `do_sir()'
+CMakeFiles/geos_unit.dir/geostest2.cpp.o:/usr/src/geos/trunk/include/geos/io/WKTReader.inl:56: first defined here
+CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_buffer()':
+/usr/src/geos/trunk/tests/unit/bug176.cpp:22: multiple definition of `do_buffer()'
+CMakeFiles/geos_unit.dir/geostest2.cpp.o:/usr/src/geos/trunk/tests/unit/geostest2.cpp:20: first defined here
+CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `main':
+/usr/src/geos/trunk/tests/unit/bug176.cpp:58: multiple definition of `main'
+CMakeFiles/geos_unit.dir/geos_unit.cpp.o:/usr/src/geos/trunk/tests/unit/geos_unit.cpp:56: first defined here
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From geos-trac at osgeo.org  Thu Jan 28 17:49:17 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Jan 28 17:49:19 2010
+Subject: [geos-devel] [GEOS] #323: A point interpolated from a line does not
+ always intersect the same line
+Message-ID: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |       Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |      Status:  new                       
+ Priority:  major         |   Milestone:                            
+Component:  Default       |     Version:  3.2.0                     
+ Severity:  Unassigned    |    Keywords:                            
+--------------------------+-------------------------------------------------
+ Using the shapely Python bindings to GEOS, the following assertion fails.
+
+ from shapely.wkt import loads
+
+ m = loads("""MULTILINESTRING ((336700.9845364579814486
+ 1738886.2085458301007748, 343584.4261802079854533
+ 1738555.8341833299491554), (343584.4261802079854533
+ 1738555.8341833299491554, 350539.0000000000000000
+ 1736135.0000000000000000), (350539.0000000000000000
+ 1736135.0000000000000000, 353532.0000000000000000
+ 1733674.0000000000000000))""")
+
+ p = loads("""POINT (344705.7704083333374001 1737219.7509562498889863)""")
+
+ assert m.intersects(m.interpolate(m.project(p))) == True
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Thu Jan 28 18:11:53 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Thu Jan 28 18:11:55 2010
+Subject: [geos-devel] Re: [GEOS] #323: A point interpolated from a line does
+ not always intersect the same line
+In-Reply-To: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+References: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+Message-ID: <061.e4d49ad83ad4babc35bb9616f456af8f@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |       Status:  closed                    
+ Priority:  major         |    Milestone:                            
+Component:  Default       |      Version:  3.2.0                     
+ Severity:  Unassigned    |   Resolution:  invalid                   
+ Keywords:                |  
+--------------------------+-------------------------------------------------
+Changes (by pramsey):
+
+  * status:  new => closed
+  * resolution:  => invalid
+
+Comment:
+
+ The point isn't on the line, it's just very very very close. But in double
+ precision, the coordinate space is chunky, not infinitely dividable. Think
+ about diagonal line in graph paper. If you can only represent points where
+ the graph lines intersect, how many places on the diagonal line are
+ exactly representable?
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323#comment:1>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From strk at keybit.net  Fri Jan 29 06:06:10 2010
+From: strk at keybit.net (strk)
+Date: Fri Jan 29 06:21:28 2010
+Subject: [geos-devel] Quick cmake/autotools comparison on OpenSUSE
+Message-ID: <20100129110610.GB89012@keybit.net>
+
+FYI.
+Only 'make' was timed, no ./configure nor cmake runs.
+
+> cat cmake/TIMING
+real    7m18.909s
+user    6m11.319s
+sys     0m42.419s
+
+> cat autotools/TIMING
+time make
+---------
+real    7m58.631s
+user    7m1.418s
+sys     0m43.067s
+
+
+--strk; 
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From strk at keybit.net  Fri Jan 29 14:28:24 2010
+From: strk at keybit.net (strk)
+Date: Fri Jan 29 14:31:25 2010
+Subject: [geos-devel] cmake does not recognize sub-command RENAME
+Message-ID: <20100129192824.GD89012@keybit.net>
+
+GEOS revision 2893.
+
+CMake Error at CMakeLists.txt:204 (file):
+  file does not recognize sub-command RENAME
+
+cmake version 2.6-patch 0
+
+--strk;
+
+  ()   Free GIS & Flash consultant/developer
+  /\   http://foo.keybit.net/~strk/services.html
+From mateusz at loskot.net  Fri Jan 29 22:34:24 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Jan 29 22:34:33 2010
+Subject: [geos-devel] Quick cmake/autotools comparison on OpenSUSE
+In-Reply-To: <20100129110610.GB89012@keybit.net>
+References: <20100129110610.GB89012@keybit.net>
+Message-ID: <4B63A8C0.40902@loskot.net>
+
+strk wrote:
+> FYI.
+> Only 'make' was timed, no ./configure nor cmake runs.
+> 
+>> cat cmake/TIMING
+> real    7m18.909s
+> user    6m11.319s
+> sys     0m42.419s
+> 
+>> cat autotools/TIMING
+> time make
+> ---------
+> real    7m58.631s
+> user    7m1.418s
+> sys     0m43.067s
+
+I timed only "make" command run on machine with
+* Intel Core 2 Duo (P8600) 2.4GHz
+* 4 GB RAM
+
+$ cat cmake.log
+Fri Jan 29 19:03:04 GMT 2010
+Fri Jan 29 19:06:29 GMT 2010
+
+$ cat ../autotools.log
+Fri Jan 29 18:55:32 GMT 2010
+Fri Jan 29 19:00:17 GMT 2010
+
+However, it's important to keep notice that configuration for
+CMake builds each version of C++ library, libgeos.so and libgeos.a,
+all objects are built separately. It is intentional.
+Even that CMake is ~20% faster.
+
+$ date > LOG; make ; date >> LOG
+Scanning dependencies of target geos
+[  0%] Building CXX object
+src/CMakeFiles/geos.dir/operation/valid/RepeatedPointTester.cpp.o
+...
+[ 49%] Building CXX object
+src/CMakeFiles/geos.dir/linearref/LengthIndexOfPoint.cpp.o
+Linking CXX shared library libgeos.so
+[ 49%] Built target geos
+Scanning dependencies of target geos-static
+[ 49%] Building CXX object
+src/CMakeFiles/geos-static.dir/operation/valid/RepeatedPointTester.cpp.o
+..
+[ 98%] Building CXX object
+src/CMakeFiles/geos-static.dir/linearref/LengthIndexOfPoint.cpp.o
+Linking CXX static library libgeos.a
+[ 98%] Built target geos-static
+...
+
+Given that, Autotools timing should be compared to CMake x ~0.5
+
+I can confirm that factor of speed x2 is what I observe with CMake
+for most projects I build using CMake.
+The QGIS use case confirms it as well:
+http://blog.qgis.org/?q=node/16
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Fri Jan 29 22:37:12 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Jan 29 22:37:17 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <20100128082336.GC89012@keybit.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+	<4B60BA99.6030005@loskot.net> <20100128082336.GC89012@keybit.net>
+Message-ID: <4B63A968.4060803@loskot.net>
+
+Sandro Santilli wrote:
+> On Wed, Jan 27, 2010 at 10:13:45PM +0000, Mateusz Loskot wrote:
+> 
+>> http://trac.osgeo.org/geos/ticket/317#comment:21
+>>
+>> I explicitly add -D_ISOC99_SOURCE=1 for checks of isfinite and it passes
+>> for me.
+>>
+>> Could you give it another shot and test?
+> 
+> I will shortly. Meanwhile here's a test on OpenSUSE:
+> 
+> In file included from /net/lafont/home/santisa/src/geos/trunk/include/geos/io/WKBWriter.h:26,
+>                  from /net/lafont/home/santisa/src/geos/trunk/src/geom/Geometry.cpp:53:
+> /net/lafont/home/santisa/src/geos/trunk/include/geos/util/Machine.h: In function ???int getMachineByteOrder()???:
+> /net/lafont/home/santisa/src/geos/trunk/include/geos/util/Machine.h:22: error: redefinition of ???int getMachineByteOrder()???
+> /net/lafont/home/santisa/src/geos/trunk/include/geos/platform.h:99: error: ???int getMachineByteOrder()??? previously defined here
+
+There must be old platform.h sitting in your source tree.
+The platform.h.cmake does not define getMachineByteOrder function.
+
+None of current platform.h versions define it. I moved it to Machine.h.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Fri Jan 29 23:05:50 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Fri Jan 29 23:05:57 2010
+Subject: [geos-devel] [#317] Build configuration for CMake build system
+In-Reply-To: <20100128204102.GW89012@keybit.net>
+References: <4B54D32E.1050806@loskot.net> <20100119184338.GG489@keybit.net>
+	<4B578C44.6010506@loskot.net> <20100121081526.GB21632@keybit.net>
+	<4B5A5396.7090909@loskot.net>
+	<1af0b2b21001240827q65f6a00bib108ace3fe8f67e4@mail.gmail.com>
+	<4B60BA99.6030005@loskot.net> <20100128204102.GW89012@keybit.net>
+Message-ID: <4B63B01E.3050803@loskot.net>
+
+Sandro Santilli wrote:
+> On Wed, Jan 27, 2010 at 10:13:45PM +0000, Mateusz Loskot wrote:
+> 
+>> I explicitly add -D_ISOC99_SOURCE=1 for checks of isfinite and it passes
+>> for me.
+>>
+>> Could you give it another shot and test?
+> 
+> 
+>  -- Performing Test HAVE_STD_ISNAN
+>  -- Performing Test HAVE_STD_ISNAN - Success
+>  -- Performing Test HAVE_STD_ISFINITE
+>  -- Performing Test HAVE_STD_ISFINITE - Failed
+>  -- Looking for isfinite
+>  -- Looking for isfinite - found
+> 
+> Sounds good.
+> 
+> Next:
+> 
+> Linking CXX executable geos_unit
+> CMakeFiles/geos_unit.dir/geostest2.cpp.o: In function `main':
+> /usr/src/geos/trunk/tests/unit/geostest2.cpp:56: multiple definition of `main'
+> CMakeFiles/geos_unit.dir/geos_unit.cpp.o:/usr/src/geos/trunk/tests/unit/geos_unit.cpp:56: first defined here
+
+Sandro,
+
+The geostest no longer exists in tests/unit
+I presume you are have old source tree nodes still in your copy.
+
+> CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_sir()':
+> /usr/src/geos/trunk/include/geos/io/WKTReader.inl:56: multiple definition of `do_sir()'
+> CMakeFiles/geos_unit.dir/geostest2.cpp.o:/usr/src/geos/trunk/include/geos/io/WKTReader.inl:56: first defined here
+> CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `do_buffer()':
+> /usr/src/geos/trunk/tests/unit/bug176.cpp:22: multiple definition of `do_buffer()'
+> CMakeFiles/geos_unit.dir/geostest2.cpp.o:/usr/src/geos/trunk/tests/unit/geostest2.cpp:20: first defined here
+> CMakeFiles/geos_unit.dir/bug176.cpp.o: In function `main':
+> /usr/src/geos/trunk/tests/unit/bug176.cpp:58: multiple definition of `main'
+> CMakeFiles/geos_unit.dir/geos_unit.cpp.o:/usr/src/geos/trunk/tests/unit/geos_unit.cpp:56: first defined here
+
+I suppose there is still something misconfigured ofr GEOS_INLINE.
+For instance ,enabled inlining causes problems on Windows for me.
+
+You may try -DGEOS_ENABLE_INLINE=ON|OFF to control this macro.
+
+I'll take a closer look.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Sat Jan 30 12:10:42 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Sat Jan 30 12:10:50 2010
+Subject: [geos-devel] Predefined macros on Mac OS X
+Message-ID: <4B646812.6080705@loskot.net>
+
+Hi,
+
+Regarding this commit:
+
+http://trac.osgeo.org/geos/changeset/2894
+
+It's unclear where the __OSX__ macro comes from.
+None of Mac OS X documents for developer specify it as a
+predefined macro on OSX. Anyway, I asked on SO and perhaps it will help:
+
+http://stackoverflow.com/questions/2166483/which-macro-to-wrap-mac-os-x-specific-code-in-c-c
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From woklist at kyngchaos.com  Sat Jan 30 12:34:55 2010
+From: woklist at kyngchaos.com (William Kyngesburye)
+Date: Sat Jan 30 12:35:00 2010
+Subject: [geos-devel] Predefined macros on Mac OS X
+In-Reply-To: <4B646812.6080705@loskot.net>
+References: <4B646812.6080705@loskot.net>
+Message-ID: <0D1E876B-9D28-4A57-B11D-4A855065CC7A@kyngchaos.com>
+
+As far as I know, it's not a standard OS X macro.  I think some *projects* have defined it themselves in configuration, not realizing that __APPLE__ exists, or because 'OSX' makes more sense to them.
+
+On Jan 30, 2010, at 11:10 AM, Mateusz Loskot wrote:
+
+> Hi,
+> 
+> Regarding this commit:
+> 
+> http://trac.osgeo.org/geos/changeset/2894
+> 
+> It's unclear where the __OSX__ macro comes from.
+> None of Mac OS X documents for developer specify it as a
+> predefined macro on OSX. Anyway, I asked on SO and perhaps it will help:
+> 
+> http://stackoverflow.com/questions/2166483/which-macro-to-wrap-mac-os-x-specific-code-in-c-c
+> 
+> Best regards,
+> -- 
+> Mateusz Loskot, http://mateusz.loskot.net
+> Charter Member of OSGeo, http://osgeo.org
+> _______________________________________________
+> geos-devel mailing list
+> geos-devel@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/geos-devel
+
+-----
+William Kyngesburye <kyngchaos*at*kyngchaos*dot*com>
+http://www.kyngchaos.com/
+
+"I ache, therefore I am.  Or in my case - I am, therefore I ache."
+
+- Marvin
+
+
+From mateusz at loskot.net  Sat Jan 30 17:49:58 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Sat Jan 30 17:50:06 2010
+Subject: [geos-devel] Build and install instructions
+In-Reply-To: <1af0b2b21001281226w35c6a9c9oab5e411dd0dc2cb5@mail.gmail.com>
+References: <4B60D1CF.7050200@loskot.net>
+	<20100128082519.GD89012@keybit.net>	<4B61DA78.7010203@loskot.net>
+	<1af0b2b21001281226w35c6a9c9oab5e411dd0dc2cb5@mail.gmail.com>
+Message-ID: <4B64B796.3010107@loskot.net>
+
+Sandro Santilli wrote:
+> On Thu, Jan 28, 2010 at 7:42 PM, Mateusz Loskot <mateusz@loskot.net> wrote:
+> 
+>> Seriously, no problem. "make test" is standard target
+>> name of CTest run by CMake, and I'd like to not to disable it,
+>> But there is no problem to provide both. OK?
+> 
+> No problem. Both is fine.
+
+OK, done
+
+http://trac.osgeo.org/geos/changeset/2895
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From mateusz at loskot.net  Sat Jan 30 17:50:57 2010
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Sat Jan 30 17:51:03 2010
+Subject: [geos-devel] Predefined macros on Mac OS X
+In-Reply-To: <0D1E876B-9D28-4A57-B11D-4A855065CC7A@kyngchaos.com>
+References: <4B646812.6080705@loskot.net>
+	<0D1E876B-9D28-4A57-B11D-4A855065CC7A@kyngchaos.com>
+Message-ID: <4B64B7D1.7050407@loskot.net>
+
+William Kyngesburye wrote:
+> As far as I know, it's not a standard OS X macro.  I think some
+> *projects* have defined it themselves in configuration, not realizing
+> that __APPLE__ exists, or because 'OSX' makes more sense to them.
+
+Thanks William for yet another confirmation.
+
+Best regards,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+From geos-trac at osgeo.org  Sat Jan 30 22:30:31 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Jan 30 22:30:33 2010
+Subject: [geos-devel] Re: [GEOS] #323: A point interpolated from a line does
+ not always intersect the same line
+In-Reply-To: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+References: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+Message-ID: <061.f7b77c86954c3e978443fbb9dec50265@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |       Status:  reopened                  
+ Priority:  major         |    Milestone:                            
+Component:  Default       |      Version:  3.2.0                     
+ Severity:  Unassigned    |   Resolution:                            
+ Keywords:                |  
+--------------------------+-------------------------------------------------
+Changes (by starsareblue):
+
+  * status:  closed => reopened
+  * resolution:  invalid =>
+
+Comment:
+
+ That is true, but in the following case, the projection point (0, -1) is
+ exactly representable.  Is it perhaps an issue with the MultiLineString?
+
+ I would expect the intersection of the following MultiLineString with
+ the Point to produce either (0, -1) or (1, 0) but instead it produces
+ (-1, 1).  The distance() function works correctly though.  So
+ interpolation/projection onto a MultiLineString must be done manually
+ for now for each individual LineString.
+
+ {{{
+ import shapely.geometry as g
+ point = g.Point(1, 0)
+ l1 = g.LineString([(0, 2), (0,0)])
+ l2 = g.LineString([(-1, 1), (1, 1)])
+ m = g.MultiLineString([l1.coords, l2.coords])
+ assert m.interpolate(m.project(point)).coords[0] == (-1, 1) # True, but
+ wrong
+ assert m.interpolate(m.project(point)).coords[0] == (0, -1) # Fails
+ assert m.interpolate(m.project(point)).coords[0] == (1, 0) # Fails
+ }}}
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323#comment:2>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Sat Jan 30 22:43:04 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sat Jan 30 22:43:06 2010
+Subject: [geos-devel] Re: [GEOS] #323: A point interpolated from a line does
+ not always intersect the same line
+In-Reply-To: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+References: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+Message-ID: <061.2333cc553417390b64a326cca99a7eb0@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |       Status:  reopened                  
+ Priority:  major         |    Milestone:                            
+Component:  Default       |      Version:  3.2.0                     
+ Severity:  Unassigned    |   Resolution:                            
+ Keywords:                |  
+--------------------------+-------------------------------------------------
+Changes (by pramsey):
+
+ * cc: sgillies (added)
+
+Comment:
+
+ Not sure what these interpolate and project methods are...
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323#comment:3>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Sun Jan 31 00:23:31 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sun Jan 31 00:23:33 2010
+Subject: [geos-devel] Re: [GEOS] #323: A point interpolated from a line does
+ not always intersect the same line
+In-Reply-To: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+References: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+Message-ID: <061.d6b393b920b65ce9253358d6720fe3d5@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |       Status:  reopened                  
+ Priority:  major         |    Milestone:                            
+Component:  Default       |      Version:  3.2.0                     
+ Severity:  Unassigned    |   Resolution:                            
+ Keywords:                |  
+--------------------------+-------------------------------------------------
+Comment (by starsareblue):
+
+ The interpolate and project methods correspond to the linear referencing
+ methods in the GEOS 3.2 API.  You can see similar strange behavior in the
+ GeoDjango package ( http://code.djangoproject.com/attachment/ticket/11948/
+ contrib-gis-linearref.patch ) so I assumed the problem had to do with GEOS
+ itself.
+
+ Here is another example.  The first interpolation is correct.  However,
+ the second interpolation is wrong.  It looks like some kind of wraparound
+ is happening incompletely for the edge case when the interpolation result
+ for a MultiLineString happens on the endpoint of one of its LineStrings.
+
+ {{{
+ In [1]: import shapely.geometry as g
+
+ In [2]: m = g.MultiLineString([[(0, -2), (0, 2)], [(-2, 0), (2, 0)]])
+
+ In [3]: m.interpolate(m.project(g.Point(2,1.9))).wkt    # Correct
+ Out[3]: 'POINT (2.0000000000000000 0.0000000000000000)'
+
+ In [4]: m.interpolate(m.project(g.Point(2,2.1))).wkt    # Wrong
+ Out[4]: 'POINT (-2.0000000000000000 0.0000000000000000)'
+ }}}
+
+ Roy Hyunjin Han
+ http://invisibleroads.com
+ Empowering people to create since 2008
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323#comment:4>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From geos-trac at osgeo.org  Sun Jan 31 09:42:23 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sun Jan 31 09:42:24 2010
+Subject: [geos-devel] Re: [GEOS] #323: A point interpolated from a line does
+ not always intersect the same line
+In-Reply-To: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+References: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+Message-ID: <061.a5cb51bc3c75c31933cbbc8038506cba@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |       Status:  reopened                  
+ Priority:  major         |    Milestone:                            
+Component:  Default       |      Version:  3.2.0                     
+ Severity:  Unassigned    |   Resolution:                            
+ Keywords:                |  
+--------------------------+-------------------------------------------------
+Comment (by sgillies):
+
+ Roy, are you certain you don't have a coordinate mixup in your code?
+
+ The situation is a multilinestring consisting of 2 perpendicular lines
+ that cross at (0,1), right? Interpolating (via Shapely) gives me a result
+ that I expect: as the normalized length approaches 0.5, the interpolated
+ point approaches (0, 0), the end of the first linestring. Go past length
+ 0.5 and there's a jump to (-1, 1), the starting point of the second
+ linestring.
+
+ I'm not seeing any wrap-around when the normalized length > 1: I always
+ get the end of the second linestring. But with normalized length < 0, the
+ interpolation appears to go in reverse, starting from the end of the
+ second linestring and working its way back to the start of the first
+ linestring.
+
+ Paul, that's an intended feature, right?
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323#comment:5>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).
+From Roger.Bivand at nhh.no  Sun Jan 31 14:53:33 2010
+From: Roger.Bivand at nhh.no (Roger Bivand)
+Date: Sun Jan 31 14:53:12 2010
+Subject: [geos-devel] rgeos interface to R classes (sp, others)
+Message-ID: <alpine.LRH.2.00.1001312026350.10139@reclus.nhh.no>
+
+Hi,
+
+I've felt that I've been making reasonable progress with interfacing GEOS 
+geometries and methods for the R language (cran.r-project.org), in a draft 
+contributed package rgeos:
+
+https://r-forge.r-project.org/projects/rgeos/
+
+However, I encountered a problem that I do not understand, and would be 
+very grateful if I could be put back on track. The specific problem is 
+that an R function uses the C API to dissolve polygon borders for adjacent 
+polygons sharing a category given as its second argument.
+
+I've used the buffer technique from the JTS documentation, and all was 
+well until I tried to dissolve borders between touching squares when the 
+coordinate measures were small (square side 0.1). When the squares are 100 
+units, all is well, and GEOMTouches is TRUE. But for 0.1, GEOMTouches is 
+FALSE, and no dissolving takes place.
+
+This can be reproduced (I'm on RHEL5, x86_64) by installing R, contributed 
+packages sp and maptools from CRAN, GEOS (3.1.1 or 3.2.0), and installing 
+rgeos from R-Forge. Start R, say
+
+library(rgeos) 
+example(unionSpatialPolygonsGEOS)
+
+and look for undissolved borders in:
+
+image(grd, axes=TRUE)
+plot(spol1, add=TRUE)
+
+but dissolved in:
+
+image(grdx, axes=TRUE)
+plot(spol1x, add=TRUE)
+
+I started on an alternative implementation using GEOMTouches in 
+unionSpatialPolygonsGEOS(..., buffer=FALSE) output to console, where one 
+sees in the example output:
+
+> spol1F <- unionSpatialPolygonsGEOS(as(spol, "SpatialPolygons"),
++   as.character(spol$xvs), buffer=FALSE)
+# 4 squares within (0,0), (0.2,0.2) NE, NW, SW share category, SE doesn't
+npls: 3, nnpls: 3
+type[0] Polygon
+i: 0, j: 1, touches: 0
+i: 0, j: 2, touches: 0
+type[1] Polygon
+i: 1, j: 2, touches: 0
+type[2] Polygon
+out of function
+npls: 1, nnpls: 1
+type[0] Polygon
+out of function
+> spol1xF <- unionSpatialPolygonsGEOS(as(spolx, "SpatialPolygons"),
++   as.character(spolx$xvs), buffer=FALSE)
+# 4 squares within (0,0), (200,200), same categories
+npls: 3, nnpls: 3
+type[0] Polygon
+i: 0, j: 1, touches: 1
+i: 0, j: 2, touches: 1
+type[1] Polygon
+i: 1, j: 2, touches: 1
+type[2] Polygon
+out of function
+npls: 1, nnpls: 1
+type[0] Polygon
+out of function
+
+The C code is in:
+
+https://r-forge.r-project.org/plugins/scmsvn/viewcvs.php/pkg/src/rgeos_sp.c?rev=44&root=rgeos&view=log
+
+around line 466 rgeos_SpatialPolygonsUnion(), calling rgeos_plspairUnion() 
+- desperate test framework, or rgeos_plsbufUnion() which I had thought 
+worked, but which clearly doesn't dissolve small squares.
+
+Very grateful for any help, this is a show-stopper, and I had hoped to 
+release rgeos before February (small chance now!)
+
+Roger
+
+-- 
+Roger Bivand
+Economic Geography Section, Department of Economics, Norwegian School of
+Economics and Business Administration, Helleveien 30, N-5045 Bergen,
+Norway. voice: +47 55 95 93 55; fax +47 55 95 95 43
+e-mail: Roger.Bivand@nhh.no
+
+From geos-trac at osgeo.org  Sun Jan 31 16:50:50 2010
+From: geos-trac at osgeo.org (GEOS)
+Date: Sun Jan 31 16:50:52 2010
+Subject: [geos-devel] Re: [GEOS] #323: A point interpolated from a line does
+ not always intersect the same line
+In-Reply-To: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+References: <052.95af44bad6f1495da3e1c6a413a2b0c3@osgeo.org>
+Message-ID: <061.d09b82acc8b70249d78c76415c0a44cb@osgeo.org>
+
+#323: A point interpolated from a line does not always intersect the same line
+--------------------------+-------------------------------------------------
+ Reporter:  starsareblue  |        Owner:  geos-devel@lists.osgeo.org
+     Type:  defect        |       Status:  reopened                  
+ Priority:  major         |    Milestone:                            
+Component:  Default       |      Version:  3.2.0                     
+ Severity:  Unassigned    |   Resolution:                            
+ Keywords:                |  
+--------------------------+-------------------------------------------------
+Comment (by starsareblue):
+
+ My problem is that I am trying to find the coordinates of the projection
+ of a Point onto a MultiLineString.  For example, the coordinates of the
+ point (2,1) projected onto the line segment (0,0)-(5,0) should be (2,0).
+
+ I understand that the interpolate() method for a MultiLineString composed
+ of two line segments wraps into the second line segment if the distance
+ argument is longer than the first line segment.  That seems to be working
+ properly.
+
+ Then what exactly is MultiLineString.project(Point) returning?
+
+ I use LineString.interpolate(LineString.project(Point)) to find the
+ coordinates of the point projected onto the LineString.  So I assumed that
+ MultiLineString.interpolate(MultiLineString.project(Point)) would do the
+ same.  However, sometimes it works and sometimes it doesn't, giving
+ strange results as in the two examples above.
+
+ Sean, if the interpolate() method is working as intended, is project() for
+ MultiLineStrings working as it is intended?  What do 8.0 and 4.0 mean in
+ the following example?
+
+
+
+ {{{
+ In [1]: import shapely.geometry as g
+
+ In [2]: m = g.MultiLineString([[(0, -2), (0, 2)], [(-2, 0), (2, 0)]])
+
+ In [3]: m.project(g.Point(2,1.9))
+ Out[3]: 8.0
+
+ In [4]: m.project(g.Point(2,2.1))
+ Out[4]: 4.0
+
+ }}}
+
+ Currently, my workaround is to first compute the distance of the Point to
+ the MultiLineString and then compute the ProjectedPoint using
+ ProjectedPoint =
+ MultiLineString.interpolate(MultiLineString.project(Point)).  If the
+ distance from the ProjectedPoint to the Point does not match the expected
+ distance, then I redo the projection for each LineString inside
+ MultiLineString until I find the ProjectedPoint whose distance matches the
+ first distance.
+
+-- 
+Ticket URL: <http://trac.osgeo.org/geos/ticket/323#comment:6>
+GEOS <http://geos.refractions.net/>
+GEOS (Geometry Engine - Open Source) is a C++ port of the Java Topology Suite (JTS).

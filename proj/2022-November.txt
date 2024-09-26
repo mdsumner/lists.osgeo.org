@@ -1,0 +1,3981 @@
+From andrew at avenza.com  Wed Nov  2 08:40:12 2022
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 2 Nov 2022 11:40:12 -0400
+Subject: [PROJ] Equirectangular/Equidistant Cylindrical
+In-Reply-To: <ffe95392-6db0-c6ee-a3dd-a60201036081@spatialys.com>
+References: <CAC8biO26wjXWhQYKz5pu2opTJ84Yn_HaRgysVBZo8Cs13v=h9g@mail.gmail.com>
+ <e5a6ac17-213b-1e85-1a86-16f398e5476b@spatialys.com>
+ <CAC8biO2Hk1Zcwuv9wo8NoPTv2W3h_6g4L2h+Gh3dQoAPccqjvQ@mail.gmail.com>
+ <4fe47f5b-f926-4059-56d3-765d73ea13f1@spatialys.com>
+ <CAC8biO2hKCjnNdoV6WJgWgRs8v3qAdJtRJsrOB0wxKXgeZjAVQ@mail.gmail.com>
+ <ffe95392-6db0-c6ee-a3dd-a60201036081@spatialys.com>
+Message-ID: <CAC8biO0UAWaHUUTkjSY8ooyBiE9O01vXDQKtLBTs32LzG26EaA@mail.gmail.com>
+
+Hello again!
+
+I was not expecting to return to this issue (I found the actual cause of my
+original problem, a semi-transposed transform matrix) but after fixing the
+original bug a new issue cropped up and it ended up explaining (I think)
+the error message:
+
+ERROR 1: PROJ: proj_create_from_database: crs not found
+
+I get the same error internally when I attempt to import that PDF using the
+EPSG code instead of the WKT. This seems to be because the EPSG code is an
+ESRI-flavour ESPG code 102422. It attempts to do a lookup using the "EPSG"
+factory in PROJ and the SQL statement:
+
+"SELECT type FROM crs_view WHERE auth_name = ? AND code = ?" (from
+factory.cpp:5216 in PROJ)
+
+It fails because it uses 'EPSG' for auth_name, but 'ESRI' causes it to
+succeed. If I update ogrspatialreference.cpp (circa 10635):
+
+auto obj = proj_create_from_database(d->getPROJContext(),
+                                         "EPSG",
+                                         osCode.c_str(),
+                                         PJ_CATEGORY_CRS,
+                                         true,
+                                         nullptr);
+
+Replacing:
+
+"EPSG"
+
+with:
+
+nCode > 100000 ? "ESRI" : "EPSG"
+
+After this, it successfully imports the coordinate system. That feels
+skeevy to me, but maybe using importFromEPSG() is the wrong function to
+use? Though I don't see an alternative. I'm 99% sure this worked in a
+previous version of GDAL, though it may have required a call to
+morphFromESRI().
+
+Am I doing something wrong or is there something missing that should handle
+ESRI EPSG codes?
+
+As usual, any help is greatly appreciated!
+
+On Thu, Oct 13, 2022 at 9:38 AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Access to the PDF to try spotting the cause of the
+> "proj_create_from_database: crs not found" error & possibly solving it
+> would still be interesting
+>
+> Le 13/10/2022 ? 15:31, Andrew Patterson a ?crit :
+> > Even,
+> >
+> > So while I was writing up the issue I realized I could probably
+> > provide some simple code to help illustrate the problem, so I wrote
+> > some. Then I realized I should really run it in our old app as well,
+> > which took a while -- which is why you're reading this today rather
+> > than yesterday. But in the course of doing this, I basically proved
+> > that PROJ is fine, so there's no reason to create the issue. So false
+> > alarm!
+> >
+> > Plotting on the maps is a two step process; coordinate transform via
+> > PROJ from WGS84 to the map's projection, then run that coordinate
+> > through a world-to-page (i.e. pixel) transform. The latter is *really*
+> > easy to test so that's always the first thing I verify. Once that's
+> > been done, the problem basically has to lie with the PROJ transform --
+> > and this has been true until now. I'm actually quite perplexed. If
+> > both parts of a two-part transformation are fine, why is everything
+> > shifted? Something is hinky, but that's my problem not yours, so I
+> > apologize for wasting your time with this. I think I also jumped the
+> > gun because of problems with Equidistant Cylindrical in the past, but
+> > for once, that project is innocent.
+> >
+> > Again, sorry for the trouble!
+> >
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221102/3e0f970d/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Nov  2 08:51:03 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 2 Nov 2022 16:51:03 +0100
+Subject: [PROJ] Equirectangular/Equidistant Cylindrical
+In-Reply-To: <CAC8biO0UAWaHUUTkjSY8ooyBiE9O01vXDQKtLBTs32LzG26EaA@mail.gmail.com>
+References: <CAC8biO26wjXWhQYKz5pu2opTJ84Yn_HaRgysVBZo8Cs13v=h9g@mail.gmail.com>
+ <e5a6ac17-213b-1e85-1a86-16f398e5476b@spatialys.com>
+ <CAC8biO2Hk1Zcwuv9wo8NoPTv2W3h_6g4L2h+Gh3dQoAPccqjvQ@mail.gmail.com>
+ <4fe47f5b-f926-4059-56d3-765d73ea13f1@spatialys.com>
+ <CAC8biO2hKCjnNdoV6WJgWgRs8v3qAdJtRJsrOB0wxKXgeZjAVQ@mail.gmail.com>
+ <ffe95392-6db0-c6ee-a3dd-a60201036081@spatialys.com>
+ <CAC8biO0UAWaHUUTkjSY8ooyBiE9O01vXDQKtLBTs32LzG26EaA@mail.gmail.com>
+Message-ID: <1d6c0878-6378-ecf5-e599-58d980d28b5b@spatialys.com>
+
+Andrew,
+
+did you include https://github.com/OSGeo/gdal/pull/6523 in your GDAL 
+build ? It will be included in the soon-to-be-released GDAL 3.6.0 
+release candidate
+
+Even
+
+Le 02/11/2022 ? 16:40, Andrew Patterson a ?crit?:
+> Hello again!
+>
+> I was not expecting to return to this issue (I found the actual cause 
+> of my original problem, a semi-transposed transform matrix) but after 
+> fixing the original bug a new issue cropped up and it ended up 
+> explaining (I think) the error message:
+>
+> ERROR 1: PROJ: proj_create_from_database: crs not found
+>
+> I get the same error internally when I attempt to import that PDF 
+> using the EPSG code instead of the WKT. This seems to be because the 
+> EPSG code is an ESRI-flavour ESPG code 102422. It attempts to do a 
+> lookup using the "EPSG" factory in PROJ and the SQL statement:
+>
+> "SELECT type FROM crs_view WHERE auth_name = ? AND code = ?" (from 
+> factory.cpp:5216 in PROJ)
+>
+> It fails because it uses 'EPSG' for auth_name, but 'ESRI' causes it to 
+> succeed. If I update ogrspatialreference.cpp (circa 10635):
+>
+> auto obj = proj_create_from_database(d->getPROJContext(),
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?"EPSG",
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?osCode.c_str(),
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?PJ_CATEGORY_CRS,
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?true,
+> ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?nullptr);
+>
+> Replacing:
+>
+> "EPSG"
+>
+> with:
+>
+> nCode > 100000 ? "ESRI" : "EPSG"
+>
+> After this, it successfully imports the coordinate system. That feels 
+> skeevy to me, but maybe using importFromEPSG() is the wrong function 
+> to use? Though I don't see an alternative. I'm 99% sure this worked in 
+> a previous version of GDAL, though it may have required a call to 
+> morphFromESRI().
+>
+> Am I doing something wrong or is there something missing that should 
+> handle ESRI EPSG codes?
+>
+> As usual, any help is greatly appreciated!
+>
+> On Thu, Oct 13, 2022 at 9:38 AM Even Rouault 
+> <even.rouault at spatialys.com> wrote:
+>
+>     Access to the PDF to try spotting the cause of the
+>     "proj_create_from_database: crs not found" error & possibly
+>     solving it
+>     would still be interesting
+>
+>     Le 13/10/2022 ? 15:31, Andrew Patterson a ?crit?:
+>     > Even,
+>     >
+>     > So while I was writing up the issue I realized I could probably
+>     > provide some simple code to help illustrate the problem, so I wrote
+>     > some. Then I realized I should really run it in our old app as
+>     well,
+>     > which took a while -- which is why you're reading this today rather
+>     > than yesterday. But in the course of doing this, I basically proved
+>     > that PROJ is fine, so there's no reason to create the issue. So
+>     false
+>     > alarm!
+>     >
+>     > Plotting on the maps is a two step process; coordinate transform
+>     via
+>     > PROJ from WGS84 to the map's projection, then run that coordinate
+>     > through a world-to-page (i.e. pixel) transform. The latter is
+>     *really*
+>     > easy to test so that's always the first thing I verify. Once that's
+>     > been done, the problem basically has to lie with the PROJ
+>     transform --
+>     > and this has been true until now. I'm actually?quite perplexed. If
+>     > both parts of a two-part transformation are fine, why is everything
+>     > shifted? Something is hinky, but that's my problem not yours, so I
+>     > apologize for wasting your time with this. I think I also jumped
+>     the
+>     > gun because of problems with Equidistant Cylindrical in the
+>     past, but
+>     > for once, that project is innocent.
+>     >
+>     > Again, sorry for the trouble!
+>     >
+>     -- 
+>     http://www.spatialys.com
+>     My software is free, but my time generally not.
+>
+>
+>
+> -- 
+> ..............................
+> Andrew Patterson
+> Lead Software Architect
+> Avenza Systems Inc.
+>
+> email: andrew at avenza.com
+> phone: 416.487.5116
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221102/d4833b21/attachment.htm>
+
+From j1 at jimenezshaw.com  Wed Nov  2 10:25:14 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 2 Nov 2022 18:25:14 +0100
+Subject: [PROJ] function to get grid transformation data
+Message-ID: <CADRrdKsty7g8EzO=vuHT7Nvc=EykgMySMZcjLYnZArFg2mjRxw@mail.gmail.com>
+
+*HiI have a problem determining if a (gravity related height) vertical CRS
+has a corresponding geoid model grid-file in the system or not. In other
+words, if I can expect an actual transformation to that VCRS or not. (All
+this is not using the ?PROJ_NETWORK? mechanism to use a remote location,
+but assuming that any file is already in the computer I am running).I am
+thinking about developing a PR for C++ that returns some useful information
+about the grid transformations for a given CRS code (doing some SQL
+queries). That will allow the user/developer to know the grid files
+involved for that CRS, and check if they are available on the
+filesystem.The API would be something like this:struct
+GridTransformationData {    std::string auth_name;    std::string
+code;    std::string source_crs_auth_name;    std::string
+source_crs_code;    std::string accuracy;    std::string
+param_auth_name;    std::string param_code;    std::string
+grid_name;    Extent
+extent;};std::list<GridTransformationData>AuthorityFactory::getGridTransformationData(const
+std::string &code) const;To find if the file is in the system, this other
+function will help to search among the tiff files from PROJ-datastd::string
+getGridAlternative(const std::string& original_grid_name) const;Is there
+already a way to do it?Which fields (mainly from grid_transformation table)
+should I return?Probably there are other use cases (maybe not only for
+vertical CRSs) that can take advantage of these functions.Thanks.*
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221102/50ef3e5a/attachment-0001.htm>
+
+From andrew at avenza.com  Wed Nov  2 10:49:02 2022
+From: andrew at avenza.com (Andrew Patterson)
+Date: Wed, 2 Nov 2022 13:49:02 -0400
+Subject: [PROJ] Equirectangular/Equidistant Cylindrical
+In-Reply-To: <1d6c0878-6378-ecf5-e599-58d980d28b5b@spatialys.com>
+References: <CAC8biO26wjXWhQYKz5pu2opTJ84Yn_HaRgysVBZo8Cs13v=h9g@mail.gmail.com>
+ <e5a6ac17-213b-1e85-1a86-16f398e5476b@spatialys.com>
+ <CAC8biO2Hk1Zcwuv9wo8NoPTv2W3h_6g4L2h+Gh3dQoAPccqjvQ@mail.gmail.com>
+ <4fe47f5b-f926-4059-56d3-765d73ea13f1@spatialys.com>
+ <CAC8biO2hKCjnNdoV6WJgWgRs8v3qAdJtRJsrOB0wxKXgeZjAVQ@mail.gmail.com>
+ <ffe95392-6db0-c6ee-a3dd-a60201036081@spatialys.com>
+ <CAC8biO0UAWaHUUTkjSY8ooyBiE9O01vXDQKtLBTs32LzG26EaA@mail.gmail.com>
+ <1d6c0878-6378-ecf5-e599-58d980d28b5b@spatialys.com>
+Message-ID: <CAC8biO0-bna7CxCwt_bj4jzQvK7rJ5rCuktx4_r1RKT9-7RSeQ@mail.gmail.com>
+
+Even,
+
+So it's funny, but I completely forgot about that issue -- which is
+embarrassing since I filed it! I looked, but no, that wouldn't solve my
+problem because I'm not using GDAL to read the PDF's spatial referencing.
+Our app takes a PDF and reads the referencing manually, then renders the
+PDF into a tile pyramid and stores the referencing in a separate file.
+Presently, we only store the WKT but in the past, we sometimes stored the
+EPSG instead. So the problem in question happens when someone migrates from
+an older version of our app (using GDAL 2.4) to the newest version (3.4). I
+think literally every time I've posted here with a question or problem
+relates to that jump!
+
+At any rate, when we load the tile pyramid, we read in the referencing and
+all I have is the EPSG code in some cases. But feeding an ESRI pseudo-EPSG
+to importFromEpsg() doesn't work. That said, when I looked at your fix for
+#6523, I noticed you use SetFromUserInput(), so I tried that and it
+solved the problem. I didn't realize that I had to ensure that the ESRI
+pseudo-EPSGs were handled differently; maybe there should be a warning or
+error message if you pass in an EPSG code that is bigger than 100K to
+importFromEPSG()?
+
+On Wed, Nov 2, 2022 at 11:51 AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Andrew,
+>
+> did you include https://github.com/OSGeo/gdal/pull/6523 in your GDAL
+> build ? It will be included in the soon-to-be-released GDAL 3.6.0 release
+> candidate
+>
+> Even
+> Le 02/11/2022 ? 16:40, Andrew Patterson a ?crit :
+>
+> Hello again!
+>
+> I was not expecting to return to this issue (I found the actual cause of
+> my original problem, a semi-transposed transform matrix) but after fixing
+> the original bug a new issue cropped up and it ended up explaining (I
+> think) the error message:
+>
+> ERROR 1: PROJ: proj_create_from_database: crs not found
+>
+> I get the same error internally when I attempt to import that PDF using
+> the EPSG code instead of the WKT. This seems to be because the EPSG code is
+> an ESRI-flavour ESPG code 102422. It attempts to do a lookup using the
+> "EPSG" factory in PROJ and the SQL statement:
+>
+> "SELECT type FROM crs_view WHERE auth_name = ? AND code = ?" (from
+> factory.cpp:5216 in PROJ)
+>
+> It fails because it uses 'EPSG' for auth_name, but 'ESRI' causes it to
+> succeed. If I update ogrspatialreference.cpp (circa 10635):
+>
+> auto obj = proj_create_from_database(d->getPROJContext(),
+>                                          "EPSG",
+>                                          osCode.c_str(),
+>                                          PJ_CATEGORY_CRS,
+>                                          true,
+>                                          nullptr);
+>
+> Replacing:
+>
+> "EPSG"
+>
+> with:
+>
+> nCode > 100000 ? "ESRI" : "EPSG"
+>
+> After this, it successfully imports the coordinate system. That feels
+> skeevy to me, but maybe using importFromEPSG() is the wrong function to
+> use? Though I don't see an alternative. I'm 99% sure this worked in a
+> previous version of GDAL, though it may have required a call to
+> morphFromESRI().
+>
+> Am I doing something wrong or is there something missing that should
+> handle ESRI EPSG codes?
+>
+> As usual, any help is greatly appreciated!
+>
+> On Thu, Oct 13, 2022 at 9:38 AM Even Rouault <even.rouault at spatialys.com>
+> wrote:
+>
+>> Access to the PDF to try spotting the cause of the
+>> "proj_create_from_database: crs not found" error & possibly solving it
+>> would still be interesting
+>>
+>> Le 13/10/2022 ? 15:31, Andrew Patterson a ?crit :
+>> > Even,
+>> >
+>> > So while I was writing up the issue I realized I could probably
+>> > provide some simple code to help illustrate the problem, so I wrote
+>> > some. Then I realized I should really run it in our old app as well,
+>> > which took a while -- which is why you're reading this today rather
+>> > than yesterday. But in the course of doing this, I basically proved
+>> > that PROJ is fine, so there's no reason to create the issue. So false
+>> > alarm!
+>> >
+>> > Plotting on the maps is a two step process; coordinate transform via
+>> > PROJ from WGS84 to the map's projection, then run that coordinate
+>> > through a world-to-page (i.e. pixel) transform. The latter is *really*
+>> > easy to test so that's always the first thing I verify. Once that's
+>> > been done, the problem basically has to lie with the PROJ transform --
+>> > and this has been true until now. I'm actually quite perplexed. If
+>> > both parts of a two-part transformation are fine, why is everything
+>> > shifted? Something is hinky, but that's my problem not yours, so I
+>> > apologize for wasting your time with this. I think I also jumped the
+>> > gun because of problems with Equidistant Cylindrical in the past, but
+>> > for once, that project is innocent.
+>> >
+>> > Again, sorry for the trouble!
+>> >
+>> --
+>> http://www.spatialys.com
+>> My software is free, but my time generally not.
+>>
+>>
+>
+> --
+> ..............................
+> Andrew Patterson
+> Lead Software Architect
+> Avenza Systems Inc.
+>
+> email: andrew at avenza.com
+> phone: 416.487.5116
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+..............................
+Andrew Patterson
+Lead Software Architect
+Avenza Systems Inc.
+
+email: andrew at avenza.com
+phone: 416.487.5116
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221102/cd060f0a/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Nov  2 12:24:29 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 2 Nov 2022 20:24:29 +0100
+Subject: [PROJ] function to get grid transformation data
+In-Reply-To: <CADRrdKsty7g8EzO=vuHT7Nvc=EykgMySMZcjLYnZArFg2mjRxw@mail.gmail.com>
+References: <CADRrdKsty7g8EzO=vuHT7Nvc=EykgMySMZcjLYnZArFg2mjRxw@mail.gmail.com>
+Message-ID: <ec972328-6aac-088b-e566-f8338895e4cd@spatialys.com>
+
+Javier,
+
+cannot you setGridAvailabilityUse(IGNORE_GRID_AVAILABILITY), like in the 
+following
+
+ ??????? auto ctxt =
+ ??????????? CoordinateOperationContext::create(authFactory, nullptr, 0.0);
+ ??????? ctxt->setGridAvailabilityUse(
+ ??????????? CoordinateOperationContext::GridAvailabilityUse::
+ ??????????????? IGNORE_GRID_AVAILABILITY);
+ ??????? ctxt->setUsePROJAlternativeGridNames(false);
+ ??????? auto list = CoordinateOperationFactory::create()->createOperations(
+authFactory->createCoordinateReferenceSystem("4275"), // NTF
+authFactory->createCoordinateReferenceSystem("4258"), // ETRS89
+ ??????????? ctxt);
+
+and iterate over the returned transformations, and use gridsNeeded() on 
+them to check which grids are needed, and their availability
+
+Even
+
+Le 02/11/2022 ? 18:25, Javier Jimenez Shaw a ?crit?:
+> *
+>
+> Hi
+>
+>
+> I have a problem determining if a (gravity related height) vertical 
+> CRS has a corresponding geoid model grid-file in the system or not. In 
+> other words, if I can expect an actual transformation to that VCRS or 
+> not. (All this is not using the ?PROJ_NETWORK? mechanism to use a 
+> remote location, but assuming that any file is already in the computer 
+> I am running).
+>
+>
+> I am thinking about developing a PR for C++ that returns some useful 
+> information about the grid transformations for a given CRS code (doing 
+> some SQL queries). That will allow the user/developer to know the grid 
+> files involved for that CRS, and check if they are available on the 
+> filesystem.
+>
+>
+> The API would be something like this:
+>
+>
+> struct GridTransformationData {
+>
+> ????std::string auth_name;
+>
+> ????std::string code;
+>
+> ????std::string source_crs_auth_name;
+>
+> ????std::string source_crs_code;
+>
+> ????std::string accuracy;
+>
+> ????std::string param_auth_name;
+>
+> ????std::string param_code;
+>
+> ????std::string grid_name;
+>
+> ????Extent extent;
+>
+> };
+>
+>
+> std::list<GridTransformationData>
+>
+> AuthorityFactory::getGridTransformationData(const std::string &code) 
+> const;
+>
+>
+> To find if the file is in the system, this other function will help to 
+> search among the tiff files from PROJ-data
+>
+>
+> std::string getGridAlternative(const std::string& original_grid_name) 
+> const;
+>
+>
+>
+> Is there already a way to do it?
+>
+> Which fields (mainly from grid_transformation table) should I return?
+>
+>
+> Probably there are other use cases (maybe not only for vertical CRSs) 
+> that can take advantage of these functions.
+>
+>
+> Thanks.
+>
+> *
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221102/71962229/attachment.htm>
+
+From daven.quinn at wisc.edu  Wed Nov  9 04:00:05 2022
+From: daven.quinn at wisc.edu (DAVEN P QUINN)
+Date: Wed, 9 Nov 2022 12:00:05 +0000
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler) spatial
+ rotation
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+Message-ID: <9627f494-7924-468e-a29f-204a2343234a@Spark>
+
+Hello all,
+
+I?m a geologist who is working with paleogeographic reconstructions (see example here<https://davenquinn.com/viz/corelle-demo-pbdb/?time=295>). These require composite reproductions where different parts of a feature dataset (continents) are rotated with different axis-angle transformations. I?ve had good luck doing these rotations with quaternion math in the browser/Python environments, but I am now trying to use Proj transformations in order to apply rotations directly within PostGIS queries.
+
+This linked image<https://pbs.twimg.com/media/Fgpx4UGXEAQmPOt?format=jpg&name=4096x4096> shows the desired result, a plate reconstruction to 250 Ma with a different rotation applied to each plate. This was produced by applying the desired quaternions through pl/pgsql math. Moving this math to Proj internals would result in a ~50-100x speedup.
+
+The tool that seems most fitting is the `ob_trans` family of projections, but I have been unable to define a rotation that can handle my preferred representation (a pole defined in Lon-lat coordinates and an associated angle of rotation around it). From my reading of the docs, I believe the `o_lon_c`, `o_lat_c` and `o_alpha` parameters should do this, but I cannot get them to work reliably. In fact, I can?t even reliably define a ?no-op? transformation that leaves coordinates unchanged. Perhaps I have the angular coordinate system wrong, or the rotation is being done in Cartesian space even though `proj=lonlat` is used.
+
+Is it possible to define an arbitrary spherical spatial rotation in Proj transformations? Maybe I need to use pipelines instead? I?d appreciate any guidance! More details below the fold...
+
+Regards,
+
+Daven P. Quinn
+Research scientist II ? U of Wisconsin Madison
+PhD ? structural geology ? Caltech ?18
+https://davenquinn.com
++1 704 920 8487
+
+-------------
+
+Here is an example of the pl/pgsql I am currently using to assemble a projection (I have gone through many iterations testing different offsets and the different ways to specify the transformation):
+```
+RETURN '+proj=ob_tran +o_proj=longlat +o_alpha=' || pi()/2+angle || 'r +o_lon_c=' || pi()/2+lon || 'r +o_lat_c=' || lat || 'r' proj
+```
+where (lat, lon, angle) defines a rotation pole.
+
+This results in some geometries (with a fortuitous set of poles, I guess) attaining ballpark-correct transformations while other features are shifted far outside of their origin tiles.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221109/982c84e3/attachment.htm>
+
+From j1 at jimenezshaw.com  Wed Nov  9 06:15:00 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 9 Nov 2022 15:15:00 +0100
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <9627f494-7924-468e-a29f-204a2343234a@Spark>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+Message-ID: <CADRrdKvKAsX3ciF9-Auv2zsxzrsW7gE3_8+wwiHEOrO7ujPaFQ@mail.gmail.com>
+
+Maybe it does help: https://proj.org/operations/transformations/affine.html
+I used it in a derived projected crs (PROJ 9.1.0 fixed some bugs on that).
+I do not know if it will work as you expect with a geographic system
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Wed, 9 Nov 2022 at 13:00, DAVEN P QUINN via PROJ <proj at lists.osgeo.org>
+wrote:
+
+> Hello all,
+>
+> I?m a geologist who is working with paleogeographic reconstructions (see
+> example here <https://davenquinn.com/viz/corelle-demo-pbdb/?time=295>).
+> These require composite reproductions where different parts of a feature
+> dataset (continents) are rotated with different axis-angle transformations.
+> I?ve had good luck doing these rotations with quaternion math in the
+> browser/Python environments, but I am now trying to use Proj
+> transformations in order to apply rotations directly within PostGIS queries.
+>
+> This linked image
+> <https://pbs.twimg.com/media/Fgpx4UGXEAQmPOt?format=jpg&name=4096x4096> shows
+> the desired result, a plate reconstruction to 250 Ma with a different
+> rotation applied to each plate. This was produced by applying the desired
+> quaternions through pl/pgsql math. Moving this math to Proj internals would
+> result in a ~50-100x speedup.
+>
+> The tool that seems most fitting is the `ob_trans` family of projections,
+> but I have been unable to define a rotation that can handle my preferred
+> representation (a pole defined in Lon-lat coordinates and an associated
+> angle of rotation around it). From my reading of the docs, I believe the
+> `o_lon_c`, `o_lat_c` and `o_alpha` parameters should do this, but I cannot
+> get them to work reliably. In fact, I can?t even reliably define a ?no-op?
+> transformation that leaves coordinates unchanged. Perhaps I have the
+> angular coordinate system wrong, or the rotation is being done in Cartesian
+> space even though `proj=lonlat` is used.
+>
+> Is it possible to define an arbitrary spherical spatial rotation in Proj
+> transformations? Maybe I need to use pipelines instead? I?d appreciate any
+> guidance! More details below the fold...
+>
+> Regards,
+>
+> *Daven P. Quinn*
+> Research scientist II ? *U of Wisconsin Madison*
+> PhD ? structural geology ? *Caltech* ?18
+> https://davenquinn.com
+> +1 704 920 8487
+>
+> -------------
+>
+> Here is an example of the pl/pgsql I am currently using to assemble a
+> projection (I have gone through many iterations testing different offsets
+> and the different ways to specify the transformation):
+> ```
+> RETURN '+proj=ob_tran +o_proj=longlat +o_alpha=' || pi()/2+angle || 'r
+> +o_lon_c=' || pi()/2+lon || 'r +o_lat_c=' || lat || 'r' proj
+> ```
+> where (lat, lon, angle) defines a rotation pole.
+>
+> This results in some geometries (with a fortuitous set of poles, I guess)
+> attaining ballpark-correct transformations while other features are shifted
+> far outside of their origin tiles.
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221109/0f833db9/attachment.htm>
+
+From dagnew at ucsd.edu  Wed Nov  9 07:05:55 2022
+From: dagnew at ucsd.edu (Duncan Agnew)
+Date: Wed, 9 Nov 2022 07:05:55 -0800
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <9627f494-7924-468e-a29f-204a2343234a@Spark>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+Message-ID: <CAG6Em0CC2+nYxiK2bqJDoqCY8LU3DYQmkQRqE_VpbwZRPQi_tQ@mail.gmail.com>
+
+My reading of the documentation is that the    lat_c long_c alpha   are the
+parameters of a 2-d rotation applied to the
+projected values, not a rotation of the sphere. The only way to do a
+spherical rotation would be to find out
+where the N Pole rotates to, and use lat_p and long_p (and alpha).
+
+An affine transformation is a 2d operation (I think all the transformations
+are)--though now 3-d, as changes in x y and
+z (local grid and elevation).
+
+It would be good to move the General Oblique Transformation into the
+Transformations  section of the documentation--or
+at least repeat the entry there. I scanned the projections list a couple of
+times and missed it--maybe just call it
+Oblique so it fits into the (mostly) alphabetical order.
+
+Duncan Agnew
+
+On Wed, Nov 9, 2022 at 4:00 AM DAVEN P QUINN via PROJ <proj at lists.osgeo.org>
+wrote:
+
+> Hello all,
+>
+> I?m a geologist who is working with paleogeographic reconstructions (see
+> example here
+> <https://urldefense.com/v3/__https://davenquinn.com/viz/corelle-demo-pbdb/?time=295__;!!Mih3wA!Ek22jIRdqHNmPv2JHH5Y30sEuUXdoVxt0Fk-QFHtEMBBTuqsZd3R2iiv778TR-mZY_w_JHtLfllItIU$>).
+> These require composite reproductions where different parts of a feature
+> dataset (continents) are rotated with different axis-angle transformations.
+> I?ve had good luck doing these rotations with quaternion math in the
+> browser/Python environments, but I am now trying to use Proj
+> transformations in order to apply rotations directly within PostGIS queries.
+>
+> This linked image
+> <https://urldefense.com/v3/__https://pbs.twimg.com/media/Fgpx4UGXEAQmPOt?format=jpg&name=4096x4096__;!!Mih3wA!Ek22jIRdqHNmPv2JHH5Y30sEuUXdoVxt0Fk-QFHtEMBBTuqsZd3R2iiv778TR-mZY_w_JHtLewKG3Gg$>
+>  shows the desired result, a plate reconstruction to 250 Ma with a
+> different rotation applied to each plate. This was produced by applying the
+> desired quaternions through pl/pgsql math. Moving this math to Proj
+> internals would result in a ~50-100x speedup.
+>
+> The tool that seems most fitting is the `ob_trans` family of projections,
+> but I have been unable to define a rotation that can handle my preferred
+> representation (a pole defined in Lon-lat coordinates and an associated
+> angle of rotation around it). From my reading of the docs, I believe the
+> `o_lon_c`, `o_lat_c` and `o_alpha` parameters should do this, but I cannot
+> get them to work reliably. In fact, I can?t even reliably define a ?no-op?
+> transformation that leaves coordinates unchanged. Perhaps I have the
+> angular coordinate system wrong, or the rotation is being done in Cartesian
+> space even though `proj=lonlat` is used.
+>
+> Is it possible to define an arbitrary spherical spatial rotation in Proj
+> transformations? Maybe I need to use pipelines instead? I?d appreciate any
+> guidance! More details below the fold...
+>
+> Regards,
+>
+> *Daven P. Quinn*
+> Research scientist II ? *U of Wisconsin Madison*
+> PhD ? structural geology ? *Caltech* ?18
+> https://davenquinn.com
+> <https://urldefense.com/v3/__https://davenquinn.com__;!!Mih3wA!Ek22jIRdqHNmPv2JHH5Y30sEuUXdoVxt0Fk-QFHtEMBBTuqsZd3R2iiv778TR-mZY_w_JHtL9qsbApE$>
+> +1 704 920 8487
+>
+> -------------
+>
+> Here is an example of the pl/pgsql I am currently using to assemble a
+> projection (I have gone through many iterations testing different offsets
+> and the different ways to specify the transformation):
+> ```
+> RETURN '+proj=ob_tran +o_proj=longlat +o_alpha=' || pi()/2+angle || 'r
+> +o_lon_c=' || pi()/2+lon || 'r +o_lat_c=' || lat || 'r' proj
+> ```
+> where (lat, lon, angle) defines a rotation pole.
+>
+> This results in some geometries (with a fortuitous set of poles, I guess)
+> attaining ballpark-correct transformations while other features are shifted
+> far outside of their origin tiles.
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+>
+> https://urldefense.com/v3/__https://lists.osgeo.org/mailman/listinfo/proj__;!!Mih3wA!Ek22jIRdqHNmPv2JHH5Y30sEuUXdoVxt0Fk-QFHtEMBBTuqsZd3R2iiv778TR-mZY_w_JHtLGSbNb0U$
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221109/1b2febd3/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Wed Nov  9 07:39:33 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 9 Nov 2022 16:39:33 +0100
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <9627f494-7924-468e-a29f-204a2343234a@Spark>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+Message-ID: <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+
+Daven,
+
+finding the right parameters is always a bit tricky. For example, for 
+meteorological data, there are at least 2 different conventions to 
+express angles.
+
+See PROJ_WKT2_NAME_METHOD_POLE_ROTATION_GRIB_CONVENTION and 
+PROJ_WKT2_NAME_METHOD_POLE_ROTATION_NETCDF_CF_CONVENTION at 
+https://github.com/OSGeo/PROJ/blob/ae3180303d974653b126bc65dcfdad3cecb5a313/src/iso19111/operation/conversion.cpp#L3783 
+where there's a mapping from south pole / north pole conventions to 
++proj=ob_tran. Setting lon_0 is often necessary.
+
+Even
+
+Le 09/11/2022 ? 13:00, DAVEN P QUINN via PROJ a ?crit?:
+> Hello all,
+>
+> I?m a geologist who is working with paleogeographic reconstructions 
+> (see example here 
+> <https://davenquinn.com/viz/corelle-demo-pbdb/?time=295>). These 
+> require composite reproductions where different parts of a feature 
+> dataset (continents) are rotated with different axis-angle 
+> transformations. I?ve had good luck doing these rotations with 
+> quaternion math in the browser/Python environments, but I am now 
+> trying to use Proj transformations in order to apply rotations 
+> directly within PostGIS queries.
+>
+> This linked image 
+> <https://pbs.twimg.com/media/Fgpx4UGXEAQmPOt?format=jpg&name=4096x4096> 
+> shows the desired result, a plate reconstruction to 250 Ma with a 
+> different rotation applied to each plate. This was produced by 
+> applying the desired quaternions through pl/pgsql math. Moving this 
+> math to Proj internals would result in a ~50-100x speedup.
+>
+> The tool that seems most fitting is the `ob_trans` family of 
+> projections, but I have been unable to define a rotation that can 
+> handle my preferred representation (a pole defined in Lon-lat 
+> coordinates and an associated angle of rotation around it). From my 
+> reading of the docs, I believe the `o_lon_c`, `o_lat_c` and `o_alpha` 
+> parameters should do this, but I cannot get them to work reliably. In 
+> fact, I can?t even reliably define a ?no-op? transformation that 
+> leaves coordinates unchanged. Perhaps I have the angular coordinate 
+> system wrong, or the rotation is being done in Cartesian space even 
+> though `proj=lonlat` is used.
+>
+> Is it possible to define an arbitrary spherical spatial rotation in 
+> Proj transformations? Maybe I need to use pipelines instead? I?d 
+> appreciate any guidance! More details below the fold...
+>
+> Regards,
+>
+> *Daven P. Quinn*
+> Research scientist II ? /U of Wisconsin Madison/
+> PhD ? structural geology ? /Caltech/??18
+> https://davenquinn.com
+> +1 704 920 8487
+>
+> -------------
+>
+> Here is an example of the pl/pgsql I am currently using to assemble a 
+> projection (I have gone through many iterations testing different 
+> offsets and the different ways to specify the transformation):
+> ```
+> RETURN '+proj=ob_tran +o_proj=longlat +o_alpha=' || pi()/2+angle || 'r 
+> +o_lon_c=' || pi()/2+lon || 'r +o_lat_c=' || lat || 'r' proj
+> ```
+> where (lat, lon, angle) defines a rotation pole.
+>
+> This results in some geometries (with a fortuitous set of poles, I 
+> guess) attaining ballpark-correct transformations while other features 
+> are shifted far outside of their origin tiles.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221109/e029b128/attachment.htm>
+
+From dagnew at ucsd.edu  Wed Nov  9 08:35:45 2022
+From: dagnew at ucsd.edu (Duncan Agnew)
+Date: Wed, 9 Nov 2022 08:35:45 -0800
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+ <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+Message-ID: <CAG6Em0DeWUX103L2NcNnBO7PGEk7SH7q-t10O8Jp+SsX2-W0ig@mail.gmail.com>
+
+It looks as though these conventions are for "where do I put the (new)
+geographic pole?", which is "what aspect will this projection have?'' But
+this is different from "what is the pole of rotation (about which I rotate
+everything)?" which is the usual question for finite spherical rotations.
+This
+could be added to the General Oblique Transformation by adding parameters;
+say    lat_r, long_r, alpha_r.
+
+How does Proj actually do the G.O.T? I don't mean what are the parameters,
+I mean what is the actual code that does the arithmetic?
+(Github is not something I've used much--but a link would be good).
+
+
+On Wed, Nov 9, 2022 at 7:39 AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Daven,
+>
+> finding the right parameters is always a bit tricky. For example, for
+> meteorological data, there are at least 2 different conventions to express
+> angles.
+>
+> See PROJ_WKT2_NAME_METHOD_POLE_ROTATION_GRIB_CONVENTION and
+> PROJ_WKT2_NAME_METHOD_POLE_ROTATION_NETCDF_CF_CONVENTION at
+> https://github.com/OSGeo/PROJ/blob/ae3180303d974653b126bc65dcfdad3cecb5a313/src/iso19111/operation/conversion.cpp#L3783
+> <https://urldefense.com/v3/__https://github.com/OSGeo/PROJ/blob/ae3180303d974653b126bc65dcfdad3cecb5a313/src/iso19111/operation/conversion.cpp*L3783__;Iw!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDt-lZ_c2$>
+> where there's a mapping from south pole / north pole conventions to
+> +proj=ob_tran. Setting lon_0 is often necessary.
+>
+> Even
+> Le 09/11/2022 ? 13:00, DAVEN P QUINN via PROJ a ?crit :
+>
+> Hello all,
+>
+> I?m a geologist who is working with paleogeographic reconstructions (see
+> example here
+> <https://urldefense.com/v3/__https://davenquinn.com/viz/corelle-demo-pbdb/?time=295__;!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDvT4V4JT$>).
+> These require composite reproductions where different parts of a feature
+> dataset (continents) are rotated with different axis-angle transformations.
+> I?ve had good luck doing these rotations with quaternion math in the
+> browser/Python environments, but I am now trying to use Proj
+> transformations in order to apply rotations directly within PostGIS queries.
+>
+> This linked image
+> <https://urldefense.com/v3/__https://pbs.twimg.com/media/Fgpx4UGXEAQmPOt?format=jpg&name=4096x4096__;!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDiL82wyr$>
+>  shows the desired result, a plate reconstruction to 250 Ma with a
+> different rotation applied to each plate. This was produced by applying the
+> desired quaternions through pl/pgsql math. Moving this math to Proj
+> internals would result in a ~50-100x speedup.
+>
+> The tool that seems most fitting is the `ob_trans` family of projections,
+> but I have been unable to define a rotation that can handle my preferred
+> representation (a pole defined in Lon-lat coordinates and an associated
+> angle of rotation around it). From my reading of the docs, I believe the
+> `o_lon_c`, `o_lat_c` and `o_alpha` parameters should do this, but I cannot
+> get them to work reliably. In fact, I can?t even reliably define a ?no-op?
+> transformation that leaves coordinates unchanged. Perhaps I have the
+> angular coordinate system wrong, or the rotation is being done in Cartesian
+> space even though `proj=lonlat` is used.
+>
+> Is it possible to define an arbitrary spherical spatial rotation in Proj
+> transformations? Maybe I need to use pipelines instead? I?d appreciate any
+> guidance! More details below the fold...
+>
+> Regards,
+>
+> *Daven P. Quinn*
+> Research scientist II ? *U of Wisconsin Madison*
+> PhD ? structural geology ? *Caltech* ?18
+> https://davenquinn.com
+> <https://urldefense.com/v3/__https://davenquinn.com__;!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDtXQU_j5$>
+> +1 704 920 8487
+>
+> -------------
+>
+> Here is an example of the pl/pgsql I am currently using to assemble a
+> projection (I have gone through many iterations testing different offsets
+> and the different ways to specify the transformation):
+> ```
+> RETURN '+proj=ob_tran +o_proj=longlat +o_alpha=' || pi()/2+angle || 'r
+> +o_lon_c=' || pi()/2+lon || 'r +o_lat_c=' || lat || 'r' proj
+> ```
+> where (lat, lon, angle) defines a rotation pole.
+>
+> This results in some geometries (with a fortuitous set of poles, I guess)
+> attaining ballpark-correct transformations while other features are shifted
+> far outside of their origin tiles.
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj <https://urldefense.com/v3/__https://lists.osgeo.org/mailman/listinfo/proj__;!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDkuXc_vL$>
+>
+> -- http://www.spatialys.com <https://urldefense.com/v3/__http://www.spatialys.com__;!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDh1cUusL$>
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+>
+> https://urldefense.com/v3/__https://lists.osgeo.org/mailman/listinfo/proj__;!!Mih3wA!CLqRz9MqXF-PSnAEuYeY5ZvHpRdIzdPBOk7sZ-arOkP9TgEEjtjlBw7cQbwsGqV4lhKPrdhoZgWyMSyVDkuXc_vL$
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221109/802de7d3/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Nov  9 08:41:58 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 9 Nov 2022 17:41:58 +0100
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <CAG6Em0DeWUX103L2NcNnBO7PGEk7SH7q-t10O8Jp+SsX2-W0ig@mail.gmail.com>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+ <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+ <CAG6Em0DeWUX103L2NcNnBO7PGEk7SH7q-t10O8Jp+SsX2-W0ig@mail.gmail.com>
+Message-ID: <cbbe5aef-cad9-8042-82b2-9add30228ce4@spatialys.com>
+
+
+>
+> How does Proj actually do the G.O.T? I don't mean what are the 
+> parameters, I mean what is the actual code that does the arithmetic?
+
+==> https://github.com/OSGeo/PROJ/blob/master/src/projections/ob_tran.cpp
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From daven.quinn at wisc.edu  Wed Nov  9 23:12:06 2022
+From: daven.quinn at wisc.edu (DAVEN P QUINN)
+Date: Thu, 10 Nov 2022 07:12:06 +0000
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <cbbe5aef-cad9-8042-82b2-9add30228ce4@spatialys.com>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+ <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+ <CAG6Em0DeWUX103L2NcNnBO7PGEk7SH7q-t10O8Jp+SsX2-W0ig@mail.gmail.com>
+ <cbbe5aef-cad9-8042-82b2-9add30228ce4@spatialys.com>
+Message-ID: <0e0b390b-2cca-42dd-8425-5e87458b33e2@Spark>
+
+Thanks to everyone in this conversation for their suggestions.
+
+It seems to me that there are two approaches that have been suggested that may work: using the `lat_p` and `lon_p` options to `ob_tran`, and using a pipeline that converts to geocentric cartesian coordinates, does a Helmert transform (consisting entirely of rotation), and converts back to angular space.
+
+I have also tried the ?move the pole location? signature of ob_tran (by computing the new location of the pole based on my desired spatial rotation), and it does seem to do a reasonable spatial shift, but there is a rotational component that is not properly accounted for in that method. I have tried to handle that last degree of freedom by a combination of `lon0` and `alpha`, but I think the alpha in this case does a rotation in Cartesian space.
+
+The Helmert option seems potentially viable (though slightly less preferred because pipelines are only possible in the most recent PostGIS version) but I was under the impression that was used mostly for small angular shifts of data already in projected (i.e., 2 or 2.5d) space, not rotating a full geocentric manifold through a large angle. I will try it out though.
+
+Another option seems like it might be two stages of ob_tran pole movement, first moving the north pole of the projection to the pole of rotation, changing the longitude around that pole, and then moving the pole back to its computed final location. It seems like getting the math right in this case would be challenging.
+
+I will continue exploring in these directions, and read the code Evan provided for more context. Any additional thoughts on this synthesis would be appreciated.
+
+Regards,
+
+Daven
+On Nov 9, 2022, 5:42 PM +0100, Even Rouault <even.rouault at spatialys.com>, wrote:
+
+
+How does Proj actually do the G.O.T? I don't mean what are the
+parameters, I mean what is the actual code that does the arithmetic?
+
+==> https://github.com/OSGeo/PROJ/blob/master/src/projections/ob_tran.cpp
+
+
+--
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/9fbc7e98/attachment.htm>
+
+From knudsen.thomas at gmail.com  Thu Nov 10 01:08:37 2022
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Thu, 10 Nov 2022 10:08:37 +0100
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <0e0b390b-2cca-42dd-8425-5e87458b33e2@Spark>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+ <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+ <CAG6Em0DeWUX103L2NcNnBO7PGEk7SH7q-t10O8Jp+SsX2-W0ig@mail.gmail.com>
+ <cbbe5aef-cad9-8042-82b2-9add30228ce4@spatialys.com>
+ <0e0b390b-2cca-42dd-8425-5e87458b33e2@Spark>
+Message-ID: <CAH0YoENszr96hL3MsfbosX0irBhf2WuTdhnDM3=w-qUzV_xvrg@mail.gmail.com>
+
+By default, the PROJ Helmert implementation uses small angle approximations
+(cf.
+https://github.com/OSGeo/PROJ/blob/master/src/transformations/helmert.cpp#L174-L205),
+but by specifying the "+exact" switch (
+https://proj.org/operations/transformations/helmert.html#equation-rot-exact),
+the exact rotation matrix is constructed, so you should be able to get
+things working with that little tweak.
+
+Den tor. 10. nov. 2022 kl. 08.12 skrev DAVEN P QUINN via PROJ <
+proj at lists.osgeo.org>:
+
+> Thanks to everyone in this conversation for their suggestions.
+>
+> It seems to me that there are two approaches that have been suggested that
+> may work: using the `lat_p` and `lon_p` options to `ob_tran`, and using a
+> pipeline that converts to geocentric cartesian coordinates, does a Helmert
+> transform (consisting entirely of rotation), and converts back to angular
+> space.
+>
+> I have also tried the ?move the pole location? signature of ob_tran (by
+> computing the new location of the pole based on my desired spatial
+> rotation), and it does seem to do a reasonable spatial shift, but there is
+> a rotational component that is not properly accounted for in that method. I
+> have tried to handle that last degree of freedom by a combination of `lon0`
+> and `alpha`, but I think the alpha in this case does a rotation in
+> Cartesian space.
+>
+> The Helmert option seems potentially viable (though slightly less
+> preferred because pipelines are only possible in the most recent PostGIS
+> version) but I was under the impression that was used mostly for small
+> angular shifts of data already in projected (i.e., 2 or 2.5d) space, not
+> rotating a full geocentric manifold through a large angle. I will try it
+> out though.
+>
+> Another option seems like it might be two stages of ob_tran pole movement,
+> first moving the north pole of the projection to the pole of rotation,
+> changing the longitude around that pole, and then moving the pole back to
+> its computed final location. It seems like getting the math right in this
+> case would be challenging.
+>
+> I will continue exploring in these directions, and read the code Evan
+> provided for more context. Any additional thoughts on this synthesis would
+> be appreciated.
+>
+> Regards,
+>
+> Daven
+> On Nov 9, 2022, 5:42 PM +0100, Even Rouault <even.rouault at spatialys.com>,
+> wrote:
+>
+>
+>
+> How does Proj actually do the G.O.T? I don't mean what are the
+> parameters, I mean what is the actual code that does the arithmetic?
+>
+>
+> ==> https://github.com/OSGeo/PROJ/blob/master/src/projections/ob_tran.cpp
+>
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/5872776b/attachment.htm>
+
+From gonzo.bard at gmail.com  Thu Nov 10 02:24:51 2022
+From: gonzo.bard at gmail.com (Gonzo Bard)
+Date: Thu, 10 Nov 2022 13:24:51 +0300
+Subject: [PROJ] WGS84(Natural Earth data) to sphere
+Message-ID: <CAPwAHr=cO76rLS9bhuEYSQbczqnP2t14DyKtfXPhXV+gnpa3aA@mail.gmail.com>
+
+Greetings to all!
+
+I use Natural Earth data:  https://www.naturalearthdata.com/downloads/
+> All Natural Earth data use the Geographic coordinate system (projection),
+WGS84 datum
+That is, Natural Earth data are points on an ellipsoid.
+
+To display geographical data on the map, I pre-convert it from Shapefile to
+GeoJSON.
+To do this, I use the ogr2ogr program (GDAL library).
+In ogr2ogr there are conversion options:
+from -s_srs https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-s_srs
+to -t_srs https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-t_srs.
+
+If I understood correctly, the GDAL project uses OSGeo / PROJ as a
+projection library.
+
+Please tell me what the values for -s_srs and -t_srs should be in order to
+perform the conversion:
+points located on an ellipsoid (WGS84 datum) ===> to points located on a
+sphere?
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/93755aa6/attachment-0001.htm>
+
+From dagnew at ucsd.edu  Thu Nov 10 04:10:11 2022
+From: dagnew at ucsd.edu (Duncan Agnew)
+Date: Thu, 10 Nov 2022 04:10:11 -0800
+Subject: [PROJ] Proj transformation for arbitrary (quaternion/Euler)
+ spatial rotation
+In-Reply-To: <0e0b390b-2cca-42dd-8425-5e87458b33e2@Spark>
+References: <1e9ddd13-9f25-4bdd-8d82-deea777a7339@Spark>
+ <9627f494-7924-468e-a29f-204a2343234a@Spark>
+ <dd26d183-92bb-8060-1310-a8f636d2be5a@spatialys.com>
+ <CAG6Em0DeWUX103L2NcNnBO7PGEk7SH7q-t10O8Jp+SsX2-W0ig@mail.gmail.com>
+ <cbbe5aef-cad9-8042-82b2-9add30228ce4@spatialys.com>
+ <0e0b390b-2cca-42dd-8425-5e87458b33e2@Spark>
+Message-ID: <CAG6Em0AixmdQOeE5d=sNCbfecJzDZCXk2P+Mw+3j-9roRAZmfw@mail.gmail.com>
+
+One way to look at it is that the lat_p lon_p moves the new pole along a
+meridian to a new location; the rotation pole
+then is always on the equator (at right angles to the meridian plane). So
+there as, as expected, only two parameters:
+the longitude of the rotation pole, and the amount of rotation around it.
+To get a general rotation, you have to
+introduce a second rotation, which is always around the geographic pole; it
+can be before or after that pole is
+moved, The direction of the rotation pole is not a free parameter, but the
+amount of rotation around it is, so
+we have the appropriate number of parameters (3, as in a unit quaternion)
+for a general rotation.
+
+So if you decompose the full rotation into two quaternions, one for the
+rotation around the geographic pole, and
+one to move that pole to a new location (rotation pole on the equator),
+then the parameters of these are what you
+need for proj. (Though again the order is, move the pole, then rotate
+around it).
+
+On Wed, Nov 9, 2022 at 11:12 PM DAVEN P QUINN <daven.quinn at wisc.edu> wrote:
+
+> Thanks to everyone in this conversation for their suggestions.
+>
+> It seems to me that there are two approaches that have been suggested that
+> may work: using the `lat_p` and `lon_p` options to `ob_tran`, and using a
+> pipeline that converts to geocentric cartesian coordinates, does a Helmert
+> transform (consisting entirely of rotation), and converts back to angular
+> space.
+>
+> I have also tried the ?move the pole location? signature of ob_tran (by
+> computing the new location of the pole based on my desired spatial
+> rotation), and it does seem to do a reasonable spatial shift, but there is
+> a rotational component that is not properly accounted for in that method. I
+> have tried to handle that last degree of freedom by a combination of `lon0`
+> and `alpha`, but I think the alpha in this case does a rotation in
+> Cartesian space.
+>
+> The Helmert option seems potentially viable (though slightly less
+> preferred because pipelines are only possible in the most recent PostGIS
+> version) but I was under the impression that was used mostly for small
+> angular shifts of data already in projected (i.e., 2 or 2.5d) space, not
+> rotating a full geocentric manifold through a large angle. I will try it
+> out though.
+>
+> Another option seems like it might be two stages of ob_tran pole movement,
+> first moving the north pole of the projection to the pole of rotation,
+> changing the longitude around that pole, and then moving the pole back to
+> its computed final location. It seems like getting the math right in this
+> case would be challenging.
+>
+> I will continue exploring in these directions, and read the code Evan
+> provided for more context. Any additional thoughts on this synthesis would
+> be appreciated.
+>
+> Regards,
+>
+> Daven
+> On Nov 9, 2022, 5:42 PM +0100, Even Rouault <even.rouault at spatialys.com>,
+> wrote:
+>
+>
+>
+> How does Proj actually do the G.O.T? I don't mean what are the
+> parameters, I mean what is the actual code that does the arithmetic?
+>
+>
+> ==> https://github.com/OSGeo/PROJ/blob/master/src/projections/ob_tran.cpp
+> <https://urldefense.com/v3/__https://github.com/OSGeo/PROJ/blob/master/src/projections/ob_tran.cpp__;!!Mih3wA!HHXFjskzBWFI9_IxlFUM-46NRb1QWDuaNyPUxfLXyVk8IKiTAoHvTltVWLjjml34reMXW8_pGh3jBdCkxGvi0A$>
+>
+>
+> --
+> http://www.spatialys.com
+> <https://urldefense.com/v3/__http://www.spatialys.com__;!!Mih3wA!HHXFjskzBWFI9_IxlFUM-46NRb1QWDuaNyPUxfLXyVk8IKiTAoHvTltVWLjjml34reMXW8_pGh3jBdBc-pV4kA$>
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/c419d4b3/attachment.htm>
+
+From j1 at jimenezshaw.com  Thu Nov 10 07:11:29 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Thu, 10 Nov 2022 16:11:29 +0100
+Subject: [PROJ] WGS84(Natural Earth data) to sphere
+In-Reply-To: <CAPwAHr=cO76rLS9bhuEYSQbczqnP2t14DyKtfXPhXV+gnpa3aA@mail.gmail.com>
+References: <CAPwAHr=cO76rLS9bhuEYSQbczqnP2t14DyKtfXPhXV+gnpa3aA@mail.gmail.com>
+Message-ID: <CADRrdKsN0BsFdXDw6TR-Yi5Vpo_G_a0upScd=_E2fAFbatowxg@mail.gmail.com>
+
+Why do you want to convert the points to an sphere? GeoJSON is also defined
+in WGS84
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Thu, 10 Nov 2022 at 11:24, Gonzo Bard <gonzo.bard at gmail.com> wrote:
+
+> Greetings to all!
+>
+> I use Natural Earth data:  https://www.naturalearthdata.com/downloads/
+> > All Natural Earth data use the Geographic coordinate system
+> (projection), WGS84 datum
+> That is, Natural Earth data are points on an ellipsoid.
+>
+> To display geographical data on the map, I pre-convert it from Shapefile
+> to GeoJSON.
+> To do this, I use the ogr2ogr program (GDAL library).
+> In ogr2ogr there are conversion options:
+> from -s_srs https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-s_srs
+>
+> to -t_srs https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-t_srs.
+>
+> If I understood correctly, the GDAL project uses OSGeo / PROJ as a
+> projection library.
+>
+> Please tell me what the values for -s_srs and -t_srs should be in order to
+> perform the conversion:
+> points located on an ellipsoid (WGS84 datum) ===> to points located on a
+> sphere?
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/2ae3e2f1/attachment.htm>
+
+From gonzo.bard at gmail.com  Thu Nov 10 07:38:36 2022
+From: gonzo.bard at gmail.com (Gonzo Bard)
+Date: Thu, 10 Nov 2022 18:38:36 +0300
+Subject: [PROJ] WGS84(Natural Earth data) to sphere
+In-Reply-To: <CADRrdKsN0BsFdXDw6TR-Yi5Vpo_G_a0upScd=_E2fAFbatowxg@mail.gmail.com>
+References: <CAPwAHr=cO76rLS9bhuEYSQbczqnP2t14DyKtfXPhXV+gnpa3aA@mail.gmail.com>
+ <CADRrdKsN0BsFdXDw6TR-Yi5Vpo_G_a0upScd=_E2fAFbatowxg@mail.gmail.com>
+Message-ID: <CAPwAHrkJxxXi0LEd47ghEUgh9tzQkJoo4x-CxAptx90rR8Q0_w@mail.gmail.com>
+
+> Why do you want to convert the points to an sphere? GeoJSON is also
+defined in WGS84
+
+GeoJSON data is rendered in the browser using projections:
+Web Mercator - https://github.com/d3/d3-geo#geoMercator
+Stereographic North - https://github.com/d3/d3-geo#geoStereographic
+According to the developer of the projection engine, it is expected that
+geographic points transferred to the projection lie on a sphere:
+https://github.com/d3/d3-geo/issues/265#issuecomment-1234323369
+
+On the other hand, the data I want to place on the map is only prepared
+under the assumption that the planet is a spheroid.
+
+Based on NGA research:
+https://web.archive.org/web/20141009142830/http://earth-info.nga.mil/GandG/wgs84/web_mercator/(U)%20NGA_SIG_0011_1.0.0_WEBMERC.pdf
+see Figure A1 ? Latitude versus Absolute Projection Difference (in
+kilometers)
+I came to the conclusion that the users of my application can be
+significantly misled (up to several tens of kilometers).
+
+??, 10 ????. 2022 ?. ? 18:11, Javier Jimenez Shaw <j1 at jimenezshaw.com>:
+
+> Why do you want to convert the points to an sphere? GeoJSON is also
+> defined in WGS84
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+>
+> On Thu, 10 Nov 2022 at 11:24, Gonzo Bard <gonzo.bard at gmail.com> wrote:
+>
+>> Greetings to all!
+>>
+>> I use Natural Earth data:  https://www.naturalearthdata.com/downloads/
+>> > All Natural Earth data use the Geographic coordinate system
+>> (projection), WGS84 datum
+>> That is, Natural Earth data are points on an ellipsoid.
+>>
+>> To display geographical data on the map, I pre-convert it from Shapefile
+>> to GeoJSON.
+>> To do this, I use the ogr2ogr program (GDAL library).
+>> In ogr2ogr there are conversion options:
+>> from -s_srs
+>> https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-s_srs
+>> to -t_srs https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-t_srs.
+>>
+>> If I understood correctly, the GDAL project uses OSGeo / PROJ as a
+>> projection library.
+>>
+>> Please tell me what the values for -s_srs and -t_srs should be in order
+>> to perform the conversion:
+>> points located on an ellipsoid (WGS84 datum) ===> to points located on a
+>> sphere?
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/d2928f40/attachment-0001.htm>
+
+From j1 at jimenezshaw.com  Thu Nov 10 08:57:04 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Thu, 10 Nov 2022 17:57:04 +0100
+Subject: [PROJ] WGS84(Natural Earth data) to sphere
+In-Reply-To: <CAPwAHrkJxxXi0LEd47ghEUgh9tzQkJoo4x-CxAptx90rR8Q0_w@mail.gmail.com>
+References: <CAPwAHr=cO76rLS9bhuEYSQbczqnP2t14DyKtfXPhXV+gnpa3aA@mail.gmail.com>
+ <CADRrdKsN0BsFdXDw6TR-Yi5Vpo_G_a0upScd=_E2fAFbatowxg@mail.gmail.com>
+ <CAPwAHrkJxxXi0LEd47ghEUgh9tzQkJoo4x-CxAptx90rR8Q0_w@mail.gmail.com>
+Message-ID: <CADRrdKsdRnVdvidsv=b832DR1PziyxTyFO=hR0GotwuBzXGExA@mail.gmail.com>
+
+At the end you and I agree that GeoJSON is in WGS84 (but not the people
+from d3, based on the comment on the issue). How this data is later
+projected in the web browser is another story.
+One of the multiple complains about EPSG:3857 "WGS 84 / Pseudo-Mercator"
+(aka "Web Mercator") is that it uses ellipsoidal coordinates (WGS84), ...
+and projects them in a sphere. If I am right, EPSG:3395 "WGS 84 / World
+Mercator" is using an ellipsoid.
+
+I guess that you are trying to convert the coordinates from WGS84 to
+spherical ones to be "compliant" with the web browser library that you are
+using. (This is not a GeoJSON problem).
+Unfortunately I do not know the options needed in ogr2ogr.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Thu, 10 Nov 2022 at 16:38, Gonzo Bard <gonzo.bard at gmail.com> wrote:
+
+> > Why do you want to convert the points to an sphere? GeoJSON is also
+> defined in WGS84
+>
+> GeoJSON data is rendered in the browser using projections:
+> Web Mercator - https://github.com/d3/d3-geo#geoMercator
+> Stereographic North - https://github.com/d3/d3-geo#geoStereographic
+> According to the developer of the projection engine, it is expected that
+> geographic points transferred to the projection lie on a sphere:
+> https://github.com/d3/d3-geo/issues/265#issuecomment-1234323369
+>
+> On the other hand, the data I want to place on the map is only prepared
+> under the assumption that the planet is a spheroid.
+>
+> Based on NGA research:
+>
+> https://web.archive.org/web/20141009142830/http://earth-info.nga.mil/GandG/wgs84/web_mercator/(U)%20NGA_SIG_0011_1.0.0_WEBMERC.pdf
+> see Figure A1 ? Latitude versus Absolute Projection Difference (in
+> kilometers)
+> I came to the conclusion that the users of my application can be
+> significantly misled (up to several tens of kilometers).
+>
+> ??, 10 ????. 2022 ?. ? 18:11, Javier Jimenez Shaw <j1 at jimenezshaw.com>:
+>
+>> Why do you want to convert the points to an sphere? GeoJSON is also
+>> defined in WGS84
+>> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+>> Entre dos pensamientos racionales
+>> hay infinitos pensamientos irracionales.
+>>
+>>
+>>
+>> On Thu, 10 Nov 2022 at 11:24, Gonzo Bard <gonzo.bard at gmail.com> wrote:
+>>
+>>> Greetings to all!
+>>>
+>>> I use Natural Earth data:  https://www.naturalearthdata.com/downloads/
+>>> > All Natural Earth data use the Geographic coordinate system
+>>> (projection), WGS84 datum
+>>> That is, Natural Earth data are points on an ellipsoid.
+>>>
+>>> To display geographical data on the map, I pre-convert it from Shapefile
+>>> to GeoJSON.
+>>> To do this, I use the ogr2ogr program (GDAL library).
+>>> In ogr2ogr there are conversion options:
+>>> from -s_srs
+>>> https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-s_srs
+>>> to -t_srs https://gdal.org/programs/ogr2ogr.html#cmdoption-ogr2ogr-t_srs
+>>> .
+>>>
+>>> If I understood correctly, the GDAL project uses OSGeo / PROJ as a
+>>> projection library.
+>>>
+>>> Please tell me what the values for -s_srs and -t_srs should be in order
+>>> to perform the conversion:
+>>> points located on an ellipsoid (WGS84 datum) ===> to points located on a
+>>> sphere?
+>>> _______________________________________________
+>>> PROJ mailing list
+>>> PROJ at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/proj
+>>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/968e988b/attachment.htm>
+
+From gdt at lexort.com  Thu Nov 10 16:15:52 2022
+From: gdt at lexort.com (Greg Troxel)
+Date: Thu, 10 Nov 2022 19:15:52 -0500
+Subject: [PROJ] WGS84(Natural Earth data) to sphere
+In-Reply-To: <CADRrdKsdRnVdvidsv=b832DR1PziyxTyFO=hR0GotwuBzXGExA@mail.gmail.com>
+ (Javier Jimenez Shaw's message of "Thu, 10 Nov 2022 17:57:04 +0100")
+References: <CAPwAHr=cO76rLS9bhuEYSQbczqnP2t14DyKtfXPhXV+gnpa3aA@mail.gmail.com>
+ <CADRrdKsN0BsFdXDw6TR-Yi5Vpo_G_a0upScd=_E2fAFbatowxg@mail.gmail.com>
+ <CAPwAHrkJxxXi0LEd47ghEUgh9tzQkJoo4x-CxAptx90rR8Q0_w@mail.gmail.com>
+ <CADRrdKsdRnVdvidsv=b832DR1PziyxTyFO=hR0GotwuBzXGExA@mail.gmail.com>
+Message-ID: <rmi35aq73d3.fsf@s1.lexort.com>
+
+
+Javier Jimenez Shaw <j1 at jimenezshaw.com> writes:
+
+> At the end you and I agree that GeoJSON is in WGS84 (but not the people
+> from d3, based on the comment on the issue). How this data is later
+> projected in the web browser is another story.
+> One of the multiple complains about EPSG:3857 "WGS 84 / Pseudo-Mercator"
+> (aka "Web Mercator") is that it uses ellipsoidal coordinates (WGS84), ...
+> and projects them in a sphere. If I am right, EPSG:3395 "WGS 84 / World
+> Mercator" is using an ellipsoid.
+
+Yes, but the point here is that your coordinates line up with the
+coordinates of map features with the base map you are using.
+
+Unless you are doing something really unusual and sophisticated, or
+using something like arcgis online, anything web-mappy will want
+coordinates in WGS84 or EPSG:3857.
+
+Gonzo: please actually explain what you are doing, rather than assuming
+something about a step in the middle.  You've said you have a shaepfile
+in WGS84, so:
+
+  If you run ogrinfo, is it labelled as WGS84?
+
+  What software are you using for web display.  Name names and tell us
+  the library.
+
+  What format does the web display library need?  Send us a link to the
+  online API documentation.   (If it's not open source, get support from
+  the company that published proprietary software instead.)
+
+  If it needs geojson, what do the docs say about CRS?
+
+  If you just ogr2ogr into geojson, with no crs args, and then you use
+  that with say openstreetmap, do the data points show up relative to
+  map features correctly?
+
+
+
+> I guess that you are trying to convert the coordinates from WGS84 to
+> spherical ones to be "compliant" with the web browser library that you are
+> using. (This is not a GeoJSON problem).
+> Unfortunately I do not know the options needed in ogr2ogr.
+
+I don't either but Gonzo is far from establishing that this makes sense.
+
+Some of the complaints about Web Mercator are fair, such as that it
+isn't really conformal.  But the idea that there are 10s of km of errors
+is not true.
+
+It is true that if you take a point and compute coordinates in web
+mercator, and then you also compute coordinates in a projection that is
+true mercator with the GRS80 ellipsoid, and otherwise the same, that you
+will get coordinates that differ.  But this is not an error, any more
+than converting to UTM and to true mercator get you different
+coordinates.
+
+I have taken accurate WGS84 coordinates, converted to geojson, and
+displayed them in a web map made with leaflet against orthoimagery
+published by MassGIS (my state government GIS agency) and gotten
+agreement at the 15 cm level.  So the idea that there are necessarily
+multiple km of "error" just does not make any sense.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221110/8ccda4af/attachment.sig>
+
+From sgh at sgh.dk  Tue Nov 15 07:00:27 2022
+From: sgh at sgh.dk (=?UTF-8?Q?S=c3=b8ren_Holm?=)
+Date: Tue, 15 Nov 2022 16:00:27 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+Message-ID: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+
+Hi
+
+I'm scratching my head here.
+
+How do I convert the projected coordinates from the etmerc step into 
+cartessian coordinates for the helmert step ?
+
+cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 
++k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m 
++no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert 
++convention=coordinate_frame
+
+
+Thanks in advance.
+
+/S?ren Holm
+
+From Alain.Orsoni at ign.fr  Tue Nov 15 08:16:05 2022
+From: Alain.Orsoni at ign.fr (Alain Orsoni)
+Date: Tue, 15 Nov 2022 17:16:05 +0100
+Subject: [PROJ] Helmet transform between 2 ITRF sets of coordinates
+Message-ID: <BF958EC8-67F1-432E-AFE0-C0AD9BE89B00@ign.fr>
+
+Hello,
+
+I?m trying to convert ITRF92 (epoch 93.0) coordinates to ITRF2014 epoch 2023.0.
+Having some 8 cms per year movement I expect some 2.4m difference in the coordinates.
+
+I tried some syntaxes but did not understand clearly how (where) to indicate the epochs (initial and final) in my tests :
+
+One test applied was :
+
+echo -139.57736536  -8.95162075     2.234 2023.0 | cct +proj=pipeline +step +proj=cart +ellps=GRS80 +step +proj=helmert +x=-0.0154 +y=-0.0015 +z=0.0708 +rx=0 +ry=0 +rz=-0.00026 +s=-0.00309 +dx=-0.0001 +dy=0.0005 +dz=0.0033 +drx=0 +dry=0 +drz=-2e-05 +ds=-0.00012 +t_epoch=1993 +convention=position_vector +step +inv +proj=cart +ellps=GRS80
+
+Which gave me 
+-139.5773658008   -8.9516192265        2.1701     2023.0000
+
+As result. Difference much lower than expected representing some 20 cm variation from one epoch to the other.
+
+I indicated the final epoch desired in my input and the initial epoch in the helmert transform.
+This is probably false, but I did not encounter this kind of indication in the documentation.
+
+Where is the misunderstanding?
+
+Thank you for any help,
+
+Alain Orsoni
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221115/aa4c317b/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Nov 15 09:13:57 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 15 Nov 2022 18:13:57 +0100
+Subject: [PROJ] Helmet transform between 2 ITRF sets of coordinates
+In-Reply-To: <BF958EC8-67F1-432E-AFE0-C0AD9BE89B00@ign.fr>
+References: <BF958EC8-67F1-432E-AFE0-C0AD9BE89B00@ign.fr>
+Message-ID: <a09df12b-43ca-6a99-2abc-e1e0fcd2c7c3@spatialys.com>
+
+Alain,
+
+you actually want to do 2 things:
+
+- change the reference frame (from ITRF92 to ITRF2014)
+
+- and change of coordinate epoch in one of the coordinate frames 
+(presumably in ITRF2014)
+
+You can't do that just by using the 15-parameter ITRF92->ITRF2014 
+transformation.
+
+So first step, change from ITRF92 to ITRF2014 at epoch 1993.0. You must 
+use +t_epoch=2010 as it is the canoncial central epoch of the transformation
+
+$ echo -139.57736536?? -8.95162075?? 2.234? 1993.0 | cct -d 8 
++proj=pipeline +step +proj=cart +ellps=GRS80 +step +proj=helmert 
++x=-0.0154 +y=-0.0015 +z=0.0708 +rx=0 +ry=0 +rz=-0.00026 +s=-0.00309 
++dx=-0.0001 +dy=0.0005 +dz=0.0033 +drx=0 +dry=0 +drz=-2e-05 +ds=-0.00012 
++t_epoch=2010 +convention=position_vector +step +inv +proj=cart +ellps=GRS80
+ ?-139.57736535???? -8.95162059??? 2.24172393???? 1993.0000
+
+You can also that by using EPSG objects (but using lat, long order)
+
+$ echo -8.95162075? -139.57736536? 2.234 1993.0 | cs2cs -d 8 ITRF92 ITRF2014
+-8.95162059??? -139.57736535 2.24172393 1993.0
+
+and second step, apply the Pacific plate motion Helmert transformation 
+for ITRF2014:
+
+$ echo?? -139.57736535???? -8.95162059??? 2.24172393 2023 | cct -d 8 \
+ ??? +proj=pipeline +step +proj=cart +ellps=GRS80 \
+ ??? +step +init=ITRF2014:PCFC +t_epoch=1993 \
+ ??? +step +inv +proj=cart +ellps=GRS80
+ ?-139.57738390???? -8.95161168??? 2.24071029???? 2023.0000
+
+The ITRF2014:PCFC parameters are at 
+https://github.com/OSGeo/PROJ/blob/4762020db550ac3b9405970f8830abdb5fefdb48/data/ITRF2014#L51
+
+If inlined:
+
+$ echo -139.57736535???? -8.95162059??? 2.24172393 2023 | cct -d 8 
++proj=pipeline +step +proj=cart +ellps=GRS80 +step +proj=helmert 
++drx=-0.000409 +dry=0.001047 +drz=-0.002169 +convention=position_vector 
++t_epoch=1993 +step +inv +proj=cart +ellps=GRS80
+ ?-139.57738390???? -8.95161168??? 2.24071029???? 2023.0000
+
+The difference between the initial and final coordinate in ITRF2014 is 
+2.272 m.
+
+$ echo? -8.95162075 -139.57736536 -8.95161168 -139.57738390? | geod -I 
++ellps=GRS80
+
+-63d48'8.651"??? 116d11'51.359"??? 2.272
+
+You could actually concatenate the 2 pipelines by using the +proj=set 
++v_4=2023 operator to force the target epoch of the plate motion 
+transformation
+
+$ echo -139.57736536?? -8.95162075?? 2.234? 1993.0 | cct -d 8 
++proj=pipeline \
+ ???? +step +proj=cart +ellps=GRS80 \
+ ???? +step +proj=helmert +x=-0.0154 +y=-0.0015 +z=0.0708 +rx=0 +ry=0 
++rz=-0.00026 +s=-0.00309 \
+ ?????????????? +dx=-0.0001 +dy=0.0005 +dz=0.0033 +drx=0 +dry=0 
++drz=-2e-05 +ds=-0.00012 +t_epoch=2010 +convention=position_vector \
+ ???? +step +proj=set +v_4=2023 \
+ ???? +step +proj=helmert +drx=-0.000409 +dry=0.001047 +drz=-0.002169 
++convention=position_vector +t_epoch=1993 \
+ ???? +step +inv +proj=cart +ellps=GRS80
+
+ ?-139.57738390???? -8.95161168??? 2.24071029???? 2023.0000
+
+Even
+
+Le 15/11/2022 ? 17:16, Alain Orsoni a ?crit?:
+> Hello,
+>
+> I?m trying to convert ITRF92 (epoch 93.0) coordinates to ITRF2014 
+> epoch 2023.0.
+> Having some 8 cms per year movement I expect some 2.4m difference in 
+> the coordinates.
+>
+> I tried some syntaxes but did not understand clearly how (where) to 
+> indicate the epochs (initial and final) in my tests :
+>
+> One test applied was :
+>
+> echo -139.57736536? -8.95162075 ? ? 2.234 2023.0 | cct +proj=pipeline 
+> +step +proj=cart +ellps=GRS80 +step +proj=helmert +x=-0.0154 
+> +y=-0.0015 +z=0.0708 +rx=0 +ry=0 +rz=-0.00026 +s=-0.00309 +dx=-0.0001 
+> +dy=0.0005 +dz=0.0033 +drx=0 +dry=0 +drz=-2e-05 +ds=-0.00012 
+> +t_epoch=1993 +convention=position_vector +step +inv +proj=cart 
+> +ellps=GRS80
+>
+> Which gave me
+> -139.5773658008 ? -8.9516192265? ? ? ? 2.1701 ? ? 2023.0000
+>
+> As result. Difference much lower than expected representing some 20 cm 
+> variation from one epoch to the other.
+>
+> I indicated the final epoch desired in my input and the initial epoch 
+> in the helmert transform.
+> This is probably false, but I did not encounter this kind of 
+> indication in the documentation.
+>
+> Where is the misunderstanding?
+>
+> Thank you for any help,
+>
+> Alain Orsoni
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221115/50133f31/attachment.htm>
+
+From kreve at sdfi.dk  Wed Nov 16 03:56:01 2022
+From: kreve at sdfi.dk (Kristian Evers)
+Date: Wed, 16 Nov 2022 11:56:01 +0000
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+Message-ID: <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+
+S?ren,
+
+You simply add a step with the cart operation:
+
++proj=pipeline 
++step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1 +x_0=150000 +y_0=0 +inv
++step +proj=cart +ellps=GRS80
++step +proj=helmert +convention=coordinate_frame +...
+
+I've removed superfluous parameters in the etmerc step and added a "+inv". The last bit
+ensures that correct direction of the etmerc step. You wan't to go from projected
+coordinates to geodetic coordinates. The cart step then converts the geodetic coordinates
+to cartesian coordinates which can be consumes by the helmert operation.
+
+You probably want to add more steps to bring your coordinates to a more usuable format
+than cartesian, e.g.
+
++step +proj=cart +ellps=GRS80 +inv
++step +proj=....
+
+Hope that clears things up.
+
+/Kristian
+
+> -----Original Message-----
+> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+> Sent: 15. november 2022 16:00
+> To: proj <PROJ at lists.osgeo.org>
+> Subject: [PROJ] Helmert and coordinate convertion question
+> 
+> Hi
+> 
+> I'm scratching my head here.
+> 
+> How do I convert the projected coordinates from the etmerc step into
+> cartessian coordinates for the helmert step ?
+> 
+> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25
+> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m
+> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+> +convention=coordinate_frame
+> 
+> 
+> Thanks in advance.
+> 
+> /S?ren Holm
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+From sgh at sgh.dk  Wed Nov 16 05:25:42 2022
+From: sgh at sgh.dk (=?UTF-8?Q?S=c3=b8ren_Holm?=)
+Date: Wed, 16 Nov 2022 14:25:42 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+Message-ID: <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+
+Thanks for the answer Kristian
+
+It does make sense, however I do not think it is what I want.
+
+I imagined something like this: WGS84 -> ETMERC -> HELMERT
+
+Funny thing is that a 2D helmert works just fine:
+
++proj=etmerc .... +step +proj=helmert +convention=coordinate_frame ... 
++theta=12345
+
+A 3D helmert does not work - it just complains that the units are 
+mismatching.
+
+Why do 2D helmert work when 3D helmert fails? - they both require 
+cartesian coordinates. Etmerc outputs projected coordinates which makes 
+it even more strange. The documentation does not say much about 
+projected coordinates and why they are different from cartesian.
+
+Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+> S?ren,
+> 
+> You simply add a step with the cart operation:
+> 
+> +proj=pipeline
+> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1 +x_0=150000 +y_0=0 +inv
+> +step +proj=cart +ellps=GRS80
+> +step +proj=helmert +convention=coordinate_frame +...
+> 
+> I've removed superfluous parameters in the etmerc step and added a "+inv". The last bit
+> ensures that correct direction of the etmerc step. You wan't to go from projected
+> coordinates to geodetic coordinates. The cart step then converts the geodetic coordinates
+> to cartesian coordinates which can be consumes by the helmert operation.
+> 
+> You probably want to add more steps to bring your coordinates to a more usuable format
+> than cartesian, e.g.
+> 
+> +step +proj=cart +ellps=GRS80 +inv
+> +step +proj=....
+> 
+> Hope that clears things up.
+> 
+> /Kristian
+> 
+>> -----Original Message-----
+>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+>> Sent: 15. november 2022 16:00
+>> To: proj <PROJ at lists.osgeo.org>
+>> Subject: [PROJ] Helmert and coordinate convertion question
+>>
+>> Hi
+>>
+>> I'm scratching my head here.
+>>
+>> How do I convert the projected coordinates from the etmerc step into
+>> cartessian coordinates for the helmert step ?
+>>
+>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25
+>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m
+>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+>> +convention=coordinate_frame
+>>
+>>
+>> Thanks in advance.
+>>
+>> /S?ren Holm
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+
+From kristianevers at gmail.com  Wed Nov 16 07:32:37 2022
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Wed, 16 Nov 2022 16:32:37 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+ <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+Message-ID: <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+
+S?ren,
+
+What you are proposing is borderline non-sensical. Maybe try to explain what you want
+to achieve and we can try to find a good way to get you there.
+
+PROJ has three types of coordinates:
+
+1. Geodetic coordinates
+2. Projected coordinates
+3. Cartesian coordinates
+
+1. is the classical latitude/longitude pair, 2 is any coordinate that is projected onto the plane
+and 3 is a geocentric, cartesian representation of 1. Generally speaking 1 and 2 are 2-dimensional
+and 3 is 3-dimensional. There?s a bit more to if you want to include heights but let?s leave that out
+for now. 
+
+Different kinds of operation expect different types of coordinates and can spit out coordinates in
+another type. E.g. a projection expects a geodetic coordinate (i.e. a latitude/longitude pair) and
+spits out a projected coordinate. Another example is the Helmert transformation which works
+on cartesian coordinates (except in the 2D case) and therefore expects cartesian input and
+outputs cartesian coordinates. 
+
+The Helmert operation has two general modes: 2D and 3D. The 2D mode is meant for direct
+adjustment of grid coordinates, i.e. projected coordinates. This could be useful on a local engineering
+CRS for instance. The 3D mode is a bit more generic and the main usage of the Helmert transformation.
+It allows you to do geodetic transformations over a larger area and in a more complicated way. When
+transforming coordinates from a global reference frame (e.g. WGS84/ITRF2014) to a regional frame
+(e.g. ETRS89) we use a time-dependant 3D Helmert transformation.
+
+The above explains why you can successfully feed projected coordinates into the 2D version of the
+Helmert but not the 3D.
+
+/Kristian
+
+
+> On 16 Nov 2022, at 14.25, S?ren Holm <sgh at sgh.dk> wrote:
+> 
+> Thanks for the answer Kristian
+> 
+> It does make sense, however I do not think it is what I want.
+> 
+> I imagined something like this: WGS84 -> ETMERC -> HELMERT
+> 
+> Funny thing is that a 2D helmert works just fine:
+> 
+> +proj=etmerc .... +step +proj=helmert +convention=coordinate_frame ... +theta=12345
+> 
+> A 3D helmert does not work - it just complains that the units are mismatching.
+> 
+> Why do 2D helmert work when 3D helmert fails? - they both require cartesian coordinates. Etmerc outputs projected coordinates which makes it even more strange. The documentation does not say much about projected coordinates and why they are different from cartesian.
+> 
+> Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+>> S?ren,
+>> You simply add a step with the cart operation:
+>> +proj=pipeline
+>> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1 +x_0=150000 +y_0=0 +inv
+>> +step +proj=cart +ellps=GRS80
+>> +step +proj=helmert +convention=coordinate_frame +...
+>> I've removed superfluous parameters in the etmerc step and added a "+inv". The last bit
+>> ensures that correct direction of the etmerc step. You wan't to go from projected
+>> coordinates to geodetic coordinates. The cart step then converts the geodetic coordinates
+>> to cartesian coordinates which can be consumes by the helmert operation.
+>> You probably want to add more steps to bring your coordinates to a more usuable format
+>> than cartesian, e.g.
+>> +step +proj=cart +ellps=GRS80 +inv
+>> +step +proj=....
+>> Hope that clears things up.
+>> /Kristian
+>>> -----Original Message-----
+>>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+>>> Sent: 15. november 2022 16:00
+>>> To: proj <PROJ at lists.osgeo.org>
+>>> Subject: [PROJ] Helmert and coordinate convertion question
+>>> 
+>>> Hi
+>>> 
+>>> I'm scratching my head here.
+>>> 
+>>> How do I convert the projected coordinates from the etmerc step into
+>>> cartessian coordinates for the helmert step ?
+>>> 
+>>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25
+>>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m
+>>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+>>> +convention=coordinate_frame
+>>> 
+>>> 
+>>> Thanks in advance.
+>>> 
+>>> /S?ren Holm
+>>> _______________________________________________
+>>> PROJ mailing list
+>>> PROJ at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/proj
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+From sgh at sgh.dk  Wed Nov 16 11:28:55 2022
+From: sgh at sgh.dk (=?UTF-8?Q?S=c3=b8ren_Holm?=)
+Date: Wed, 16 Nov 2022 20:28:55 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+ <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+ <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+Message-ID: <db75841d-bb0f-1bb2-ed1f-826713032d24@sgh.dk>
+
+Kristian,
+
+So what you are saying is that some of the operations by design are not 
+supposed to be mixed - even if the number of outputs/inputs and unit (in 
+this case meter) match....
+
+Anyway - the concrete case is this:
+
+We have an application utilizing proj to provide projected coordinates 
+in DKTM, SWEREF, UTM and others. This is usualy fine but some of our 
+user are used to be able to put a helmer on top of those 
+transformations. I do no realy know why but overall it can be because 
+they have some local origo or maybe they want one of the axises to align 
+with a fence - It can be anything!
+
+They usualy formulate this as a transform (typically helmert 3D) of the 
+projected coordinates. We can very well do this in an additional proj 
+run but I woul rather have it in a single pass.
+
+I hope it makes sense.
+
+
+Den 16.11.2022 kl. 16.32 skrev Kristian Evers:
+> S?ren,
+> 
+> What you are proposing is borderline non-sensical. Maybe try to explain what you want
+> to achieve and we can try to find a good way to get you there.
+> 
+> PROJ has three types of coordinates:
+> 
+> 1. Geodetic coordinates
+> 2. Projected coordinates
+> 3. Cartesian coordinates
+> 
+> 1. is the classical latitude/longitude pair, 2 is any coordinate that is projected onto the plane
+> and 3 is a geocentric, cartesian representation of 1. Generally speaking 1 and 2 are 2-dimensional
+> and 3 is 3-dimensional. There?s a bit more to if you want to include heights but let?s leave that out
+> for now.
+> 
+> Different kinds of operation expect different types of coordinates and can spit out coordinates in
+> another type. E.g. a projection expects a geodetic coordinate (i.e. a latitude/longitude pair) and
+> spits out a projected coordinate. Another example is the Helmert transformation which works
+> on cartesian coordinates (except in the 2D case) and therefore expects cartesian input and
+> outputs cartesian coordinates.
+> 
+> The Helmert operation has two general modes: 2D and 3D. The 2D mode is meant for direct
+> adjustment of grid coordinates, i.e. projected coordinates. This could be useful on a local engineering
+> CRS for instance. The 3D mode is a bit more generic and the main usage of the Helmert transformation.
+> It allows you to do geodetic transformations over a larger area and in a more complicated way. When
+> transforming coordinates from a global reference frame (e.g. WGS84/ITRF2014) to a regional frame
+> (e.g. ETRS89) we use a time-dependant 3D Helmert transformation.
+> 
+> The above explains why you can successfully feed projected coordinates into the 2D version of the
+> Helmert but not the 3D.
+> 
+> /Kristian
+> 
+> 
+>> On 16 Nov 2022, at 14.25, S?ren Holm <sgh at sgh.dk> wrote:
+>>
+>> Thanks for the answer Kristian
+>>
+>> It does make sense, however I do not think it is what I want.
+>>
+>> I imagined something like this: WGS84 -> ETMERC -> HELMERT
+>>
+>> Funny thing is that a 2D helmert works just fine:
+>>
+>> +proj=etmerc .... +step +proj=helmert +convention=coordinate_frame ... +theta=12345
+>>
+>> A 3D helmert does not work - it just complains that the units are mismatching.
+>>
+>> Why do 2D helmert work when 3D helmert fails? - they both require cartesian coordinates. Etmerc outputs projected coordinates which makes it even more strange. The documentation does not say much about projected coordinates and why they are different from cartesian.
+>>
+>> Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+>>> S?ren,
+>>> You simply add a step with the cart operation:
+>>> +proj=pipeline
+>>> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1 +x_0=150000 +y_0=0 +inv
+>>> +step +proj=cart +ellps=GRS80
+>>> +step +proj=helmert +convention=coordinate_frame +...
+>>> I've removed superfluous parameters in the etmerc step and added a "+inv". The last bit
+>>> ensures that correct direction of the etmerc step. You wan't to go from projected
+>>> coordinates to geodetic coordinates. The cart step then converts the geodetic coordinates
+>>> to cartesian coordinates which can be consumes by the helmert operation.
+>>> You probably want to add more steps to bring your coordinates to a more usuable format
+>>> than cartesian, e.g.
+>>> +step +proj=cart +ellps=GRS80 +inv
+>>> +step +proj=....
+>>> Hope that clears things up.
+>>> /Kristian
+>>>> -----Original Message-----
+>>>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+>>>> Sent: 15. november 2022 16:00
+>>>> To: proj <PROJ at lists.osgeo.org>
+>>>> Subject: [PROJ] Helmert and coordinate convertion question
+>>>>
+>>>> Hi
+>>>>
+>>>> I'm scratching my head here.
+>>>>
+>>>> How do I convert the projected coordinates from the etmerc step into
+>>>> cartessian coordinates for the helmert step ?
+>>>>
+>>>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25
+>>>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m
+>>>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+>>>> +convention=coordinate_frame
+>>>>
+>>>>
+>>>> Thanks in advance.
+>>>>
+>>>> /S?ren Holm
+>>>> _______________________________________________
+>>>> PROJ mailing list
+>>>> PROJ at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/proj
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+
+From kristianevers at gmail.com  Wed Nov 16 23:12:10 2022
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Thu, 17 Nov 2022 08:12:10 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <db75841d-bb0f-1bb2-ed1f-826713032d24@sgh.dk>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+ <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+ <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+ <db75841d-bb0f-1bb2-ed1f-826713032d24@sgh.dk>
+Message-ID: <351433D5-963B-4A23-9892-3D547B5D79FA@gmail.com>
+
+
+> So what you are saying is that some of the operations by design are not supposed to be mixed - even if the number of outputs/inputs and unit (in this case meter) match....
+> 
+
+Correct. It?s not the number of coordinate components that matter, it?s the nature of them.
+PROJ will complain if input and output types are mismatching between pipeline steps.
+
+> Anyway - the concrete case is this:
+> 
+> We have an application utilizing proj to provide projected coordinates in DKTM, SWEREF, UTM and others. This is usualy fine but some of our user are used to be able to put a helmer on top of those transformations. I do no realy know why but overall it can be because they have some local origo or maybe they want one of the axises to align with a fence - It can be anything!
+> 
+> They usualy formulate this as a transform (typically helmert 3D) of the projected coordinates. We can very well do this in an additional proj run but I woul rather have it in a single pass.
+> 
+> I hope it makes sense.
+> 
+
+It doesn?t really. I understand what?s done but I?m not sure it?s a particularly smart way to
+do things. Oh well, there might be a particular use case where a flow like that makes sense.
+
+We don?t have a good mechanism to do what you want in one go. A possible solution could
+be a two-step approach that chains to transformations together:
+
+> echo 12 55 0 0 | cct +proj=utm +zone=32 | cct +proj=helmert +x=234 +y=232 +z=234 +convention=coordinate_frame
+  692109.6321   6099139.8250      234.0000        0.0000
+
+Effectively creating a pipeline buy bypassing PROJs in-build unit checks. Adjust the above accordingly.
+
+I guess we could implement a mechanism that does nothing but change the internal coordinate types
+to what the user species. The above could then be redone like
+
+> echo 12 55 0 0 | cct +proj=pipeline +proj=utm +zone=32 +step +proj=noop +in_type=projected +out_type=cartesian +proj=helmert +x=234 +y=232 +z=234 +convention=coordinate_frame
+  692109.6321   6099139.8250      234.0000        0.0000
+
+It offers plenty of opportunity for users to shoot themselves in the foot but in the right hands it 
+could be useful I guess. 
+
+/Kristian
+
+> 
+> Den 16.11.2022 kl. 16.32 skrev Kristian Evers:
+>> S?ren,
+>> What you are proposing is borderline non-sensical. Maybe try to explain what you want
+>> to achieve and we can try to find a good way to get you there.
+>> PROJ has three types of coordinates:
+>> 1. Geodetic coordinates
+>> 2. Projected coordinates
+>> 3. Cartesian coordinates
+>> 1. is the classical latitude/longitude pair, 2 is any coordinate that is projected onto the plane
+>> and 3 is a geocentric, cartesian representation of 1. Generally speaking 1 and 2 are 2-dimensional
+>> and 3 is 3-dimensional. There?s a bit more to if you want to include heights but let?s leave that out
+>> for now.
+>> Different kinds of operation expect different types of coordinates and can spit out coordinates in
+>> another type. E.g. a projection expects a geodetic coordinate (i.e. a latitude/longitude pair) and
+>> spits out a projected coordinate. Another example is the Helmert transformation which works
+>> on cartesian coordinates (except in the 2D case) and therefore expects cartesian input and
+>> outputs cartesian coordinates.
+>> The Helmert operation has two general modes: 2D and 3D. The 2D mode is meant for direct
+>> adjustment of grid coordinates, i.e. projected coordinates. This could be useful on a local engineering
+>> CRS for instance. The 3D mode is a bit more generic and the main usage of the Helmert transformation.
+>> It allows you to do geodetic transformations over a larger area and in a more complicated way. When
+>> transforming coordinates from a global reference frame (e.g. WGS84/ITRF2014) to a regional frame
+>> (e.g. ETRS89) we use a time-dependant 3D Helmert transformation.
+>> The above explains why you can successfully feed projected coordinates into the 2D version of the
+>> Helmert but not the 3D.
+>> /Kristian
+>>> On 16 Nov 2022, at 14.25, S?ren Holm <sgh at sgh.dk> wrote:
+>>> 
+>>> Thanks for the answer Kristian
+>>> 
+>>> It does make sense, however I do not think it is what I want.
+>>> 
+>>> I imagined something like this: WGS84 -> ETMERC -> HELMERT
+>>> 
+>>> Funny thing is that a 2D helmert works just fine:
+>>> 
+>>> +proj=etmerc .... +step +proj=helmert +convention=coordinate_frame ... +theta=12345
+>>> 
+>>> A 3D helmert does not work - it just complains that the units are mismatching.
+>>> 
+>>> Why do 2D helmert work when 3D helmert fails? - they both require cartesian coordinates. Etmerc outputs projected coordinates which makes it even more strange. The documentation does not say much about projected coordinates and why they are different from cartesian.
+>>> 
+>>> Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+>>>> S?ren,
+>>>> You simply add a step with the cart operation:
+>>>> +proj=pipeline
+>>>> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1 +x_0=150000 +y_0=0 +inv
+>>>> +step +proj=cart +ellps=GRS80
+>>>> +step +proj=helmert +convention=coordinate_frame +...
+>>>> I've removed superfluous parameters in the etmerc step and added a "+inv". The last bit
+>>>> ensures that correct direction of the etmerc step. You wan't to go from projected
+>>>> coordinates to geodetic coordinates. The cart step then converts the geodetic coordinates
+>>>> to cartesian coordinates which can be consumes by the helmert operation.
+>>>> You probably want to add more steps to bring your coordinates to a more usuable format
+>>>> than cartesian, e.g.
+>>>> +step +proj=cart +ellps=GRS80 +inv
+>>>> +step +proj=....
+>>>> Hope that clears things up.
+>>>> /Kristian
+>>>>> -----Original Message-----
+>>>>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+>>>>> Sent: 15. november 2022 16:00
+>>>>> To: proj <PROJ at lists.osgeo.org>
+>>>>> Subject: [PROJ] Helmert and coordinate convertion question
+>>>>> 
+>>>>> Hi
+>>>>> 
+>>>>> I'm scratching my head here.
+>>>>> 
+>>>>> How do I convert the projected coordinates from the etmerc step into
+>>>>> cartessian coordinates for the helmert step ?
+>>>>> 
+>>>>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25
+>>>>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m
+>>>>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+>>>>> +convention=coordinate_frame
+>>>>> 
+>>>>> 
+>>>>> Thanks in advance.
+>>>>> 
+>>>>> /S?ren Holm
+>>>>> _______________________________________________
+>>>>> PROJ mailing list
+>>>>> PROJ at lists.osgeo.org
+>>>>> https://lists.osgeo.org/mailman/listinfo/proj
+>>> _______________________________________________
+>>> PROJ mailing list
+>>> PROJ at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+From sgh at sgh.dk  Wed Nov 16 23:35:24 2022
+From: sgh at sgh.dk (=?UTF-8?Q?S=c3=b8ren_Holm?=)
+Date: Thu, 17 Nov 2022 08:35:24 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <351433D5-963B-4A23-9892-3D547B5D79FA@gmail.com>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+ <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+ <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+ <db75841d-bb0f-1bb2-ed1f-826713032d24@sgh.dk>
+ <351433D5-963B-4A23-9892-3D547B5D79FA@gmail.com>
+Message-ID: <bb6a276a-4f28-2d79-5f9d-97f3ee7fe88d@sgh.dk>
+
+Kristian
+
+Thanks for the clafications. I will do the two-step approach but he 
+noop-thing type convertion would be nice though. Is that something you 
+believe could be merged if implemente properly?
+
+Den 17.11.2022 kl. 08.12 skrev Kristian Evers:
+> 
+>> So what you are saying is that some of the operations by design are not supposed to be mixed - even if the number of outputs/inputs and unit (in this case meter) match....
+>>
+> 
+> Correct. It?s not the number of coordinate components that matter, it?s the nature of them.
+> PROJ will complain if input and output types are mismatching between pipeline steps.
+> 
+>> Anyway - the concrete case is this:
+>>
+>> We have an application utilizing proj to provide projected coordinates in DKTM, SWEREF, UTM and others. This is usualy fine but some of our user are used to be able to put a helmer on top of those transformations. I do no realy know why but overall it can be because they have some local origo or maybe they want one of the axises to align with a fence - It can be anything!
+>>
+>> They usualy formulate this as a transform (typically helmert 3D) of the projected coordinates. We can very well do this in an additional proj run but I woul rather have it in a single pass.
+>>
+>> I hope it makes sense.
+>>
+> 
+> It doesn?t really. I understand what?s done but I?m not sure it?s a particularly smart way to
+> do things. Oh well, there might be a particular use case where a flow like that makes sense.
+> 
+> We don?t have a good mechanism to do what you want in one go. A possible solution could
+> be a two-step approach that chains to transformations together:
+> 
+>> echo 12 55 0 0 | cct +proj=utm +zone=32 | cct +proj=helmert +x=234 +y=232 +z=234 +convention=coordinate_frame
+>    692109.6321   6099139.8250      234.0000        0.0000
+> 
+> Effectively creating a pipeline buy bypassing PROJs in-build unit checks. Adjust the above accordingly.
+> 
+> I guess we could implement a mechanism that does nothing but change the internal coordinate types
+> to what the user species. The above could then be redone like
+> 
+>> echo 12 55 0 0 | cct +proj=pipeline +proj=utm +zone=32 +step +proj=noop +in_type=projected +out_type=cartesian +proj=helmert +x=234 +y=232 +z=234 +convention=coordinate_frame
+>    692109.6321   6099139.8250      234.0000        0.0000
+> 
+> It offers plenty of opportunity for users to shoot themselves in the foot but in the right hands it
+> could be useful I guess.
+> 
+> /Kristian
+> 
+>>
+>> Den 16.11.2022 kl. 16.32 skrev Kristian Evers:
+>>> S?ren,
+>>> What you are proposing is borderline non-sensical. Maybe try to explain what you want
+>>> to achieve and we can try to find a good way to get you there.
+>>> PROJ has three types of coordinates:
+>>> 1. Geodetic coordinates
+>>> 2. Projected coordinates
+>>> 3. Cartesian coordinates
+>>> 1. is the classical latitude/longitude pair, 2 is any coordinate that is projected onto the plane
+>>> and 3 is a geocentric, cartesian representation of 1. Generally speaking 1 and 2 are 2-dimensional
+>>> and 3 is 3-dimensional. There?s a bit more to if you want to include heights but let?s leave that out
+>>> for now.
+>>> Different kinds of operation expect different types of coordinates and can spit out coordinates in
+>>> another type. E.g. a projection expects a geodetic coordinate (i.e. a latitude/longitude pair) and
+>>> spits out a projected coordinate. Another example is the Helmert transformation which works
+>>> on cartesian coordinates (except in the 2D case) and therefore expects cartesian input and
+>>> outputs cartesian coordinates.
+>>> The Helmert operation has two general modes: 2D and 3D. The 2D mode is meant for direct
+>>> adjustment of grid coordinates, i.e. projected coordinates. This could be useful on a local engineering
+>>> CRS for instance. The 3D mode is a bit more generic and the main usage of the Helmert transformation.
+>>> It allows you to do geodetic transformations over a larger area and in a more complicated way. When
+>>> transforming coordinates from a global reference frame (e.g. WGS84/ITRF2014) to a regional frame
+>>> (e.g. ETRS89) we use a time-dependant 3D Helmert transformation.
+>>> The above explains why you can successfully feed projected coordinates into the 2D version of the
+>>> Helmert but not the 3D.
+>>> /Kristian
+>>>> On 16 Nov 2022, at 14.25, S?ren Holm <sgh at sgh.dk> wrote:
+>>>>
+>>>> Thanks for the answer Kristian
+>>>>
+>>>> It does make sense, however I do not think it is what I want.
+>>>>
+>>>> I imagined something like this: WGS84 -> ETMERC -> HELMERT
+>>>>
+>>>> Funny thing is that a 2D helmert works just fine:
+>>>>
+>>>> +proj=etmerc .... +step +proj=helmert +convention=coordinate_frame ... +theta=12345
+>>>>
+>>>> A 3D helmert does not work - it just complains that the units are mismatching.
+>>>>
+>>>> Why do 2D helmert work when 3D helmert fails? - they both require cartesian coordinates. Etmerc outputs projected coordinates which makes it even more strange. The documentation does not say much about projected coordinates and why they are different from cartesian.
+>>>>
+>>>> Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+>>>>> S?ren,
+>>>>> You simply add a step with the cart operation:
+>>>>> +proj=pipeline
+>>>>> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1 +x_0=150000 +y_0=0 +inv
+>>>>> +step +proj=cart +ellps=GRS80
+>>>>> +step +proj=helmert +convention=coordinate_frame +...
+>>>>> I've removed superfluous parameters in the etmerc step and added a "+inv". The last bit
+>>>>> ensures that correct direction of the etmerc step. You wan't to go from projected
+>>>>> coordinates to geodetic coordinates. The cart step then converts the geodetic coordinates
+>>>>> to cartesian coordinates which can be consumes by the helmert operation.
+>>>>> You probably want to add more steps to bring your coordinates to a more usuable format
+>>>>> than cartesian, e.g.
+>>>>> +step +proj=cart +ellps=GRS80 +inv
+>>>>> +step +proj=....
+>>>>> Hope that clears things up.
+>>>>> /Kristian
+>>>>>> -----Original Message-----
+>>>>>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+>>>>>> Sent: 15. november 2022 16:00
+>>>>>> To: proj <PROJ at lists.osgeo.org>
+>>>>>> Subject: [PROJ] Helmert and coordinate convertion question
+>>>>>>
+>>>>>> Hi
+>>>>>>
+>>>>>> I'm scratching my head here.
+>>>>>>
+>>>>>> How do I convert the projected coordinates from the etmerc step into
+>>>>>> cartessian coordinates for the helmert step ?
+>>>>>>
+>>>>>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25
+>>>>>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m
+>>>>>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+>>>>>> +convention=coordinate_frame
+>>>>>>
+>>>>>>
+>>>>>> Thanks in advance.
+>>>>>>
+>>>>>> /S?ren Holm
+>>>>>> _______________________________________________
+>>>>>> PROJ mailing list
+>>>>>> PROJ at lists.osgeo.org
+>>>>>> https://lists.osgeo.org/mailman/listinfo/proj
+>>>> _______________________________________________
+>>>> PROJ mailing list
+>>>> PROJ at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+
+From kreve at sdfi.dk  Thu Nov 17 00:09:22 2022
+From: kreve at sdfi.dk (Kristian Evers)
+Date: Thu, 17 Nov 2022 08:09:22 +0000
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <bb6a276a-4f28-2d79-5f9d-97f3ee7fe88d@sgh.dk>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+ <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+ <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+ <db75841d-bb0f-1bb2-ed1f-826713032d24@sgh.dk>
+ <351433D5-963B-4A23-9892-3D547B5D79FA@gmail.com>
+ <bb6a276a-4f28-2d79-5f9d-97f3ee7fe88d@sgh.dk>
+Message-ID: <bd9fe78b095f4393b4fb41cd05c0130f@sdfi.dk>
+
+Yes, I don't see any issues with that. Pull Requests are welcome.
+I'm not sure an extension to noop is the best idea, it's probably
+better to create new operation with a good descriptive name.
+
+/Kristian
+
+> -----Original Message-----
+> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+> Sent: 17. november 2022 08:35
+> To: Kristian Evers <kristianevers at gmail.com>
+> Cc: proj <PROJ at lists.osgeo.org>
+> Subject: Re: [PROJ] Helmert and coordinate convertion question
+> 
+> Kristian
+> 
+> Thanks for the clafications. I will do the two-step approach but he
+> noop-thing type convertion would be nice though. Is that something you
+> believe could be merged if implemente properly?
+> 
+> Den 17.11.2022 kl. 08.12 skrev Kristian Evers:
+> >
+> >> So what you are saying is that some of the operations by design are not
+> supposed to be mixed - even if the number of outputs/inputs and unit (in
+> this case meter) match....
+> >>
+> >
+> > Correct. It?s not the number of coordinate components that matter, it?s the
+> nature of them.
+> > PROJ will complain if input and output types are mismatching between
+> pipeline steps.
+> >
+> >> Anyway - the concrete case is this:
+> >>
+> >> We have an application utilizing proj to provide projected coordinates in
+> DKTM, SWEREF, UTM and others. This is usualy fine but some of our user are
+> used to be able to put a helmer on top of those transformations. I do no
+> realy know why but overall it can be because they have some local origo or
+> maybe they want one of the axises to align with a fence - It can be anything!
+> >>
+> >> They usualy formulate this as a transform (typically helmert 3D) of the
+> projected coordinates. We can very well do this in an additional proj run but I
+> woul rather have it in a single pass.
+> >>
+> >> I hope it makes sense.
+> >>
+> >
+> > It doesn?t really. I understand what?s done but I?m not sure it?s a
+> particularly smart way to
+> > do things. Oh well, there might be a particular use case where a flow like
+> that makes sense.
+> >
+> > We don?t have a good mechanism to do what you want in one go. A
+> possible solution could
+> > be a two-step approach that chains to transformations together:
+> >
+> >> echo 12 55 0 0 | cct +proj=utm +zone=32 | cct +proj=helmert +x=234
+> +y=232 +z=234 +convention=coordinate_frame
+> >    692109.6321   6099139.8250      234.0000        0.0000
+> >
+> > Effectively creating a pipeline buy bypassing PROJs in-build unit checks.
+> Adjust the above accordingly.
+> >
+> > I guess we could implement a mechanism that does nothing but change the
+> internal coordinate types
+> > to what the user species. The above could then be redone like
+> >
+> >> echo 12 55 0 0 | cct +proj=pipeline +proj=utm +zone=32 +step
+> +proj=noop +in_type=projected +out_type=cartesian +proj=helmert +x=234
+> +y=232 +z=234 +convention=coordinate_frame
+> >    692109.6321   6099139.8250      234.0000        0.0000
+> >
+> > It offers plenty of opportunity for users to shoot themselves in the foot but
+> in the right hands it
+> > could be useful I guess.
+> >
+> > /Kristian
+> >
+> >>
+> >> Den 16.11.2022 kl. 16.32 skrev Kristian Evers:
+> >>> S?ren,
+> >>> What you are proposing is borderline non-sensical. Maybe try to explain
+> what you want
+> >>> to achieve and we can try to find a good way to get you there.
+> >>> PROJ has three types of coordinates:
+> >>> 1. Geodetic coordinates
+> >>> 2. Projected coordinates
+> >>> 3. Cartesian coordinates
+> >>> 1. is the classical latitude/longitude pair, 2 is any coordinate that is
+> projected onto the plane
+> >>> and 3 is a geocentric, cartesian representation of 1. Generally speaking 1
+> and 2 are 2-dimensional
+> >>> and 3 is 3-dimensional. There?s a bit more to if you want to include
+> heights but let?s leave that out
+> >>> for now.
+> >>> Different kinds of operation expect different types of coordinates and
+> can spit out coordinates in
+> >>> another type. E.g. a projection expects a geodetic coordinate (i.e. a
+> latitude/longitude pair) and
+> >>> spits out a projected coordinate. Another example is the Helmert
+> transformation which works
+> >>> on cartesian coordinates (except in the 2D case) and therefore expects
+> cartesian input and
+> >>> outputs cartesian coordinates.
+> >>> The Helmert operation has two general modes: 2D and 3D. The 2D mode
+> is meant for direct
+> >>> adjustment of grid coordinates, i.e. projected coordinates. This could be
+> useful on a local engineering
+> >>> CRS for instance. The 3D mode is a bit more generic and the main usage
+> of the Helmert transformation.
+> >>> It allows you to do geodetic transformations over a larger area and in a
+> more complicated way. When
+> >>> transforming coordinates from a global reference frame (e.g.
+> WGS84/ITRF2014) to a regional frame
+> >>> (e.g. ETRS89) we use a time-dependant 3D Helmert transformation.
+> >>> The above explains why you can successfully feed projected coordinates
+> into the 2D version of the
+> >>> Helmert but not the 3D.
+> >>> /Kristian
+> >>>> On 16 Nov 2022, at 14.25, S?ren Holm <sgh at sgh.dk> wrote:
+> >>>>
+> >>>> Thanks for the answer Kristian
+> >>>>
+> >>>> It does make sense, however I do not think it is what I want.
+> >>>>
+> >>>> I imagined something like this: WGS84 -> ETMERC -> HELMERT
+> >>>>
+> >>>> Funny thing is that a 2D helmert works just fine:
+> >>>>
+> >>>> +proj=etmerc .... +step +proj=helmert +convention=coordinate_frame
+> ... +theta=12345
+> >>>>
+> >>>> A 3D helmert does not work - it just complains that the units are
+> mismatching.
+> >>>>
+> >>>> Why do 2D helmert work when 3D helmert fails? - they both require
+> cartesian coordinates. Etmerc outputs projected coordinates which makes it
+> even more strange. The documentation does not say much about projected
+> coordinates and why they are different from cartesian.
+> >>>>
+> >>>> Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+> >>>>> S?ren,
+> >>>>> You simply add a step with the cart operation:
+> >>>>> +proj=pipeline
+> >>>>> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1
+> +x_0=150000 +y_0=0 +inv
+> >>>>> +step +proj=cart +ellps=GRS80
+> >>>>> +step +proj=helmert +convention=coordinate_frame +...
+> >>>>> I've removed superfluous parameters in the etmerc step and added a
+> "+inv". The last bit
+> >>>>> ensures that correct direction of the etmerc step. You wan't to go
+> from projected
+> >>>>> coordinates to geodetic coordinates. The cart step then converts the
+> geodetic coordinates
+> >>>>> to cartesian coordinates which can be consumes by the helmert
+> operation.
+> >>>>> You probably want to add more steps to bring your coordinates to a
+> more usuable format
+> >>>>> than cartesian, e.g.
+> >>>>> +step +proj=cart +ellps=GRS80 +inv
+> >>>>> +step +proj=....
+> >>>>> Hope that clears things up.
+> >>>>> /Kristian
+> >>>>>> -----Original Message-----
+> >>>>>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren
+> Holm
+> >>>>>> Sent: 15. november 2022 16:00
+> >>>>>> To: proj <PROJ at lists.osgeo.org>
+> >>>>>> Subject: [PROJ] Helmert and coordinate convertion question
+> >>>>>>
+> >>>>>> Hi
+> >>>>>>
+> >>>>>> I'm scratching my head here.
+> >>>>>>
+> >>>>>> How do I convert the projected coordinates from the etmerc step
+> into
+> >>>>>> cartessian coordinates for the helmert step ?
+> >>>>>>
+> >>>>>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0
+> +lon_0=20.25
+> >>>>>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0
+> +units=m
+> >>>>>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+> >>>>>> +convention=coordinate_frame
+> >>>>>>
+> >>>>>>
+> >>>>>> Thanks in advance.
+> >>>>>>
+> >>>>>> /S?ren Holm
+> >>>>>> _______________________________________________
+> >>>>>> PROJ mailing list
+> >>>>>> PROJ at lists.osgeo.org
+> >>>>>> https://lists.osgeo.org/mailman/listinfo/proj
+> >>>> _______________________________________________
+> >>>> PROJ mailing list
+> >>>> PROJ at lists.osgeo.org
+> >>>> https://lists.osgeo.org/mailman/listinfo/proj
+> >
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+From sgh at sgh.dk  Thu Nov 17 00:32:20 2022
+From: sgh at sgh.dk (=?UTF-8?Q?S=c3=b8ren_Holm?=)
+Date: Thu, 17 Nov 2022 09:32:20 +0100
+Subject: [PROJ] Helmert and coordinate convertion question
+In-Reply-To: <bd9fe78b095f4393b4fb41cd05c0130f@sdfi.dk>
+References: <ed307200-9e2e-f6ef-411f-623a71e89ea1@sgh.dk>
+ <08077d3ceeb24a779fcc62fea4b4791e@sdfi.dk>
+ <f8fb83f7-4656-43a5-0e77-43b31ee8747b@sgh.dk>
+ <133539D8-6E09-45CB-BA7B-4BC2AA023C0E@gmail.com>
+ <db75841d-bb0f-1bb2-ed1f-826713032d24@sgh.dk>
+ <351433D5-963B-4A23-9892-3D547B5D79FA@gmail.com>
+ <bb6a276a-4f28-2d79-5f9d-97f3ee7fe88d@sgh.dk>
+ <bd9fe78b095f4393b4fb41cd05c0130f@sdfi.dk>
+Message-ID: <562c65d6-7ef5-0a56-a87b-4e87db473a52@sgh.dk>
+
+ok, excellent.
+
+Den 17.11.2022 kl. 09.09 skrev Kristian Evers:
+> Yes, I don't see any issues with that. Pull Requests are welcome.
+> I'm not sure an extension to noop is the best idea, it's probably
+> better to create new operation with a good descriptive name.
+> 
+> /Kristian
+> 
+>> -----Original Message-----
+>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+>> Sent: 17. november 2022 08:35
+>> To: Kristian Evers <kristianevers at gmail.com>
+>> Cc: proj <PROJ at lists.osgeo.org>
+>> Subject: Re: [PROJ] Helmert and coordinate convertion question
+>>
+>> Kristian
+>>
+>> Thanks for the clafications. I will do the two-step approach but he
+>> noop-thing type convertion would be nice though. Is that something you
+>> believe could be merged if implemente properly?
+>>
+>> Den 17.11.2022 kl. 08.12 skrev Kristian Evers:
+>>>
+>>>> So what you are saying is that some of the operations by design are not
+>> supposed to be mixed - even if the number of outputs/inputs and unit (in
+>> this case meter) match....
+>>>>
+>>>
+>>> Correct. It?s not the number of coordinate components that matter, it?s the
+>> nature of them.
+>>> PROJ will complain if input and output types are mismatching between
+>> pipeline steps.
+>>>
+>>>> Anyway - the concrete case is this:
+>>>>
+>>>> We have an application utilizing proj to provide projected coordinates in
+>> DKTM, SWEREF, UTM and others. This is usualy fine but some of our user are
+>> used to be able to put a helmer on top of those transformations. I do no
+>> realy know why but overall it can be because they have some local origo or
+>> maybe they want one of the axises to align with a fence - It can be anything!
+>>>>
+>>>> They usualy formulate this as a transform (typically helmert 3D) of the
+>> projected coordinates. We can very well do this in an additional proj run but I
+>> woul rather have it in a single pass.
+>>>>
+>>>> I hope it makes sense.
+>>>>
+>>>
+>>> It doesn?t really. I understand what?s done but I?m not sure it?s a
+>> particularly smart way to
+>>> do things. Oh well, there might be a particular use case where a flow like
+>> that makes sense.
+>>>
+>>> We don?t have a good mechanism to do what you want in one go. A
+>> possible solution could
+>>> be a two-step approach that chains to transformations together:
+>>>
+>>>> echo 12 55 0 0 | cct +proj=utm +zone=32 | cct +proj=helmert +x=234
+>> +y=232 +z=234 +convention=coordinate_frame
+>>>     692109.6321   6099139.8250      234.0000        0.0000
+>>>
+>>> Effectively creating a pipeline buy bypassing PROJs in-build unit checks.
+>> Adjust the above accordingly.
+>>>
+>>> I guess we could implement a mechanism that does nothing but change the
+>> internal coordinate types
+>>> to what the user species. The above could then be redone like
+>>>
+>>>> echo 12 55 0 0 | cct +proj=pipeline +proj=utm +zone=32 +step
+>> +proj=noop +in_type=projected +out_type=cartesian +proj=helmert +x=234
+>> +y=232 +z=234 +convention=coordinate_frame
+>>>     692109.6321   6099139.8250      234.0000        0.0000
+>>>
+>>> It offers plenty of opportunity for users to shoot themselves in the foot but
+>> in the right hands it
+>>> could be useful I guess.
+>>>
+>>> /Kristian
+>>>
+>>>>
+>>>> Den 16.11.2022 kl. 16.32 skrev Kristian Evers:
+>>>>> S?ren,
+>>>>> What you are proposing is borderline non-sensical. Maybe try to explain
+>> what you want
+>>>>> to achieve and we can try to find a good way to get you there.
+>>>>> PROJ has three types of coordinates:
+>>>>> 1. Geodetic coordinates
+>>>>> 2. Projected coordinates
+>>>>> 3. Cartesian coordinates
+>>>>> 1. is the classical latitude/longitude pair, 2 is any coordinate that is
+>> projected onto the plane
+>>>>> and 3 is a geocentric, cartesian representation of 1. Generally speaking 1
+>> and 2 are 2-dimensional
+>>>>> and 3 is 3-dimensional. There?s a bit more to if you want to include
+>> heights but let?s leave that out
+>>>>> for now.
+>>>>> Different kinds of operation expect different types of coordinates and
+>> can spit out coordinates in
+>>>>> another type. E.g. a projection expects a geodetic coordinate (i.e. a
+>> latitude/longitude pair) and
+>>>>> spits out a projected coordinate. Another example is the Helmert
+>> transformation which works
+>>>>> on cartesian coordinates (except in the 2D case) and therefore expects
+>> cartesian input and
+>>>>> outputs cartesian coordinates.
+>>>>> The Helmert operation has two general modes: 2D and 3D. The 2D mode
+>> is meant for direct
+>>>>> adjustment of grid coordinates, i.e. projected coordinates. This could be
+>> useful on a local engineering
+>>>>> CRS for instance. The 3D mode is a bit more generic and the main usage
+>> of the Helmert transformation.
+>>>>> It allows you to do geodetic transformations over a larger area and in a
+>> more complicated way. When
+>>>>> transforming coordinates from a global reference frame (e.g.
+>> WGS84/ITRF2014) to a regional frame
+>>>>> (e.g. ETRS89) we use a time-dependant 3D Helmert transformation.
+>>>>> The above explains why you can successfully feed projected coordinates
+>> into the 2D version of the
+>>>>> Helmert but not the 3D.
+>>>>> /Kristian
+>>>>>> On 16 Nov 2022, at 14.25, S?ren Holm <sgh at sgh.dk> wrote:
+>>>>>>
+>>>>>> Thanks for the answer Kristian
+>>>>>>
+>>>>>> It does make sense, however I do not think it is what I want.
+>>>>>>
+>>>>>> I imagined something like this: WGS84 -> ETMERC -> HELMERT
+>>>>>>
+>>>>>> Funny thing is that a 2D helmert works just fine:
+>>>>>>
+>>>>>> +proj=etmerc .... +step +proj=helmert +convention=coordinate_frame
+>> ... +theta=12345
+>>>>>>
+>>>>>> A 3D helmert does not work - it just complains that the units are
+>> mismatching.
+>>>>>>
+>>>>>> Why do 2D helmert work when 3D helmert fails? - they both require
+>> cartesian coordinates. Etmerc outputs projected coordinates which makes it
+>> even more strange. The documentation does not say much about projected
+>> coordinates and why they are different from cartesian.
+>>>>>>
+>>>>>> Den 16.11.2022 kl. 12.56 skrev Kristian Evers:
+>>>>>>> S?ren,
+>>>>>>> You simply add a step with the cart operation:
+>>>>>>> +proj=pipeline
+>>>>>>> +step +proj=etmerc +ellps=GRS80 +lat_0=0 +lon_0=20.25 +k=1
+>> +x_0=150000 +y_0=0 +inv
+>>>>>>> +step +proj=cart +ellps=GRS80
+>>>>>>> +step +proj=helmert +convention=coordinate_frame +...
+>>>>>>> I've removed superfluous parameters in the etmerc step and added a
+>> "+inv". The last bit
+>>>>>>> ensures that correct direction of the etmerc step. You wan't to go
+>> from projected
+>>>>>>> coordinates to geodetic coordinates. The cart step then converts the
+>> geodetic coordinates
+>>>>>>> to cartesian coordinates which can be consumes by the helmert
+>> operation.
+>>>>>>> You probably want to add more steps to bring your coordinates to a
+>> more usuable format
+>>>>>>> than cartesian, e.g.
+>>>>>>> +step +proj=cart +ellps=GRS80 +inv
+>>>>>>> +step +proj=....
+>>>>>>> Hope that clears things up.
+>>>>>>> /Kristian
+>>>>>>>> -----Original Message-----
+>>>>>>>> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren
+>> Holm
+>>>>>>>> Sent: 15. november 2022 16:00
+>>>>>>>> To: proj <PROJ at lists.osgeo.org>
+>>>>>>>> Subject: [PROJ] Helmert and coordinate convertion question
+>>>>>>>>
+>>>>>>>> Hi
+>>>>>>>>
+>>>>>>>> I'm scratching my head here.
+>>>>>>>>
+>>>>>>>> How do I convert the projected coordinates from the etmerc step
+>> into
+>>>>>>>> cartessian coordinates for the helmert step ?
+>>>>>>>>
+>>>>>>>> cct +proj=pipeline +step +proj=etmerc +ellps=GRS80 +lat_0=0
+>> +lon_0=20.25
+>>>>>>>> +k=1 +x_0=150000 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0
+>> +units=m
+>>>>>>>> +no_defs +step +proj=cart +ellps=GRS80 +step +proj=helmert
+>>>>>>>> +convention=coordinate_frame
+>>>>>>>>
+>>>>>>>>
+>>>>>>>> Thanks in advance.
+>>>>>>>>
+>>>>>>>> /S?ren Holm
+>>>>>>>> _______________________________________________
+>>>>>>>> PROJ mailing list
+>>>>>>>> PROJ at lists.osgeo.org
+>>>>>>>> https://lists.osgeo.org/mailman/listinfo/proj
+>>>>>> _______________________________________________
+>>>>>> PROJ mailing list
+>>>>>> PROJ at lists.osgeo.org
+>>>>>> https://lists.osgeo.org/mailman/listinfo/proj
+>>>
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+
+From j1 at jimenezshaw.com  Sat Nov 19 04:19:39 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sat, 19 Nov 2022 13:19:39 +0100
+Subject: [PROJ] Failing action in my repo: macos_build
+Message-ID: <CADRrdKv1wHcK-k2wdTJh13iZnW1ufzpcB2snWEoN77WpEpcscA@mail.gmail.com>
+
+Hi
+
+I have rebased my master into origin master, and there is a consistent
+failing action: macos_build
+(all the other jobs are fine)
+
+for instance here:
+https://github.com/jjimenezshaw/PROJ/actions/runs/3503183916/jobs/5868045291#step:6:3001
+
+The last lines of the log are:
+
+Check that we can retrieve the resource directory in a relative way after
+renaming the installation prefix
+Downloading from https://cdn.proj.org into
+/private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+Downloading from https://cdn.proj.org into
+/private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+Downloading from https://cdn.proj.org into
+/private/tmp/proj_static_install_from_dist_renamed/subdir/share/proj
+Error: Process completed with exit code 1.
+
+Compared with a similar job in origin master, the same part of the log says
+
+Check that we can retrieve the resource directory in a relative way after
+renaming the installation prefix
+Downloading from https://cdn.proj.org into
+/private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+Downloading from https://cdn.proj.org into
+/private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+Downloading from https://cdn.proj.org into
+/tmp/proj_static_install_from_dist_renamed/subdir/share/proj
+Downloading from https://cdn.proj.org into
+/tmp/proj_static_install_from_dist_renamed/subdir/share/proj
+Skipping test_autotools.sh test for osx
+Running post-install tests with CMake (shared)
+Testing C app
+...
+
+Should I change anything in my repo actions to have it green?
+
+Thanks
+
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221119/4aab3ace/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Nov 19 05:19:49 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 19 Nov 2022 14:19:49 +0100
+Subject: [PROJ] Failing action in my repo: macos_build
+In-Reply-To: <CADRrdKv1wHcK-k2wdTJh13iZnW1ufzpcB2snWEoN77WpEpcscA@mail.gmail.com>
+References: <CADRrdKv1wHcK-k2wdTJh13iZnW1ufzpcB2snWEoN77WpEpcscA@mail.gmail.com>
+Message-ID: <b10b1dbe-34c9-b045-f170-9f656daeb754@spatialys.com>
+
+Javier,
+
+The Mac CI workflow does work in my fork. There's nothing special to do.
+
+Given the difference in logs, I suspect there's an issue with the 
+following snippet of travis/install.sh where the TRAVIS_OS_NAME == osx 
+check fail for you, for a mysterious reason
+
+if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+ ??? # on macOS /tmp is a symblink to /private/tmp only for the shared build
+ ??? INST=/private/tmp
+else
+ ??? INST=/tmp
+fi
+
+which makes
+
+In the raw log of your job 
+https://pipelines.actions.githubusercontent.com/serviceHosts/6b542973-dcef-4e06-8169-ff9422a73985/_apis/pipelines/1/runs/282/signedlogcontent/2?urlExpires=2022-11-19T12%3A54%3A07.7428761Z&urlSigningMethod=HMACV1&urlSignature=5oeDXu%2B5VGns2RgjAs%2Fwh%2BRlljoKD5Kfckam7x7Y9fQ%3D
+
+I do see
+
+2022-11-19T11:50:33.1529890Z   TRAVIS_OS_NAME: osx
+
+
+UPDATE: while comparing more closely the logs of a successful build with 
+yours, I see that successful builds have right at their beginning
+
+2022-11-19T11:42:28.3777650Z Image: macos-11
+2022-11-19T11:42:28.3777950Z Version: 20221028.1
+
+whereas yours as
+
+2022-11-19T11:47:36.9113510Z Image: macos-12
+2022-11-19T11:47:36.9113920Z Version: 20221027.1
+
+
+.github/workflows/mac.yml has "runs-on: macos-latest", so I suspect 
+github is progressively deploying a new version of their macos-latest 
+image to be now macos-12, and that it hasn't still reached OSGeo/PROJ, 
+but this might be just a matter of time.
+
+So travis/install.sh should be adapted to work with macos-12
+
+You could perhaps try changing line 184 to be
+
+grep "Downloading from https://cdn.proj.org into 
+/tmp/proj_static_install_from_dist_renamed/subdir/share/proj" static.out 
+|| grep "Downloading from https://cdn.proj.org into 
+$INST/proj_static_install_from_dist_renamed/subdir/share/proj" static.out
+
+to test for both /tmp and /private/tmp
+
+The comment at line 176 should be adjusted to something like "# on macOS 
+11 /tmp is resolved by PROJ as a symlink to /private/tmp only for the 
+shared build. on macOS 12 for both static and shared builds"
+
+Even
+
+Le 19/11/2022 ? 13:19, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> I have rebased my master into origin master, and there is a consistent 
+> failing action: macos_build
+> (all the other jobs are fine)
+>
+> for instance here: 
+> https://github.com/jjimenezshaw/PROJ/actions/runs/3503183916/jobs/5868045291#step:6:3001
+>
+> The last lines of the log are:
+>
+> Check that we can retrieve the resource directory in a relative way 
+> after renaming the installation prefix
+> Downloading from https://cdn.proj.org into 
+> /private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+> Downloading from https://cdn.proj.org into 
+> /private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+> Downloading from https://cdn.proj.org into 
+> /private/tmp/proj_static_install_from_dist_renamed/subdir/share/proj
+> Error: Process completed with exit code 1.
+>
+> Compared with a similar job in origin master, the same part of the log 
+> says
+>
+> Check that we can retrieve the resource directory in a relative way 
+> after renaming the installation prefix
+> Downloading from https://cdn.proj.org into 
+> /private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+> Downloading from https://cdn.proj.org into 
+> /private/tmp/proj_shared_install_from_dist_renamed/subdir/share/proj
+> Downloading from https://cdn.proj.org into 
+> /tmp/proj_static_install_from_dist_renamed/subdir/share/proj
+> Downloading from https://cdn.proj.org into 
+> /tmp/proj_static_install_from_dist_renamed/subdir/share/proj
+> Skipping test_autotools.sh test for osx
+> Running post-install tests with CMake (shared)
+> Testing C app
+> ...
+>
+> Should I change anything in my repo actions to have it green?
+>
+> Thanks
+>
+> .___ ._ ..._ .. . ._.? .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221119/9ca83948/attachment.htm>
+
+From j1 at jimenezshaw.com  Wed Nov 23 02:35:14 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 23 Nov 2022 11:35:14 +0100
+Subject: [PROJ] PJ_TYPE for DerivedProjectedCRS
+Message-ID: <CADRrdKtu4G4mQy7Rk3WjS8RXh2LdNOK36Sb3-tU7icqVbVwDjQ@mail.gmail.com>
+
+Hi
+
+Searching from PDAL (SpatialReference::isProjected) to GDAL
+(OSRIsProjected) to PROJ, I ended up in the function
+PJ_TYPE proj_get_type(const PJ *obj)
+
+Inspecting the code I realized that a DerivedProjectedCRS is not covered by
+the selector, and will return PJ_TYPE_OTHER_CRS
+
+Remember that unlike other derived, like DerivedGeographicCRS that is a
+GeographicCRS or DerivedVerticalCRS is a VerticalCRS, a DerivedProjectedCRS
+is not inheriting from ProjectedCRS.
+
+How should it be? Should it be returned as PJ_TYPE_PROJECTED_CRS ? Should
+we create a new category? Leave as it is now (abandoned among other first
+class citizen CRS types)?
+
+In my opinion a DerivedProjectedCRS "behaves" like a ProjectedCRS in the
+same way as a DerivedVerticalCRS behaves like a VerticalCRS and so on. But
+maybe I am missing something.
+
+Thanks.
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221123/c73c8973/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Nov 23 02:53:11 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 23 Nov 2022 11:53:11 +0100
+Subject: [PROJ] PJ_TYPE for DerivedProjectedCRS
+In-Reply-To: <CADRrdKtu4G4mQy7Rk3WjS8RXh2LdNOK36Sb3-tU7icqVbVwDjQ@mail.gmail.com>
+References: <CADRrdKtu4G4mQy7Rk3WjS8RXh2LdNOK36Sb3-tU7icqVbVwDjQ@mail.gmail.com>
+Message-ID: <55a01867-c559-5c11-f553-eb72fb564dc5@spatialys.com>
+
+Javier,
+
+the proper fix would be to add a PJ_TYPE_DERIVED_PROJECTED_CRS to the 
+enumeration (9.2 type of change only, not to be backported to stable 
+branch). Returning PJ_TYPE_PROJECTED_CRS could cause issues as you can't 
+cast the C++ object corresponding to a DerivedProjectedCRS to be a 
+ProjectedCRS
+
+ISO 19111 doesn't consider a DerivedProjectedCRS to be a ProjectedCRS, 
+presumably because that the conversion applied to the ProjectedCRS to 
+make it a DerivedProjectedCRS might loose some of the properties of the 
+projection (conformality, equal area, etc.). For example if you apply an 
+affine transformation where the scaling isn't the same in both axis. 
+Just guessing.
+
+Even
+
+Le 23/11/2022 ? 11:35, Javier Jimenez Shaw a ?crit?:
+> Hi
+>
+> Searching from PDAL (SpatialReference::isProjected) to GDAL 
+> (OSRIsProjected) to PROJ, I ended up in the function
+> PJ_TYPE proj_get_type(const PJ *obj)
+>
+> Inspecting the code I realized that a DerivedProjectedCRS is not 
+> covered by the selector, and will return PJ_TYPE_OTHER_CRS
+>
+> Remember that unlike other derived, like DerivedGeographicCRS that is 
+> a GeographicCRS or DerivedVerticalCRS is a VerticalCRS, a 
+> DerivedProjectedCRS is not inheriting from ProjectedCRS.
+>
+> How should it be? Should it be returned as PJ_TYPE_PROJECTED_CRS ? 
+> Should we create a new category? Leave as it is now (abandoned among 
+> other first class citizen CRS types)?
+>
+> In my opinion a DerivedProjectedCRS "behaves" like a ProjectedCRS in 
+> the same way as a DerivedVerticalCRS behaves like a VerticalCRS and so 
+> on. But maybe I am missing something.
+>
+> Thanks.
+> .___ ._ ..._ .. . ._. .___ .. __ . _. . __..? ... .... ._ .__
+> Entre dos pensamientos racionales
+> hay infinitos pensamientos irracionales.
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221123/f5c3e26f/attachment.htm>
+
+From kristianevers at gmail.com  Fri Nov 25 09:56:51 2022
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 25 Nov 2022 18:56:51 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+Message-ID: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+
+All,
+
+I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The PROJ
+release includes a number of bug fixes (release notes below) and a slight update
+to the database. PROJ-data is extended with the at_bev_AT_GIS_GRID_2021_09_28
+grid.
+
+Download the archives here:
+
+https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz
+https://download.osgeo.org/proj/proj-9.1.1RC1.zip
+
+https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz 
+https://download.osgeo.org/proj/proj-data-1.12RC1.zip
+
+As always, please test the release candidates and report your findings
+either here on the mailing list on in the issue tracker on GitHub.
+
+/Kristian
+
+?????????????????
+
+9.1.0 Release Notes
+-------------------
+
+ Updates
+ --------
+
+ o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+
+ Bug fixes
+ ----------
+
+ o Implement alterGeodeticCRS and stripVerticalComponent for DerivedProjected (#3482)
+
+ o Various improvements to handling of DerivedProjectedCRS
+   (#3482, #3477, #3342, #3319, #3317)
+
+ o Add missing <cstdint> includes (#3459)
+
+ o cs2cs: better validate value of -W option (#3453)
+
+ o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+   correct URLs (#3448)
+
+ o Database: register in grid_alternatives grids from PROJ-data that have no
+   corresponding transformation record (#3446)
+
+ o cass projection: fix forward computation of easting (#3433)
+
+ o Implement Geographic/Vertical Offset conversions (#3413)
+
+ o vandg projection: handle +over to extend the validity domain outside of
+  |lon|>180deg (#3427)
+
+ o eqdc projection: avoid floating point division by zero in non-nominal case (#3415)
+
+ o createOperations(): fix issues when transforming between Geog3D and
+   DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+
+ o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+   DerivedVerticalCRS as equivalent (#3408)
+
+ o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+    beginning of input files (#3395)
+
+ o createFromUserInput(): Improved lookup when approximate name is provided (#3371)
+
+ o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+
+ o findsOpsInRegistryWithIntermediate(): make it work when source/target geodetic
+   CRS has no known id (#3365)
+
+ o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+   geographic transformation between datum with unknown transformation (#3361)
+
+ o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+   'Geographic3D to GravityRelatedHeight' method (#3355)
+
+ o proj_normalize_for_visualization(): take into account FORCE_OVER property
+   from source operation (#3350)
+
+ o Link geodtest against libm when available (#3341)
+
+
+From j1 at jimenezshaw.com  Fri Nov 25 10:22:54 2022
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 25 Nov 2022 19:22:54 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+Message-ID: <CADRrdKuO12KAKpfZ-0R6KaAOwrv9P1qbEw6HgL3GGS_-qOXMLQ@mail.gmail.com>
+
+The release notes start with "9.1.0 Release Notes". It is 9.1.1, isn't it?
+.___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+Entre dos pensamientos racionales
+hay infinitos pensamientos irracionales.
+
+
+
+On Fri, 25 Nov 2022 at 18:56, Kristian Evers <kristianevers at gmail.com>
+wrote:
+
+> All,
+>
+> I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The
+> PROJ
+> release includes a number of bug fixes (release notes below) and a slight
+> update
+> to the database. PROJ-data is extended with the
+> at_bev_AT_GIS_GRID_2021_09_28
+> grid.
+>
+> Download the archives here:
+>
+> https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz
+> https://download.osgeo.org/proj/proj-9.1.1RC1.zip
+>
+> https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz
+> https://download.osgeo.org/proj/proj-data-1.12RC1.zip
+>
+> As always, please test the release candidates and report your findings
+> either here on the mailing list on in the issue tracker on GitHub.
+>
+> /Kristian
+>
+> ?????????????????
+>
+> 9.1.0 Release Notes
+> -------------------
+>
+>  Updates
+>  --------
+>
+>  o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+>
+>  Bug fixes
+>  ----------
+>
+>  o Implement alterGeodeticCRS and stripVerticalComponent for
+> DerivedProjected (#3482)
+>
+>  o Various improvements to handling of DerivedProjectedCRS
+>    (#3482, #3477, #3342, #3319, #3317)
+>
+>  o Add missing <cstdint> includes (#3459)
+>
+>  o cs2cs: better validate value of -W option (#3453)
+>
+>  o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+>    correct URLs (#3448)
+>
+>  o Database: register in grid_alternatives grids from PROJ-data that have
+> no
+>    corresponding transformation record (#3446)
+>
+>  o cass projection: fix forward computation of easting (#3433)
+>
+>  o Implement Geographic/Vertical Offset conversions (#3413)
+>
+>  o vandg projection: handle +over to extend the validity domain outside of
+>   |lon|>180deg (#3427)
+>
+>  o eqdc projection: avoid floating point division by zero in non-nominal
+> case (#3415)
+>
+>  o createOperations(): fix issues when transforming between Geog3D and
+>    DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+>
+>  o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+>    DerivedVerticalCRS as equivalent (#3408)
+>
+>  o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+>     beginning of input files (#3395)
+>
+>  o createFromUserInput(): Improved lookup when approximate name is
+> provided (#3371)
+>
+>  o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+>
+>  o findsOpsInRegistryWithIntermediate(): make it work when source/target
+> geodetic
+>    CRS has no known id (#3365)
+>
+>  o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+>    geographic transformation between datum with unknown transformation
+> (#3361)
+>
+>  o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+>    'Geographic3D to GravityRelatedHeight' method (#3355)
+>
+>  o proj_normalize_for_visualization(): take into account FORCE_OVER
+> property
+>    from source operation (#3350)
+>
+>  o Link geodtest against libm when available (#3341)
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221125/438922b9/attachment.htm>
+
+From even.rouault at spatialys.com  Fri Nov 25 10:31:13 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 25 Nov 2022 19:31:13 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+Message-ID: <106fd6b1-19f9-de7d-d6d2-74de27e9cf17@spatialys.com>
+
+Hi Kristian,
+
+9.1.1RC1 sucessfully tested against GDAL autotest suite of release/3.6 
+branch
+
+Even
+
+Le 25/11/2022 ? 18:56, Kristian Evers a ?crit?:
+> All,
+>
+> I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The PROJ
+> release includes a number of bug fixes (release notes below) and a slight update
+> to the database. PROJ-data is extended with the at_bev_AT_GIS_GRID_2021_09_28
+> grid.
+>
+> Download the archives here:
+>
+> https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz
+> https://download.osgeo.org/proj/proj-9.1.1RC1.zip
+>
+> https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz
+> https://download.osgeo.org/proj/proj-data-1.12RC1.zip
+>
+> As always, please test the release candidates and report your findings
+> either here on the mailing list on in the issue tracker on GitHub.
+>
+> /Kristian
+>
+> ?????????????????
+>
+> 9.1.0 Release Notes
+> -------------------
+>
+>   Updates
+>   --------
+>
+>   o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+>
+>   Bug fixes
+>   ----------
+>
+>   o Implement alterGeodeticCRS and stripVerticalComponent for DerivedProjected (#3482)
+>
+>   o Various improvements to handling of DerivedProjectedCRS
+>     (#3482, #3477, #3342, #3319, #3317)
+>
+>   o Add missing <cstdint> includes (#3459)
+>
+>   o cs2cs: better validate value of -W option (#3453)
+>
+>   o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+>     correct URLs (#3448)
+>
+>   o Database: register in grid_alternatives grids from PROJ-data that have no
+>     corresponding transformation record (#3446)
+>
+>   o cass projection: fix forward computation of easting (#3433)
+>
+>   o Implement Geographic/Vertical Offset conversions (#3413)
+>
+>   o vandg projection: handle +over to extend the validity domain outside of
+>    |lon|>180deg (#3427)
+>
+>   o eqdc projection: avoid floating point division by zero in non-nominal case (#3415)
+>
+>   o createOperations(): fix issues when transforming between Geog3D and
+>     DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+>
+>   o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+>     DerivedVerticalCRS as equivalent (#3408)
+>
+>   o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+>      beginning of input files (#3395)
+>
+>   o createFromUserInput(): Improved lookup when approximate name is provided (#3371)
+>
+>   o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+>
+>   o findsOpsInRegistryWithIntermediate(): make it work when source/target geodetic
+>     CRS has no known id (#3365)
+>
+>   o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+>     geographic transformation between datum with unknown transformation (#3361)
+>
+>   o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+>     'Geographic3D to GravityRelatedHeight' method (#3355)
+>
+>   o proj_normalize_for_visualization(): take into account FORCE_OVER property
+>     from source operation (#3350)
+>
+>   o Link geodtest against libm when available (#3341)
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From kristianevers at gmail.com  Fri Nov 25 10:59:44 2022
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 25 Nov 2022 19:59:44 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <CADRrdKuO12KAKpfZ-0R6KaAOwrv9P1qbEw6HgL3GGS_-qOXMLQ@mail.gmail.com>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+ <CADRrdKuO12KAKpfZ-0R6KaAOwrv9P1qbEw6HgL3GGS_-qOXMLQ@mail.gmail.com>
+Message-ID: <B1108895-0E72-4676-B74D-42F23E2E032F@gmail.com>
+
+Yes, of course it is. Good catch. If no other issues surface I?ll just make sure to update
+the release notes title to 9.1.1 in the final release. 
+
+/Kristian
+
+> On 25 Nov 2022, at 19.22, Javier Jimenez Shaw <j1 at jimenezshaw.com> wrote:
+> 
+> The release notes start with "9.1.0 Release Notes". It is 9.1.1, isn't it?
+> .___ ._ ..._ .. . ._.  .___ .. __ . _. . __..  ... .... ._ .__
+> Entre dos pensamientos racionales 
+> hay infinitos pensamientos irracionales.
+> 
+> 
+> 
+> On Fri, 25 Nov 2022 at 18:56, Kristian Evers <kristianevers at gmail.com <mailto:kristianevers at gmail.com>> wrote:
+> All,
+> 
+> I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The PROJ
+> release includes a number of bug fixes (release notes below) and a slight update
+> to the database. PROJ-data is extended with the at_bev_AT_GIS_GRID_2021_09_28
+> grid.
+> 
+> Download the archives here:
+> 
+> https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz <https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz>
+> https://download.osgeo.org/proj/proj-9.1.1RC1.zip <https://download.osgeo.org/proj/proj-9.1.1RC1.zip>
+> 
+> https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz <https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz> 
+> https://download.osgeo.org/proj/proj-data-1.12RC1.zip <https://download.osgeo.org/proj/proj-data-1.12RC1.zip>
+> 
+> As always, please test the release candidates and report your findings
+> either here on the mailing list on in the issue tracker on GitHub.
+> 
+> /Kristian
+> 
+> ?????????????????
+> 
+> 9.1.0 Release Notes
+> -------------------
+> 
+>  Updates
+>  --------
+> 
+>  o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+> 
+>  Bug fixes
+>  ----------
+> 
+>  o Implement alterGeodeticCRS and stripVerticalComponent for DerivedProjected (#3482)
+> 
+>  o Various improvements to handling of DerivedProjectedCRS
+>    (#3482, #3477, #3342, #3319, #3317)
+> 
+>  o Add missing <cstdint> includes (#3459)
+> 
+>  o cs2cs: better validate value of -W option (#3453)
+> 
+>  o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+>    correct URLs (#3448)
+> 
+>  o Database: register in grid_alternatives grids from PROJ-data that have no
+>    corresponding transformation record (#3446)
+> 
+>  o cass projection: fix forward computation of easting (#3433)
+> 
+>  o Implement Geographic/Vertical Offset conversions (#3413)
+> 
+>  o vandg projection: handle +over to extend the validity domain outside of
+>   |lon|>180deg (#3427)
+> 
+>  o eqdc projection: avoid floating point division by zero in non-nominal case (#3415)
+> 
+>  o createOperations(): fix issues when transforming between Geog3D and
+>    DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+> 
+>  o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+>    DerivedVerticalCRS as equivalent (#3408)
+> 
+>  o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+>     beginning of input files (#3395)
+> 
+>  o createFromUserInput(): Improved lookup when approximate name is provided (#3371)
+> 
+>  o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+> 
+>  o findsOpsInRegistryWithIntermediate(): make it work when source/target geodetic
+>    CRS has no known id (#3365)
+> 
+>  o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+>    geographic transformation between datum with unknown transformation (#3361)
+> 
+>  o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+>    'Geographic3D to GravityRelatedHeight' method (#3355)
+> 
+>  o proj_normalize_for_visualization(): take into account FORCE_OVER property
+>    from source operation (#3350)
+> 
+>  o Link geodtest against libm when available (#3341)
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org <mailto:PROJ at lists.osgeo.org>
+> https://lists.osgeo.org/mailman/listinfo/proj <https://lists.osgeo.org/mailman/listinfo/proj>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20221125/e5745953/attachment-0001.htm>
+
+From sebastic at xs4all.nl  Sat Nov 26 01:01:10 2022
+From: sebastic at xs4all.nl (Sebastiaan Couwenberg)
+Date: Sat, 26 Nov 2022 10:01:10 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+Message-ID: <4e55e5b6-463a-1df4-98a0-cb634202fc2d@xs4all.nl>
+
+It built successfully on all release architectures:
+
+  https://buildd.debian.org/status/package.php?p=proj&suite=experimental
+
+libgeotiff failed to build to due test failures:
+
+  https://github.com/OSGeo/libgeotiff/issues/81
+
+Kind Regards,
+
+Bas
+
+-- 
+  GPG Key ID: 4096R/6750F10AE88D4AF1
+Fingerprint: 8182 DE41 7056 408D 6146  50D1 6750 F10A E88D 4AF1
+
+
+From even.rouault at spatialys.com  Sat Nov 26 04:26:55 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 26 Nov 2022 13:26:55 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <4e55e5b6-463a-1df4-98a0-cb634202fc2d@xs4all.nl>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+ <4e55e5b6-463a-1df4-98a0-cb634202fc2d@xs4all.nl>
+Message-ID: <739503de-1f5d-3a5a-59ae-f2c55e950ae3@spatialys.com>
+
+
+>
+> libgeotiff failed to build to due test failures:
+>
+> ?https://github.com/OSGeo/libgeotiff/issues/81
+Nothing particular worrying: those tests test more than they should. Fix 
+in https://github.com/OSGeo/libgeotiff/pull/82
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From kristianevers at gmail.com  Wed Nov 30 12:58:52 2022
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Wed, 30 Nov 2022 21:58:52 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+Message-ID: <3B1286B4-D607-492F-AA7A-AFACFBFCC8F4@gmail.com>
+
+Apart from a minor detail in the release notes no issues with the release 
+candidates has been reported, so I hereby motion they are promoted
+to final releases. 
+
+I?ll start with my +1.
+
+/Kristian
+
+> On 25 Nov 2022, at 18.56, Kristian Evers <kristianevers at gmail.com> wrote:
+> 
+> All,
+> 
+> I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The PROJ
+> release includes a number of bug fixes (release notes below) and a slight update
+> to the database. PROJ-data is extended with the at_bev_AT_GIS_GRID_2021_09_28
+> grid.
+> 
+> Download the archives here:
+> 
+> https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz
+> https://download.osgeo.org/proj/proj-9.1.1RC1.zip
+> 
+> https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz 
+> https://download.osgeo.org/proj/proj-data-1.12RC1.zip
+> 
+> As always, please test the release candidates and report your findings
+> either here on the mailing list on in the issue tracker on GitHub.
+> 
+> /Kristian
+> 
+> ?????????????????
+> 
+> 9.1.0 Release Notes
+> -------------------
+> 
+> Updates
+> --------
+> 
+> o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+> 
+> Bug fixes
+> ----------
+> 
+> o Implement alterGeodeticCRS and stripVerticalComponent for DerivedProjected (#3482)
+> 
+> o Various improvements to handling of DerivedProjectedCRS
+>   (#3482, #3477, #3342, #3319, #3317)
+> 
+> o Add missing <cstdint> includes (#3459)
+> 
+> o cs2cs: better validate value of -W option (#3453)
+> 
+> o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+>   correct URLs (#3448)
+> 
+> o Database: register in grid_alternatives grids from PROJ-data that have no
+>   corresponding transformation record (#3446)
+> 
+> o cass projection: fix forward computation of easting (#3433)
+> 
+> o Implement Geographic/Vertical Offset conversions (#3413)
+> 
+> o vandg projection: handle +over to extend the validity domain outside of
+>  |lon|>180deg (#3427)
+> 
+> o eqdc projection: avoid floating point division by zero in non-nominal case (#3415)
+> 
+> o createOperations(): fix issues when transforming between Geog3D and
+>   DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+> 
+> o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+>   DerivedVerticalCRS as equivalent (#3408)
+> 
+> o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+>    beginning of input files (#3395)
+> 
+> o createFromUserInput(): Improved lookup when approximate name is provided (#3371)
+> 
+> o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+> 
+> o findsOpsInRegistryWithIntermediate(): make it work when source/target geodetic
+>   CRS has no known id (#3365)
+> 
+> o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+>   geographic transformation between datum with unknown transformation (#3361)
+> 
+> o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+>   'Geographic3D to GravityRelatedHeight' method (#3355)
+> 
+> o proj_normalize_for_visualization(): take into account FORCE_OVER property
+>   from source operation (#3350)
+> 
+> o Link geodtest against libm when available (#3341)
+> 
+
+
+From even.rouault at spatialys.com  Wed Nov 30 13:01:37 2022
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 30 Nov 2022 22:01:37 +0100
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <3B1286B4-D607-492F-AA7A-AFACFBFCC8F4@gmail.com>
+References: <3A37B69E-635A-4A32-80E9-ACF1A5C2D498@gmail.com>
+ <3B1286B4-D607-492F-AA7A-AFACFBFCC8F4@gmail.com>
+Message-ID: <4cd2c6d8-7966-0848-bca7-d879392a4808@spatialys.com>
+
++1 Even
+
+Le 30/11/2022 ? 21:58, Kristian Evers a ?crit?:
+> Apart from a minor detail in the release notes no issues with the release
+> candidates has been reported, so I hereby motion they are promoted
+> to final releases.
+>
+> I?ll start with my +1.
+>
+> /Kristian
+>
+>> On 25 Nov 2022, at 18.56, Kristian Evers <kristianevers at gmail.com> wrote:
+>>
+>> All,
+>>
+>> I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The PROJ
+>> release includes a number of bug fixes (release notes below) and a slight update
+>> to the database. PROJ-data is extended with the at_bev_AT_GIS_GRID_2021_09_28
+>> grid.
+>>
+>> Download the archives here:
+>>
+>> https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz
+>> https://download.osgeo.org/proj/proj-9.1.1RC1.zip
+>>
+>> https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz
+>> https://download.osgeo.org/proj/proj-data-1.12RC1.zip
+>>
+>> As always, please test the release candidates and report your findings
+>> either here on the mailing list on in the issue tracker on GitHub.
+>>
+>> /Kristian
+>>
+>> ?????????????????
+>>
+>> 9.1.0 Release Notes
+>> -------------------
+>>
+>> Updates
+>> --------
+>>
+>> o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+>>
+>> Bug fixes
+>> ----------
+>>
+>> o Implement alterGeodeticCRS and stripVerticalComponent for DerivedProjected (#3482)
+>>
+>> o Various improvements to handling of DerivedProjectedCRS
+>>    (#3482, #3477, #3342, #3319, #3317)
+>>
+>> o Add missing <cstdint> includes (#3459)
+>>
+>> o cs2cs: better validate value of -W option (#3453)
+>>
+>> o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+>>    correct URLs (#3448)
+>>
+>> o Database: register in grid_alternatives grids from PROJ-data that have no
+>>    corresponding transformation record (#3446)
+>>
+>> o cass projection: fix forward computation of easting (#3433)
+>>
+>> o Implement Geographic/Vertical Offset conversions (#3413)
+>>
+>> o vandg projection: handle +over to extend the validity domain outside of
+>>   |lon|>180deg (#3427)
+>>
+>> o eqdc projection: avoid floating point division by zero in non-nominal case (#3415)
+>>
+>> o createOperations(): fix issues when transforming between Geog3D and
+>>    DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+>>
+>> o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+>>    DerivedVerticalCRS as equivalent (#3408)
+>>
+>> o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+>>     beginning of input files (#3395)
+>>
+>> o createFromUserInput(): Improved lookup when approximate name is provided (#3371)
+>>
+>> o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+>>
+>> o findsOpsInRegistryWithIntermediate(): make it work when source/target geodetic
+>>    CRS has no known id (#3365)
+>>
+>> o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+>>    geographic transformation between datum with unknown transformation (#3361)
+>>
+>> o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+>>    'Geographic3D to GravityRelatedHeight' method (#3355)
+>>
+>> o proj_normalize_for_visualization(): take into account FORCE_OVER property
+>>    from source operation (#3350)
+>>
+>> o Link geodtest against libm when available (#3341)
+>>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From howard at hobu.co  Wed Nov 30 13:04:17 2022
+From: howard at hobu.co (Howard Butler)
+Date: Wed, 30 Nov 2022 15:04:17 -0600
+Subject: [PROJ] PROJ 9.1.1RC1 & PROJ-data 1.12RC1
+In-Reply-To: <4cd2c6d8-7966-0848-bca7-d879392a4808@spatialys.com>
+References: <4cd2c6d8-7966-0848-bca7-d879392a4808@spatialys.com>
+Message-ID: <B61ED9D1-E66C-4A47-B62C-EE48EE8D8053@hobu.co>
+
++1 Howard
+
+> On Nov 30, 2022, at 3:01 PM, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> ?+1 Even
+> 
+>> Le 30/11/2022 ? 21:58, Kristian Evers a ?crit :
+>> Apart from a minor detail in the release notes no issues with the release
+>> candidates has been reported, so I hereby motion they are promoted
+>> to final releases.
+>> 
+>> I?ll start with my +1.
+>> 
+>> /Kristian
+>> 
+>>>> On 25 Nov 2022, at 18.56, Kristian Evers <kristianevers at gmail.com> wrote:
+>>> 
+>>> All,
+>>> 
+>>> I?ve prepared release candidates for PROJ 9.1.1 and PROJ-data 1.12. The PROJ
+>>> release includes a number of bug fixes (release notes below) and a slight update
+>>> to the database. PROJ-data is extended with the at_bev_AT_GIS_GRID_2021_09_28
+>>> grid.
+>>> 
+>>> Download the archives here:
+>>> 
+>>> https://download.osgeo.org/proj/proj-9.1.1RC1.tar.gz
+>>> https://download.osgeo.org/proj/proj-9.1.1RC1.zip
+>>> 
+>>> https://download.osgeo.org/proj/proj-data-1.12RC1.tar.gz
+>>> https://download.osgeo.org/proj/proj-data-1.12RC1.zip
+>>> 
+>>> As always, please test the release candidates and report your findings
+>>> either here on the mailing list on in the issue tracker on GitHub.
+>>> 
+>>> /Kristian
+>>> 
+>>> ?????????????????
+>>> 
+>>> 9.1.0 Release Notes
+>>> -------------------
+>>> 
+>>> Updates
+>>> --------
+>>> 
+>>> o Database: register at_bev_AT_GIS_GRID_2021_09_28 grid (#3442)
+>>> 
+>>> Bug fixes
+>>> ----------
+>>> 
+>>> o Implement alterGeodeticCRS and stripVerticalComponent for DerivedProjected (#3482)
+>>> 
+>>> o Various improvements to handling of DerivedProjectedCRS
+>>>   (#3482, #3477, #3342, #3319, #3317)
+>>> 
+>>> o Add missing <cstdint> includes (#3459)
+>>> 
+>>> o cs2cs: better validate value of -W option (#3453)
+>>> 
+>>> o DatabaseContext::lookForGridInfo(): fix caching of filenames and set
+>>>   correct URLs (#3448)
+>>> 
+>>> o Database: register in grid_alternatives grids from PROJ-data that have no
+>>>   corresponding transformation record (#3446)
+>>> 
+>>> o cass projection: fix forward computation of easting (#3433)
+>>> 
+>>> o Implement Geographic/Vertical Offset conversions (#3413)
+>>> 
+>>> o vandg projection: handle +over to extend the validity domain outside of
+>>>  |lon|>180deg (#3427)
+>>> 
+>>> o eqdc projection: avoid floating point division by zero in non-nominal case (#3415)
+>>> 
+>>> o createOperations(): fix issues when transforming between Geog3D and
+>>>   DerivedGeog3D CRS with Geographic3D offsets method (#3411)
+>>> 
+>>> o VerticalCRS::_isEquivalentTo(): do not consider VerticalCRS and
+>>>   DerivedVerticalCRS as equivalent (#3408)
+>>> 
+>>> o cct and cs2cs: Avoid problems when encountering UTF-8 BOM characters at
+>>>    beginning of input files (#3395)
+>>> 
+>>> o createFromUserInput(): Improved lookup when approximate name is provided (#3371)
+>>> 
+>>> o projinfo / cs2cs : auto promotion to 3D of CRS specified by name (#3367)
+>>> 
+>>> o findsOpsInRegistryWithIntermediate(): make it work when source/target geodetic
+>>>   CRS has no known id (#3365)
+>>> 
+>>> o createOperations(): emulate PROJ < 6 behavior when doing geocentric <-->
+>>>   geographic transformation between datum with unknown transformation (#3361)
+>>> 
+>>> o Fix issue when transforming from/into a WKT2 Bound VerticalCRS with a
+>>>   'Geographic3D to GravityRelatedHeight' method (#3355)
+>>> 
+>>> o proj_normalize_for_visualization(): take into account FORCE_OVER property
+>>>   from source operation (#3350)
+>>> 
+>>> o Link geodtest against libm when available (#3341)
+>>> 
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+

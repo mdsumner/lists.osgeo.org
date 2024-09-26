@@ -1,0 +1,2074 @@
+From hobu.inc at gmail.com  Mon Aug  8 12:43:13 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Aug  9 09:40:44 2011
+Subject: [pdal] initialize() and its after effects
+Message-ID: <97648586-EF1E-41E1-989F-792BE24794AB@gmail.com>
+
+Michael,
+
+Consider the following:
+
+Writer->Scaling->Reproj->Descaling->Reader
+
+I don't want to specify the input SRS for Reproj, because it is already available from the Reader.  Well, kind of.  It's available to the reader at initialize() time, because I am going to override whatever the reader actually has at runtime (in many cases, this is None).  Our current behavior has the Reproj filter being initialized() before the Reader, however, so we'll end up forwarding an empty SRS.
+
+I think what I should do in this scenario is delay Reproj filter's OSR initialization until after the pipeline is initialized (readBegin()).  Agree?
+
+There are a number of other gotchas that seem to be cropping up now that we've moved to the initialize() model (which I like).  Things like LASWriter::setPointFormat(), etc needing to happen before initialize().  We need to audit a bit and see which things that were dumped in initialize really should belong in readBegin/writeBegin, and which really belong in initialize.  
+
+Howard
+From brad.chambers at gmail.com  Mon Aug  8 12:52:22 2011
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Tue Aug  9 09:50:26 2011
+Subject: [pdal] first build notes: boost namespace, missing include,
+	laszip include guards
+Message-ID: <CAJyqqPwh--3c4EDqRC-7rOdufN5n+QyioJM5aSuFZ=-KknG35Q@mail.gmail.com>
+
+I'm stepping through building PDAL for the first time this morning (MSVC 2005).
+
+I've noted a number of updates recently to make better use of the
+boost:: namespace when defining uint8_t, uint16_t, etc. These changes
+do not appear to have made it to
+src/drivers/las/VariableLengthRecord.cpp quite yet. Along the same
+lines, it's probably not a bad idea to specifically add #include
+<boost/cstdint.hpp> in any of the files where these types are being
+used (although I think in many cases it is being included through
+other header files).
+
+I also found that I needed to add #include <pdal/exceptions.hpp> to
+src/drivers/las/LasHeaderWriter.cpp.
+
+If laszip is optional, would everyone agree that all associated
+includes should be guarded with PDAL_HAVE_LASZIP? I've found
+references in the following files:
+- src/drivers/las/Iterator.cpp
+- src/drivers/las/Reader.cpp
+
+Brad
+From hobu.inc at gmail.com  Tue Aug  9 10:33:55 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed Aug 10 08:44:23 2011
+Subject: [pdal] first build notes: boost namespace, missing include,
+	laszip include guards
+In-Reply-To: <CAJyqqPwh--3c4EDqRC-7rOdufN5n+QyioJM5aSuFZ=-KknG35Q@mail.gmail.com>
+References: <CAJyqqPwh--3c4EDqRC-7rOdufN5n+QyioJM5aSuFZ=-KknG35Q@mail.gmail.com>
+Message-ID: <1C94A6AA-2946-4ABD-9B6C-9E0C15669C60@gmail.com>
+
+
+On Aug 8, 2011, at 11:52 AM, Bradley Chambers wrote:
+
+> I'm stepping through building PDAL for the first time this morning (MSVC 2005).
+
+PDAL is regularly built on MSVC 2010 and OS X gcc 4.2.1.  All other compiler/OS combinations are buy beware :)
+
+
+> 
+> I've noted a number of updates recently to make better use of the
+> boost:: namespace when defining uint8_t, uint16_t, etc. These changes
+> do not appear to have made it to
+> src/drivers/las/VariableLengthRecord.cpp quite yet. Along the same
+> lines, it's probably not a bad idea to specifically add #include
+> <boost/cstdint.hpp> in any of the files where these types are being
+> used (although I think in many cases it is being included through
+> other header files).
+> 
+> I also found that I needed to add #include <pdal/exceptions.hpp> to
+> src/drivers/las/LasHeaderWriter.cpp.
+> 
+> If laszip is optional, would everyone agree that all associated
+> includes should be guarded with PDAL_HAVE_LASZIP? I've found
+> references in the following files:
+> - src/drivers/las/Iterator.cpp
+> - src/drivers/las/Reader.cpp
+
+Yes, it is the intent that LASzip is optional.  
+
+Coordinate on IRC with me, and I'll get you push access so you can participate and clean up these issues as you go.
+
+From mpg at flaxen.com  Tue Aug  9 12:14:51 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Wed Aug 10 10:30:32 2011
+Subject: [pdal] first build notes: boost namespace, missing include,
+	laszip include guards
+In-Reply-To: <1C94A6AA-2946-4ABD-9B6C-9E0C15669C60@gmail.com>
+References: <CAJyqqPwh--3c4EDqRC-7rOdufN5n+QyioJM5aSuFZ=-KknG35Q@mail.gmail.com>
+	<1C94A6AA-2946-4ABD-9B6C-9E0C15669C60@gmail.com>
+Message-ID: <00fc01cc56af$78de93a0$6a9bbae0$@flaxen.com>
+
+My two cents-
+
+* Yes, I build with VS2010 all the time, against boost 1.46.1.  What
+compiler are you using?
+
+* I added a pdal.h some time ago, with the intent that it be used to hold
+all the #includes of "core" stuff -- in theory, all the pdal .h files should
+first include pdal.h.  So adding cstdint.h in there might be the best way to
+go.  Maybe pdal_exceptions.h too.
+
+* If you look at pdal_defines.h, you'll see a block labeled "availability of
+3rd-party libraries": in theory, we should be able to build any combo of
+those #defines.  LASZIP and GDAL and ORACLE are the main ones, though.
+Someday we'll have a buildbot to harden this stuff.
+
+Welcome to the club!
+
+-mpg
+
+
+-----Original Message-----
+From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On
+Behalf Of Howard Butler
+Sent: Tuesday, August 09, 2011 7:34 AM
+To: pdal@lists.osgeo.org
+Subject: Re: [pdal] first build notes: boost namespace, missing include,
+laszip include guards
+
+
+On Aug 8, 2011, at 11:52 AM, Bradley Chambers wrote:
+
+> I'm stepping through building PDAL for the first time this morning (MSVC
+2005).
+
+PDAL is regularly built on MSVC 2010 and OS X gcc 4.2.1.  All other
+compiler/OS combinations are buy beware :)
+
+
+> 
+> I've noted a number of updates recently to make better use of the
+> boost:: namespace when defining uint8_t, uint16_t, etc. These changes
+> do not appear to have made it to
+> src/drivers/las/VariableLengthRecord.cpp quite yet. Along the same
+> lines, it's probably not a bad idea to specifically add #include
+> <boost/cstdint.hpp> in any of the files where these types are being
+> used (although I think in many cases it is being included through
+> other header files).
+> 
+> I also found that I needed to add #include <pdal/exceptions.hpp> to
+> src/drivers/las/LasHeaderWriter.cpp.
+> 
+> If laszip is optional, would everyone agree that all associated
+> includes should be guarded with PDAL_HAVE_LASZIP? I've found
+> references in the following files:
+> - src/drivers/las/Iterator.cpp
+> - src/drivers/las/Reader.cpp
+
+Yes, it is the intent that LASzip is optional.  
+
+Coordinate on IRC with me, and I'll get you push access so you can
+participate and clean up these issues as you go.
+
+_______________________________________________
+pdal mailing list
+pdal@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mpg at flaxen.com  Tue Aug  9 12:33:18 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Wed Aug 10 10:50:00 2011
+Subject: [pdal] initialize() and its after effects
+In-Reply-To: <97648586-EF1E-41E1-989F-792BE24794AB@gmail.com>
+References: <97648586-EF1E-41E1-989F-792BE24794AB@gmail.com>
+Message-ID: <010e01cc56b2$0cdc8dd0$2695a970$@flaxen.com>
+
+Agreed, definitely.
+
+This will get unavoidably messy in the limit, however, as we have a few
+possible workflows to consider -- using the reproj filter as an example:
+
+* input srs gets passed in to the reproj filter ctor
+* input srs gets inherited from reader, at init time
+* input srs gets manually set via a ReprojFilter::setInputSRS() after init
+time
+
+Plus, we need to consider our position on changing the parameters after the
+pipeline has been built and run once (e.g. consider a viewer, which builds a
+Reader->Reproj filter, and the user gets to interactively view the image in
+different proijection systems).  This is not a primary workflow, but needs
+to be thought about.
+
+One thing I surely want to avoid, though, is a case where we say something
+like "you must call setInputSRS() AFTER calling the ctor but BEFORE calling
+init()" -- that gets really hard for the poor users.
+
+-mpg
+
+
+-----Original Message-----
+From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org] On
+Behalf Of Howard Butler
+Sent: Monday, August 08, 2011 9:43 AM
+To: pdal@lists.osgeo.org
+Subject: [pdal] initialize() and its after effects
+
+Michael,
+
+Consider the following:
+
+Writer->Scaling->Reproj->Descaling->Reader
+
+I don't want to specify the input SRS for Reproj, because it is already
+available from the Reader.  Well, kind of.  It's available to the reader at
+initialize() time, because I am going to override whatever the reader
+actually has at runtime (in many cases, this is None).  Our current behavior
+has the Reproj filter being initialized() before the Reader, however, so
+we'll end up forwarding an empty SRS.
+
+I think what I should do in this scenario is delay Reproj filter's OSR
+initialization until after the pipeline is initialized (readBegin()).
+Agree?
+
+There are a number of other gotchas that seem to be cropping up now that
+we've moved to the initialize() model (which I like).  Things like
+LASWriter::setPointFormat(), etc needing to happen before initialize().  We
+need to audit a bit and see which things that were dumped in initialize
+really should belong in readBegin/writeBegin, and which really belong in
+initialize.  
+
+Howard_______________________________________________
+pdal mailing list
+pdal@lists.osgeo.org
+http://lists.osgeo.org/mailman/listinfo/pdal
+
+From ericnico.david at gmail.com  Wed Aug 10 10:41:29 2011
+From: ericnico.david at gmail.com (nicolas david)
+Date: Thu Aug 11 10:11:35 2011
+Subject: [pdal] patch proposing for gcc 4.6 compilation
+Message-ID: <CACuRz0sZWKeicGpFWyZne6LFaGKM0v+Lz-Qc07a3c9FUSKKR0A@mail.gmail.com>
+
+Skipped content of type multipart/alternative-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: gcc46.patch
+Type: text/x-patch
+Size: 1171 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/pdal/attachments/20110810/5c73ea4f/gcc46.bin
+From ericnico.david at gmail.com  Wed Aug 10 17:11:27 2011
+From: ericnico.david at gmail.com (nicolas david)
+Date: Thu Aug 11 17:03:21 2011
+Subject: [pdal] patch proposing for gcc 4.6 compilation
+Message-ID: <CACuRz0tJwwAErBmb+S7EGZyYEW48Y00364u8DbJ8upx++1KR2w@mail.gmail.com>
+
+Hi
+
+Sorry for the previous empty message. It's seems that the message body has
+been lost, probably due to attachment.
+What's the correct way for patch submission ?
+
+Concerning patch : I've just testing the pdal compilation under gcc 4.6 and
+boost 1.47 and I've some (minor) missing #include for memcpy and
+numeric_limits call
+
+regards
+
+Nicolas DAVID
+
+2011/8/11 <pdal-request@lists.osgeo.org>
+
+> Send pdal mailing list submissions to
+>        pdal@lists.osgeo.org
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>        http://lists.osgeo.org/mailman/listinfo/pdal
+> or, via email, send a message with subject or body 'help' to
+>        pdal-request@lists.osgeo.org
+>
+> You can reach the person managing the list at
+>        pdal-owner@lists.osgeo.org
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of pdal digest..."
+>
+>
+> Today's Topics:
+>
+>   1. patch proposing for gcc 4.6 compilation (nicolas david)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Wed, 10 Aug 2011 16:41:29 +0200
+> From: nicolas david <ericnico.david@gmail.com>
+> Subject: [pdal] patch proposing for gcc 4.6 compilation
+> To: pdal@lists.osgeo.org
+> Message-ID:
+>        <CACuRz0sZWKeicGpFWyZne6LFaGKM0v+Lz-Qc07a3c9FUSKKR0A@mail.gmail.com
+> >
+> Content-Type: text/plain; charset="iso-8859-1"
+>
+> Skipped content of type multipart/alternative-------------- next part
+> --------------
+> A non-text attachment was scrubbed...
+> Name: gcc46.patch
+> Type: text/x-patch
+> Size: 1171 bytes
+> Desc: not available
+> Url :
+> http://lists.osgeo.org/pipermail/pdal/attachments/20110810/5c73ea4f/gcc46-0001.bin
+>
+> ------------------------------
+>
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+>
+>
+> End of pdal Digest, Vol 3, Issue 3
+> **********************************
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: http://lists.osgeo.org/pipermail/pdal/attachments/20110810/c94c1262/attachment.html
+From hobu.inc at gmail.com  Thu Aug 11 09:53:50 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Fri Aug 12 10:41:02 2011
+Subject: [pdal] patch proposing for gcc 4.6 compilation
+In-Reply-To: <CACuRz0sZWKeicGpFWyZne6LFaGKM0v+Lz-Qc07a3c9FUSKKR0A@mail.gmail.com>
+References: <CACuRz0sZWKeicGpFWyZne6LFaGKM0v+Lz-Qc07a3c9FUSKKR0A@mail.gmail.com>
+Message-ID: <04DA915E-A8EA-4C7C-B494-0BAB35107188@gmail.com>
+
+
+On Aug 10, 2011, at 9:41 AM, nicolas david wrote:
+
+> Hi
+> 
+> I've just testing the pdal compilation under gcc 4.6 and boost 1.47 and I've some (minor) missing #include for memcpy and numeric_limits call
+> See attachment for a proposed patch, if someone is interested.
+
+Nicolas,
+
+Thanks, I have applied your patch.  Development is early enough at this point that if you are interested in having access to commit to the repository, please let me know. We're always looking for contributors who are using the library and can help shape its development as it improves toward its first release.
+
+Thanks,
+
+Howard
+From brad.chambers at gmail.com  Mon Aug  8 12:37:23 2011
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Sat Aug 13 15:23:13 2011
+Subject: [pdal] first build notes: boost namespace, missing include,
+	laszip include guards
+Message-ID: <CAJyqqPw71E=ocwG7FChpXHS0K_jVgsiPwK96u4fVnpZRyuuRQQ@mail.gmail.com>
+
+I've noted a number of updates recently to make better use of the
+boost:: namespace when defining uint8_t, uint16_t, etc. These changes
+do not appear to have made it to
+src/drivers/las/VariableLengthRecord.cpp quite yet. Along the same
+lines, it's probably not a bad idea to specifically add #include
+<boost/cstdint.hpp> in any of the files where these types are being
+used (although I think in many cases it is being included through
+other header files).
+
+I also found that I needed to add #include <pdal/exceptions.hpp> to
+src/drivers/las/LasHeaderWriter.cpp.
+
+If laszip is optional, would everyone agree that all associated
+includes should be guarded with PDAL_HAVE_LASZIP? I've found
+references in the following files:
+- src/drivers/las/Iterator.cpp
+- src/drivers/las/Reader.cpp
+
+Brad
+From mpg at flaxen.com  Wed Aug 17 17:13:52 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Fri Aug 19 02:18:35 2011
+Subject: [pdal] Pipeline XML as primary channel?
+Message-ID: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+
+Howard suggests we use pipeline XML as the "preferred" means of working with
+PDAL.
+
+I'm in favor, but with these thoughts:
+
+- cmd line apps will still need to have the ability to take regular files
+and switches as input, because you don't want to make XML files for
+one-off/simple things.  (Although maybe the cmd line args just get quickly
+converted to an XML chunk and then passed along...)
+
+- We might need some sort of "argument substitution" mechanism, so an
+arbitrary XML pipeline can be written in "template" form without needing to
+specify a filename.  That way, a pipeline can be "reused" across multiple
+input files, for example.
+
+- Should we migrate XML format to use attributes?
+
+- XML format needs versioning mechanism
+
+- XML pipelines can express a fully formed "writer" or open-ended "reader"
+pipeline.  Ought to add ability to express "partial" pipelines, that don't
+have a reader on one end or a writer on the other end.  Such pipeline
+fragments can be used to represent a particular kind of processing step
+("decimate, reproject, then colorize") that someone might want to be able to
+reuse with other pipeline pieces.
+
+Comments, thoughts?
+
+-mpg
+
+
+From pete.gadomski at gmail.com  Wed Aug 17 18:14:54 2011
+From: pete.gadomski at gmail.com (Pete Gadomski)
+Date: Fri Aug 19 03:23:05 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+References: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+Message-ID: <CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+
+Mike,
+
+> - Should we migrate XML format to use attributes?
+
+I've been playing with pipeline xml for most of the day, and I'm a
+huge fan. I'd vote for 'yes' for limited use of attributes, for a
+couple of reasons:
+
+* Readability suffers when everything is an element. The <Name> and
+<Value> tags tend to blend together when I'm scanning a screen of
+pipeline xml. I found that attributing the design added some useful
+heterogeneity.
+* Searching the tree is a little clumsy.
+`//Filter[@type="filters.reprojection"]` seems cleaner than
+`//Filter/Type[text()="filters.reprojection"/..`.
+* <opinion>Attributes work well for atomic values e.g. driver types
+and option names.</opinion>
+
+As I was working with the XML today, I sketched up a couple of formats
+to see what changes, if any, I would make. This design was my
+favorite:
+
+<WriterPipeline>
+    <Writer type="drivers.oci.writer">
+        <Option name="debug">true</Option>
+        <Reader type="drivers.las.reader">
+            <Option name="filename">in.las</Option>
+        </Reader>
+    </Writer>
+</WriterPipeline>
+
+Cheers,
+Pete Gadomski
+From mpg at flaxen.com  Wed Aug 17 18:40:55 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Fri Aug 19 03:50:34 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+References: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+	<CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+Message-ID: <007501cc5d2e$bb2625e0$317271a0$@flaxen.com>
+
+> `//Filter[@type="filters.reprojection"]` seems cleaner than
+> `//Filter/Type[text()="filters.reprojection"/..`.
+
+Wow, they both just look like so much @$#^@%$//! line noise to me... :-)
+
+> * <opinion>Attributes work well for atomic values e.g. driver types and
+> option names.</opinion>
+
+<opinion assertedas="fact">Agreed.</opinion>
+
+> <WriterPipeline>
+>     <Writer type="drivers.oci.writer">
+>         <Option name="debug">true</Option>
+>         <Reader type="drivers.las.reader">
+>             <Option name="filename">in.las</Option>
+>         </Reader>
+>     </Writer>
+> </WriterPipeline>
+
+Yup, that's basically what I had when I started the project -- but then I
+found out that boost::property_tree doesn't serialize to XML attrs quite as
+cleanly as I'd like.  I'm going to revisit that issue this afternoon, I
+think.
+
+-mpg
+
+
+From mpg at flaxen.com  Thu Aug 18 11:35:41 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Fri Aug 19 21:40:22 2011
+Subject: [pdal] FieldChooserFilter
+Message-ID: <00e701cc5dbc$7e159440$7a40bcc0$@flaxen.com>
+
+Thinking out loud...
+
+Readers often produce fields one doesn't want or care about, so It Would Be
+Nice to have a filter that removes them for you.  But you often don't know
+the name of the field you want to remove -- maybe you only know you want to
+preserve a few known fields.
+
+So how about a filter that takes a list of strings in its ctor to give
+instructions as to how to do this.  Consider the following syntax:
+
+	=name		- means "preserve" field 'name', if present
+	-name		- means "remove" field 'name', if present
+	+name		- means "add" field 'name' (initializing values to
+zero, I suppose)
+	-*		- means "remove" any fields not previously mentioned
+	=*		- means "preserve" any fields not previously
+mentioned
+
+(I added the '+' and '=*' operators for completeness.  '+*' doesn't make
+sense, however.)  This would be  very easily to implement in the
+initialize() routine, using a simple mark/sweep pass over the fields given
+by the previous stage.
+
+Example 1: "remove everything but the X,Y,Z fields"
+
+	=x, =y, =z, -*
+
+Thoughts?
+
+-mpg
+
+
+From hobu.inc at gmail.com  Thu Aug 18 16:54:09 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Sat Aug 20 03:16:19 2011
+Subject: [pdal] FieldChooserFilter
+In-Reply-To: <00e701cc5dbc$7e159440$7a40bcc0$@flaxen.com>
+References: <00e701cc5dbc$7e159440$7a40bcc0$@flaxen.com>
+Message-ID: <F13B8A23-A84C-4C59-BC46-E65F110C290E@gmail.com>
+
+
+On Aug 18, 2011, at 10:35 AM, Michael P. Gerlek wrote:
+
+> Thinking out loud...
+> 
+> Readers often produce fields one doesn't want or care about, so It Would Be
+> Nice to have a filter that removes them for you.  But you often don't know
+> the name of the field you want to remove -- maybe you only know you want to
+> preserve a few known fields.
+> 
+> So how about a filter that takes a list of strings in its ctor to give
+> instructions as to how to do this.  Consider the following syntax:
+> 
+> 	=name		- means "preserve" field 'name', if present
+> 	-name		- means "remove" field 'name', if present
+> 	+name		- means "add" field 'name' (initializing values to
+> zero, I suppose)
+> 	-*		- means "remove" any fields not previously mentioned
+> 	=*		- means "preserve" any fields not previously
+> mentioned
+> 
+> (I added the '+' and '=*' operators for completeness.  '+*' doesn't make
+> sense, however.)  This would be  very easily to implement in the
+> initialize() routine, using a simple mark/sweep pass over the fields given
+> by the previous stage.
+> 
+> Example 1: "remove everything but the X,Y,Z fields"
+> 
+> 	=x, =y, =z, -*
+> 
+> Thoughts?
+
+
+Sounds good and I could have used it more than a few times.
+
+Does this filter result in the PointBuffer's data being copied/composed? The scaling filter currently has to copy along all of the other fields' data, and this is a performance hit because the PointBuffer's composition has changed (dropped int-based XYZ and added double-based XYZ or vice versa).  
+
+Howard
+From hobu.inc at gmail.com  Thu Aug 18 17:02:36 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Sat Aug 20 03:25:24 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <007501cc5d2e$bb2625e0$317271a0$@flaxen.com>
+References: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+	<CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+	<007501cc5d2e$bb2625e0$317271a0$@flaxen.com>
+Message-ID: <0600F8B9-6D5C-4037-B920-67131826C8FE@gmail.com>
+
+
+On Aug 17, 2011, at 5:40 PM, Michael P. Gerlek wrote:
+
+>> `//Filter[@type="filters.reprojection"]` seems cleaner than
+>> `//Filter/Type[text()="filters.reprojection"/..`.
+> 
+> Wow, they both just look like so much @$#^@%$//! line noise to me... :-)
+> 
+>> * <opinion>Attributes work well for atomic values e.g. driver types and
+>> option names.</opinion>
+> 
+> <opinion assertedas="fact">Agreed.</opinion>
+> 
+>> <WriterPipeline>
+>>    <Writer type="drivers.oci.writer">
+>>        <Option name="debug">true</Option>
+>>        <Reader type="drivers.las.reader">
+>>            <Option name="filename">in.las</Option>
+>>        </Reader>
+>>    </Writer>
+>> </WriterPipeline>
+> 
+> Yup, that's basically what I had when I started the project -- but then I
+> found out that boost::property_tree doesn't serialize to XML attrs quite as
+> cleanly as I'd like.  I'm going to revisit that issue this afternoon, I
+> think.
+
+I agree that our pipeline XML isn't optimal, and we should move it toward something sane earlier rather than later.  Pete, when you get some time, can you help me cook up an XSD that we can use to externally validate our pipelines?  I'll work to implement it.
+
+Howard
+From mpg at flaxen.com  Thu Aug 18 18:25:50 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Sat Aug 20 04:53:06 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <0600F8B9-6D5C-4037-B920-67131826C8FE@gmail.com>
+References: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+	<CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+	<007501cc5d2e$bb2625e0$317271a0$@flaxen.com>
+	<0600F8B9-6D5C-4037-B920-67131826C8FE@gmail.com>
+Message-ID: <013801cc5df5$c9d19cb0$5d74d610$@flaxen.com>
+
+If we're going to push the xml a little further, I'd be inclined to relax my
+initial position that it needed to be read/written via the ptree xml
+serializer.
+
+I had the idea that we could serialize as json, etc, too, but I think it is
+more important that we have flexible XML reading/writing (such as using
+attributes and supporting xsd validation and such).
+
+-mpg
+
+
+> -----Original Message-----
+> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> Sent: Thursday, August 18, 2011 2:03 PM
+> To: mpg@flaxen.com
+> Cc: 'Pete Gadomski'; pdal@lists.osgeo.org
+> Subject: Re: [pdal] Pipeline XML as primary channel?
+> 
+> 
+> On Aug 17, 2011, at 5:40 PM, Michael P. Gerlek wrote:
+> 
+> >> `//Filter[@type="filters.reprojection"]` seems cleaner than
+> >> `//Filter/Type[text()="filters.reprojection"/..`.
+> >
+> > Wow, they both just look like so much @$#^@%$//! line noise to me...
+> > :-)
+> >
+> >> * <opinion>Attributes work well for atomic values e.g. driver types
+> >> and option names.</opinion>
+> >
+> > <opinion assertedas="fact">Agreed.</opinion>
+> >
+> >> <WriterPipeline>
+> >>    <Writer type="drivers.oci.writer">
+> >>        <Option name="debug">true</Option>
+> >>        <Reader type="drivers.las.reader">
+> >>            <Option name="filename">in.las</Option>
+> >>        </Reader>
+> >>    </Writer>
+> >> </WriterPipeline>
+> >
+> > Yup, that's basically what I had when I started the project -- but
+> > then I found out that boost::property_tree doesn't serialize to XML
+> > attrs quite as cleanly as I'd like.  I'm going to revisit that issue
+> > this afternoon, I think.
+> 
+> I agree that our pipeline XML isn't optimal, and we should move it toward
+> something sane earlier rather than later.  Pete, when you get some time,
+can
+> you help me cook up an XSD that we can use to externally validate our
+> pipelines?  I'll work to implement it.
+> 
+> Howard=
+
+From mpg at flaxen.com  Thu Aug 18 18:30:25 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Sat Aug 20 04:57:57 2011
+Subject: [pdal] FieldChooserFilter
+In-Reply-To: <F13B8A23-A84C-4C59-BC46-E65F110C290E@gmail.com>
+References: <00e701cc5dbc$7e159440$7a40bcc0$@flaxen.com>
+	<F13B8A23-A84C-4C59-BC46-E65F110C290E@gmail.com>
+Message-ID: <013c01cc5df6$6da416b0$48ec4410$@flaxen.com>
+
+> Does this filter result in the PointBuffer's data being copied/composed?
+The
+> scaling filter currently has to copy along all of the other fields' data,
+and this is
+> a performance hit because the PointBuffer's composition has changed
+> (dropped int-based XYZ and added double-based XYZ or vice versa).
+
+Way back when, I had the idea of a field that could be marked "unused" for
+exactly this reason.  I wanted the writer to start off by creating and
+passing down a schema'd buffer that (in your case) would have looked like
+this:
+
+  - int x
+  - int y
+  - int z
+  - double x
+  - double y
+  - double z
+
+The stages would only play with the fields they understood, but the buffer
+was always the superset of all possible fields used by all stages.  The
+buffer would waste space, but not much of a worry given that we've got a
+good chunking system in place.
+
+Maybe we should think about that idea again.
+
+-mpg
+
+
+
+From pete.gadomski at gmail.com  Thu Aug 18 20:16:49 2011
+From: pete.gadomski at gmail.com (Pete Gadomski)
+Date: Sat Aug 20 06:50:11 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <013801cc5df5$c9d19cb0$5d74d610$@flaxen.com>
+References: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+	<CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+	<007501cc5d2e$bb2625e0$317271a0$@flaxen.com>
+	<0600F8B9-6D5C-4037-B920-67131826C8FE@gmail.com>
+	<013801cc5df5$c9d19cb0$5d74d610$@flaxen.com>
+Message-ID: <CAOY6Aa3F_tMjb_N4cRZvTMLmTBSHyPJduWXzuP4Y9SJxUU3_9Q@mail.gmail.com>
+
+Howard,
+
+I've attached an .xsd (and a validating .xml) for a possible pipeline
+xml format.
+
+Cheers,
+Pete
+
+On Thu, Aug 18, 2011 at 15:25, Michael P. Gerlek <mpg@flaxen.com> wrote:
+> If we're going to push the xml a little further, I'd be inclined to relax my
+> initial position that it needed to be read/written via the ptree xml
+> serializer.
+>
+> I had the idea that we could serialize as json, etc, too, but I think it is
+> more important that we have flexible XML reading/writing (such as using
+> attributes and supporting xsd validation and such).
+>
+> -mpg
+>
+>
+>> -----Original Message-----
+>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>> Sent: Thursday, August 18, 2011 2:03 PM
+>> To: mpg@flaxen.com
+>> Cc: 'Pete Gadomski'; pdal@lists.osgeo.org
+>> Subject: Re: [pdal] Pipeline XML as primary channel?
+>>
+>>
+>> On Aug 17, 2011, at 5:40 PM, Michael P. Gerlek wrote:
+>>
+>> >> `//Filter[@type="filters.reprojection"]` seems cleaner than
+>> >> `//Filter/Type[text()="filters.reprojection"/..`.
+>> >
+>> > Wow, they both just look like so much @$#^@%$//! line noise to me...
+>> > :-)
+>> >
+>> >> * <opinion>Attributes work well for atomic values e.g. driver types
+>> >> and option names.</opinion>
+>> >
+>> > <opinion assertedas="fact">Agreed.</opinion>
+>> >
+>> >> <WriterPipeline>
+>> >> ? ?<Writer type="drivers.oci.writer">
+>> >> ? ? ? ?<Option name="debug">true</Option>
+>> >> ? ? ? ?<Reader type="drivers.las.reader">
+>> >> ? ? ? ? ? ?<Option name="filename">in.las</Option>
+>> >> ? ? ? ?</Reader>
+>> >> ? ?</Writer>
+>> >> </WriterPipeline>
+>> >
+>> > Yup, that's basically what I had when I started the project -- but
+>> > then I found out that boost::property_tree doesn't serialize to XML
+>> > attrs quite as cleanly as I'd like. ?I'm going to revisit that issue
+>> > this afternoon, I think.
+>>
+>> I agree that our pipeline XML isn't optimal, and we should move it toward
+>> something sane earlier rather than later. ?Pete, when you get some time,
+> can
+>> you help me cook up an XSD that we can use to externally validate our
+>> pipelines? ?I'll work to implement it.
+>>
+>> Howard=
+>
+>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: las.xml
+Type: text/xml
+Size: 249 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/pdal/attachments/20110818/f382a850/las.xml
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: writerpipeline.xsd
+Type: application/octet-stream
+Size: 1183 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/pdal/attachments/20110818/f382a850/writerpipeline.obj
+From pete.gadomski at gmail.com  Thu Aug 18 20:28:33 2011
+From: pete.gadomski at gmail.com (Pete Gadomski)
+Date: Sat Aug 20 07:02:23 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <CAOY6Aa3F_tMjb_N4cRZvTMLmTBSHyPJduWXzuP4Y9SJxUU3_9Q@mail.gmail.com>
+References: <00a101cc5d22$972c0ee0$c5842ca0$@flaxen.com>
+	<CAOY6Aa3ViWHSx3XM48-CE0=iNaNFDz983cFTYk-P4y0OdNZ4=g@mail.gmail.com>
+	<007501cc5d2e$bb2625e0$317271a0$@flaxen.com>
+	<0600F8B9-6D5C-4037-B920-67131826C8FE@gmail.com>
+	<013801cc5df5$c9d19cb0$5d74d610$@flaxen.com>
+	<CAOY6Aa3F_tMjb_N4cRZvTMLmTBSHyPJduWXzuP4Y9SJxUU3_9Q@mail.gmail.com>
+Message-ID: <CAOY6Aa1nhDMsV0p59_wXMGvtNNQ+JiUoW9wNScQ4fMmCkYPtkg@mail.gmail.com>
+
+All,
+
+Sorry, I needed to set maxOccurs="unbounded" in for Option elements.
+Attached is the updated .xsd
+
+Pete
+
+2011/8/18 Pete Gadomski <pete.gadomski@gmail.com>:
+> Howard,
+>
+> I've attached an .xsd (and a validating .xml) for a possible pipeline
+> xml format.
+>
+> Cheers,
+> Pete
+>
+> On Thu, Aug 18, 2011 at 15:25, Michael P. Gerlek <mpg@flaxen.com> wrote:
+>> If we're going to push the xml a little further, I'd be inclined to relax my
+>> initial position that it needed to be read/written via the ptree xml
+>> serializer.
+>>
+>> I had the idea that we could serialize as json, etc, too, but I think it is
+>> more important that we have flexible XML reading/writing (such as using
+>> attributes and supporting xsd validation and such).
+>>
+>> -mpg
+>>
+>>
+>>> -----Original Message-----
+>>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>>> Sent: Thursday, August 18, 2011 2:03 PM
+>>> To: mpg@flaxen.com
+>>> Cc: 'Pete Gadomski'; pdal@lists.osgeo.org
+>>> Subject: Re: [pdal] Pipeline XML as primary channel?
+>>>
+>>>
+>>> On Aug 17, 2011, at 5:40 PM, Michael P. Gerlek wrote:
+>>>
+>>> >> `//Filter[@type="filters.reprojection"]` seems cleaner than
+>>> >> `//Filter/Type[text()="filters.reprojection"/..`.
+>>> >
+>>> > Wow, they both just look like so much @$#^@%$//! line noise to me...
+>>> > :-)
+>>> >
+>>> >> * <opinion>Attributes work well for atomic values e.g. driver types
+>>> >> and option names.</opinion>
+>>> >
+>>> > <opinion assertedas="fact">Agreed.</opinion>
+>>> >
+>>> >> <WriterPipeline>
+>>> >> ? ?<Writer type="drivers.oci.writer">
+>>> >> ? ? ? ?<Option name="debug">true</Option>
+>>> >> ? ? ? ?<Reader type="drivers.las.reader">
+>>> >> ? ? ? ? ? ?<Option name="filename">in.las</Option>
+>>> >> ? ? ? ?</Reader>
+>>> >> ? ?</Writer>
+>>> >> </WriterPipeline>
+>>> >
+>>> > Yup, that's basically what I had when I started the project -- but
+>>> > then I found out that boost::property_tree doesn't serialize to XML
+>>> > attrs quite as cleanly as I'd like. ?I'm going to revisit that issue
+>>> > this afternoon, I think.
+>>>
+>>> I agree that our pipeline XML isn't optimal, and we should move it toward
+>>> something sane earlier rather than later. ?Pete, when you get some time,
+>> can
+>>> you help me cook up an XSD that we can use to externally validate our
+>>> pipelines? ?I'll work to implement it.
+>>>
+>>> Howard=
+>>
+>>
+>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: writerpipeline.xsd
+Type: application/octet-stream
+Size: 1226 bytes
+Desc: not available
+Url : http://lists.osgeo.org/pipermail/pdal/attachments/20110818/5b9bf217/writerpipeline-0001.obj
+From mpg at flaxen.com  Thu Aug 18 21:20:30 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Sat Aug 20 07:56:55 2011
+Subject: [pdal] Pipeline XML as primary channel?
+Message-ID: <7015692957245796140@unknownmsgid>
+
+Actually the rules can be a bit tighter, I think, if we add a
+FilterType and a MultiFilter type...
+
+- Reader, Filter, and MultiFilter are all kinds of Stages
+- a Writer is not a Stage, however
+
+- Writers have exactly one Stage child
+- Readers have zero Stage children
+- Filters have exactly one Stage child
+- MultiFilters have one or more Stage children
+
+I'll make up some examples tomorrow.
+
+.mpg
+
+On Aug 18, 2011, at 5:28 PM, Pete Gadomski <pete.gadomski@gmail.com> wrote:
+
+> All,
+>
+> Sorry, I needed to set maxOccurs="unbounded" in for Option elements.
+> Attached is the updated .xsd
+>
+> Pete
+>
+> 2011/8/18 Pete Gadomski <pete.gadomski@gmail.com>:
+>> Howard,
+>>
+>> I've attached an .xsd (and a validating .xml) for a possible pipeline
+>> xml format.
+>>
+>> Cheers,
+>> Pete
+>>
+>> On Thu, Aug 18, 2011 at 15:25, Michael P. Gerlek <mpg@flaxen.com> wrote:
+>>> If we're going to push the xml a little further, I'd be inclined to relax my
+>>> initial position that it needed to be read/written via the ptree xml
+>>> serializer.
+>>>
+>>> I had the idea that we could serialize as json, etc, too, but I think it is
+>>> more important that we have flexible XML reading/writing (such as using
+>>> attributes and supporting xsd validation and such).
+>>>
+>>> -mpg
+>>>
+>>>
+>>>> -----Original Message-----
+>>>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>>>> Sent: Thursday, August 18, 2011 2:03 PM
+>>>> To: mpg@flaxen.com
+>>>> Cc: 'Pete Gadomski'; pdal@lists.osgeo.org
+>>>> Subject: Re: [pdal] Pipeline XML as primary channel?
+>>>>
+>>>>
+>>>> On Aug 17, 2011, at 5:40 PM, Michael P. Gerlek wrote:
+>>>>
+>>>>>> `//Filter[@type="filters.reprojection"]` seems cleaner than
+>>>>>> `//Filter/Type[text()="filters.reprojection"/..`.
+>>>>>
+>>>>> Wow, they both just look like so much @$#^@%$//! line noise to me...
+>>>>> :-)
+>>>>>
+>>>>>> * <opinion>Attributes work well for atomic values e.g. driver types
+>>>>>> and option names.</opinion>
+>>>>>
+>>>>> <opinion assertedas="fact">Agreed.</opinion>
+>>>>>
+>>>>>> <WriterPipeline>
+>>>>>>    <Writer type="drivers.oci.writer">
+>>>>>>        <Option name="debug">true</Option>
+>>>>>>        <Reader type="drivers.las.reader">
+>>>>>>            <Option name="filename">in.las</Option>
+>>>>>>        </Reader>
+>>>>>>    </Writer>
+>>>>>> </WriterPipeline>
+>>>>>
+>>>>> Yup, that's basically what I had when I started the project -- but
+>>>>> then I found out that boost::property_tree doesn't serialize to XML
+>>>>> attrs quite as cleanly as I'd like.  I'm going to revisit that issue
+>>>>> this afternoon, I think.
+>>>>
+>>>> I agree that our pipeline XML isn't optimal, and we should move it toward
+>>>> something sane earlier rather than later.  Pete, when you get some time,
+>>> can
+>>>> you help me cook up an XSD that we can use to externally validate our
+>>>> pipelines?  I'll work to implement it.
+>>>>
+>>>> Howard=
+>>>
+>>>
+>>
+>
+> <writerpipeline.xsd>
+From mpg at flaxen.com  Thu Aug 18 21:47:25 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Sat Aug 20 08:25:23 2011
+Subject: [pdal] Pipeline XML as primary channel?
+In-Reply-To: <7015692957245796140@unknownmsgid>
+References: <7015692957245796140@unknownmsgid>
+Message-ID: <3853580280830432528@unknownmsgid>
+
+One more rule:
+
+The root element should always be Pipeline (not WriterPipeline), and
+it must have exactly one child, which will be either a Writer or a
+Stage.
+
+.mpg
+
+On Aug 18, 2011, at 6:20 PM, Michael Gerlek <mpg@flaxen.com> wrote:
+
+> Actually the rules can be a bit tighter, I think, if we add a
+> FilterType and a MultiFilter type...
+>
+> - Reader, Filter, and MultiFilter are all kinds of Stages
+> - a Writer is not a Stage, however
+>
+> - Writers have exactly one Stage child
+> - Readers have zero Stage children
+> - Filters have exactly one Stage child
+> - MultiFilters have one or more Stage children
+>
+> I'll make up some examples tomorrow.
+>
+> .mpg
+>
+> On Aug 18, 2011, at 5:28 PM, Pete Gadomski <pete.gadomski@gmail.com> wrote:
+>
+>> All,
+>>
+>> Sorry, I needed to set maxOccurs="unbounded" in for Option elements.
+>> Attached is the updated .xsd
+>>
+>> Pete
+>>
+>> 2011/8/18 Pete Gadomski <pete.gadomski@gmail.com>:
+>>> Howard,
+>>>
+>>> I've attached an .xsd (and a validating .xml) for a possible pipeline
+>>> xml format.
+>>>
+>>> Cheers,
+>>> Pete
+>>>
+>>> On Thu, Aug 18, 2011 at 15:25, Michael P. Gerlek <mpg@flaxen.com> wrote:
+>>>> If we're going to push the xml a little further, I'd be inclined to relax my
+>>>> initial position that it needed to be read/written via the ptree xml
+>>>> serializer.
+>>>>
+>>>> I had the idea that we could serialize as json, etc, too, but I think it is
+>>>> more important that we have flexible XML reading/writing (such as using
+>>>> attributes and supporting xsd validation and such).
+>>>>
+>>>> -mpg
+>>>>
+>>>>
+>>>>> -----Original Message-----
+>>>>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>>>>> Sent: Thursday, August 18, 2011 2:03 PM
+>>>>> To: mpg@flaxen.com
+>>>>> Cc: 'Pete Gadomski'; pdal@lists.osgeo.org
+>>>>> Subject: Re: [pdal] Pipeline XML as primary channel?
+>>>>>
+>>>>>
+>>>>> On Aug 17, 2011, at 5:40 PM, Michael P. Gerlek wrote:
+>>>>>
+>>>>>>> `//Filter[@type="filters.reprojection"]` seems cleaner than
+>>>>>>> `//Filter/Type[text()="filters.reprojection"/..`.
+>>>>>>
+>>>>>> Wow, they both just look like so much @$#^@%$//! line noise to me...
+>>>>>> :-)
+>>>>>>
+>>>>>>> * <opinion>Attributes work well for atomic values e.g. driver types
+>>>>>>> and option names.</opinion>
+>>>>>>
+>>>>>> <opinion assertedas="fact">Agreed.</opinion>
+>>>>>>
+>>>>>>> <WriterPipeline>
+>>>>>>>   <Writer type="drivers.oci.writer">
+>>>>>>>       <Option name="debug">true</Option>
+>>>>>>>       <Reader type="drivers.las.reader">
+>>>>>>>           <Option name="filename">in.las</Option>
+>>>>>>>       </Reader>
+>>>>>>>   </Writer>
+>>>>>>> </WriterPipeline>
+>>>>>>
+>>>>>> Yup, that's basically what I had when I started the project -- but
+>>>>>> then I found out that boost::property_tree doesn't serialize to XML
+>>>>>> attrs quite as cleanly as I'd like.  I'm going to revisit that issue
+>>>>>> this afternoon, I think.
+>>>>>
+>>>>> I agree that our pipeline XML isn't optimal, and we should move it toward
+>>>>> something sane earlier rather than later.  Pete, when you get some time,
+>>>> can
+>>>>> you help me cook up an XSD that we can use to externally validate our
+>>>>> pipelines?  I'll work to implement it.
+>>>>>
+>>>>> Howard=
+>>>>
+>>>>
+>>>
+>>
+>> <writerpipeline.xsd>
+From hobu.inc at gmail.com  Fri Aug 19 11:56:42 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Fri Aug 19 12:19:05 2011
+Subject: [pdal] Re: Move to Github?
+In-Reply-To: <B1C425A8-454E-413F-B353-44A5DB6F28C8@gmail.com>
+References: <B1C425A8-454E-413F-B353-44A5DB6F28C8@gmail.com>
+Message-ID: <57DDFE3B-4C4E-41C4-9284-0639B2D86CA5@gmail.com>
+
+All,
+
+Consider this notice that PDAL's repository will be moving to github this weekend.  I am in the process of setting up the server to host http://pointcloud.org and it seems reasonable at this time to drop the self-hosting of the Mercurial repository.
+
+I will not be porting over any of the old libPC trac tickets, so if anything is still desired from there it will have to be manually copied over.  I can't say I like github for its ticket system, but I think this will open up PDAL to even more collaboration with a wider community and eliminate the administrative headache of managing users and tickets and spam.
+
+Please coordinate with me on IRC today if you have any issues.
+
+Howard
+
+
+On Jun 19, 2011, at 8:16 AM, Howard Butler wrote:
+
+> Michael (and others who wish to chime in),
+> 
+> I'd like to move the PDAL repository to github.  It's all the rage, yada yada, but the major impetus is to offload user management.  Bitbucket is Mercurial-based, but I've had trouble with downtime with it, and github is rocking the house.  Note that I don't know squat about git, and i'll be learning it as I go, but it is similar to hg in many concepts and ideas (and more powerful too -- at a usability cost).
+> 
+> What do you think?
+> 
+> Howard
+
+From hobu.inc at gmail.com  Fri Aug 19 12:30:48 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Fri Aug 19 12:54:54 2011
+Subject: [pdal] Re: Move to Github?
+In-Reply-To: <57DDFE3B-4C4E-41C4-9284-0639B2D86CA5@gmail.com>
+References: <B1C425A8-454E-413F-B353-44A5DB6F28C8@gmail.com>
+	<57DDFE3B-4C4E-41C4-9284-0639B2D86CA5@gmail.com>
+Message-ID: <9157128B-73C2-43B0-B23B-8D1A67FAE5EA@gmail.com>
+
+And we're live.
+
+https://github.com/PDAL/PDAL
+
+I used http://hg-git.github.com/ to synchronize the hg repository with the github one. Since we don't have any branches, it was quite simple.
+
+If you still have some stuff you want to push back into the hg repository, please do so today, and I'll pull it over to the github repo.  I will 301 the repository to the https://github.com/PDAL/PDAL at the end of the day today.
+
+Howard
+
+
+On Aug 19, 2011, at 10:56 AM, Howard Butler wrote:
+
+> All,
+> 
+> Consider this notice that PDAL's repository will be moving to github this weekend.  I am in the process of setting up the server to host http://pointcloud.org and it seems reasonable at this time to drop the self-hosting of the Mercurial repository.
+> 
+> I will not be porting over any of the old libPC trac tickets, so if anything is still desired from there it will have to be manually copied over.  I can't say I like github for its ticket system, but I think this will open up PDAL to even more collaboration with a wider community and eliminate the administrative headache of managing users and tickets and spam.
+> 
+> Please coordinate with me on IRC today if you have any issues.
+> 
+> Howard
+> 
+> 
+> On Jun 19, 2011, at 8:16 AM, Howard Butler wrote:
+> 
+>> Michael (and others who wish to chime in),
+>> 
+>> I'd like to move the PDAL repository to github.  It's all the rage, yada yada, but the major impetus is to offload user management.  Bitbucket is Mercurial-based, but I've had trouble with downtime with it, and github is rocking the house.  Note that I don't know squat about git, and i'll be learning it as I go, but it is similar to hg in many concepts and ideas (and more powerful too -- at a usability cost).
+>> 
+>> What do you think?
+>> 
+>> Howard
+> 
+
+From mpg at flaxen.com  Fri Aug 19 21:09:31 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Fri Aug 19 22:02:51 2011
+Subject: [pdal] Re: Move to Github?
+In-Reply-To: <9157128B-73C2-43B0-B23B-8D1A67FAE5EA@gmail.com>
+References: <B1C425A8-454E-413F-B353-44A5DB6F28C8@gmail.com>	<57DDFE3B-4C4E-41C4-9284-0639B2D86CA5@gmail.com>
+	<9157128B-73C2-43B0-B23B-8D1A67FAE5EA@gmail.com>
+Message-ID: <018201cc5ed5$d1ee1d70$75ca5850$@flaxen.com>
+
+(It blew out the afternoon, but I have a functional repo on at least one of
+my machines now...)
+
+-mpg
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org]
+> On Behalf Of Howard Butler
+> Sent: Friday, August 19, 2011 9:31 AM
+> To: pdal@lists.osgeo.org
+> Subject: [pdal] Re: Move to Github?
+> 
+> And we're live.
+> 
+> https://github.com/PDAL/PDAL
+> 
+> I used http://hg-git.github.com/ to synchronize the hg repository with the
+> github one. Since we don't have any branches, it was quite simple.
+> 
+> If you still have some stuff you want to push back into the hg repository,
+> please do so today, and I'll pull it over to the github repo.  I will 301
+the
+> repository to the https://github.com/PDAL/PDAL at the end of the day
+> today.
+> 
+> Howard
+> 
+> 
+> On Aug 19, 2011, at 10:56 AM, Howard Butler wrote:
+> 
+> > All,
+> >
+> > Consider this notice that PDAL's repository will be moving to github
+this
+> weekend.  I am in the process of setting up the server to host
+> http://pointcloud.org and it seems reasonable at this time to drop the
+self-
+> hosting of the Mercurial repository.
+> >
+> > I will not be porting over any of the old libPC trac tickets, so if
+anything is
+> still desired from there it will have to be manually copied over.  I can't
+say I
+> like github for its ticket system, but I think this will open up PDAL to
+even
+> more collaboration with a wider community and eliminate the administrative
+> headache of managing users and tickets and spam.
+> >
+> > Please coordinate with me on IRC today if you have any issues.
+> >
+> > Howard
+> >
+> >
+> > On Jun 19, 2011, at 8:16 AM, Howard Butler wrote:
+> >
+> >> Michael (and others who wish to chime in),
+> >>
+> >> I'd like to move the PDAL repository to github.  It's all the rage,
+yada yada,
+> but the major impetus is to offload user management.  Bitbucket is
+> Mercurial-based, but I've had trouble with downtime with it, and github is
+> rocking the house.  Note that I don't know squat about git, and i'll be
+learning
+> it as I go, but it is similar to hg in many concepts and ideas (and more
+> powerful too -- at a usability cost).
+> >>
+> >> What do you think?
+> >>
+> >> Howard
+> >
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From hobu.inc at gmail.com  Fri Aug 19 21:21:27 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Fri Aug 19 22:15:11 2011
+Subject: [pdal] Re: Move to Github?
+In-Reply-To: <018201cc5ed5$d1ee1d70$75ca5850$@flaxen.com>
+References: <B1C425A8-454E-413F-B353-44A5DB6F28C8@gmail.com>
+	<57DDFE3B-4C4E-41C4-9284-0639B2D86CA5@gmail.com>
+	<9157128B-73C2-43B0-B23B-8D1A67FAE5EA@gmail.com>
+	<018201cc5ed5$d1ee1d70$75ca5850$@flaxen.com>
+Message-ID: <AFCACB19-7E42-4BFA-9E64-17AC386DE076@gmail.com>
+
+At least it was a Friday afternoon :)
+
+Thanks for migrating. It will lessen our administrative burden quite a bit. 
+
+On Aug 19, 2011, at 8:09 PM, "Michael P. Gerlek" <mpg@flaxen.com> wrote:
+
+> (It blew out the afternoon, but I have a functional repo on at least one of
+> my machines now...)
+> 
+> -mpg
+> 
+> 
+>> -----Original Message-----
+>> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org]
+>> On Behalf Of Howard Butler
+>> Sent: Friday, August 19, 2011 9:31 AM
+>> To: pdal@lists.osgeo.org
+>> Subject: [pdal] Re: Move to Github?
+>> 
+>> And we're live.
+>> 
+>> https://github.com/PDAL/PDAL
+>> 
+>> I used http://hg-git.github.com/ to synchronize the hg repository with the
+>> github one. Since we don't have any branches, it was quite simple.
+>> 
+>> If you still have some stuff you want to push back into the hg repository,
+>> please do so today, and I'll pull it over to the github repo.  I will 301
+> the
+>> repository to the https://github.com/PDAL/PDAL at the end of the day
+>> today.
+>> 
+>> Howard
+>> 
+>> 
+>> On Aug 19, 2011, at 10:56 AM, Howard Butler wrote:
+>> 
+>>> All,
+>>> 
+>>> Consider this notice that PDAL's repository will be moving to github
+> this
+>> weekend.  I am in the process of setting up the server to host
+>> http://pointcloud.org and it seems reasonable at this time to drop the
+> self-
+>> hosting of the Mercurial repository.
+>>> 
+>>> I will not be porting over any of the old libPC trac tickets, so if
+> anything is
+>> still desired from there it will have to be manually copied over.  I can't
+> say I
+>> like github for its ticket system, but I think this will open up PDAL to
+> even
+>> more collaboration with a wider community and eliminate the administrative
+>> headache of managing users and tickets and spam.
+>>> 
+>>> Please coordinate with me on IRC today if you have any issues.
+>>> 
+>>> Howard
+>>> 
+>>> 
+>>> On Jun 19, 2011, at 8:16 AM, Howard Butler wrote:
+>>> 
+>>>> Michael (and others who wish to chime in),
+>>>> 
+>>>> I'd like to move the PDAL repository to github.  It's all the rage,
+> yada yada,
+>> but the major impetus is to offload user management.  Bitbucket is
+>> Mercurial-based, but I've had trouble with downtime with it, and github is
+>> rocking the house.  Note that I don't know squat about git, and i'll be
+> learning
+>> it as I go, but it is similar to hg in many concepts and ideas (and more
+>> powerful too -- at a usability cost).
+>>>> 
+>>>> What do you think?
+>>>> 
+>>>> Howard
+>>> 
+>> 
+>> _______________________________________________
+>> pdal mailing list
+>> pdal@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/pdal
+> 
+From mpg at flaxen.com  Tue Aug 23 19:52:29 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Aug 23 20:22:59 2011
+Subject: [pdal] Pipeline schema, Options
+Message-ID: <005b01cc61ef$b8f4f100$2aded300$@flaxen.com>
+
+Well, that was fun.
+
+(1) The HEAD now follows gadomski's pipeline schema -- your old .xml files
+will not work, nope, no way, no siree.
+
+(2) The Options system's implementation has also changed, so that it is no
+longer templated and no longer as fragile as it was.  (It is also no longer
+backed explicitly by a ptree.)  The protocol for getting/setting options is
+simply this:
+
+  - You can set with either a std::string or some other type T.
+
+  - You must specify the template type when you do the get(), i.e.
+"getValue<boost::uint32_t>()".  The type of that get<> must be either a
+std::string or that same type T you did the set() with.
+
+  - All conversions are done via boost::lexical_cast, so if you are storing
+a nontrivial type T, then T must support a copy ctor, oper=, oper<<, and
+oper>>.  (Bounds<> does this, for example.)
+
+  - Eschew the use of int8/uint8 types for options, as they look like chars.
+
+-mpg
+
+
+From mpg at flaxen.com  Sat Aug 27 00:38:06 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Sat Aug 27 05:20:23 2011
+Subject: [pdal] old Trac bugs gone
+Message-ID: <023601cc6473$1e9cc930$5bd65b90$@flaxen.com>
+
+I've copied all the open bugs from Trac into the github issue system.
+
+All the Trac bugs are now closed.
+
+-mpg
+
+
+From hobu.inc at gmail.com  Sat Aug 27 22:40:12 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Sun Aug 28 04:34:27 2011
+Subject: [pdal] old Trac bugs gone
+In-Reply-To: <023601cc6473$1e9cc930$5bd65b90$@flaxen.com>
+References: <023601cc6473$1e9cc930$5bd65b90$@flaxen.com>
+Message-ID: <19B3C592-2DA4-4B78-906A-4CD9CA105652@gmail.com>
+
+
+On Aug 26, 2011, at 11:38 PM, Michael P. Gerlek wrote:
+
+> I've copied all the open bugs from Trac into the github issue system.
+> 
+> All the Trac bugs are now closed.
+
+Thanks. Did you have to do it manually, or was there something automated (asking for libLAS).
+
+Howard
+From mpg at flaxen.com  Sat Aug 27 23:56:39 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Sun Aug 28 05:55:25 2011
+Subject: [pdal] old Trac bugs gone
+In-Reply-To: <19B3C592-2DA4-4B78-906A-4CD9CA105652@gmail.com>
+References: <023601cc6473$1e9cc930$5bd65b90$@flaxen.com>
+	<19B3C592-2DA4-4B78-906A-4CD9CA105652@gmail.com>
+Message-ID: <-5920296032363562602@unknownmsgid>
+
+Manual.
+
+.mpg
+
+On Aug 27, 2011, at 7:40 PM, Howard Butler <hobu.inc@gmail.com> wrote:
+
+>
+> On Aug 26, 2011, at 11:38 PM, Michael P. Gerlek wrote:
+>
+>> I've copied all the open bugs from Trac into the github issue system.
+>>
+>> All the Trac bugs are now closed.
+>
+> Thanks. Did you have to do it manually, or was there something automated (asking for libLAS).
+>
+> Howard
+From brad.chambers at gmail.com  Mon Aug 29 08:26:30 2011
+From: brad.chambers at gmail.com (Bradley Chambers)
+Date: Mon Aug 29 16:12:08 2011
+Subject: [pdal] DLL plug-ins to PDAL
+Message-ID: <CAJyqqPzj8=2K65t7btH8shKQUTjrcv=C5=ga0GtxmgTLLCG9uQ@mail.gmail.com>
+
+All,
+
+I work with a group that was asked to develop a driver for PDAL that
+is proprietary. And so the question comes up, how to best manage these
+going forward. In a few offline discussions with Hobu, we've discussed
+the need for PDAL to potentially support such drivers via a DLL
+plug-in interface.
+
+I'd be interested to hear the groups' thoughts. Do others have a similar need?
+
+Brad
+From hobu.inc at gmail.com  Mon Aug 29 10:01:58 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Mon Aug 29 17:52:53 2011
+Subject: [pdal] DLL plug-ins to PDAL
+In-Reply-To: <CAJyqqPzj8=2K65t7btH8shKQUTjrcv=C5=ga0GtxmgTLLCG9uQ@mail.gmail.com>
+References: <CAJyqqPzj8=2K65t7btH8shKQUTjrcv=C5=ga0GtxmgTLLCG9uQ@mail.gmail.com>
+Message-ID: <72121E7B-3777-47A5-BB46-064922A3F17E@gmail.com>
+
+
+On Aug 29, 2011, at 7:26 AM, Bradley Chambers wrote:
+
+> All,
+> 
+> I work with a group that was asked to develop a driver for PDAL that
+> is proprietary. And so the question comes up, how to best manage these
+> going forward. In a few offline discussions with Hobu, we've discussed
+> the need for PDAL to potentially support such drivers via a DLL
+> plug-in interface.
+> 
+> I'd be interested to hear the groups' thoughts. Do others have a similar need?
+
+Brad,
+
+Yes we need plugins. It's one of the things that has made GDAL very successful, and PDAL's design is such that it should be straightforward.  I'll give a short synopsis of GDAL's plugin architecture and then provide a little bit of partially coalesced thoughts on how we can implement it in PDAL.
+
+GDAL's plugin architecture is made possible by GDAL's driver architecture. Each driver has an interface with a set of functions that must be conformed to in order to be a Driver. Drivers, consisting of shared objects (.so/.dylib or .dll) placed in a specially-named directory), are loaded at runtime using the DriverRegistrar's AutoLoadDrivers method. When the caller issues the GDAL_RegisterAll() method, these drivers are then loaded. They are unloaded using the CleanupAll() method.
+
+The AutoLoadDrivers method walks each file in the specially named directory that conforms to the gdal_DriverName.dll naming convention. The DriverName part of the file name must exactly match the name of the driver to be loaded. When found, gdal_DriverName.dll has a symbol in it called GDALRegister_DriverName that is called. This method does things like check for ABI compatibility, create a new Driver instance, set callbacks for methods that match the driver interface, and place it in the DriverRegistrar. 
+
+PDAL doesn't have the concept of a do-it-all driver for one datatype. Instead it has at least three (maybe four) major objects -- Reader, Writer, Filter, MultiFilter. Each has a clean interface that can be conformed to and each has a the ability to be constructed using the generic Options container. We have the PipelineManager that can be used to generate pipelines with these objects once they are available to be instantiated (registered).
+
+This brings up a question about registration -- Writer currently does not derive from Stage. Would our registerable drivers all be simply Stage instances with an expected constructor that takes in an Options reference? Or would we have to register PDAL_DriverName_Type.dll, with type being Filter, MultiFilter, Reader, or Writer? I guess I'd like to go for the cleaner Stage derivation to make the registration machinery simpler.  Or maybe a class above Stage that is simply a Driver (or some such name)...
+
+Another issue is what to do with plugin Stages after they're registered?  I suppose we could have to have some sort of singleton Manager object to clean these things up when we tear down. PipelineManager could then ask this singleton if it has any stages that matches the given name(s). Should we just register all available Stages to this Manager as well for simplicity?
+
+I'd be interested to hear your thoughts, Michael, if you have a moment.
+
+Thanks,
+
+Howard
+
+
+
+
+From mpg at flaxen.com  Mon Aug 29 11:56:01 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Mon Aug 29 19:53:30 2011
+Subject: [pdal] DLL plug-ins to PDAL
+In-Reply-To: <72121E7B-3777-47A5-BB46-064922A3F17E@gmail.com>
+References: <CAJyqqPzj8=2K65t7btH8shKQUTjrcv=C5=ga0GtxmgTLLCG9uQ@mail.gmail.com>
+	<72121E7B-3777-47A5-BB46-064922A3F17E@gmail.com>
+Message-ID: <034501cc6664$272fab60$758f0220$@flaxen.com>
+
+I've had a possible customer express interest in dynamic loading too, so
+this is definitely something we should be plumbing in.
+
+A couple additions to Howard's comments:
+
+* Actually StageBase is the root class these days -- Writer and Stage both
+derive from StageBase, and Reader/Filter/MultiFilter derive in turn from
+Stage.  (StageBase isn't a very inspired name, I know.  Happy to change if
+desired.)
+
+* I might suggest using subdirs for naming -- that is, instead of
+<dll_dir>/PDAL_LasReader_Reader.dll, maybe <dll_dir>/readers/LasReader.dll
+-- I dunno why, but this seems a little prettier to me.
+
+* StageFactory is the class that knows how to instantiate a driver when
+given the driver name (like "drivers.readers.las").  It is what is used by
+PipelineManager, and it knows about all the "built-in" driver classes, and I
+added a function to allow you to add a new driver on the fly -- you give it
+the driver name and a pointer to a "creator" function.
+
+* Knowledge of the mapping from filename extension to reader/writer driver
+type is currently out at the app level (in AppSupport), but it might be nice
+to put this into StageFactory too.  Or maybe each reader/writer driver
+should have a static function listing the extensions it thinks it knows
+about.  (But note I'm not in favor of putting an automatic file-opener
+system in the core library; that really belongs in AppSupport.)
+
+* StageFactory is not a singleton, but maybe arguably should be.
+
+I'm going to go look at GDAL's code, more as I think of it.
+
+-mpg
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org [mailto:pdal-bounces@lists.osgeo.org]
+> On Behalf Of Howard Butler
+> Sent: Monday, August 29, 2011 7:02 AM
+> To: Bradley Chambers
+> Cc: pdal@lists.osgeo.org
+> Subject: Re: [pdal] DLL plug-ins to PDAL
+> 
+> 
+> On Aug 29, 2011, at 7:26 AM, Bradley Chambers wrote:
+> 
+> > All,
+> >
+> > I work with a group that was asked to develop a driver for PDAL that
+> > is proprietary. And so the question comes up, how to best manage these
+> > going forward. In a few offline discussions with Hobu, we've discussed
+> > the need for PDAL to potentially support such drivers via a DLL
+> > plug-in interface.
+> >
+> > I'd be interested to hear the groups' thoughts. Do others have a similar
+> need?
+> 
+> Brad,
+> 
+> Yes we need plugins. It's one of the things that has made GDAL very
+> successful, and PDAL's design is such that it should be straightforward.
+I'll
+> give a short synopsis of GDAL's plugin architecture and then provide a
+little
+> bit of partially coalesced thoughts on how we can implement it in PDAL.
+> 
+> GDAL's plugin architecture is made possible by GDAL's driver architecture.
+> Each driver has an interface with a set of functions that must be
+conformed
+> to in order to be a Driver. Drivers, consisting of shared objects
+(.so/.dylib or
+> .dll) placed in a specially-named directory), are loaded at runtime using
+the
+> DriverRegistrar's AutoLoadDrivers method. When the caller issues the
+> GDAL_RegisterAll() method, these drivers are then loaded. They are
+> unloaded using the CleanupAll() method.
+> 
+> The AutoLoadDrivers method walks each file in the specially named
+directory
+> that conforms to the gdal_DriverName.dll naming convention. The
+> DriverName part of the file name must exactly match the name of the driver
+> to be loaded. When found, gdal_DriverName.dll has a symbol in it called
+> GDALRegister_DriverName that is called. This method does things like check
+> for ABI compatibility, create a new Driver instance, set callbacks for
+methods
+> that match the driver interface, and place it in the DriverRegistrar.
+> 
+> 
+> PDAL doesn't have the concept of a do-it-all driver for one datatype.
+Instead
+> it has at least three (maybe four) major objects -- Reader, Writer,
+Filter,
+> MultiFilter. Each has a clean interface that can be conformed to and each
+has
+> a the ability to be constructed using the generic Options container. We
+have
+> the PipelineManager that can be used to generate pipelines with these
+> objects once they are available to be instantiated (registered).
+> 
+> This brings up a question about registration -- Writer currently does not
+> derive from Stage. Would our registerable drivers all be simply Stage
+> instances with an expected constructor that takes in an Options reference?
+> Or would we have to register PDAL_DriverName_Type.dll, with type being
+> Filter, MultiFilter, Reader, or Writer? I guess I'd like to go for the
+cleaner
+> Stage derivation to make the registration machinery simpler.  Or maybe a
+> class above Stage that is simply a Driver (or some such name)...
+> 
+> Another issue is what to do with plugin Stages after they're registered?
+I
+> suppose we could have to have some sort of singleton Manager object to
+> clean these things up when we tear down. PipelineManager could then ask
+> this singleton if it has any stages that matches the given name(s). Should
+we
+> just register all available Stages to this Manager as well for simplicity?
+> 
+> I'd be interested to hear your thoughts, Michael, if you have a moment.
+> 
+> Thanks,
+> 
+> Howard
+> 
+> 
+> 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mpg at flaxen.com  Mon Aug 29 13:54:05 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Mon Aug 29 21:57:54 2011
+Subject: [pdal] DLL plug-ins to PDAL
+In-Reply-To: <034501cc6664$272fab60$758f0220$@flaxen.com>
+References: <CAJyqqPzj8=2K65t7btH8shKQUTjrcv=C5=ga0GtxmgTLLCG9uQ@mail.gmail.com>
+	<72121E7B-3777-47A5-BB46-064922A3F17E@gmail.com>
+	<034501cc6664$272fab60$758f0220$@flaxen.com>
+Message-ID: <021401cc6674$a6d4b8a0$f47e29e0$@flaxen.com>
+
+OK, yeah, I like the GDAL mechanism -- basically, I think, each driver lives
+in a DLL, and the DLL has a PleaseRegisterMe() function which adds it to the
+stage factory.  Simple, clean, easy.
+
+-mpg
+
+
+
+-----Original Message-----
+From: Michael P. Gerlek [mailto:mpg@flaxen.com] 
+Sent: Monday, August 29, 2011 8:56 AM
+To: 'Howard Butler'; 'Bradley Chambers'
+Cc: pdal@lists.osgeo.org
+Subject: RE: [pdal] DLL plug-ins to PDAL
+
+I've had a possible customer express interest in dynamic loading too, so
+this is definitely something we should be plumbing in.
+
+A couple additions to Howard's comments:
+
+* Actually StageBase is the root class these days -- Writer and Stage both
+derive from StageBase, and Reader/Filter/MultiFilter derive in turn from
+Stage.  (StageBase isn't a very inspired name, I know.  Happy to change if
+desired.)
+
+* I might suggest using subdirs for naming -- that is, instead of
+<dll_dir>/PDAL_LasReader_Reader.dll, maybe <dll_dir>/readers/LasReader.dll
+-- I dunno why, but this seems a little prettier to me.
+
+* StageFactory is the class that knows how to instantiate a driver when
+given the driver name (like "drivers.readers.las").  It is what is used by
+PipelineManager, and it knows about all the "built-in" driver classes, and I
+added a function to allow you to add a new driver on the fly -- you give it
+the driver name and a pointer to a "creator" function.
+
+* Knowledge of the mapping from filename extension to reader/writer driver
+type is currently out at the app level (in AppSupport), but it might be nice
+to put this into StageFactory too.  Or maybe each reader/writer driver
+should have a static function listing the extensions it thinks it knows
+about.  (But note I'm not in favor of putting an automatic file-opener
+system in the core library; that really belongs in AppSupport.)
+
+* StageFactory is not a singleton, but maybe arguably should be.
+
+I'm going to go look at GDAL's code, more as I think of it.
+
+-mpg
+
+
+> -----Original Message-----
+> From: pdal-bounces@lists.osgeo.org 
+> [mailto:pdal-bounces@lists.osgeo.org]
+> On Behalf Of Howard Butler
+> Sent: Monday, August 29, 2011 7:02 AM
+> To: Bradley Chambers
+> Cc: pdal@lists.osgeo.org
+> Subject: Re: [pdal] DLL plug-ins to PDAL
+> 
+> 
+> On Aug 29, 2011, at 7:26 AM, Bradley Chambers wrote:
+> 
+> > All,
+> >
+> > I work with a group that was asked to develop a driver for PDAL that 
+> > is proprietary. And so the question comes up, how to best manage 
+> > these going forward. In a few offline discussions with Hobu, we've 
+> > discussed the need for PDAL to potentially support such drivers via 
+> > a DLL plug-in interface.
+> >
+> > I'd be interested to hear the groups' thoughts. Do others have a 
+> > similar
+> need?
+> 
+> Brad,
+> 
+> Yes we need plugins. It's one of the things that has made GDAL very 
+> successful, and PDAL's design is such that it should be straightforward.
+I'll
+> give a short synopsis of GDAL's plugin architecture and then provide a
+little
+> bit of partially coalesced thoughts on how we can implement it in PDAL.
+> 
+> GDAL's plugin architecture is made possible by GDAL's driver architecture.
+> Each driver has an interface with a set of functions that must be
+conformed
+> to in order to be a Driver. Drivers, consisting of shared objects
+(.so/.dylib or
+> .dll) placed in a specially-named directory), are loaded at runtime 
+> using
+the
+> DriverRegistrar's AutoLoadDrivers method. When the caller issues the
+> GDAL_RegisterAll() method, these drivers are then loaded. They are 
+> unloaded using the CleanupAll() method.
+> 
+> The AutoLoadDrivers method walks each file in the specially named
+directory
+> that conforms to the gdal_DriverName.dll naming convention. The 
+> DriverName part of the file name must exactly match the name of the 
+> driver to be loaded. When found, gdal_DriverName.dll has a symbol in 
+> it called GDALRegister_DriverName that is called. This method does 
+> things like check for ABI compatibility, create a new Driver instance, 
+> set callbacks for
+methods
+> that match the driver interface, and place it in the DriverRegistrar.
+> 
+> 
+> PDAL doesn't have the concept of a do-it-all driver for one datatype.
+Instead
+> it has at least three (maybe four) major objects -- Reader, Writer,
+Filter,
+> MultiFilter. Each has a clean interface that can be conformed to and 
+> each
+has
+> a the ability to be constructed using the generic Options container. 
+> We
+have
+> the PipelineManager that can be used to generate pipelines with these 
+> objects once they are available to be instantiated (registered).
+> 
+> This brings up a question about registration -- Writer currently does 
+> not derive from Stage. Would our registerable drivers all be simply 
+> Stage instances with an expected constructor that takes in an Options
+reference?
+> Or would we have to register PDAL_DriverName_Type.dll, with type being 
+> Filter, MultiFilter, Reader, or Writer? I guess I'd like to go for the
+cleaner
+> Stage derivation to make the registration machinery simpler.  Or maybe 
+> a class above Stage that is simply a Driver (or some such name)...
+> 
+> Another issue is what to do with plugin Stages after they're registered?
+I
+> suppose we could have to have some sort of singleton Manager object to 
+> clean these things up when we tear down. PipelineManager could then 
+> ask this singleton if it has any stages that matches the given 
+> name(s). Should
+we
+> just register all available Stages to this Manager as well for simplicity?
+> 
+> I'd be interested to hear your thoughts, Michael, if you have a moment.
+> 
+> Thanks,
+> 
+> Howard
+> 
+> 
+> 
+> 
+> _______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From hobu.inc at gmail.com  Tue Aug 30 16:06:18 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed Aug 31 01:35:39 2011
+Subject: [pdal] API Documentation with Sphinx/Doxygen
+Message-ID: <5D3C7061-5BC2-454B-B918-E3ACB80044D5@gmail.com>
+
+Michael,
+
+I see you ported over the the doxygen stuff from libLAS, and I have it auto-building on pointcloud.org at http://pointcloud.org/doxygen
+
+I also used breathe https://github.com/hobu/breathe to take doxygen's XML output and (grossly, at this time) map it into Sphinx http://pointcloud.org/cppapi.html  
+
+The advantage of this approach is the output generation of all of our documentation can be through Sphinx.  We can control the documentation output for a nice, clean document http://michaeljones.github.com/breathe/directives.html 
+
+Breathe can render restructured text that is embedded inside of header files using the \rst \endrst directives. This means that we can add Sphinx references inside of Doxygen API documentation back to other documents within our system.  I think this approach will provide a successful and beautiful documentation set for PDAL -- documentation that can exist in PDF, man, windows compiled help, and many others. It will allow us to present a unified interface to all of it as well. Pretty, well-linked docs mean people read them. We want people to read them :) 
+
+If other people want to build this, they can crib off of the hourly script that keeps pointcloud.org running.  In short, you need the doxygen XML output before you run sphinx.  You'll need to install breath from my github fork as well using 'python setup.py install'
+
+> #!/bin/bash
+> cd /Data/www/pointcloud.org/git
+> git pull
+> cd /Data/www/pointcloud.org/git/doc
+> make clean
+> cd /Data/www/pointcloud.org/git/
+> /usr/local/bin/doxygen doc/api/doxygen.conf
+> chmod -R g+x,o+x /Data/www/pointcloud.org/git/doc/api
+> export PATH=/usr/local/bin:$PATH
+> cd /Data/www/pointcloud.org/git/doc
+> make html
+> cp -r -f  build/html/ /Data/www/pointcloud.org/htdocs
+> cp /Data/www/pointcloud.org/git/doc/_static/logo/favicon.ico /Data/www/pointcloud.org/htdocs
+
+
+Howard
+
+
+
+
+From hobu.inc at gmail.com  Wed Aug 31 13:06:23 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Wed Aug 31 23:44:15 2011
+Subject: [pdal] The special case of pdal::Color
+Message-ID: <ADAEB1CB-3440-4C6B-972D-07636EA4260F@gmail.com>
+
+Michael,
+
+As I'm going through doing doxygen/sphinx documentation, I noticed that this class doesn't really have a place. I see it in the ColorFilter, but it isn't used elsewhere at the library level. 
+
+Do we need to keep it at the library level, or could it simply be rolled into the ColorFilter itself?
+
+Howard
+From mpg at flaxen.com  Wed Aug 31 13:08:01 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Wed Aug 31 23:51:03 2011
+Subject: [pdal] The special case of pdal::Color
+In-Reply-To: <ADAEB1CB-3440-4C6B-972D-07636EA4260F@gmail.com>
+References: <ADAEB1CB-3440-4C6B-972D-07636EA4260F@gmail.com>
+Message-ID: <-4920072400430254871@unknownmsgid>
+
+Yeah, let's move it... (I moved PointBufferCache yesterday for the same reason).
+
+.mpg
+
+On Aug 31, 2011, at 1:06 PM, Howard Butler <hobu.inc@gmail.com> wrote:
+
+> Michael,
+>
+> As I'm going through doing doxygen/sphinx documentation, I noticed that this class doesn't really have a place. I see it in the ColorFilter, but it isn't used elsewhere at the library level.
+>
+> Do we need to keep it at the library level, or could it simply be rolled into the ColorFilter itself?
+>
+> Howard_______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+From hobu.inc at gmail.com  Wed Aug 31 15:08:58 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Thu Sep  1 01:53:53 2011
+Subject: [pdal] API dox examples
+Message-ID: <ABD61482-453E-44A9-B5D7-A0BE51BF4476@gmail.com>
+
+Michael,
+
+Here's what some of the output looks like using the setup I proposed yesterday:
+
+http://pointcloud.org/api/cpp/dimension.html
+http://pointcloud.org/api/cpp/bounds.html
+
+Once a class has been rendered through the sphinx system as above, we can now link to it in documentation like:
+
+:cpp:class:`pdal::Dimension`
+:cpp:class:`pdal::Bounds`
+
+Now to write class documentation... :)
+
+Howard
+From hobu.inc at gmail.com  Wed Aug 31 15:14:20 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Thu Sep  1 01:59:33 2011
+Subject: [pdal] tshirts for #foss4g2011
+Message-ID: <1FE4DC34-3CDA-4C83-9A9A-FE62C8E434C1@gmail.com>
+
+All,
+
+If you are going to be at #foss4g in Denver in a couple of weeks, let me know your tshirt size, and I'll bring one along for you.  It's a pocket t-shirt design with a pocket on the left breast and logo on the right breast.  Many sizes available, but I have a finite amount, so let me know early to reserve yours.
+
+http://dl.dropbox.com/u/2135057/pdal_logo/tshirt_stitch.jpg
+
+Howard
+From mpg at flaxen.com  Wed Aug 31 15:17:15 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Thu Sep  1 02:02:37 2011
+Subject: [pdal] tshirts for #foss4g2011
+In-Reply-To: <1FE4DC34-3CDA-4C83-9A9A-FE62C8E434C1@gmail.com>
+References: <1FE4DC34-3CDA-4C83-9A9A-FE62C8E434C1@gmail.com>
+Message-ID: <3185380263784303411@unknownmsgid>
+
+Cool - 2XL!
+
+.mpg
+
+On Aug 31, 2011, at 3:14 PM, Howard Butler <hobu.inc@gmail.com> wrote:
+
+> All,
+>
+> If you are going to be at #foss4g in Denver in a couple of weeks, let me know your tshirt size, and I'll bring one along for you.  It's a pocket t-shirt design with a pocket on the left breast and logo on the right breast.  Many sizes available, but I have a finite amount, so let me know early to reserve yours.
+>
+> http://dl.dropbox.com/u/2135057/pdal_logo/tshirt_stitch.jpg
+>
+> Howard_______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+From mpg at flaxen.com  Wed Aug 31 15:19:06 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Thu Sep  1 02:04:42 2011
+Subject: [pdal] API dox examples
+In-Reply-To: <ABD61482-453E-44A9-B5D7-A0BE51BF4476@gmail.com>
+References: <ABD61482-453E-44A9-B5D7-A0BE51BF4476@gmail.com>
+Message-ID: <-1925417282685853520@unknownmsgid>
+
+[on my phone, so limited b/w for browsing the site]
+
+Do we still get the stuff like graphs of class hierarchies?
+
+.mpg
+
+On Aug 31, 2011, at 3:09 PM, Howard Butler <hobu.inc@gmail.com> wrote:
+
+> Michael,
+>
+> Here's what some of the output looks like using the setup I proposed yesterday:
+>
+> http://pointcloud.org/api/cpp/dimension.html
+> http://pointcloud.org/api/cpp/bounds.html
+>
+> Once a class has been rendered through the sphinx system as above, we can now link to it in documentation like:
+>
+> :cpp:class:`pdal::Dimension`
+> :cpp:class:`pdal::Bounds`
+>
+> Now to write class documentation... :)
+>
+> Howard_______________________________________________
+> pdal mailing list
+> pdal@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/pdal
+From mpg at flaxen.com  Wed Aug 31 15:20:18 2011
+From: mpg at flaxen.com (Michael Gerlek)
+Date: Thu Sep  1 02:05:53 2011
+Subject: [pdal] LasReader
+Message-ID: <7067239368015683257@unknownmsgid>
+
+There are still a couple classes (like LasReader) for which the class
+name != the file name -- okay if I fix those?
+
+.mpg
+From hobu.inc at gmail.com  Wed Aug 31 15:22:01 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Thu Sep  1 02:07:40 2011
+Subject: [pdal] API dox examples
+In-Reply-To: <-1925417282685853520@unknownmsgid>
+References: <ABD61482-453E-44A9-B5D7-A0BE51BF4476@gmail.com>
+	<-1925417282685853520@unknownmsgid>
+Message-ID: <22138EB7-0829-49D4-BE0F-5DDA13933A51@gmail.com>
+
+http://pointcloud.org/doxygen/ is also available for a standard doxygen html interface.
+
+There is nothing in breathe right now that supports sucking in the dot graphs, but I think that could be possible with some effort. I've already had to muck around with breathe a little bit to shut off private data members and such.  The code's kind of design patterned to death, but its workable.
+
+Howard
+On Aug 31, 2011, at 2:19 PM, Michael Gerlek wrote:
+
+> [on my phone, so limited b/w for browsing the site]
+> 
+> Do we still get the stuff like graphs of class hierarchies?
+> 
+> .mpg
+> 
+> On Aug 31, 2011, at 3:09 PM, Howard Butler <hobu.inc@gmail.com> wrote:
+> 
+>> Michael,
+>> 
+>> Here's what some of the output looks like using the setup I proposed yesterday:
+>> 
+>> http://pointcloud.org/api/cpp/dimension.html
+>> http://pointcloud.org/api/cpp/bounds.html
+>> 
+>> Once a class has been rendered through the sphinx system as above, we can now link to it in documentation like:
+>> 
+>> :cpp:class:`pdal::Dimension`
+>> :cpp:class:`pdal::Bounds`
+>> 
+>> Now to write class documentation... :)
+>> 
+>> Howard_______________________________________________
+>> pdal mailing list
+>> pdal@lists.osgeo.org
+>> http://lists.osgeo.org/mailman/listinfo/pdal
+
+From mateusz at loskot.net  Wed Aug 31 17:57:45 2011
+From: mateusz at loskot.net (Mateusz Loskot)
+Date: Thu Sep  1 06:04:57 2011
+Subject: [pdal] tshirts for #foss4g2011
+In-Reply-To: <1FE4DC34-3CDA-4C83-9A9A-FE62C8E434C1@gmail.com>
+References: <1FE4DC34-3CDA-4C83-9A9A-FE62C8E434C1@gmail.com>
+Message-ID: <4E5EAE59.5080103@loskot.net>
+
+On 31/08/11 20:14, Howard Butler wrote:
+> All,
+> 
+> If you are going to be at #foss4g in Denver in a couple of weeks, let
+> me know your tshirt size, and I'll bring one along for you.  It's a
+> pocket t-shirt design with a pocket on the left breast and logo on
+> the right breast.  Many sizes available, but I have a finite amount,
+> so let me know early to reserve yours.
+
+US: M
+European: L
+
+> http://dl.dropbox.com/u/2135057/pdal_logo/tshirt_stitch.jpg
+
+Looks cool!
+
+Cheers,
+-- 
+Mateusz Loskot, http://mateusz.loskot.net
+Charter Member of OSGeo, http://osgeo.org
+Member of ACCU, http://accu.org
+From hobu.inc at gmail.com  Wed Aug 31 19:42:29 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Thu Sep  1 06:44:11 2011
+Subject: [pdal] API dox examples
+In-Reply-To: <22138EB7-0829-49D4-BE0F-5DDA13933A51@gmail.com>
+References: <ABD61482-453E-44A9-B5D7-A0BE51BF4476@gmail.com>
+	<-1925417282685853520@unknownmsgid>
+	<22138EB7-0829-49D4-BE0F-5DDA13933A51@gmail.com>
+Message-ID: <12569460-13B3-4FEF-AC90-23D2AC621273@gmail.com>
+
+
+On Aug 31, 2011, at 2:22 PM, Howard Butler wrote:
+
+> http://pointcloud.org/doxygen/ is also available for a standard doxygen html interface.
+> 
+> There is nothing in breathe right now that supports sucking in the dot graphs, but I think that could be possible with some effort. I've already had to muck around with breathe a little bit to shut off private data members and such.  The code's kind of design patterned to death, but its workable.
+
+Working on it...
+
+https://github.com/michaeljones/breathe/issues/45

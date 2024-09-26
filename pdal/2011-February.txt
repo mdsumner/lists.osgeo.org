@@ -1,0 +1,787 @@
+From mpg at flaxen.com  Thu Feb  3 19:03:01 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] first Notes ready
+Message-ID: <04dc01cbc3fe$e4d6e830$ae84b890$@flaxen.com>
+
+Greetings, fellow libPC people.
+
+I've finished copying my scribbled notes from a few conversations and emails
+with Howard into RST documents I'm calling "Notes".  Each Note discusses a
+specific topic, and is intended to capture the decisions and designs we
+agree to for that topic.  Kinda like an RFC, but for much earlier in the
+process.
+
+We can discuss these online when the mailing list has, umm, a couple more
+people on it.
+
+For now, you can find the first Notes files in libpc's hg tree, under
+doc/notes.  Except they're not actually there yet, because I don't have
+write access or something. 
+
+-mpg
+
+
+
+From mpg at flaxen.com  Mon Feb  7 18:02:58 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Point buffering protocols - decision point
+Message-ID: <006701cbc71b$2ad6dd80$80849880$@flaxen.com>
+
+I've committed a bunch of code now to demonstrate the framework, and I'm
+happy, but I'm now at a good decision point.  Please read on.
+
+Consider this hypothetical lidar workflow (committed in main.cpp), which is
+made up of 4 stages:
+
+  - READ: read data from a file -- assume the file only contains four F32
+values per point, (X, Y, Z, Time)
+  - CROP: if the Z value is <0, remove the point
+  - COLORIZE: add three U8 values (R,G,B) to the point which are determined
+based on the value of Z
+  - WRITE: output just five values to a file for each point, (X,Y,R,G,B)
+
+Note three key things here: we never use the T value, we only use the Z
+value for the three of the stages, and we only use the R,G,B values for the
+two of the stages.
+
+Recall that the pipeline operates in a "pull" mode in which each stage,
+starting at the end with WRITE, hands a buffer to its previous stage and
+says "please fill this for me, with whatever data you have".  This buffer
+has an associated layout property, which consists of a field for each data
+value of interest.  But how does the WRITE stage "know" what fields are of
+interest?  That is, how does any given stage know what fields the previous
+stage is going to be supplying to it?
+
+Naively, each stage asks its previous stage, recursively down the pipe, and
+we compute the set of all possible fields of interest.  In this example,
+then, the buffer would always contains points with seven items,
+(X,Y,Z,T,R,G,B).
+
+Or, you could be really clever and change the layout of the buffer as you go
+through the pipe.  For example, the buffer coming out of READ really needs
+only to have three values (X,Y,Z) since T is never used anywhere in the
+pipeline.  Also, the buffer coming into WRITE needs only to have five values
+(X,Y,R,G,B) since Z is no longer needed at that point.  At no stage do you
+ever actually need all seven values in the buffer at the same time.
+
+But changing the layout of the buffer at each stage would, in the worst
+cases, require lots of copying values from the old buffer shape to the new
+buffer layout, and so this would seem to be not a good idea at all.
+
+Keeping a constant "maximally sized" layout would be far simple, and
+potentially faster -- unless you had a degenerate case in which you did
+something like a READ stage which reads in 100 different values and the a
+series of STAGES and a WRITER which only ever used one of the values.  But I
+could live with that.
+
+With me so far?  Good.  Now go read my code, and see if it still makes
+sense.
+
+Assuming everyone likes the model I've checked in so far, I'm going with the
+latter "maximal" buffering method.  We will undoubtedly evolve things as we
+go along, of course, but so far we have a model that seems pretty durned
+efficient, with a reasonable degree of expressiveness.  I will need to
+implement some more prototype stages, though, to try and expose any lurking
+design flaws.
+
+[yes, I'm still using Layout and Field classes; these will eventually be
+replaced by Schema and such, but for now just concentrate on the semantics
+of the model]
+
+-mpg
+
+
+
+From mpg at flaxen.com  Tue Feb  8 19:35:35 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Dust settled - next steps
+Message-ID: <00c001cbc7f1$44fd2e40$cef78ac0$@flaxen.com>
+
+The prototype checked in now feels pretty good to me, so I'm going to
+declare success on it and go on to the next step.
+
+The next couple days will be setting up things like cmake usage, unit test
+directory, stub out the core apps, and so on.  (I expect much of this to be
+just a matter of migrating stuff over from liblas/ land.)  After that, we'll
+start bringing over the actual liblas sources -- yes, starting with
+including Dimension and Schema.
+
+-mpg
+
+
+
+From hobu.inc at gmail.com  Fri Feb 11 09:40:28 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Test suites
+Message-ID: <630CF345-3E78-43BA-BFC6-70B31F88D55F@gmail.com>
+
+I propose that we utilize the Boost Unit Test suite rather than the TUT test suite that is currently embedded in the libLAS library.  There are a number of reasons for this change:
+
+* Mateusz had proposed moving to Boost Test Library for libLAS but hadn't gotten around to porting
+* boost::test has many more features
+* Boost is a required dependency of libPC and we can practically count on boost::test being available.  This wasn't a true statement in the earlier days of libLAS
+
+I will embark on replacing the TUT code in the tree with a simple boost::test example that we can start from.  
+
+Howard
+From mpg at flaxen.com  Fri Feb 11 10:32:06 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] coding conventions
+Message-ID: <003a01cbca00$d8735940$895a0bc0$@flaxen.com>
+
+I propose we adopt a (reasonable) set of coding conventions, and then I will
+make a corresponding template for use with uncrustify.
+
+While I'm not saying we all need to waste time obsessively following the
+rules, having a template will (1) flexibly define what the conventions are
+and (2) allow us to import old code (e.g. bounds.hpp) without reformatting.
+
+-mpg
+
+
+
+From mpg at flaxen.com  Fri Feb 11 10:32:09 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Test suites
+In-Reply-To: <630CF345-3E78-43BA-BFC6-70B31F88D55F@gmail.com>
+References: <630CF345-3E78-43BA-BFC6-70B31F88D55F@gmail.com>
+Message-ID: <003b01cbca00$d9856580$8c903080$@flaxen.com>
+
+More features, less code for us to maintain -- sounds good.
+
+-mpg
+
+
+> -----Original Message-----
+> From: libpc-bounces@lists.osgeo.org [mailto:libpc-bounces@lists.osgeo.org]
+> On Behalf Of Howard Butler
+> Sent: Friday, February 11, 2011 6:40 AM
+> To: libpc@lists.osgeo.org
+> Subject: [libpc] Test suites
+> 
+> I propose that we utilize the Boost Unit Test suite rather than the TUT
+test
+> suite that is currently embedded in the libLAS library.  There are a
+number of
+> reasons for this change:
+> 
+> * Mateusz had proposed moving to Boost Test Library for libLAS but hadn't
+> gotten around to porting
+> * boost::test has many more features
+> * Boost is a required dependency of libPC and we can practically count on
+> boost::test being available.  This wasn't a true statement in the earlier
+days of
+> libLAS
+> 
+> I will embark on replacing the TUT code in the tree with a simple
+boost::test
+> example that we can start from.
+> 
+> Howard_______________________________________________
+> libpc mailing list
+> libpc@lists.osgeo.org
+> http://lists.osgeo.org/mailman/listinfo/libpc
+
+
+From mpg at flaxen.com  Fri Feb 11 17:20:58 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Friday afternoon status
+Message-ID: <00d501cbca39$f6955700$e3c00500$@flaxen.com>
+
+libpc now builds under cmake, at least for VS2010 under x64/Debug, and a
+handful of the liblas utility and support classes (Dimension, version.cpp,
+etc) have been migrated over.
+
+Next step will be to update some of the Notes, and then start migrating some
+actual LAS support over.
+
+-mpg
+
+
+
+From mpg at flaxen.com  Mon Feb 28 10:56:21 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] RE: exposing capabilities, hiding classes
+In-Reply-To: <D7B106B6-37AD-4EFF-A0E4-A0D284837C01@gmail.com>
+References: <017101cbd546$5300f5f0$f902e1d0$@flaxen.com>
+	<D7B106B6-37AD-4EFF-A0E4-A0D284837C01@gmail.com>
+Message-ID: <001c01cbd760$0d23e6c0$276bb440$@flaxen.com>
+
+(CC'ing the list)
+
+OK, I'll look at that today.  [I assume this is "traits" like char traits in
+strings?  I've seen them mentioned, but have never learned anything about
+them since I live in an 8-bit, old-fashioned, EN-us only world...]
+
+In any case, I think this should be discussion #1 for the sprint (two weeks
+away, yikes) -- I think we can proceed as-is without any undue damage /
+excess pain to the future actual model?
+
+-mpg
+
+> -----Original Message-----
+> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> Sent: Monday, February 28, 2011 7:37 AM
+> To: mpg@flaxen.com
+> Cc: Michael Smith
+> Subject: Re: exposing capabilities, hiding classes
+> 
+> What about traits-style as an alternative to the A and B you've set up in
+the
+> email below?
+> 
+> http://www.boost.org/doc/libs/1_46_0/libs/type_traits/doc/html/boost_ty
+> petraits/background.html
+> 
+> 
+> On Feb 25, 2011, at 5:47 PM, Michael P. Gerlek wrote:
+> 
+> > The idea under discussion is to find a way to not have to expose a
+> > zillion different classes to the user -- such as a LAS reader, a
+> > decimation filter, an Oracle writer, etc.  The reason for this idea is
+because
+> (1) it "feels"
+> > like exposing too many headers to the user and giving him too much to
+> > think about, and (2) every header we "expose" is one more area that we
+> > need to worry about keeping clean between releases.
+> >
+> > To implement this idea, then, we want to expose "capabilities" or
+> "features"
+> > instead.  (I think of this as letting the user see an "abstract"
+> > feature set instead of an actual "implementation".)
+> >
+> > Consider a workflow where we want to build a pipeline that reads a LAS
+> > file, crops it, and writes it out as LAZ using point format 7.  In the
+> > current model this would look like:
+> >
+> >    LasReader reader("foo.las")
+> >
+> >    Bounds bounds(0,0,0,100,100,100)
+> >    Cropper filter(reader, bounds)
+> >
+> >    LazWriter writer("bar.laz", filter)
+> >
+> >    writer.write()
+> >
+> > In the proposed model, this would look something like this:
+> >
+> >    Stage reader = createStage(READER_LAS)
+> >    reader.setInputFile("foo.las")
+> >
+> >    Stage filter = createStage(FILTER_CROP)
+> >    filter.setPrevStage(reader)
+> >    Bounds bounds(0,0,0,100,100,100)
+> >    filter.setBounds(bounds)
+> >
+> >    Stage writer = createStage(WRITER_LAZ)
+> >    writer.setOutputFile("bar.laz")
+> >    writer.setPointType(X)
+> >    writer.setPrevStage(writer)
+> >
+> >    writer.write()
+> >
+> > In this world, the Stage base class always has these member functions,
+> > although setInputFile(), setOutputFile(), setBounds(), and
+setPrevStage().
+> > They are unimplemented, however, unless
+> > Stage.getCapabilities(FEATURE_NAME)==true.  ((In the above example,
+> we
+> > "know" the feature setInputFile() is available because we specifically
+> > asked
+> > createStage() for a kind of reader, but in general we would not
+> > "know".))
+> >
+> > (Am I right so far?)
+> >
+> > In the limit, then, this idea would mean that every new feature we
+> > come up with -- be it a writer, reader, or filter -- will have to be
+> > supported by the enum we pass to createStage() and possibly also have
+> > a corresponding member function in Stage.  This seems to mean that
+> > every time we want to add some new kind of operation, we need to
+> > modify (extend) a core component for that one new driver feature --
+> > such as "setPointType", which only ever makes sense for a LAS writer.
+> >
+> > Also, consider a libPC user who wants to add his own driver -- say, a
+> > particular filter that throws out some points based on his own criteria.
+> > Does he have to modify the createStage() and add members to Stage to
+> > do this?
+> >
+> > I *think* I'm therefore against this idea, because we want a library
+> > that is very extensible, and we'd constantly be adding new stuff to
+> > the base class, which seems to me just as bad as the problem of
+> > exposing a zillion Stage-derived classes to the user.
+> >
+> > So, is there a middle ground, I wonder?
+> >
+> > -mpg
+> >
+> >
+
+
+From hobu.inc at gmail.com  Mon Feb 28 10:57:11 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Re: exposing capabilities, hiding classes
+In-Reply-To: <001c01cbd760$0d23e6c0$276bb440$@flaxen.com>
+References: <017101cbd546$5300f5f0$f902e1d0$@flaxen.com>
+	<D7B106B6-37AD-4EFF-A0E4-A0D284837C01@gmail.com>
+	<001c01cbd760$0d23e6c0$276bb440$@flaxen.com>
+Message-ID: <A1C157C9-B5DE-44A7-9D7E-D0F1C8DE91EC@gmail.com>
+
+
+On Feb 28, 2011, at 9:56 AM, Michael P. Gerlek wrote:
+
+> (CC'ing the list)
+> 
+> OK, I'll look at that today.  [I assume this is "traits" like char traits in
+> strings?  I've seen them mentioned, but have never learned anything about
+> them since I live in an 8-bit, old-fashioned, EN-us only world...]
+> 
+> In any case, I think this should be discussion #1 for the sprint (two weeks
+> away, yikes) -- I think we can proceed as-is without any undue damage /
+> excess pain to the future actual model?
+
+yep.  We still need drivers cooked up for examples for the sprint regardless....
+
+> 
+> -mpg
+> 
+>> -----Original Message-----
+>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>> Sent: Monday, February 28, 2011 7:37 AM
+>> To: mpg@flaxen.com
+>> Cc: Michael Smith
+>> Subject: Re: exposing capabilities, hiding classes
+>> 
+>> What about traits-style as an alternative to the A and B you've set up in
+> the
+>> email below?
+>> 
+>> http://www.boost.org/doc/libs/1_46_0/libs/type_traits/doc/html/boost_ty
+>> petraits/background.html
+>> 
+>> 
+>> On Feb 25, 2011, at 5:47 PM, Michael P. Gerlek wrote:
+>> 
+>>> The idea under discussion is to find a way to not have to expose a
+>>> zillion different classes to the user -- such as a LAS reader, a
+>>> decimation filter, an Oracle writer, etc.  The reason for this idea is
+> because
+>> (1) it "feels"
+>>> like exposing too many headers to the user and giving him too much to
+>>> think about, and (2) every header we "expose" is one more area that we
+>>> need to worry about keeping clean between releases.
+>>> 
+>>> To implement this idea, then, we want to expose "capabilities" or
+>> "features"
+>>> instead.  (I think of this as letting the user see an "abstract"
+>>> feature set instead of an actual "implementation".)
+>>> 
+>>> Consider a workflow where we want to build a pipeline that reads a LAS
+>>> file, crops it, and writes it out as LAZ using point format 7.  In the
+>>> current model this would look like:
+>>> 
+>>>   LasReader reader("foo.las")
+>>> 
+>>>   Bounds bounds(0,0,0,100,100,100)
+>>>   Cropper filter(reader, bounds)
+>>> 
+>>>   LazWriter writer("bar.laz", filter)
+>>> 
+>>>   writer.write()
+>>> 
+>>> In the proposed model, this would look something like this:
+>>> 
+>>>   Stage reader = createStage(READER_LAS)
+>>>   reader.setInputFile("foo.las")
+>>> 
+>>>   Stage filter = createStage(FILTER_CROP)
+>>>   filter.setPrevStage(reader)
+>>>   Bounds bounds(0,0,0,100,100,100)
+>>>   filter.setBounds(bounds)
+>>> 
+>>>   Stage writer = createStage(WRITER_LAZ)
+>>>   writer.setOutputFile("bar.laz")
+>>>   writer.setPointType(X)
+>>>   writer.setPrevStage(writer)
+>>> 
+>>>   writer.write()
+>>> 
+>>> In this world, the Stage base class always has these member functions,
+>>> although setInputFile(), setOutputFile(), setBounds(), and
+> setPrevStage().
+>>> They are unimplemented, however, unless
+>>> Stage.getCapabilities(FEATURE_NAME)==true.  ((In the above example,
+>> we
+>>> "know" the feature setInputFile() is available because we specifically
+>>> asked
+>>> createStage() for a kind of reader, but in general we would not
+>>> "know".))
+>>> 
+>>> (Am I right so far?)
+>>> 
+>>> In the limit, then, this idea would mean that every new feature we
+>>> come up with -- be it a writer, reader, or filter -- will have to be
+>>> supported by the enum we pass to createStage() and possibly also have
+>>> a corresponding member function in Stage.  This seems to mean that
+>>> every time we want to add some new kind of operation, we need to
+>>> modify (extend) a core component for that one new driver feature --
+>>> such as "setPointType", which only ever makes sense for a LAS writer.
+>>> 
+>>> Also, consider a libPC user who wants to add his own driver -- say, a
+>>> particular filter that throws out some points based on his own criteria.
+>>> Does he have to modify the createStage() and add members to Stage to
+>>> do this?
+>>> 
+>>> I *think* I'm therefore against this idea, because we want a library
+>>> that is very extensible, and we'd constantly be adding new stuff to
+>>> the base class, which seems to me just as bad as the problem of
+>>> exposing a zillion Stage-derived classes to the user.
+>>> 
+>>> So, is there a middle ground, I wonder?
+>>> 
+>>> -mpg
+>>> 
+>>> 
+> 
+
+
+From mpg at flaxen.com  Mon Feb 28 11:05:30 2011
+From: mpg at flaxen.com (Michael P. Gerlek)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] RE: exposing capabilities, hiding classes
+In-Reply-To: <A1C157C9-B5DE-44A7-9D7E-D0F1C8DE91EC@gmail.com>
+References: <017101cbd546$5300f5f0$f902e1d0$@flaxen.com>
+	<D7B106B6-37AD-4EFF-A0E4-A0D284837C01@gmail.com>
+	<001c01cbd760$0d23e6c0$276bb440$@flaxen.com>
+	<A1C157C9-B5DE-44A7-9D7E-D0F1C8DE91EC@gmail.com>
+Message-ID: <002001cbd761$53e817b0$fbb84710$@flaxen.com>
+
+Do we have a list of goals for the sprint?   (/me loves lists)
+
+* Intro to the new libPC framework (mpg)
+
+* new/sample driver/filter development (all)
+  - MrSID/MG4-lidar
+  - http://libe57.org/
+  - ...?
+
+* ...?
+
+-mpg
+
+
+
+> -----Original Message-----
+> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> Sent: Monday, February 28, 2011 7:57 AM
+> To: mpg@flaxen.com
+> Cc: 'Michael Smith'; libpc@lists.osgeo.org
+> Subject: Re: exposing capabilities, hiding classes
+> 
+> 
+> On Feb 28, 2011, at 9:56 AM, Michael P. Gerlek wrote:
+> 
+> > (CC'ing the list)
+> >
+> > OK, I'll look at that today.  [I assume this is "traits" like char
+> > traits in strings?  I've seen them mentioned, but have never learned
+> > anything about them since I live in an 8-bit, old-fashioned, EN-us
+> > only world...]
+> >
+> > In any case, I think this should be discussion #1 for the sprint (two
+> > weeks away, yikes) -- I think we can proceed as-is without any undue
+> > damage / excess pain to the future actual model?
+> 
+> yep.  We still need drivers cooked up for examples for the sprint
+> regardless....
+> 
+> >
+> > -mpg
+> >
+> >> -----Original Message-----
+> >> From: Howard Butler [mailto:hobu.inc@gmail.com]
+> >> Sent: Monday, February 28, 2011 7:37 AM
+> >> To: mpg@flaxen.com
+> >> Cc: Michael Smith
+> >> Subject: Re: exposing capabilities, hiding classes
+> >>
+> >> What about traits-style as an alternative to the A and B you've set
+> >> up in
+> > the
+> >> email below?
+> >>
+> >>
+> http://www.boost.org/doc/libs/1_46_0/libs/type_traits/doc/html/boost_
+> >> ty
+> >> petraits/background.html
+> >>
+> >>
+> >> On Feb 25, 2011, at 5:47 PM, Michael P. Gerlek wrote:
+> >>
+> >>> The idea under discussion is to find a way to not have to expose a
+> >>> zillion different classes to the user -- such as a LAS reader, a
+> >>> decimation filter, an Oracle writer, etc.  The reason for this idea
+> >>> is
+> > because
+> >> (1) it "feels"
+> >>> like exposing too many headers to the user and giving him too much
+> >>> to think about, and (2) every header we "expose" is one more area
+> >>> that we need to worry about keeping clean between releases.
+> >>>
+> >>> To implement this idea, then, we want to expose "capabilities" or
+> >> "features"
+> >>> instead.  (I think of this as letting the user see an "abstract"
+> >>> feature set instead of an actual "implementation".)
+> >>>
+> >>> Consider a workflow where we want to build a pipeline that reads a
+> >>> LAS file, crops it, and writes it out as LAZ using point format 7.
+> >>> In the current model this would look like:
+> >>>
+> >>>   LasReader reader("foo.las")
+> >>>
+> >>>   Bounds bounds(0,0,0,100,100,100)
+> >>>   Cropper filter(reader, bounds)
+> >>>
+> >>>   LazWriter writer("bar.laz", filter)
+> >>>
+> >>>   writer.write()
+> >>>
+> >>> In the proposed model, this would look something like this:
+> >>>
+> >>>   Stage reader = createStage(READER_LAS)
+> >>>   reader.setInputFile("foo.las")
+> >>>
+> >>>   Stage filter = createStage(FILTER_CROP)
+> >>>   filter.setPrevStage(reader)
+> >>>   Bounds bounds(0,0,0,100,100,100)
+> >>>   filter.setBounds(bounds)
+> >>>
+> >>>   Stage writer = createStage(WRITER_LAZ)
+> >>>   writer.setOutputFile("bar.laz")
+> >>>   writer.setPointType(X)
+> >>>   writer.setPrevStage(writer)
+> >>>
+> >>>   writer.write()
+> >>>
+> >>> In this world, the Stage base class always has these member
+> >>> functions, although setInputFile(), setOutputFile(), setBounds(),
+> >>> and
+> > setPrevStage().
+> >>> They are unimplemented, however, unless
+> >>> Stage.getCapabilities(FEATURE_NAME)==true.  ((In the above example,
+> >> we
+> >>> "know" the feature setInputFile() is available because we
+> >>> specifically asked
+> >>> createStage() for a kind of reader, but in general we would not
+> >>> "know".))
+> >>>
+> >>> (Am I right so far?)
+> >>>
+> >>> In the limit, then, this idea would mean that every new feature we
+> >>> come up with -- be it a writer, reader, or filter -- will have to be
+> >>> supported by the enum we pass to createStage() and possibly also
+> >>> have a corresponding member function in Stage.  This seems to mean
+> >>> that every time we want to add some new kind of operation, we need
+> >>> to modify (extend) a core component for that one new driver feature
+> >>> -- such as "setPointType", which only ever makes sense for a LAS
+writer.
+> >>>
+> >>> Also, consider a libPC user who wants to add his own driver -- say,
+> >>> a particular filter that throws out some points based on his own
+criteria.
+> >>> Does he have to modify the createStage() and add members to Stage to
+> >>> do this?
+> >>>
+> >>> I *think* I'm therefore against this idea, because we want a library
+> >>> that is very extensible, and we'd constantly be adding new stuff to
+> >>> the base class, which seems to me just as bad as the problem of
+> >>> exposing a zillion Stage-derived classes to the user.
+> >>>
+> >>> So, is there a middle ground, I wonder?
+> >>>
+> >>> -mpg
+> >>>
+> >>>
+> >
+
+
+From hobu.inc at gmail.com  Mon Feb 28 14:53:32 2011
+From: hobu.inc at gmail.com (Howard Butler)
+Date: Tue Jun 14 16:45:30 2011
+Subject: [libpc] Re: exposing capabilities, hiding classes
+In-Reply-To: <002001cbd761$53e817b0$fbb84710$@flaxen.com>
+References: <017101cbd546$5300f5f0$f902e1d0$@flaxen.com>
+	<D7B106B6-37AD-4EFF-A0E4-A0D284837C01@gmail.com>
+	<001c01cbd760$0d23e6c0$276bb440$@flaxen.com>
+	<A1C157C9-B5DE-44A7-9D7E-D0F1C8DE91EC@gmail.com>
+	<002001cbd761$53e817b0$fbb84710$@flaxen.com>
+Message-ID: <C8E5D068-6D8F-4B3B-BD0B-1A44C9E88AEF@gmail.com>
+
+* Discussion/design/evaluation of driver/Stage model.  Bring in Frank to discuss what he's learned from GDAL and OGR and what he might do different too.
+* Decide on a documentation setup.  I'm leaning toward using Sphinx (Sphinx can do C++ docs with its domain stuff) and hand-crafted docs instead of Doxygen
+* Polish up three drivers (Native LAS, libLAS-based LAS, Oracle Point Cloud)
+* Entice Rosen et. al. to start playing around with MG4
+* TXT driver?
+
+
+On Feb 28, 2011, at 10:05 AM, Michael P. Gerlek wrote:
+
+> Do we have a list of goals for the sprint?   (/me loves lists)
+> 
+> * Intro to the new libPC framework (mpg)
+> 
+> * new/sample driver/filter development (all)
+>  - MrSID/MG4-lidar
+>  - http://libe57.org/
+>  - ...?
+> 
+> * ...?
+> 
+> -mpg
+> 
+> 
+> 
+>> -----Original Message-----
+>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>> Sent: Monday, February 28, 2011 7:57 AM
+>> To: mpg@flaxen.com
+>> Cc: 'Michael Smith'; libpc@lists.osgeo.org
+>> Subject: Re: exposing capabilities, hiding classes
+>> 
+>> 
+>> On Feb 28, 2011, at 9:56 AM, Michael P. Gerlek wrote:
+>> 
+>>> (CC'ing the list)
+>>> 
+>>> OK, I'll look at that today.  [I assume this is "traits" like char
+>>> traits in strings?  I've seen them mentioned, but have never learned
+>>> anything about them since I live in an 8-bit, old-fashioned, EN-us
+>>> only world...]
+>>> 
+>>> In any case, I think this should be discussion #1 for the sprint (two
+>>> weeks away, yikes) -- I think we can proceed as-is without any undue
+>>> damage / excess pain to the future actual model?
+>> 
+>> yep.  We still need drivers cooked up for examples for the sprint
+>> regardless....
+>> 
+>>> 
+>>> -mpg
+>>> 
+>>>> -----Original Message-----
+>>>> From: Howard Butler [mailto:hobu.inc@gmail.com]
+>>>> Sent: Monday, February 28, 2011 7:37 AM
+>>>> To: mpg@flaxen.com
+>>>> Cc: Michael Smith
+>>>> Subject: Re: exposing capabilities, hiding classes
+>>>> 
+>>>> What about traits-style as an alternative to the A and B you've set
+>>>> up in
+>>> the
+>>>> email below?
+>>>> 
+>>>> 
+>> http://www.boost.org/doc/libs/1_46_0/libs/type_traits/doc/html/boost_
+>>>> ty
+>>>> petraits/background.html
+>>>> 
+>>>> 
+>>>> On Feb 25, 2011, at 5:47 PM, Michael P. Gerlek wrote:
+>>>> 
+>>>>> The idea under discussion is to find a way to not have to expose a
+>>>>> zillion different classes to the user -- such as a LAS reader, a
+>>>>> decimation filter, an Oracle writer, etc.  The reason for this idea
+>>>>> is
+>>> because
+>>>> (1) it "feels"
+>>>>> like exposing too many headers to the user and giving him too much
+>>>>> to think about, and (2) every header we "expose" is one more area
+>>>>> that we need to worry about keeping clean between releases.
+>>>>> 
+>>>>> To implement this idea, then, we want to expose "capabilities" or
+>>>> "features"
+>>>>> instead.  (I think of this as letting the user see an "abstract"
+>>>>> feature set instead of an actual "implementation".)
+>>>>> 
+>>>>> Consider a workflow where we want to build a pipeline that reads a
+>>>>> LAS file, crops it, and writes it out as LAZ using point format 7.
+>>>>> In the current model this would look like:
+>>>>> 
+>>>>>  LasReader reader("foo.las")
+>>>>> 
+>>>>>  Bounds bounds(0,0,0,100,100,100)
+>>>>>  Cropper filter(reader, bounds)
+>>>>> 
+>>>>>  LazWriter writer("bar.laz", filter)
+>>>>> 
+>>>>>  writer.write()
+>>>>> 
+>>>>> In the proposed model, this would look something like this:
+>>>>> 
+>>>>>  Stage reader = createStage(READER_LAS)
+>>>>>  reader.setInputFile("foo.las")
+>>>>> 
+>>>>>  Stage filter = createStage(FILTER_CROP)
+>>>>>  filter.setPrevStage(reader)
+>>>>>  Bounds bounds(0,0,0,100,100,100)
+>>>>>  filter.setBounds(bounds)
+>>>>> 
+>>>>>  Stage writer = createStage(WRITER_LAZ)
+>>>>>  writer.setOutputFile("bar.laz")
+>>>>>  writer.setPointType(X)
+>>>>>  writer.setPrevStage(writer)
+>>>>> 
+>>>>>  writer.write()
+>>>>> 
+>>>>> In this world, the Stage base class always has these member
+>>>>> functions, although setInputFile(), setOutputFile(), setBounds(),
+>>>>> and
+>>> setPrevStage().
+>>>>> They are unimplemented, however, unless
+>>>>> Stage.getCapabilities(FEATURE_NAME)==true.  ((In the above example,
+>>>> we
+>>>>> "know" the feature setInputFile() is available because we
+>>>>> specifically asked
+>>>>> createStage() for a kind of reader, but in general we would not
+>>>>> "know".))
+>>>>> 
+>>>>> (Am I right so far?)
+>>>>> 
+>>>>> In the limit, then, this idea would mean that every new feature we
+>>>>> come up with -- be it a writer, reader, or filter -- will have to be
+>>>>> supported by the enum we pass to createStage() and possibly also
+>>>>> have a corresponding member function in Stage.  This seems to mean
+>>>>> that every time we want to add some new kind of operation, we need
+>>>>> to modify (extend) a core component for that one new driver feature
+>>>>> -- such as "setPointType", which only ever makes sense for a LAS
+> writer.
+>>>>> 
+>>>>> Also, consider a libPC user who wants to add his own driver -- say,
+>>>>> a particular filter that throws out some points based on his own
+> criteria.
+>>>>> Does he have to modify the createStage() and add members to Stage to
+>>>>> do this?
+>>>>> 
+>>>>> I *think* I'm therefore against this idea, because we want a library
+>>>>> that is very extensible, and we'd constantly be adding new stuff to
+>>>>> the base class, which seems to me just as bad as the problem of
+>>>>> exposing a zillion Stage-derived classes to the user.
+>>>>> 
+>>>>> So, is there a middle ground, I wonder?
+>>>>> 
+>>>>> -mpg
+>>>>> 
+>>>>> 
+>>> 
+> 
+
+

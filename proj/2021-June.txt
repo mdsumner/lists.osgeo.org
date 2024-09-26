@@ -1,0 +1,3346 @@
+From kirk.waters at noaa.gov  Wed Jun  2 12:33:06 2021
+From: kirk.waters at noaa.gov (Kirk Waters - NOAA Federal)
+Date: Wed, 2 Jun 2021 15:33:06 -0400
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+Message-ID: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+
+Dear proj list,
+I'm having a bit of trouble with proj and I'm hoping someone can tell me
+where I've gone wrong. For context, my primary issue is converting a raster
+from NAD83 state plane to NAD27 state plane using GDAL, which uses proj
+under the hood. It looks like it's proj that is causing me problems. I used
+conda to install a fresh environment with proj8 and proj-data on a RHEL7
+machine.
+Here's the conversion that I think is giving the wrong answers (EPSG 6570
+is NAD83(2011) South Carolina State Plane (ft) and EPSG 32033 is NAD27
+South Carolina South):
+
+cs2cs EPSG:6570 EPSG:32033 << EOF
+2320610.000 353815.000 0
+EOF
+
+which returns:
+2320626.52      353751.41 0.00
+
+Using the NGS NCAT online program, that should be:
+2320568.869   353687.842
+
+I did the transform in parts and found that the issue is in the reference
+frame transform between NAD83(2011) lat lon and NAD27 lat lon, where no
+change happens, but it should. That is:
+cs2cs EPSG:6318 EPSG:4267
+with inputs of
+32d48'4.701"N   79d57'23.546"W 0.000
+has outputs of
+32d48'4.701"N   79d57'23.546"W 0.000
+
+If I use NAD83 (EPSG 4269) instead of NAD83(2011), things look right and I
+get output of:
+32d48'4.066"N   79d57'24.227"W 0.000
+
+Trying to change from NAD83(2011) to NAD83 (EPSG 6318 to 4269) gives no
+change, so I'm assuming PROJ doesn't know that transform. I'm guessing that
+because it doesn't know that transform, it can't figure out that it should
+do the NAD83 to NAD27 part, so instead of being a couple meters off, it's
+off by 50 meters or so. If I do the transforms in parts, SP83 to
+NAD83(2011), NAD83(2011) to NAD83, NAD83 to NAD27, NAD27 to SP27, I get the
+right answer within the couple meters due to the missing transform.
+
+Is the transform from NAD83(2011) to NAD83 something I just missed
+installing? Without it, it looks like my GDAL process will be painful. Is
+there a better way to handle it?
+
+Kirk Waters, PhD                     | NOAA Office for Coastal Management
+Applied Sciences Program      | 2234 South Hobson Ave
+843-740-1227 (empty office)   | Charleston, SC 29405
+843-324-2203 (cell during COVID)
+coast.noaa.gov/digitalcoast
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210602/e9f066c7/attachment.html>
+
+From even.rouault at spatialys.com  Wed Jun  2 13:16:51 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 2 Jun 2021 22:16:51 +0200
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+In-Reply-To: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+References: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+Message-ID: <df8163ca-4f3a-dbf2-29a5-a62c999d01ec@spatialys.com>
+
+Kirk,
+
+this is tricky topic.
+
+Prerequisite knowledge: when transforming between datums A and B, PROJ 
+can obviousl use transformations present in its database that have A as 
+source and B as target (or the reverse), as well chaining 2 
+transformations going through one intermediate datum C: A -> C followed 
+by C -> B. It can't do A -> C -> D -> B.
+
+In the NAD83(2011) to NAD27 case, there is no direct transformation 
+registered between both datum. So PROJ has to go through the 
+intermediate datum way, and NAD83 can be a possibility (likely the only 
+one, but I didn't check).
+
+For NAD27 to NAD83, for the US, PROJ only handles NADCON4 grids for 
+Conus and Alaska. NADCON5 is registered in our database, but we don't 
+have the code yet to handle it.
+
+For NAD83 to NAD83 (2011), there is a single transformation registered 
+in EPSG, EPSG:8971, and it is only valid for Gulf of Mexico and it is a 
+0-meter shift between both datums.
+
+So when chaining the 2 steps and intersecting the validity extent of the 
+available transformations, NAD27 to NAD83 (2011) has a known accuracy 
+only for Gulf of Mexico. For other areas, PROJ can't really know that 
+taking as approximation NAD83 ~= NAD83 (2011) and using the NAD27 to 
+NAD83 transformation would give something that is (likely) better than 
+just giving up and considering that NAD27 -> NAD83(2011) is a no-op with 
+a unknown accuracy.
+
+If NADCON5 grids were implemented, we could potentially use the NAD83 -> 
+NAD83 (HARN) -> NAD83 (NSRS2007) -> NAD83 (2011) transformations that 
+are valid for CONUS, but that would require extra logic in code or 
+adding concatenated transformations in the database so that PROJ doesn't 
+have to figure all those intermediates!
+
+If for your purpose NAD83 ~= NAD83 (2011) is a reasonable approximation, 
+you could potentially add an entry in the database similar to EPSG:8971 
+but with a validity area that encompasses whole CONUS.
+
+Hope that makes sense
+
+Even
+
+Le 02/06/2021 ? 21:33, Kirk Waters - NOAA Federal via PROJ a ?crit?:
+> Dear proj list,
+> I'm having a bit of trouble with proj and I'm hoping someone can tell 
+> me where I've gone wrong. For context, my primary issue is converting 
+> a raster from NAD83 state plane to NAD27 state plane using GDAL, which 
+> uses proj under the hood. It looks like it's proj that is causing me 
+> problems. I used conda to install a fresh environment with proj8 and 
+> proj-data on a RHEL7 machine.
+> Here's the conversion that I think is giving the wrong answers (EPSG 
+> 6570 is NAD83(2011) South Carolina State Plane (ft) and EPSG 32033 is 
+> NAD27 South Carolina South):
+>
+> cs2cs EPSG:6570 EPSG:32033 << EOF
+> 2320610.000 353815.000 0
+> EOF
+>
+> which returns:
+> 2320626.52 ? ? ?353751.41 0.00
+>
+> Using the NGS NCAT online program, that should be:
+> 2320568.869 353687.842
+>
+> I did the transform in parts and found that the issue is in the 
+> reference frame transform between NAD83(2011) lat lon and NAD27 lat 
+> lon, where no change happens, but it should. That is:
+> cs2cs EPSG:6318 EPSG:4267
+> with inputs of
+> 32d48'4.701"N ? 79d57'23.546"W 0.000
+> has outputs of
+> 32d48'4.701"N ? 79d57'23.546"W 0.000
+>
+> If I use NAD83 (EPSG 4269) instead of NAD83(2011), things look right 
+> and I get output of:
+> 32d48'4.066"N ? 79d57'24.227"W 0.000
+>
+> Trying to change from NAD83(2011) to NAD83 (EPSG 6318 to 4269) gives 
+> no change, so I'm assuming PROJ doesn't know that transform. I'm 
+> guessing that because it doesn't know that transform, it can't figure 
+> out that it should do the NAD83 to NAD27 part, so instead of being a 
+> couple meters off, it's off by 50 meters or so. If I do the transforms 
+> in parts, SP83 to NAD83(2011), NAD83(2011) to NAD83, NAD83 to NAD27, 
+> NAD27 to SP27, I get the right answer within the couple meters due to 
+> the missing transform.
+>
+> Is the transform from NAD83(2011) to NAD83 something I just missed 
+> installing? Without it, it looks like my GDAL process will be painful. 
+> Is there a better way to handle it?
+>
+> Kirk Waters, PhD? ? ? ? ? ? ? ? ? ? ?| NOAA Office for Coastal Management
+> Applied Sciences Program ? ? ?| 2234 South Hobson Ave
+> 843-740-1227 (empty office)? ?| Charleston, SC 29405
+> 843-324-2203 (cell during COVID)
+> coast.noaa.gov/digitalcoast <http://coast.noaa.gov/digitalcoast>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210602/70f21a73/attachment.html>
+
+From gdt at lexort.com  Wed Jun  2 15:19:17 2021
+From: gdt at lexort.com (Greg Troxel)
+Date: Wed, 02 Jun 2021 18:19:17 -0400
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+In-Reply-To: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+ (Kirk Waters's message of "Wed, 2 Jun 2021 15:33:06 -0400")
+References: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+Message-ID: <rmi1r9jdi56.fsf@s1.lexort.com>
+
+
+Everything Even said sounds correct to me -- and I am far less of an
+expert in how proj makes decisions.
+
+You are suffering from two problems:
+
+  The concept of NAD83 as an ensemble, where it refers to an unspecified
+  member of the set of NAD83 realizations (but only suffering a
+  little).  You will notice that NCAT does not admit to this concept; it
+  simply has 5 distinct NAD83 realizations.
+
+  The EPSG database just having missing transforms.  While NCAT has
+  careful transforms, the  difference around me from NAD83(2011) to
+  NAD83(1986) is about 4 cm.
+
+
+So IMHO the right fix is to add the missing transforms, on an
+approximate basis, to the database, perhaps picking 5cm or 10 cm as the
+accuracy, and saying that each NAD83 realization can be null-transformed
+to NAD83(2011) with that accuracy.
+
+Certainly it is far more sensible to assume that all NAD83 realizations
+are equivalent than to assume a null transform is appropriate between
+NAD27 and anything.  I wonder if proj should have this fallback at all;
+it seems better to throw an error.
+
+Also, I really have to wonder which NAD83 realization the NAD83/NAD27
+grids are for.  It does not make sense that NGS would publish ensemble
+grids, rather than for some specific realization.  (I can certainly see
+grids where there is a different datum tag in different regions.)
+
+It seems that it might be difficult to resolve these issues at EPSG, but
+I admit to not having tried.  So probably proj should have a local set
+of transforms in the repo and included with releases, that get added.
+
+It's on my list to work on a set of local database additions, more for
+mitigating the incorrect assumption that NAD83==WGS84.
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 194 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210602/3964555c/attachment.sig>
+
+From kirk.waters at noaa.gov  Thu Jun  3 03:37:54 2021
+From: kirk.waters at noaa.gov (Kirk Waters - NOAA Federal)
+Date: Thu, 3 Jun 2021 06:37:54 -0400
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+In-Reply-To: <df8163ca-4f3a-dbf2-29a5-a62c999d01ec@spatialys.com>
+References: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+ <df8163ca-4f3a-dbf2-29a5-a62c999d01ec@spatialys.com>
+Message-ID: <CADm=QrRsj3F8sjcRUE_bG+oYRScAzqOe1Cdcx222rCvaiEN3zw@mail.gmail.com>
+
+Even,
+Thank you very much, that's very helpful. It's along the lines of what I
+was thinking was the problem, but I hadn't gotten far enough to realize I
+could add an entry in the database. The other option is to figure out the
+right EPSG code to pass to GDAL to pretend the transform has already
+happened.
+
+Kirk
+
+
+On Wed, Jun 2, 2021 at 4:17 PM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Kirk,
+>
+> this is tricky topic.
+>
+> Prerequisite knowledge: when transforming between datums A and B, PROJ can
+> obviousl use transformations present in its database that have A as source
+> and B as target (or the reverse), as well chaining 2 transformations going
+> through one intermediate datum C: A -> C followed by C -> B. It can't do A
+> -> C -> D -> B.
+>
+> In the NAD83(2011) to NAD27 case, there is no direct transformation
+> registered between both datum. So PROJ has to go through the intermediate
+> datum way, and NAD83 can be a possibility (likely the only one, but I
+> didn't check).
+>
+> For NAD27 to NAD83, for the US, PROJ only handles NADCON4 grids for Conus
+> and Alaska. NADCON5 is registered in our database, but we don't have the
+> code yet to handle it.
+>
+> For NAD83 to NAD83 (2011), there is a single transformation registered in
+> EPSG, EPSG:8971, and it is only valid for Gulf of Mexico and it is a
+> 0-meter shift between both datums.
+>
+> So when chaining the 2 steps and intersecting the validity extent of the
+> available transformations, NAD27 to NAD83 (2011) has a known accuracy only
+> for Gulf of Mexico. For other areas, PROJ can't really know that taking as
+> approximation NAD83 ~= NAD83 (2011) and using the NAD27 to NAD83
+> transformation would give something that is (likely) better than just
+> giving up and considering that NAD27 -> NAD83(2011) is a no-op with a
+> unknown accuracy.
+>
+> If NADCON5 grids were implemented, we could potentially use the NAD83 ->
+> NAD83 (HARN) -> NAD83 (NSRS2007) -> NAD83 (2011) transformations that are
+> valid for CONUS, but that would require extra logic in code or adding
+> concatenated transformations in the database so that PROJ doesn't have to
+> figure all those intermediates!
+> If for your purpose NAD83 ~= NAD83 (2011) is a reasonable approximation,
+> you could potentially add an entry in the database similar to EPSG:8971 but
+> with a validity area that encompasses whole CONUS.
+>
+> Hope that makes sense
+>
+> Even
+> Le 02/06/2021 ? 21:33, Kirk Waters - NOAA Federal via PROJ a ?crit :
+>
+> Dear proj list,
+> I'm having a bit of trouble with proj and I'm hoping someone can tell me
+> where I've gone wrong. For context, my primary issue is converting a raster
+> from NAD83 state plane to NAD27 state plane using GDAL, which uses proj
+> under the hood. It looks like it's proj that is causing me problems. I used
+> conda to install a fresh environment with proj8 and proj-data on a RHEL7
+> machine.
+> Here's the conversion that I think is giving the wrong answers (EPSG 6570
+> is NAD83(2011) South Carolina State Plane (ft) and EPSG 32033 is NAD27
+> South Carolina South):
+>
+> cs2cs EPSG:6570 EPSG:32033 << EOF
+> 2320610.000 353815.000 0
+> EOF
+>
+> which returns:
+> 2320626.52      353751.41 0.00
+>
+> Using the NGS NCAT online program, that should be:
+> 2320568.869   353687.842
+>
+> I did the transform in parts and found that the issue is in the reference
+> frame transform between NAD83(2011) lat lon and NAD27 lat lon, where no
+> change happens, but it should. That is:
+> cs2cs EPSG:6318 EPSG:4267
+> with inputs of
+> 32d48'4.701"N   79d57'23.546"W 0.000
+> has outputs of
+> 32d48'4.701"N   79d57'23.546"W 0.000
+>
+> If I use NAD83 (EPSG 4269) instead of NAD83(2011), things look right and I
+> get output of:
+> 32d48'4.066"N   79d57'24.227"W 0.000
+>
+> Trying to change from NAD83(2011) to NAD83 (EPSG 6318 to 4269) gives no
+> change, so I'm assuming PROJ doesn't know that transform. I'm guessing that
+> because it doesn't know that transform, it can't figure out that it should
+> do the NAD83 to NAD27 part, so instead of being a couple meters off, it's
+> off by 50 meters or so. If I do the transforms in parts, SP83 to
+> NAD83(2011), NAD83(2011) to NAD83, NAD83 to NAD27, NAD27 to SP27, I get the
+> right answer within the couple meters due to the missing transform.
+>
+> Is the transform from NAD83(2011) to NAD83 something I just missed
+> installing? Without it, it looks like my GDAL process will be painful. Is
+> there a better way to handle it?
+>
+> Kirk Waters, PhD                     | NOAA Office for Coastal Management
+> Applied Sciences Program      | 2234 South Hobson Ave
+> 843-740-1227 (empty office)   | Charleston, SC 29405
+> 843-324-2203 (cell during COVID)
+> coast.noaa.gov/digitalcoast
+>
+>
+> _______________________________________________
+> PROJ mailing listPROJ at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/proj
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210603/48be926d/attachment-0001.html>
+
+From even.rouault at spatialys.com  Thu Jun  3 03:48:58 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 3 Jun 2021 12:48:58 +0200
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+In-Reply-To: <CADm=QrRsj3F8sjcRUE_bG+oYRScAzqOe1Cdcx222rCvaiEN3zw@mail.gmail.com>
+References: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+ <df8163ca-4f3a-dbf2-29a5-a62c999d01ec@spatialys.com>
+ <CADm=QrRsj3F8sjcRUE_bG+oYRScAzqOe1Cdcx222rCvaiEN3zw@mail.gmail.com>
+Message-ID: <66fd0ea7-6cea-afab-ad5f-5c20aea644e1@spatialys.com>
+
+
+Le 03/06/2021 ? 12:37, Kirk Waters - NOAA Federal a ?crit?:
+> Even,
+> Thank you very much, that's very helpful. It's along the lines of what 
+> I was thinking was the problem, but I hadn't gotten far enough to 
+> realize I could add an entry in the database. The other option is to 
+> figure out the right EPSG code to pass to GDAL to pretend the 
+> transform has already happened.
+
+If you use gdalwarp, you can lie a bit and set -s_srs EPSG:2273 to force 
+"NAD83 / South Carolina (ft)" as the source CRS, and then you'll get the 
+transformation to NAD27 using the CONUS grid.
+
+Even
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From kirk.waters at noaa.gov  Thu Jun  3 13:03:02 2021
+From: kirk.waters at noaa.gov (Kirk Waters - NOAA Federal)
+Date: Thu, 3 Jun 2021 16:03:02 -0400
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+In-Reply-To: <66fd0ea7-6cea-afab-ad5f-5c20aea644e1@spatialys.com>
+References: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+ <df8163ca-4f3a-dbf2-29a5-a62c999d01ec@spatialys.com>
+ <CADm=QrRsj3F8sjcRUE_bG+oYRScAzqOe1Cdcx222rCvaiEN3zw@mail.gmail.com>
+ <66fd0ea7-6cea-afab-ad5f-5c20aea644e1@spatialys.com>
+Message-ID: <CADm=QrSL0QU0J+qJ49gNdD4x8qUUAZt5GpkoRm9DotLzrDWxSA@mail.gmail.com>
+
+Even,
+I decided to script out adding the transforms to the proj.db file so I can
+automatically have my system add them when new proj.db files get released.
+One thing I haven't figured out is how the extent is associated with the
+transform. For 8971, I don't see anything in the helmert_transformation
+table that looks close except the 'IOGP-Usa GoM' for the operation version.
+EPSG.org shows the extent code for transform 8971 is 3357, which matches
+what I find in the extent table, but I don't see where in proj.db that's
+happening. The name for extent 3357 is 'USA - GoM OCS', so it doesn't match
+the helmert_transformation entry for 8971. Apologies if I'm asking
+something that's clearly laid out. I just haven't found the right docs yet.
+
+Kirk
+
+
+On Thu, Jun 3, 2021 at 6:49 AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+>
+> Le 03/06/2021 ? 12:37, Kirk Waters - NOAA Federal a ?crit :
+> > Even,
+> > Thank you very much, that's very helpful. It's along the lines of what
+> > I was thinking was the problem, but I hadn't gotten far enough to
+> > realize I could add an entry in the database. The other option is to
+> > figure out the right EPSG code to pass to GDAL to pretend the
+> > transform has already happened.
+>
+> If you use gdalwarp, you can lie a bit and set -s_srs EPSG:2273 to force
+> "NAD83 / South Carolina (ft)" as the source CRS, and then you'll get the
+> transformation to NAD27 using the CONUS grid.
+>
+> Even
+>
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210603/238baf9b/attachment.html>
+
+From even.rouault at spatialys.com  Thu Jun  3 13:20:24 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 3 Jun 2021 22:20:24 +0200
+Subject: [PROJ] proj8 and NAD27 <-> NAD83 transform
+In-Reply-To: <CADm=QrSL0QU0J+qJ49gNdD4x8qUUAZt5GpkoRm9DotLzrDWxSA@mail.gmail.com>
+References: <CADm=QrTcWBFYkfOAcZsr8y-rK08v9GJNasGBoZSC-umMTOJcsA@mail.gmail.com>
+ <df8163ca-4f3a-dbf2-29a5-a62c999d01ec@spatialys.com>
+ <CADm=QrRsj3F8sjcRUE_bG+oYRScAzqOe1Cdcx222rCvaiEN3zw@mail.gmail.com>
+ <66fd0ea7-6cea-afab-ad5f-5c20aea644e1@spatialys.com>
+ <CADm=QrSL0QU0J+qJ49gNdD4x8qUUAZt5GpkoRm9DotLzrDWxSA@mail.gmail.com>
+Message-ID: <a0236aee-6d6f-2344-bf0a-641c6dfeaa95@spatialys.com>
+
+Kirk,
+
+the relationship between a transformation and its area of use is now 
+done through an entry in the usage table.
+
+See 
+https://github.com/OSGeo/PROJ/blob/dcc2a94eb1c5eda5ede6275b58ae5873e78bb9c0/data/sql/helmert_transformation.sql#L2244
+
+Even
+
+Le 03/06/2021 ? 22:03, Kirk Waters - NOAA Federal a ?crit?:
+> Even,
+> I decided to script out adding the transforms to the proj.db file so I 
+> can automatically have my system add them when new proj.db files get 
+> released. One thing I haven't figured out is how the extent is 
+> associated with the transform. For 8971, I don't see anything in the 
+> helmert_transformation table that looks close except the 'IOGP-Usa 
+> GoM' for the operation version. EPSG.org shows the extent code for 
+> transform 8971 is 3357, which matches what I find in the extent table, 
+> but I don't see where in proj.db that's happening. The name for extent 
+> 3357 is 'USA - GoM OCS', so it doesn't match the 
+> helmert_transformation entry for 8971. Apologies if I'm asking 
+> something that's clearly laid out. I just haven't found the right docs 
+> yet.
+>
+> Kirk
+>
+>
+> On Thu, Jun 3, 2021 at 6:49 AM Even Rouault 
+> <even.rouault at spatialys.com <mailto:even.rouault at spatialys.com>> wrote:
+>
+>
+>     Le 03/06/2021 ? 12:37, Kirk Waters - NOAA Federal a ?crit?:
+>     > Even,
+>     > Thank you very much, that's very helpful. It's along the lines
+>     of what
+>     > I was thinking was the problem, but I hadn't gotten far enough to
+>     > realize I could add an entry in the database. The other option
+>     is to
+>     > figure out the right EPSG code to pass to GDAL to pretend the
+>     > transform has already happened.
+>
+>     If you use gdalwarp, you can lie a bit and set -s_srs EPSG:2273 to
+>     force
+>     "NAD83 / South Carolina (ft)" as the source CRS, and then you'll
+>     get the
+>     transformation to NAD27 using the CONUS grid.
+>
+>     Even
+>
+>
+>     -- 
+>     http://www.spatialys.com <http://www.spatialys.com>
+>     My software is free, but my time generally not.
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210603/bd4366ef/attachment.html>
+
+From even.rouault at spatialys.com  Fri Jun  4 05:30:55 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 4 Jun 2021 14:30:55 +0200
+Subject: [PROJ] Enhancement to share SQLite database handle among all
+ contexts
+Message-ID: <e251ee1f-bf22-cf8a-60ab-dbaf6ef34e90@spatialys.com>
+
+Hi,
+
+just wanted to point to https://github.com/OSGeo/PROJ/pull/2738 that 
+modifies how connections to the PROJ database is does, which should 
+benefit to people using big number of threads / PROJ contexts. I'd 
+appreciate if people could give it a try and report how that works for them.
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From jmfluis at gmail.com  Mon Jun  7 07:46:21 2021
+From: jmfluis at gmail.com (jmfluis at gmail.com)
+Date: Mon, 7 Jun 2021 15:46:21 +0100
+Subject: [PROJ] Geodesic buffers/offsets?
+In-Reply-To: <204c4f7d-d6b9-2c08-5649-75b9e5a320cc@stellacore.com>
+References: <204c4f7d-d6b9-2c08-5649-75b9e5a320cc@stellacore.com>
+Message-ID: <017b01d75bab$e1e6bf10$a5b43d30$@gmail.com>
+
+Hi,
+
+I have taken a shot and implemented a Geodesic buffer in
+Julia+Proj+GDAL+GMT. 
+https://github.com/GenericMappingTools/GMT.jl/blob/master/src/proj_utils.jl#
+L237
+
+It works by interpolating the line segments at 1/4 circle radius (buffer
+width) and calculating the union them. At the end there is some filtering
+and Douglas-Peucker line simplification.
+Example fig here
+https://forum.generic-mapping-tools.org/t/how-to-use-gmt-spatial-sb-correctl
+y/1725/13?u=joaquim
+
+I have no tool to assess the accuracy of the final solution. GMT comes close
+but it's point-to-line function works only in spherical Earth. Computing a
+buffer in the spherical approximation shows that the average distance from
+points to line when the asked buffer width is 111111 m turns out to be (for
+the example used) ~111062 m. Not bad, I think.
+
+See some example figures and discussion in the GMT issue.
+https://github.com/GenericMappingTools/gmt/issues/5295
+
+Joaquim
+
+-----Original Message-----
+From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of Dave Knopp
+Sent: Wednesday, May 5, 2021 5:01 PM
+To: Elmar Brockmann via PROJ <proj at lists.osgeo.org>; nyall.dawson at gmail.com
+Subject: [PROJ] Geodesic buffers/offsets?
+
+
+Nyall Dawson nyall.dawson at gmail.com
+Tue May 4 15:23:09 PDT 2021
+> Something which I get asked on a recurring basis by users is how to 
+> create geometry buffers using a real-world distance on a geographic 
+> dataset. E.g. creating a 100km buffer on a linestring in such a way 
+> that the geodesic distances between the buffer and original line are 
+> always 100km.
+
+
+Assuming there is some desired 'target resolution' associated with the
+application (e.g. display pixel sizes, vector polyline sampling interval,
+etc.) then perhaps a simple dilation algorithm might work for you.
+
+
+E.g.
+
+Allocate a working grid associated entire range of lon/lat values at the
+resolution you want. Us full ellipsoid range or restrict range of values if
+that's appropriate for application cases. With each cell, associate data
+structure comprising a scalar and 3D vector.
+
+Initialize the vector portion of the grid cells with corresponding ECEF
+locations for relevant surface - e.g. on the ellipsoid, on terrain, etc).
+Fill the scalar portion with NaN or whatever.
+
+During iterations, the scalar will be set to the distance metric from the
+source points (e.g. distance along geodesic, distance over undulating
+terrain surface, etc).
+
+Use lon/lat of source points to find associated grid cell then fill the
+scalar part of those grid cells (e.g. using line drawing or other
+interpolation if needed). For these cells, set the scalar distance to 0.
+
+Perform a modified 'dilation' algorithm that iterates over cells just set in
+last iteration and determine/sets scalar value on unset adjacent cells.
+
+Assign the new scalar values based on the magnitude of *vector* difference
+between cell vector location values. For potential collisions, use 'shortest
+wins' strategy.
+
+Iterate on this until grid is full - or optionally stop if all new distances
+in iteration exceed the target 'max dist' value.
+
+For vector representation of the buffer boundary, run a contour following
+algorithm on the grid scalar values.
+
+That's all off-the-cuff, so maybe not complete nor error free.
+
+Before thinking this is "too much computation" consider the underlying
+complexity of other algorithms - which is also high (at comparable detail).
+Also this has considerable additional flexibility which might boost reuse
+potential.
+
+Dave
+_______________________________________________
+PROJ mailing list
+PROJ at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/proj
+
+
+From even.rouault at spatialys.com  Wed Jun  9 12:45:19 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 9 Jun 2021 21:45:19 +0200
+Subject: [PROJ] Enhancement to share SQLite database handle among all
+ contexts
+In-Reply-To: <e251ee1f-bf22-cf8a-60ab-dbaf6ef34e90@spatialys.com>
+References: <e251ee1f-bf22-cf8a-60ab-dbaf6ef34e90@spatialys.com>
+Message-ID: <dd91fb5c-ffe5-c072-d65a-5fc1c7c4b618@spatialys.com>
+
+This has now been merged to master.
+
+Even
+
+Le 04/06/2021 ? 14:30, Even Rouault a ?crit?:
+> Hi,
+>
+> just wanted to point to https://github.com/OSGeo/PROJ/pull/2738 that 
+> modifies how connections to the PROJ database is does, which should 
+> benefit to people using big number of threads / PROJ contexts. I'd 
+> appreciate if people could give it a try and report how that works for 
+> them.
+>
+> Even
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From sgh at sgh.dk  Mon Jun 14 00:00:39 2021
+From: sgh at sgh.dk (=?ISO-8859-1?Q?S=F8ren?= Holm)
+Date: Mon, 14 Jun 2021 09:00:39 +0200
+Subject: [PROJ] Problem understanding units - UTM->helmert
+Message-ID: <1784646.YeV1LkZHDM@koontz>
+
+Hi
+
+I'm doing a pipeline of going from WGS84->UTM32->helmert but I have
+difficulties understanding the errors that proj gives me.
+
+$ cct -t0 +proj=pipeline +step +proj=utm +zone=32 +ellps=GRS80 +datum=WGS84  +no_defs   +step +proj=helmert   +convention=coordinate_frame                                                                                                                                                                                                                                                                                                                      
+
+proj_create: Error 1025 (Invalid PROJ string syntax): pipeline: Pipeline: Mismatched units between step 1 and 2
+
+
+However if I add fx. "+theta=5" to the proj string there is not mismatching units.
+
+UTM documentation states its output as "Projected coordinates"
+Helmert states its input as "Cartesian coordinates"
+
+What are the differences? and why do helmert work in "2D mode" using theta and not in 3D ?
+
+Thanks in advance :)
+
+-- 
+S?ren Holm
+
+
+
+From kreve at sdfe.dk  Mon Jun 14 00:18:32 2021
+From: kreve at sdfe.dk (Kristian Evers)
+Date: Mon, 14 Jun 2021 07:18:32 +0000
+Subject: [PROJ] Problem understanding units - UTM->helmert
+In-Reply-To: <1784646.YeV1LkZHDM@koontz>
+References: <1784646.YeV1LkZHDM@koontz>
+Message-ID: <d644d40a3b464025937fbdc506cc6d44@sdfe.dk>
+
+S?ren,
+
+In the context of PROJ (and geodesy in general) cartesian coordinates refer to 3D coordinates with the origin in the center of the earth. Earth-centered coordinates is another term that is sometimes used. I realize this can be confusing since the coordinates of a UTM projection are also cartesian although only a 2D coordinate system.
+
+See https://proj.org/operations/conversions/cart.html for more on the cartesian operation. 
+
+You probably want to do the helmert operation before converting to UTM. Something like this would be more in the lines of what you are describing:
+
++proj=pipeline +step +proj=cart +ellps=WGS84 +step +proj=helmert ... +step +proj=cart +ellps=WGS84 +inv +step +proj=utm +zone=32
+
+/Kristian
+
+> -----Original Message-----
+> From: PROJ <proj-bounces at lists.osgeo.org> On Behalf Of S?ren Holm
+> Sent: 14. juni 2021 09:01
+> To: proj at lists.osgeo.org
+> Subject: [PROJ] Problem understanding units - UTM->helmert
+> 
+> Hi
+> 
+> I'm doing a pipeline of going from WGS84->UTM32->helmert but I have
+> difficulties understanding the errors that proj gives me.
+> 
+> $ cct -t0 +proj=pipeline +step +proj=utm +zone=32 +ellps=GRS80
+> +datum=WGS84  +no_defs   +step +proj=helmert
+> +convention=coordinate_frame
+> 
+> proj_create: Error 1025 (Invalid PROJ string syntax): pipeline: Pipeline:
+> Mismatched units between step 1 and 2
+> 
+> 
+> However if I add fx. "+theta=5" to the proj string there is not mismatching
+> units.
+> 
+> UTM documentation states its output as "Projected coordinates"
+> Helmert states its input as "Cartesian coordinates"
+> 
+> What are the differences? and why do helmert work in "2D mode" using
+> theta and not in 3D ?
+> 
+> Thanks in advance :)
+> 
+> --
+> S?ren Holm
+> 
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+From grassgisbangladesh at gmail.com  Tue Jun 15 01:37:10 2021
+From: grassgisbangladesh at gmail.com (Zahid Parvez)
+Date: Tue, 15 Jun 2021 14:37:10 +0600
+Subject: [PROJ] PROJ Digest, Vol 32, Issuev 5
+In-Reply-To: <mailman.11.1623351602.9379.proj@lists.osgeo.org>
+References: <mailman.11.1623351602.9379.proj@lists.osgeo.org>
+Message-ID: <CABVwKfwm6P1C46PVWaUuT19_LZeDfELejLS2Sy9uZs6j=ZdvUg@mail.gmail.com>
+
+Church if fright by hhh4hhiiehegrgrgtggtutuitirjtggihfj
+
+On Fri, 11 Jun 2021, 01:00 , <proj-request at lists.osgeo.org> wrote:
+
+> Send PROJ mailing list submissions to
+>         proj at lists.osgeo.org
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>         https://lists.osgeo.org/mailman/listinfo/proj
+> or, via email, send a message with subject or body 'help' to
+>         proj-request at lists.osgeo.org
+>
+> You can reach the person managing the list at
+>         proj-owner at lists.osgeo.org
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of PROJ digest..."
+>
+>
+> Today's Topics:
+>
+>    1. Re: Enhancement to share SQLite database handle among all
+>       contexts (Even Rouault)
+>
+>
+> ----------------------------------------------------------------------
+>
+> Message: 1
+> Date: Wed, 9 Jun 2021 21:45:19 +0200
+> From: Even Rouault <even.rouault at spatialys.com>
+> To: proj at lists.osgeo.org
+> Subject: Re: [PROJ] Enhancement to share SQLite database handle among
+>         all contexts
+> Message-ID: <dd91fb5c-ffe5-c072-d65a-5fc1c7c4b618 at spatialys.com>
+> Content-Type: text/plain; charset=utf-8; format=flowed
+>
+> This has now been merged to master.
+>
+> Even
+>
+> Le 04/06/2021 ? 14:30, Even Rouault a ?crit?:
+> > Hi,
+> >
+> > just wanted to point to https://github.com/OSGeo/PROJ/pull/2738 that
+> > modifies how connections to the PROJ database is does, which should
+> > benefit to people using big number of threads / PROJ contexts. I'd
+> > appreciate if people could give it a try and report how that works for
+> > them.
+> >
+> > Even
+> >
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+>
+> ------------------------------
+>
+> Subject: Digest Footer
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+>
+> ------------------------------
+>
+> End of PROJ Digest, Vol 32, Issue 5
+> ***********************************
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210615/24e1a1ec/attachment.html>
+
+From kristianevers at gmail.com  Fri Jun 25 09:31:51 2021
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 25 Jun 2021 18:31:51 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+Message-ID: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+
+All,
+
+I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+
+http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+
+http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+
+See the PROJ release notes below. The PROJ-data release includes two new grids:
+fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+latter grid, au_ga_AGQG_20191107.tif, has been removed.
+
+Please test the two release candidates and report back your findings either to the
+mailing list or in a GitHub issue.
+
+/Kristian
+
+??????
+
+8.1.0 Release Notes
+-------------------
+
+ Updates
+ -------
+
+ + Database
+
+   o Update to EPSG v10.027 (#2751)
+
+   o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+
+   o Add a ANALYZE step during proj.db creation allowing for
+     faster lookups (#2729)
+
+   o Added a PROJ.VERSION metadata entry (#2646)
+
+   o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+     transformation (#2554)
+
+   o Additions to the norwegian NKG2020 transformation (#2548)
+
+   o ESRI projection database updated to version 12.8 (#2717)
+
+ + API additions
+
+   o Added proj_get_geoid_models_from_database() function that returns a list of
+     geoid models available for a given CRS (#2681)
+
+   o Added proj_get_celestial_body_list_from_database that returns a list
+     of celestial bodies in the PROJ database (#2667)
+
+   o Added proj_get_celestial_body_name() (#2662)
+
+ + Various improvements
+
+   o proj_trans/cs2cs: If two operations have the same accuracy,
+     use the one that is contained within a larger one (#2750)
+
+   o Share SQLite database handle among all contexts (#2738)
+
+   o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+
+   o projsync: make it filter out files not intended for the current version (#2725)
+
+   o Improvements related to DerivedVerticalCRS using Change Unit and
+     Height/Depth reversal methods (#2696)
+
+   o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+     be able to use external nlohmann/json (#2686)
+
+   o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+
+   o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+
+   o Added projinfo option --list-crs (supports --area) (#2663)
+
+   o Added support for hyperbolic Cassini-Soldner (#2637)
+
+   o Added capability to get SQL statements to add custom CRS in the database (#2577)
+
+ Bug fixes
+ ---------
+
+ o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+
+ o Minor changes to address lint in geodesic.c (#2752)
+
+ o BoundCRS::identify(): avoid incompatible transformation for
+   WKT1 / TOWGS84 export (#2747)
+
+ o proj_create(): do not open proj.db if string is a PROJ string,
+   even if proj_context_set_autoclose_database() has been set (#2735)
+
+ o Fix export of transformation to PROJ string in a particular situation
+   where CompoundCRS are involved (#2721)
+
+From even.rouault at spatialys.com  Mon Jun 28 03:55:41 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 28 Jun 2021 12:55:41 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+Message-ID: <8c4568c8-ed90-0fac-0c97-521772be1576@spatialys.com>
+
+Hi Kristian,
+
+Works fine against GDAL master.
+
+Even
+
+Le 25/06/2021 ? 18:31, Kristian Evers a ?crit?:
+> All,
+>
+> I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+>
+> http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+> http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+>
+> http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+> http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+>
+> See the PROJ release notes below. The PROJ-data release includes two new grids:
+> fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+> latter grid, au_ga_AGQG_20191107.tif, has been removed.
+>
+> Please test the two release candidates and report back your findings either to the
+> mailing list or in a GitHub issue.
+>
+> /Kristian
+>
+> ??????
+>
+> 8.1.0 Release Notes
+> -------------------
+>
+>   Updates
+>   -------
+>
+>   + Database
+>
+>     o Update to EPSG v10.027 (#2751)
+>
+>     o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+>
+>     o Add a ANALYZE step during proj.db creation allowing for
+>       faster lookups (#2729)
+>
+>     o Added a PROJ.VERSION metadata entry (#2646)
+>
+>     o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+>       transformation (#2554)
+>
+>     o Additions to the norwegian NKG2020 transformation (#2548)
+>
+>     o ESRI projection database updated to version 12.8 (#2717)
+>
+>   + API additions
+>
+>     o Added proj_get_geoid_models_from_database() function that returns a list of
+>       geoid models available for a given CRS (#2681)
+>
+>     o Added proj_get_celestial_body_list_from_database that returns a list
+>       of celestial bodies in the PROJ database (#2667)
+>
+>     o Added proj_get_celestial_body_name() (#2662)
+>
+>   + Various improvements
+>
+>     o proj_trans/cs2cs: If two operations have the same accuracy,
+>       use the one that is contained within a larger one (#2750)
+>
+>     o Share SQLite database handle among all contexts (#2738)
+>
+>     o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+>
+>     o projsync: make it filter out files not intended for the current version (#2725)
+>
+>     o Improvements related to DerivedVerticalCRS using Change Unit and
+>       Height/Depth reversal methods (#2696)
+>
+>     o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+>       be able to use external nlohmann/json (#2686)
+>
+>     o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+>
+>     o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+>
+>     o Added projinfo option --list-crs (supports --area) (#2663)
+>
+>     o Added support for hyperbolic Cassini-Soldner (#2637)
+>
+>     o Added capability to get SQL statements to add custom CRS in the database (#2577)
+>
+>   Bug fixes
+>   ---------
+>
+>   o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+>
+>   o Minor changes to address lint in geodesic.c (#2752)
+>
+>   o BoundCRS::identify(): avoid incompatible transformation for
+>     WKT1 / TOWGS84 export (#2747)
+>
+>   o proj_create(): do not open proj.db if string is a PROJ string,
+>     even if proj_context_set_autoclose_database() has been set (#2735)
+>
+>   o Fix export of transformation to PROJ string in a particular situation
+>     where CompoundCRS are involved (#2721)
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From idan at miara.com  Mon Jun 28 07:21:16 2021
+From: idan at miara.com (Idan Miara)
+Date: Mon, 28 Jun 2021 17:21:16 +0300
+Subject: [PROJ] 3D version of geod.inv/geod.fwd?
+Message-ID: <CAEDrt3_nYFgTTVo1kOKqdKC279Un_2JtiZzfapOzWPrRjo5D+g@mail.gmail.com>
+
+Hi,
+
+Is there a 3D version of geod.inv/fwd?
+i.e
+
+lon1,lat1,alt1,lon2,lat2,alt2 ->
+azi12,s12,elevation12
+
+lon1,lat1,alt1,azi12,s12,elevation12 -> lon2,lat2,alt2
+
+Kind regards,
+Idan
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/ea2c373e/attachment.html>
+
+From floris.vanderhaeghe at inbo.be  Mon Jun 28 07:47:35 2021
+From: floris.vanderhaeghe at inbo.be (Floris Vanderhaeghe)
+Date: Mon, 28 Jun 2021 16:47:35 +0200
+Subject: [PROJ] Questions about declaring a CRS
+Message-ID: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+
+Hi,
+
+Below are some questions about the usage of 'PROJ strings' (as opposed 
+to using WKT or AUTHORITY:CODE) as an option to declare the CRS of 
+coordinates. The context is geospatial work in R with PROJ >= 6, the 
+fact that users /can/ still input PROJ strings to declare an object's 
+CRS, and the question what to advise to users. We already had some 
+discussions on this in the R-spatial community, which lead me to posing 
+some questions here.
+
+After reading through several PROJ documentation pages, and observing 
+output from 'projinfo':
+
+ 1. It is clear that currently, support for representing a CRS by using
+    a PROJ string is only partial, especially because the datum can
+    often not be specified. ==> *QUESTION*: _Is specifying a CRS with a
+    PROJ string going to receive continued support, or will it
+    eventually be dropped? And related with that, __[*QUESTION*:] should
+    we still advertise and use it to represent a CRS?_ The current state
+    may appear somewhat unclear:
+      * There is support for '+type = crs' (to declare a CRS)
+          o e.g. projinfo does accept a PROJ string as input to
+            represent a CRS, by inclusion of '+type=crs'
+      * There is (still) support for '+towgs84' (to declare a BOUNDCRS,
+        hence not defining the datum directly)
+          o Cf. mention of '+towgs84' in the context of a pipeline, in
+            https://proj.org/operations/operations_computation.html#when-the-source-or-target-crs-is-a-boundcrs
+          o '+towgs84' can be still used in a PROJ string that
+            represents just a CRS (combining '+towgs84=' and '+type=crs')
+      * However, PROJ strings are now generally described in the
+        documentation as representing a coordinate operation, including
+        datum /shifts/ when using a pipeline string. That is, the
+        pipeline itself does not define input and output datums, but may
+        contain a transformation step to perform a datum shift.
+      * In several places the /deprecation/ of '+towgs84' is referred
+        --> *QUESTION*: _will '+towgs84' be dropped eventually? _
+      * Although using '+type = crs', the datum cannot be specified: it
+        is WGS84 when no '+ellps' is provided, and else 'unknown'. But
+        with an unknown datum, the CRS is incomplete. *QUESTION*:
+        _Will__'+type = crs' get continued support, or is it intended to
+        eventually end support for '+type=crs'?_
+      * A comment in the second code chunk under
+        https://proj.org/development/migration.html#code-example clearly
+        disrecommends PROJ strings to define a CRS (as opposed to WKT or
+        AUTHORITY:CODE), but generally this advice seems rather sparse
+        in the documentation. In fact, the still-supported use of a PROJ
+        string to define a CRS is only touched under proj_create()
+        <https://proj.org/development/reference/functions.html#c.proj_create>
+        and discouraged.
+ 2. /If PROJ strings should not be used to define a CRS, then:
+    /[*QUESTION*:] _is it possible, with currently advised methods, to
+    define a __/custom/__CRS in a relatively short way_, i.e. not having
+    to write out a full WKT? Perhaps having the possibility to refer an
+    authority CRS (just using its code or name), and a way to alter
+    specific (WKT?) parameters, could work, although I don't know
+    whether specification of the second part can be standardised easily.
+
+Thanks in advance! I am not an experienced PROJ user.
+
+With regards,
+
+Floris
+
+
+mailhandtekening
+
+*Floris Vanderhaeghe*
+
+Flemish Government
+RESEARCH INSTITUTE FOR NATURE AND FOREST
+Team Biometry, Methodology and Quality Assurance
+Havenlaan 88 bus 73, 1000 Brussels
+Belgium
+floris.vanderhaeghe at inbo.be <mailto:floris.vanderhaeghe at inbo.be>
+www.inbo.be <http://www.inbo.be/>
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/bfdf66d3/attachment-0001.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: dahbgdngngpfdomg.png
+Type: image/png
+Size: 6484 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/bfdf66d3/attachment-0001.png>
+
+From alansnow21 at gmail.com  Mon Jun 28 07:54:20 2021
+From: alansnow21 at gmail.com (Alan Snow)
+Date: Mon, 28 Jun 2021 09:54:20 -0500
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+Message-ID: <CAGybdFSKX3nwYt7jQe3YzV-ck_OUecM1hfOyFT7-g1Ou_AmBzA@mail.gmail.com>
+
+This may be a useful reference on the topic:
+https://pyproj4.github.io/pyproj/stable/build_crs.html
+
+On Mon, Jun 28, 2021 at 9:47 AM Floris Vanderhaeghe via PROJ <
+proj at lists.osgeo.org> wrote:
+
+> Hi,
+>
+> Below are some questions about the usage of 'PROJ strings' (as opposed to
+> using WKT or AUTHORITY:CODE) as an option to declare the CRS of
+> coordinates. The context is geospatial work in R with PROJ >= 6, the fact
+> that users *can* still input PROJ strings to declare an object's CRS, and
+> the question what to advise to users. We already had some discussions on
+> this in the R-spatial community, which lead me to posing some questions
+> here.
+>
+> After reading through several PROJ documentation pages, and observing
+> output from 'projinfo':
+>
+>    1. It is clear that currently, support for representing a CRS by using
+>    a PROJ string is only partial, especially because the datum can often not
+>    be specified. ==> *QUESTION*: *Is specifying a CRS with a PROJ string
+>    going to receive continued support, or will it eventually be dropped? And
+>    related with that, **[QUESTION:] should we still advertise and use it
+>    to represent a CRS?* The current state may appear somewhat unclear:
+>       - There is support for '+type = crs' (to declare a CRS)
+>          - e.g. projinfo does accept a PROJ string as input to represent
+>          a CRS, by inclusion of '+type=crs'
+>          - There is (still) support for '+towgs84' (to declare a
+>       BOUNDCRS, hence not defining the datum directly)
+>          - Cf. mention of '+towgs84' in the context of a pipeline, in
+>          https://proj.org/operations/operations_computation.html#when-the-source-or-target-crs-is-a-boundcrs
+>          - '+towgs84' can be still used in a PROJ string that represents
+>          just a CRS (combining '+towgs84=' and '+type=crs')
+>       - However, PROJ strings are now generally described in the
+>       documentation as representing a coordinate operation, including datum
+>       *shifts* when using a pipeline string. That is, the pipeline itself
+>       does not define input and output datums, but may contain a transformation
+>       step to perform a datum shift.
+>       - In several places the *deprecation* of '+towgs84' is referred -->
+>       *QUESTION*: *will '+towgs84' be dropped eventually? *
+>       - Although using '+type = crs', the datum cannot be specified: it
+>       is WGS84 when no '+ellps' is provided, and else 'unknown'. But with an
+>       unknown datum, the CRS is incomplete. *QUESTION*: *Will** '+type =
+>       crs' get continued support, or is it intended to eventually end support for
+>       '+type=crs'?*
+>       - A comment in the second code chunk under
+>       https://proj.org/development/migration.html#code-example clearly
+>       disrecommends PROJ strings to define a CRS (as opposed to WKT or
+>       AUTHORITY:CODE), but generally this advice seems rather sparse in the
+>       documentation. In fact, the still-supported use of a PROJ string to define
+>       a CRS is only touched under proj_create()
+>       <https://proj.org/development/reference/functions.html#c.proj_create>
+>       and discouraged.
+>    2. *If PROJ strings should not be used to define a CRS, then: *[
+>    *QUESTION*:] *is it possible, with currently advised methods, to
+>    define a **custom** CRS in a relatively short way*, i.e. not having to
+>    write out a full WKT? Perhaps having the possibility to refer an authority
+>    CRS (just using its code or name), and a way to alter specific (WKT?)
+>    parameters, could work, although I don't know whether specification of the
+>    second part can be standardised easily.
+>
+> Thanks in advance! I am not an experienced PROJ user.
+>
+> With regards,
+>
+> Floris
+>
+> *Floris Vanderhaeghe*
+>
+> Flemish Government
+> RESEARCH INSTITUTE FOR NATURE AND FOREST
+> Team Biometry, Methodology and Quality Assurance
+> Havenlaan 88 bus 73, 1000 Brussels
+> Belgium
+> floris.vanderhaeghe at inbo.be
+> www.inbo.be
+>
+> ///////////////////////////////////////////////////////////////////////////////////////////
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+
+
+-- 
+Alan Snow
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/4a41c75d/attachment.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: dahbgdngngpfdomg.png
+Type: image/png
+Size: 6484 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/4a41c75d/attachment.png>
+
+From even.rouault at spatialys.com  Mon Jun 28 08:15:58 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 28 Jun 2021 17:15:58 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+Message-ID: <e3f493d1-d903-db65-8a6b-93fbe10663c4@spatialys.com>
+
+Floris,
+
+I believe we'll have to support indefinitely PROJ.4 style CRS strings 
+since there are "everywhere", at least from a legacy point of view. 
+They're for example included in some geospatial datasets to define their 
+CRS (netCDF, other formats handled by GDAL). They have clearly some 
+limitations, but are sufficient for many use cases.
+
+I'd suggest looking at PROJJSON 
+(https://proj.org/specifications/projjson.html), which is a JSON-ified 
+version of WKT, with the same expressiveness but a less awkward syntax. 
+It is not yet standardized, but there's an effort just starting to make 
+it a OGC standard/community standard.
+
+Even
+
+Le 28/06/2021 ? 16:47, Floris Vanderhaeghe via PROJ a ?crit?:
+> Hi,
+>
+> Below are some questions about the usage of 'PROJ strings' (as opposed 
+> to using WKT or AUTHORITY:CODE) as an option to declare the CRS of 
+> coordinates. The context is geospatial work in R with PROJ >= 6, the 
+> fact that users /can/ still input PROJ strings to declare an object's 
+> CRS, and the question what to advise to users. We already had some 
+> discussions on this in the R-spatial community, which lead me to 
+> posing some questions here.
+>
+> After reading through several PROJ documentation pages, and observing 
+> output from 'projinfo':
+>
+>  1. It is clear that currently, support for representing a CRS by
+>     using a PROJ string is only partial, especially because the datum
+>     can often not be specified. ==> *QUESTION*: _Is specifying a CRS
+>     with a PROJ string going to receive continued support, or will it
+>     eventually be dropped? And related with that, __[*QUESTION*:]
+>     should we still advertise and use it to represent a CRS?_ The
+>     current state may appear somewhat unclear:
+>       * There is support for '+type = crs' (to declare a CRS)
+>           o e.g. projinfo does accept a PROJ string as input to
+>             represent a CRS, by inclusion of '+type=crs'
+>       * There is (still) support for '+towgs84' (to declare a
+>         BOUNDCRS, hence not defining the datum directly)
+>           o Cf. mention of '+towgs84' in the context of a pipeline, in
+>             https://proj.org/operations/operations_computation.html#when-the-source-or-target-crs-is-a-boundcrs
+>           o '+towgs84' can be still used in a PROJ string that
+>             represents just a CRS (combining '+towgs84=' and '+type=crs')
+>       * However, PROJ strings are now generally described in the
+>         documentation as representing a coordinate operation,
+>         including datum /shifts/ when using a pipeline string. That
+>         is, the pipeline itself does not define input and output
+>         datums, but may contain a transformation step to perform a
+>         datum shift.
+>       * In several places the /deprecation/ of '+towgs84' is referred
+>         --> *QUESTION*: _will '+towgs84' be dropped eventually? _
+>       * Although using '+type = crs', the datum cannot be specified:
+>         it is WGS84 when no '+ellps' is provided, and else 'unknown'.
+>         But with an unknown datum, the CRS is incomplete. *QUESTION*:
+>         _Will__'+type = crs' get continued support, or is it intended
+>         to eventually end support for '+type=crs'?_
+>       * A comment in the second code chunk under
+>         https://proj.org/development/migration.html#code-example
+>         clearly disrecommends PROJ strings to define a CRS (as opposed
+>         to WKT or AUTHORITY:CODE), but generally this advice seems
+>         rather sparse in the documentation. In fact, the
+>         still-supported use of a PROJ string to define a CRS is only
+>         touched under proj_create()
+>         <https://proj.org/development/reference/functions.html#c.proj_create>
+>         and discouraged.
+>  2. /If PROJ strings should not be used to define a CRS, then:
+>     /[*QUESTION*:] _is it possible, with currently advised methods, to
+>     define a __/custom/__CRS in a relatively short way_, i.e. not
+>     having to write out a full WKT? Perhaps having the possibility to
+>     refer an authority CRS (just using its code or name), and a way to
+>     alter specific (WKT?) parameters, could work, although I don't
+>     know whether specification of the second part can be standardised
+>     easily.
+>
+> Thanks in advance! I am not an experienced PROJ user.
+>
+> With regards,
+>
+> Floris
+>
+>
+> mailhandtekening
+>
+> *Floris Vanderhaeghe*
+>
+> Flemish Government
+> RESEARCH INSTITUTE FOR NATURE AND FOREST
+> Team Biometry, Methodology and Quality Assurance
+> Havenlaan 88 bus 73, 1000 Brussels
+> Belgium
+> floris.vanderhaeghe at inbo.be <mailto:floris.vanderhaeghe at inbo.be>
+> www.inbo.be <http://www.inbo.be/>
+>
+> ///////////////////////////////////////////////////////////////////////////////////////////
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/e1c398e3/attachment-0001.html>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: dahbgdngngpfdomg.png
+Type: image/png
+Size: 6484 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/e1c398e3/attachment-0001.png>
+
+From charles.karney at gmail.com  Mon Jun 28 08:38:26 2021
+From: charles.karney at gmail.com (Charles Karney)
+Date: Mon, 28 Jun 2021 11:38:26 -0400
+Subject: [PROJ] 3D version of geod.inv/geod.fwd?
+In-Reply-To: <CAEDrt3_nYFgTTVo1kOKqdKC279Un_2JtiZzfapOzWPrRjo5D+g@mail.gmail.com>
+References: <CAEDrt3_nYFgTTVo1kOKqdKC279Un_2JtiZzfapOzWPrRjo5D+g@mail.gmail.com>
+Message-ID: <CAH36mb-Tv4N+n7ivPPPQy+UgqHr8szAvp0deVKsGK4xgx4zxxA@mail.gmail.com>
+
+No.  There are two issues:
+
+* The problem isn't fully defined.  It's not defined exactly what path
+  is supposed to be followed from the source to the destination.
+
+* The math for even is simplest generalization of the geodesic problem,
+  namely geodesics on a surface of constant height above the ellipsoid,
+  is complex.  (Mathar https://arxiv.org/abs/0711.0642 has got furthest
+  on this.)
+
+Alternatives are:
+
+* Decompose the problem into a 2d one (geodesics on the ellipsoid) + 1d
+  one (constant change in height along the 2d geodesic).
+
+* Solve the problem in 3d Euclidean space.
+
+Which approach is appropriate to your problem will depend on your
+application.
+
+On Mon, Jun 28, 2021 at 10:21 AM Idan Miara <idan at miara.com> wrote:
+>
+> Hi,
+>
+> Is there a 3D version of geod.inv/fwd?
+> i.e
+>
+> lon1,lat1,alt1,lon2,lat2,alt2 ->
+> azi12,s12,elevation12
+>
+> lon1,lat1,alt1,azi12,s12,elevation12 -> lon2,lat2,alt2
+>
+> Kind regards,
+> Idan
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+
+-- 
+Charles Karney <charles at karney.com>
+Princeton, NJ 08540
+
+From charles.karney at sri.com  Mon Jun 28 08:32:24 2021
+From: charles.karney at sri.com (Charles Karney)
+Date: Mon, 28 Jun 2021 11:32:24 -0400
+Subject: [PROJ] 3D version of geod.inv/geod.fwd?
+In-Reply-To: <CAEDrt3_nYFgTTVo1kOKqdKC279Un_2JtiZzfapOzWPrRjo5D+g@mail.gmail.com>
+References: <CAEDrt3_nYFgTTVo1kOKqdKC279Un_2JtiZzfapOzWPrRjo5D+g@mail.gmail.com>
+Message-ID: <d002bfe4-762d-8f45-88fd-ff086277fa16@sri.com>
+
+No.  There are two issues:
+
+* The problem isn't fully defined.  It's not defined exactly what path
+   is supposed to be followed from the source to the destination.
+
+* The math for even is simplest generalization of the geodesic problem,
+   namely geodesics on a surface of constant height above the ellipsoid,
+   is complex.  (Mathar https://arxiv.org/abs/0711.0642 has got furthest
+   on this.)
+
+Alternatives are:
+
+* Decompose the problem into a 2d one (geodesics on the ellipsoid) + 1d
+   one (constant change in height along the 2d geodesic).
+
+* Solve the problem in 3d Euclidean space.
+
+Which approach is appropriate to your problem will depend on your
+application.
+
+
+On 6/28/21 10:21 AM, Idan Miara wrote:
+> Hi,
+> 
+> Is there a 3D version of geod.inv/fwd?
+> i.e
+> 
+> lon1,lat1,alt1,lon2,lat2,alt2 ->
+> azi12,s12,elevation12
+> 
+> lon1,lat1,alt1,azi12,s12,elevation12 -> lon2,lat2,alt2
+> 
+> Kind regards,
+> Idan
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+
+
+From jmckenna at gatewaygeomatics.com  Mon Jun 28 09:27:56 2021
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Mon, 28 Jun 2021 13:27:56 -0300
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+Message-ID: <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+
+Hi Kristian,
+
+RC1 seems to work well on Windows (with MS4W build environment).
+
+I do have a question, if you don't mind me asking here.
+
+With 8.1.0 can I specify a location of the default path for the grid 
+files?  (in other words, not to use on Windows the ugly/unknown/hidden 
+path of "C:/Users/name with spaces/AppData/Local"  but to set a nicer 
+local path with something like PROJ_NETWORK_LOCAL_DIRECTORY [set in 
+proj.ini or through an environment variable] to a specific directory value)
+
+I'm sure this question has been asked & answered, so please go easy on me :)
+
+thanks, and hello from the east coast of Canada,
+
+-jeff
+
+
+
+-- 
+Jeff McKenna
+GatewayGeo: Developers of MS4W, MapServer Consulting and Training
+co-founder of FOSS4G
+http://gatewaygeo.com/
+
+
+
+On 2021-06-25 1:31 p.m., Kristian Evers wrote:
+> All,
+> 
+> I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+> 
+> http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+> http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+> 
+> http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+> http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+> 
+> See the PROJ release notes below. The PROJ-data release includes two new grids:
+> fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+> latter grid, au_ga_AGQG_20191107.tif, has been removed.
+> 
+> Please test the two release candidates and report back your findings either to the
+> mailing list or in a GitHub issue.
+> 
+> /Kristian
+> 
+> ??????
+> 
+> 8.1.0 Release Notes
+> -------------------
+> 
+>   Updates
+>   -------
+> 
+>   + Database
+> 
+>     o Update to EPSG v10.027 (#2751)
+> 
+>     o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+> 
+>     o Add a ANALYZE step during proj.db creation allowing for
+>       faster lookups (#2729)
+> 
+>     o Added a PROJ.VERSION metadata entry (#2646)
+> 
+>     o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+>       transformation (#2554)
+> 
+>     o Additions to the norwegian NKG2020 transformation (#2548)
+> 
+>     o ESRI projection database updated to version 12.8 (#2717)
+> 
+>   + API additions
+> 
+>     o Added proj_get_geoid_models_from_database() function that returns a list of
+>       geoid models available for a given CRS (#2681)
+> 
+>     o Added proj_get_celestial_body_list_from_database that returns a list
+>       of celestial bodies in the PROJ database (#2667)
+> 
+>     o Added proj_get_celestial_body_name() (#2662)
+> 
+>   + Various improvements
+> 
+>     o proj_trans/cs2cs: If two operations have the same accuracy,
+>       use the one that is contained within a larger one (#2750)
+> 
+>     o Share SQLite database handle among all contexts (#2738)
+> 
+>     o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+> 
+>     o projsync: make it filter out files not intended for the current version (#2725)
+> 
+>     o Improvements related to DerivedVerticalCRS using Change Unit and
+>       Height/Depth reversal methods (#2696)
+> 
+>     o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+>       be able to use external nlohmann/json (#2686)
+> 
+>     o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+> 
+>     o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+> 
+>     o Added projinfo option --list-crs (supports --area) (#2663)
+> 
+>     o Added support for hyperbolic Cassini-Soldner (#2637)
+> 
+>     o Added capability to get SQL statements to add custom CRS in the database (#2577)
+> 
+>   Bug fixes
+>   ---------
+> 
+>   o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+> 
+>   o Minor changes to address lint in geodesic.c (#2752)
+> 
+>   o BoundCRS::identify(): avoid incompatible transformation for
+>     WKT1 / TOWGS84 export (#2747)
+> 
+>   o proj_create(): do not open proj.db if string is a PROJ string,
+>     even if proj_context_set_autoclose_database() has been set (#2735)
+> 
+>   o Fix export of transformation to PROJ string in a particular situation
+>     where CompoundCRS are involved (#2721)
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+
+
+From martin.desruisseaux at geomatys.com  Mon Jun 28 09:38:58 2021
+From: martin.desruisseaux at geomatys.com (Martin Desruisseaux)
+Date: Mon, 28 Jun 2021 18:38:58 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+Message-ID: <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+
+Hello Floris
+
+If a choice is possible, I would encourage to use one of the approaches 
+recognized by international standards:
+
+  * Authority codes with axis order and units as defined by authority
+    (e.g. "EPSG:4326" is /latitude/, /longitude/; if the reverse order
+    is wanted then "CRS:84" can be used instead).
+  * Well Known Text version 2 (a.k.a. ISO 19162).
+  * Possibly the JSON format cited by Even in the future.
+
+PROJ 6 and later support all the above. I think they are preferable to 
+PROJ strings for at least 2 reasons:
+
+  * They are portable, with WKT 2 possibly the safest bet for now since
+    it is an existing OGC and ISO standard. While PROJ is the most
+    popular, it is nevertheless not the only map projection engine
+    available, with each engine having their advantage and inconvenient.
+    Other map projection engines are more likely to understand a CRS
+    defined by international standards than by PROJ-specific strings.
+    Even if R uses only PROJ, a R script may want to fetch data from a
+    distant server backed by a different map projection engine.
+  * For educational reason: the PROJ string syntax evolved from a system
+    initially designed for map projections only, not for the more
+    general context of transformations between arbitrary pairs of CRS.
+    If users educate themselves by learning from PROJ strings, there is
+    a risk that they confuse CRS with operations, that they believe that
+    "+towgs84" is good practice, etc.
+
+Regards,
+
+ ??? Martin
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210628/f3ffcfd2/attachment.html>
+
+From even.rouault at spatialys.com  Mon Jun 28 09:44:19 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 28 Jun 2021 18:44:19 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+Message-ID: <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+
+Jeff,
+
+so you are talking about the location of where grids are downloaded 
+using the projsync utility or the location of the cache.db database used 
+for on-demand grid downloading ? There isn't an official env variable 
+for this, but you can nevertheless use the PROJ_USER_WRITABLE_DIRECTORY 
+env var that is for now tagged "for testing purposes only", although we 
+could probably upgrade it to a more official status.
+
+Even
+
+Le 28/06/2021 ? 18:27, Jeff McKenna a ?crit?:
+> Hi Kristian,
+>
+> RC1 seems to work well on Windows (with MS4W build environment).
+>
+> I do have a question, if you don't mind me asking here.
+>
+> With 8.1.0 can I specify a location of the default path for the grid 
+> files?? (in other words, not to use on Windows the ugly/unknown/hidden 
+> path of "C:/Users/name with spaces/AppData/Local"? but to set a nicer 
+> local path with something like PROJ_NETWORK_LOCAL_DIRECTORY [set in 
+> proj.ini or through an environment variable] to a specific directory 
+> value)
+>
+> I'm sure this question has been asked & answered, so please go easy on 
+> me :)
+>
+> thanks, and hello from the east coast of Canada,
+>
+> -jeff
+>
+>
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From jmckenna at gatewaygeomatics.com  Mon Jun 28 09:58:26 2021
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Mon, 28 Jun 2021 13:58:26 -0300
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+ <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+Message-ID: <67cee81c-f0ca-b2d3-530c-631f95eb5bb3@gatewaygeomatics.com>
+
+Thanks Even, to be more specific here is what I think I meant:
+
+- the location of where grids are downloaded using the projsync utility 
+(on Windows the default is "C:/Users/name with spaces/AppData/Local").
+- the location of where the cache.db database is installed (on Windows 
+the default is "C:/Users/name with spaces/AppData/Local")
+- the location of the grids that cache.db points to (on Windows the 
+default is "C:/Users/name with spaces/AppData/Local")
+
+Ah, I wasn't aware of the PROJ_USER_WRITABLE_DIRECTORY but that sounds 
+like exactly what I was asking about.  Will test that here now (to test 
+that the grids can be downloaded to that specific directory, and 
+cache.db placed there, and that cache.db looks for the grid in that 
+defined directory).  Thanks!
+
+-jeff
+
+
+
+On 2021-06-28 1:44 p.m., Even Rouault wrote:
+> Jeff,
+> 
+> so you are talking about the location of where grids are downloaded 
+> using the projsync utility or the location of the cache.db database used 
+> for on-demand grid downloading ? There isn't an official env variable 
+> for this, but you can nevertheless use the PROJ_USER_WRITABLE_DIRECTORY 
+> env var that is for now tagged "for testing purposes only", although we 
+> could probably upgrade it to a more official status.
+> 
+> Even
+> 
+> Le 28/06/2021 ? 18:27, Jeff McKenna a ?crit?:
+>> Hi Kristian,
+>>
+>> RC1 seems to work well on Windows (with MS4W build environment).
+>>
+>> I do have a question, if you don't mind me asking here.
+>>
+>> With 8.1.0 can I specify a location of the default path for the grid 
+>> files?? (in other words, not to use on Windows the ugly/unknown/hidden 
+>> path of "C:/Users/name with spaces/AppData/Local"? but to set a nicer 
+>> local path with something like PROJ_NETWORK_LOCAL_DIRECTORY [set in 
+>> proj.ini or through an environment variable] to a specific directory 
+>> value)
+>>
+>> I'm sure this question has been asked & answered, so please go easy on 
+>> me :)
+>>
+>> thanks, and hello from the east coast of Canada,
+>>
+>> -jeff
+>>
+>>
+>>
+
+From even.rouault at spatialys.com  Mon Jun 28 10:02:18 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 28 Jun 2021 19:02:18 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <67cee81c-f0ca-b2d3-530c-631f95eb5bb3@gatewaygeomatics.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+ <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+ <67cee81c-f0ca-b2d3-530c-631f95eb5bb3@gatewaygeomatics.com>
+Message-ID: <ac4760bd-5e59-3ce2-ffda-8e9465c261b7@spatialys.com>
+
+- the location of the grids that cache.db points to (on Windows the 
+default is "C:/Users/name with spaces/AppData/Local")
+
+cache.db doesn't point at external files. It contains itself chunks of 
+grids, not necessarily whole grids.
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From jmckenna at gatewaygeomatics.com  Mon Jun 28 10:05:53 2021
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Mon, 28 Jun 2021 14:05:53 -0300
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <ac4760bd-5e59-3ce2-ffda-8e9465c261b7@spatialys.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+ <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+ <67cee81c-f0ca-b2d3-530c-631f95eb5bb3@gatewaygeomatics.com>
+ <ac4760bd-5e59-3ce2-ffda-8e9465c261b7@spatialys.com>
+Message-ID: <33334b8f-bd5a-7e21-c28c-7bed0929a3e9@gatewaygeomatics.com>
+
+Thanks for clarifying, after I pressed send I wondered about this 
+assumption (I had not examined cache.db yet), sorry about that.  -jeff
+
+
+
+On 2021-06-28 2:02 p.m., Even Rouault wrote:
+> - the location of the grids that cache.db points to (on Windows the 
+> default is "C:/Users/name with spaces/AppData/Local")
+> 
+> cache.db doesn't point at external files. It contains itself chunks of 
+> grids, not necessarily whole grids.
+> 
+> Even
+> 
+
+From jmckenna at gatewaygeomatics.com  Tue Jun 29 05:32:07 2021
+From: jmckenna at gatewaygeomatics.com (Jeff McKenna)
+Date: Tue, 29 Jun 2021 09:32:07 -0300
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+ <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+Message-ID: <84392f84-095d-b525-ec0d-8ede97f8cd12@gatewaygeomatics.com>
+
+Hi Even,
+
+Testing PROJ_USER_WRITABLE_DIRECTORY has went well, it works on Windows 
+with custom paths (for projsync & cache.db location).  I believe we 
+should upgrade this env variable for the next PROJ release.
+
+Thanks,
+
+-jeff
+
+
+
+On 2021-06-28 1:44 p.m., Even Rouault wrote:
+> Jeff,
+> 
+> so you are talking about the location of where grids are downloaded 
+> using the projsync utility or the location of the cache.db database used 
+> for on-demand grid downloading ? There isn't an official env variable 
+> for this, but you can nevertheless use the PROJ_USER_WRITABLE_DIRECTORY 
+> env var that is for now tagged "for testing purposes only", although we 
+> could probably upgrade it to a more official status.
+> 
+> Even
+> 
+> Le 28/06/2021 ? 18:27, Jeff McKenna a ?crit?:
+>> Hi Kristian,
+>>
+>> RC1 seems to work well on Windows (with MS4W build environment).
+>>
+>> I do have a question, if you don't mind me asking here.
+>>
+>> With 8.1.0 can I specify a location of the default path for the grid 
+>> files?? (in other words, not to use on Windows the ugly/unknown/hidden 
+>> path of "C:/Users/name with spaces/AppData/Local"? but to set a nicer 
+>> local path with something like PROJ_NETWORK_LOCAL_DIRECTORY [set in 
+>> proj.ini or through an environment variable] to a specific directory 
+>> value)
+>>
+>> I'm sure this question has been asked & answered, so please go easy on 
+>> me :)
+>>
+>> thanks, and hello from the east coast of Canada,
+>>
+>> -jeff
+>>
+>>
+>>
+
+
+-- 
+Jeff McKenna
+GatewayGeo: Developers of MS4W, MapServer Consulting and Training
+co-founder of FOSS4G
+http://gatewaygeo.com/
+
+From even.rouault at spatialys.com  Tue Jun 29 05:36:52 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 29 Jun 2021 14:36:52 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <84392f84-095d-b525-ec0d-8ede97f8cd12@gatewaygeomatics.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <87d8de83-92c4-c2e7-c09e-e74374bc1f2a@gatewaygeomatics.com>
+ <7da48b18-c674-386e-271a-f4f44e9c029f@spatialys.com>
+ <84392f84-095d-b525-ec0d-8ede97f8cd12@gatewaygeomatics.com>
+Message-ID: <4c0a28d9-e279-f49f-71f2-2572a34e8e9c@spatialys.com>
+
+Hi Jeff,
+
+please file a ticket about that
+
+Even
+
+Le 29/06/2021 ? 14:32, Jeff McKenna a ?crit?:
+> Hi Even,
+>
+> Testing PROJ_USER_WRITABLE_DIRECTORY has went well, it works on 
+> Windows with custom paths (for projsync & cache.db location). I 
+> believe we should upgrade this env variable for the next PROJ release.
+>
+> Thanks,
+>
+> -jeff
+>
+>
+>
+> On 2021-06-28 1:44 p.m., Even Rouault wrote:
+>> Jeff,
+>>
+>> so you are talking about the location of where grids are downloaded 
+>> using the projsync utility or the location of the cache.db database 
+>> used for on-demand grid downloading ? There isn't an official env 
+>> variable for this, but you can nevertheless use the 
+>> PROJ_USER_WRITABLE_DIRECTORY env var that is for now tagged "for 
+>> testing purposes only", although we could probably upgrade it to a 
+>> more official status.
+>>
+>> Even
+>>
+>> Le 28/06/2021 ? 18:27, Jeff McKenna a ?crit?:
+>>> Hi Kristian,
+>>>
+>>> RC1 seems to work well on Windows (with MS4W build environment).
+>>>
+>>> I do have a question, if you don't mind me asking here.
+>>>
+>>> With 8.1.0 can I specify a location of the default path for the grid 
+>>> files?? (in other words, not to use on Windows the 
+>>> ugly/unknown/hidden path of "C:/Users/name with 
+>>> spaces/AppData/Local"? but to set a nicer local path with something 
+>>> like PROJ_NETWORK_LOCAL_DIRECTORY [set in proj.ini or through an 
+>>> environment variable] to a specific directory value)
+>>>
+>>> I'm sure this question has been asked & answered, so please go easy 
+>>> on me :)
+>>>
+>>> thanks, and hello from the east coast of Canada,
+>>>
+>>> -jeff
+>>>
+>>>
+>>>
+>
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From floris.vanderhaeghe at inbo.be  Tue Jun 29 05:59:42 2021
+From: floris.vanderhaeghe at inbo.be (Floris Vanderhaeghe)
+Date: Tue, 29 Jun 2021 14:59:42 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+ <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+Message-ID: <2febc290-1039-67dc-3137-0ff5abbcdc25@inbo.be>
+
+Thank you for the helpful feedback!
+
+Most geospatial R packages (such as sf, sp, stars, raster, terra) accept 
+the input that GDAL or PROJ accept, so using AUTHORITY:CODE or WKT2 is 
+no problem. I believe most developers follow that it is to be advised 
+(as do I, in the role of user).
+
+On the other hand, an inconvenience that was raised is that custom CRSs 
+will need more work to specify, if not using PROJ strings for that. 
+Using a current standard is only 'convenient' for registered CRSs (like: 
+EPSG:27700).
+
+  * If I understand correctly, for PROJ strings to represent a complete
+    CRS, i.e. with a datum, this can either happen directly by referring
+    one of the remaining supported datums with '+datum' (AFAIK wgs84,
+    nad27 or nad83), or indirectly for all other datums, as a BOUNDCRS
+    (i.e. including a transformation to the WGS84 datum).
+  * While using '+towgs84' is not optimal, it seems the only way if one
+    still wants to use PROJ strings to properly define a custom CRS, in
+    the non-wgs84/nad27/nad83 case.
+
+So I guess '+towgs84' is also a feature that will remain?? (I ask 
+because '+towgs84' and '+datum' are considered deprecated.)
+
+Further, after comparing projinfo (in PROJ 7.2.1) and gdalsrsinfo (in 
+GDAL 3.2.1), it can be seen that:
+
+  * PROJ needs '+type=crs' in an inputted PROJ string to define a CRS,
+    otherwise it is seen as a coordinate operation (as expected from
+    most PROJ documentation)
+  * GDAL seems to always interpret a PROJ string as a CRS, also without
+    '+type=crs'. This seems in contradiction with PROJ (but maybe has
+    its reasons)
+  * both projinfo and gdalsrsinfo currently honour '+towgs84' in the
+    input (returning a BOUNDCRS), and repeat the exact same PROJ string
+    in the output (except that GDAL drops '+type=crs'). However
+    '+towgs84' (as well as '+datum') is not in the returned PROJ string
+    if the input is AUTHORITY:CODE, so such PROJ strings are partial CRS
+    representations.
+
+With regards,
+
+Floris
+
+
+Op 28/06/2021 om 18:38 schreef Martin Desruisseaux:
+>
+> Hello Floris
+>
+> If a choice is possible, I would encourage to use one of the 
+> approaches recognized by international standards:
+>
+>   * Authority codes with axis order and units as defined by authority
+>     (e.g. "EPSG:4326" is /latitude/, /longitude/; if the reverse order
+>     is wanted then "CRS:84" can be used instead).
+>   * Well Known Text version 2 (a.k.a. ISO 19162).
+>   * Possibly the JSON format cited by Even in the future.
+>
+> PROJ 6 and later support all the above. I think they are preferable to 
+> PROJ strings for at least 2 reasons:
+>
+>   * They are portable, with WKT 2 possibly the safest bet for now
+>     since it is an existing OGC and ISO standard. While PROJ is the
+>     most popular, it is nevertheless not the only map projection
+>     engine available, with each engine having their advantage and
+>     inconvenient. Other map projection engines are more likely to
+>     understand a CRS defined by international standards than by
+>     PROJ-specific strings. Even if R uses only PROJ, a R script may
+>     want to fetch data from a distant server backed by a different map
+>     projection engine.
+>   * For educational reason: the PROJ string syntax evolved from a
+>     system initially designed for map projections only, not for the
+>     more general context of transformations between arbitrary pairs of
+>     CRS. If users educate themselves by learning from PROJ strings,
+>     there is a risk that they confuse CRS with operations, that they
+>     believe that "+towgs84" is good practice, etc.
+>
+> Regards,
+>
+> ??? Martin
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+mailhandtekening
+
+*Floris Vanderhaeghe*
+
+Flemish Government
+RESEARCH INSTITUTE FOR NATURE AND FOREST
+Team Biometry, Methodology and Quality Assurance
+Havenlaan 88 bus 73, 1000 Brussels
+Belgium
+floris.vanderhaeghe at inbo.be <mailto:floris.vanderhaeghe at inbo.be>
+www.inbo.be <http://www.inbo.be/>
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210629/9f8aecef/attachment.html>
+
+From even.rouault at spatialys.com  Tue Jun 29 06:11:53 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 29 Jun 2021 15:11:53 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <2febc290-1039-67dc-3137-0ff5abbcdc25@inbo.be>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+ <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+ <2febc290-1039-67dc-3137-0ff5abbcdc25@inbo.be>
+Message-ID: <cc11c2ae-5586-99b7-a521-3f927af2b618@spatialys.com>
+
+
+Le 29/06/2021 ? 14:59, Floris Vanderhaeghe via PROJ a ?crit?:
+> So I guess '+towgs84' is also a feature that will remain?? (I ask 
+> because '+towgs84' and '+datum' are considered deprecated.)
+
++towgs84 is deprecated in the sense that using WGS84 as a pivot datum 
+may add accuracy loss in transformations.
+
++datum is fine but there is only a small list of datums possible.
+
+> Further, after comparing projinfo (in PROJ 7.2.1) and gdalsrsinfo (in 
+> GDAL 3.2.1), it can be seen that:
+>
+>   * PROJ needs '+type=crs' in an inputted PROJ string to define a CRS,
+>     otherwise it is seen as a coordinate operation (as expected from
+>     most PROJ documentation)
+>   * GDAL seems to always interpret a PROJ string as a CRS, also
+>     without '+type=crs'. This seems in contradiction with PROJ (but
+>     maybe has its reasons)
+>
+Yes, the GDAL behaviour is for backward compatibility with GDAL < 3
+>
+>   * both projinfo and gdalsrsinfo currently honour '+towgs84' in the
+>     input (returning a BOUNDCRS), and repeat the exact same PROJ
+>     string in the output (except that GDAL drops '+type=crs'). However
+>     '+towgs84' (as well as '+datum') is not in the returned PROJ
+>     string if the input is AUTHORITY:CODE, so such PROJ strings are
+>     partial CRS representations.
+>
+It really depends on the AUTHORITY:CODE. If there's only one 
+transformation know from the datum of the CRS to WGS 84, then it will be 
+used for +towgs84. e.g:
+
+$ projinfo EPSG:4171 -o PROJ -q
++proj=longlat +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +no_defs +type=crs
+If there are several choices possible, no +towgs84 is emitted
+
+-- 
+
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210629/7ab583ca/attachment.html>
+
+From kristianevers at gmail.com  Tue Jun 29 07:10:40 2021
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Tue, 29 Jun 2021 16:10:40 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+Message-ID: <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+
+PSC Members,
+
+No issues with the two release candidates have been reported so I hereby motion that
+PROJ 8.1.0RC1 and PROJ-data 1.7RC1 be promoted to their final versions.
+
+I?ll start with my +1.
+
+/Kristian
+
+> On 25 Jun 2021, at 18:31, Kristian Evers <kristianevers at gmail.com> wrote:
+> 
+> All,
+> 
+> I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+> 
+> http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+> http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+> 
+> http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+> http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+> 
+> See the PROJ release notes below. The PROJ-data release includes two new grids:
+> fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+> latter grid, au_ga_AGQG_20191107.tif, has been removed.
+> 
+> Please test the two release candidates and report back your findings either to the
+> mailing list or in a GitHub issue.
+> 
+> /Kristian
+> 
+> ??????
+> 
+> 8.1.0 Release Notes
+> -------------------
+> 
+> Updates
+> -------
+> 
+> + Database
+> 
+>   o Update to EPSG v10.027 (#2751)
+> 
+>   o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+> 
+>   o Add a ANALYZE step during proj.db creation allowing for
+>     faster lookups (#2729)
+> 
+>   o Added a PROJ.VERSION metadata entry (#2646)
+> 
+>   o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+>     transformation (#2554)
+> 
+>   o Additions to the norwegian NKG2020 transformation (#2548)
+> 
+>   o ESRI projection database updated to version 12.8 (#2717)
+> 
+> + API additions
+> 
+>   o Added proj_get_geoid_models_from_database() function that returns a list of
+>     geoid models available for a given CRS (#2681)
+> 
+>   o Added proj_get_celestial_body_list_from_database that returns a list
+>     of celestial bodies in the PROJ database (#2667)
+> 
+>   o Added proj_get_celestial_body_name() (#2662)
+> 
+> + Various improvements
+> 
+>   o proj_trans/cs2cs: If two operations have the same accuracy,
+>     use the one that is contained within a larger one (#2750)
+> 
+>   o Share SQLite database handle among all contexts (#2738)
+> 
+>   o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+> 
+>   o projsync: make it filter out files not intended for the current version (#2725)
+> 
+>   o Improvements related to DerivedVerticalCRS using Change Unit and
+>     Height/Depth reversal methods (#2696)
+> 
+>   o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+>     be able to use external nlohmann/json (#2686)
+> 
+>   o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+> 
+>   o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+> 
+>   o Added projinfo option --list-crs (supports --area) (#2663)
+> 
+>   o Added support for hyperbolic Cassini-Soldner (#2637)
+> 
+>   o Added capability to get SQL statements to add custom CRS in the database (#2577)
+> 
+> Bug fixes
+> ---------
+> 
+> o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+> 
+> o Minor changes to address lint in geodesic.c (#2752)
+> 
+> o BoundCRS::identify(): avoid incompatible transformation for
+>   WKT1 / TOWGS84 export (#2747)
+> 
+> o proj_create(): do not open proj.db if string is a PROJ string,
+>   even if proj_context_set_autoclose_database() has been set (#2735)
+> 
+> o Fix export of transformation to PROJ string in a particular situation
+>   where CompoundCRS are involved (#2721)
+
+
+From even.rouault at spatialys.com  Tue Jun 29 07:11:20 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 29 Jun 2021 16:11:20 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+Message-ID: <04c41a7d-a612-8f92-37f0-f93550ef0c08@spatialys.com>
+
++1 Even
+
+Le 29/06/2021 ? 16:10, Kristian Evers a ?crit?:
+> PSC Members,
+>
+> No issues with the two release candidates have been reported so I hereby motion that
+> PROJ 8.1.0RC1 and PROJ-data 1.7RC1 be promoted to their final versions.
+>
+> I?ll start with my +1.
+>
+> /Kristian
+>
+>> On 25 Jun 2021, at 18:31, Kristian Evers <kristianevers at gmail.com> wrote:
+>>
+>> All,
+>>
+>> I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+>>
+>> http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+>> http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+>>
+>> http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+>> http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+>>
+>> See the PROJ release notes below. The PROJ-data release includes two new grids:
+>> fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+>> latter grid, au_ga_AGQG_20191107.tif, has been removed.
+>>
+>> Please test the two release candidates and report back your findings either to the
+>> mailing list or in a GitHub issue.
+>>
+>> /Kristian
+>>
+>> ??????
+>>
+>> 8.1.0 Release Notes
+>> -------------------
+>>
+>> Updates
+>> -------
+>>
+>> + Database
+>>
+>>    o Update to EPSG v10.027 (#2751)
+>>
+>>    o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+>>
+>>    o Add a ANALYZE step during proj.db creation allowing for
+>>      faster lookups (#2729)
+>>
+>>    o Added a PROJ.VERSION metadata entry (#2646)
+>>
+>>    o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+>>      transformation (#2554)
+>>
+>>    o Additions to the norwegian NKG2020 transformation (#2548)
+>>
+>>    o ESRI projection database updated to version 12.8 (#2717)
+>>
+>> + API additions
+>>
+>>    o Added proj_get_geoid_models_from_database() function that returns a list of
+>>      geoid models available for a given CRS (#2681)
+>>
+>>    o Added proj_get_celestial_body_list_from_database that returns a list
+>>      of celestial bodies in the PROJ database (#2667)
+>>
+>>    o Added proj_get_celestial_body_name() (#2662)
+>>
+>> + Various improvements
+>>
+>>    o proj_trans/cs2cs: If two operations have the same accuracy,
+>>      use the one that is contained within a larger one (#2750)
+>>
+>>    o Share SQLite database handle among all contexts (#2738)
+>>
+>>    o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+>>
+>>    o projsync: make it filter out files not intended for the current version (#2725)
+>>
+>>    o Improvements related to DerivedVerticalCRS using Change Unit and
+>>      Height/Depth reversal methods (#2696)
+>>
+>>    o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+>>      be able to use external nlohmann/json (#2686)
+>>
+>>    o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+>>
+>>    o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+>>
+>>    o Added projinfo option --list-crs (supports --area) (#2663)
+>>
+>>    o Added support for hyperbolic Cassini-Soldner (#2637)
+>>
+>>    o Added capability to get SQL statements to add custom CRS in the database (#2577)
+>>
+>> Bug fixes
+>> ---------
+>>
+>> o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+>>
+>> o Minor changes to address lint in geodesic.c (#2752)
+>>
+>> o BoundCRS::identify(): avoid incompatible transformation for
+>>    WKT1 / TOWGS84 export (#2747)
+>>
+>> o proj_create(): do not open proj.db if string is a PROJ string,
+>>    even if proj_context_set_autoclose_database() has been set (#2735)
+>>
+>> o Fix export of transformation to PROJ string in a particular situation
+>>    where CompoundCRS are involved (#2721)
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From howard at hobu.co  Tue Jun 29 07:12:06 2021
+From: howard at hobu.co (Howard Butler)
+Date: Tue, 29 Jun 2021 09:12:06 -0500
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <04c41a7d-a612-8f92-37f0-f93550ef0c08@spatialys.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+ <04c41a7d-a612-8f92-37f0-f93550ef0c08@spatialys.com>
+Message-ID: <29396EB7-02DB-4DE7-ADBB-FE430F68F54E@hobu.co>
+
++1 Howard
+
+> On Jun 29, 2021, at 9:11 AM, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> +1 Even
+> 
+> Le 29/06/2021 ? 16:10, Kristian Evers a ?crit :
+>> PSC Members,
+>> 
+>> No issues with the two release candidates have been reported so I hereby motion that
+>> PROJ 8.1.0RC1 and PROJ-data 1.7RC1 be promoted to their final versions.
+>> 
+>> I?ll start with my +1.
+>> 
+>> /Kristian
+>> 
+>>> On 25 Jun 2021, at 18:31, Kristian Evers <kristianevers at gmail.com> wrote:
+>>> 
+>>> All,
+>>> 
+>>> I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+>>> 
+>>> http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+>>> http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+>>> 
+>>> http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+>>> http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+>>> 
+>>> See the PROJ release notes below. The PROJ-data release includes two new grids:
+>>> fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+>>> latter grid, au_ga_AGQG_20191107.tif, has been removed.
+>>> 
+>>> Please test the two release candidates and report back your findings either to the
+>>> mailing list or in a GitHub issue.
+>>> 
+>>> /Kristian
+>>> 
+>>> ??????
+>>> 
+>>> 8.1.0 Release Notes
+>>> -------------------
+>>> 
+>>> Updates
+>>> -------
+>>> 
+>>> + Database
+>>> 
+>>>   o Update to EPSG v10.027 (#2751)
+>>> 
+>>>   o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+>>> 
+>>>   o Add a ANALYZE step during proj.db creation allowing for
+>>>     faster lookups (#2729)
+>>> 
+>>>   o Added a PROJ.VERSION metadata entry (#2646)
+>>> 
+>>>   o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+>>>     transformation (#2554)
+>>> 
+>>>   o Additions to the norwegian NKG2020 transformation (#2548)
+>>> 
+>>>   o ESRI projection database updated to version 12.8 (#2717)
+>>> 
+>>> + API additions
+>>> 
+>>>   o Added proj_get_geoid_models_from_database() function that returns a list of
+>>>     geoid models available for a given CRS (#2681)
+>>> 
+>>>   o Added proj_get_celestial_body_list_from_database that returns a list
+>>>     of celestial bodies in the PROJ database (#2667)
+>>> 
+>>>   o Added proj_get_celestial_body_name() (#2662)
+>>> 
+>>> + Various improvements
+>>> 
+>>>   o proj_trans/cs2cs: If two operations have the same accuracy,
+>>>     use the one that is contained within a larger one (#2750)
+>>> 
+>>>   o Share SQLite database handle among all contexts (#2738)
+>>> 
+>>>   o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+>>> 
+>>>   o projsync: make it filter out files not intended for the current version (#2725)
+>>> 
+>>>   o Improvements related to DerivedVerticalCRS using Change Unit and
+>>>     Height/Depth reversal methods (#2696)
+>>> 
+>>>   o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+>>>     be able to use external nlohmann/json (#2686)
+>>> 
+>>>   o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+>>> 
+>>>   o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+>>> 
+>>>   o Added projinfo option --list-crs (supports --area) (#2663)
+>>> 
+>>>   o Added support for hyperbolic Cassini-Soldner (#2637)
+>>> 
+>>>   o Added capability to get SQL statements to add custom CRS in the database (#2577)
+>>> 
+>>> Bug fixes
+>>> ---------
+>>> 
+>>> o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+>>> 
+>>> o Minor changes to address lint in geodesic.c (#2752)
+>>> 
+>>> o BoundCRS::identify(): avoid incompatible transformation for
+>>>   WKT1 / TOWGS84 export (#2747)
+>>> 
+>>> o proj_create(): do not open proj.db if string is a PROJ string,
+>>>   even if proj_context_set_autoclose_database() has been set (#2735)
+>>> 
+>>> o Fix export of transformation to PROJ string in a particular situation
+>>>   where CompoundCRS are involved (#2721)
+>> _______________________________________________
+>> PROJ mailing list
+>> PROJ at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+
+From charles.karney at gmail.com  Tue Jun 29 08:00:40 2021
+From: charles.karney at gmail.com (Charles Karney)
+Date: Tue, 29 Jun 2021 11:00:40 -0400
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+Message-ID: <36e670dc-5541-1d4e-5d8f-7582463201a4@karney.com>
+
++1
+
+   --Charles
+
+On 6/29/21 10:10 AM, Kristian Evers wrote:
+> PSC Members,
+> 
+> No issues with the two release candidates have been reported so I hereby motion that
+> PROJ 8.1.0RC1 and PROJ-data 1.7RC1 be promoted to their final versions.
+> 
+> I?ll start with my +1.
+> 
+> /Kristian
+> 
+>> On 25 Jun 2021, at 18:31, Kristian Evers <kristianevers at gmail.com> wrote:
+>>
+>> All,
+>>
+>> I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+>>
+>> http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+>> http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+>>
+>> http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+>> http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+>>
+>> See the PROJ release notes below. The PROJ-data release includes two new grids:
+>> fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+>> latter grid, au_ga_AGQG_20191107.tif, has been removed.
+>>
+>> Please test the two release candidates and report back your findings either to the
+>> mailing list or in a GitHub issue.
+>>
+>> /Kristian
+>>
+>> ??????
+>>
+>> 8.1.0 Release Notes
+>> -------------------
+>>
+>> Updates
+>> -------
+>>
+>> + Database
+>>
+>>    o Update to EPSG v10.027 (#2751)
+>>
+>>    o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+>>
+>>    o Add a ANALYZE step during proj.db creation allowing for
+>>      faster lookups (#2729)
+>>
+>>    o Added a PROJ.VERSION metadata entry (#2646)
+>>
+>>    o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+>>      transformation (#2554)
+>>
+>>    o Additions to the norwegian NKG2020 transformation (#2548)
+>>
+>>    o ESRI projection database updated to version 12.8 (#2717)
+>>
+>> + API additions
+>>
+>>    o Added proj_get_geoid_models_from_database() function that returns a list of
+>>      geoid models available for a given CRS (#2681)
+>>
+>>    o Added proj_get_celestial_body_list_from_database that returns a list
+>>      of celestial bodies in the PROJ database (#2667)
+>>
+>>    o Added proj_get_celestial_body_name() (#2662)
+>>
+>> + Various improvements
+>>
+>>    o proj_trans/cs2cs: If two operations have the same accuracy,
+>>      use the one that is contained within a larger one (#2750)
+>>
+>>    o Share SQLite database handle among all contexts (#2738)
+>>
+>>    o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+>>
+>>    o projsync: make it filter out files not intended for the current version (#2725)
+>>
+>>    o Improvements related to DerivedVerticalCRS using Change Unit and
+>>      Height/Depth reversal methods (#2696)
+>>
+>>    o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+>>      be able to use external nlohmann/json (#2686)
+>>
+>>    o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+>>
+>>    o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+>>
+>>    o Added projinfo option --list-crs (supports --area) (#2663)
+>>
+>>    o Added support for hyperbolic Cassini-Soldner (#2637)
+>>
+>>    o Added capability to get SQL statements to add custom CRS in the database (#2577)
+>>
+>> Bug fixes
+>> ---------
+>>
+>> o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+>>
+>> o Minor changes to address lint in geodesic.c (#2752)
+>>
+>> o BoundCRS::identify(): avoid incompatible transformation for
+>>    WKT1 / TOWGS84 export (#2747)
+>>
+>> o proj_create(): do not open proj.db if string is a PROJ string,
+>>    even if proj_context_set_autoclose_database() has been set (#2735)
+>>
+>> o Fix export of transformation to PROJ string in a particular situation
+>>    where CompoundCRS are involved (#2721)
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+> 
+
+-- 
+Charles Karney <charles at karney.com>
+Princeton, NJ
+
+From floris.vanderhaeghe at inbo.be  Tue Jun 29 08:27:13 2021
+From: floris.vanderhaeghe at inbo.be (Floris Vanderhaeghe)
+Date: Tue, 29 Jun 2021 17:27:13 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <cc11c2ae-5586-99b7-a521-3f927af2b618@spatialys.com>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+ <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+ <2febc290-1039-67dc-3137-0ff5abbcdc25@inbo.be>
+ <cc11c2ae-5586-99b7-a521-3f927af2b618@spatialys.com>
+Message-ID: <bc873f3f-ff04-6cce-167a-1b23b0117bec@inbo.be>
+
+Thank you Even!
+
+To R users, would this be appropriate advice regarding PROJ strings? - 
+please comment or edit where needed:
+
+ 1. Using a PROJ string to specify a CRS is discouraged
+    <https://proj.org/development/reference/functions.html#c.proj_create>
+    and currently not much documented by PROJ (PROJ strings are used for
+    coordinate operations instead). At least for registered CRSs, always
+    use AUTHORITY:CODE or WKT2
+    <https://docs.opengeospatial.org/is/18-010r7/18-010r7.html>, not
+    PROJ strings.
+ 2. Also custom CRSs are ideally specified as WKT2
+    <https://docs.opengeospatial.org/is/18-010r7/18-010r7.html>, or more
+    conveniently as (currently not yet official) PROJJSON
+    <https://proj.org/specifications/projjson.html>, which follows the
+    WKT2 structure.
+ 3. When specifying a custom CRS with a PROJ string, the WGS84 ensemble
+    datum (EPSG:6326
+    <https://epsg.org/datum_6326/World-Geodetic-System-1984-ensemble.html>)
+    will automatically be adopted if no '+ellps' is specified (and with
+    '+ellps', the datum is considered as 'unknown'). Note that EPSG:6326
+    always refers to the latest WGS84 realization, not to a fixed one.
+    If these conditions are fine for your usecase, then there's no problem.
+ 4. For backward compatibility reasons, PROJ strings with '+towgs84' or
+    '+datum', although deprecated, will remain supported by PROJ and GDAL.
+ 5. When specifying a custom CRS that doesn't use the WGS84, NAD27 or
+    NAD83 datum (which can be specified with '+datum'), it is better to
+    use WKT2 <https://docs.opengeospatial.org/is/18-010r7/18-010r7.html>
+    or PROJJSON <https://proj.org/specifications/projjson.html> and
+    properly refer the geodetic datum. A typically less accurate
+    alternative is defining as a BOUNDCRS by specifying '+towgs84'
+    transformation parameters.
+
+With regards
+
+Floris
+
+
+
+mailhandtekening
+
+*Floris Vanderhaeghe*
+
+Flemish Government
+RESEARCH INSTITUTE FOR NATURE AND FOREST
+Team Biometry, Methodology and Quality Assurance
+Havenlaan 88 bus 73, 1000 Brussels
+Belgium
+floris.vanderhaeghe at inbo.be <mailto:floris.vanderhaeghe at inbo.be>
+www.inbo.be <http://www.inbo.be/>
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210629/13bb3351/attachment-0001.html>
+
+From even.rouault at spatialys.com  Tue Jun 29 08:35:53 2021
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 29 Jun 2021 17:35:53 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <bc873f3f-ff04-6cce-167a-1b23b0117bec@inbo.be>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+ <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+ <2febc290-1039-67dc-3137-0ff5abbcdc25@inbo.be>
+ <cc11c2ae-5586-99b7-a521-3f927af2b618@spatialys.com>
+ <bc873f3f-ff04-6cce-167a-1b23b0117bec@inbo.be>
+Message-ID: <e33b3a5f-dc3a-9efe-cf14-f0831b8a6f66@spatialys.com>
+
+
+Le 29/06/2021 ? 17:27, Floris Vanderhaeghe via PROJ a ?crit?:
+>
+> Thank you Even!
+>
+> To R users, would this be appropriate advice regarding PROJ strings? - 
+> please comment or edit where needed:
+>
+>  1. Using a PROJ string to specify a CRS is discouraged
+>     <https://proj.org/development/reference/functions.html#c.proj_create>
+>     and currently not much documented by PROJ (PROJ strings are used
+>     for coordinate operations instead). At least for registered CRSs,
+>     always use AUTHORITY:CODE or WKT2
+>     <https://docs.opengeospatial.org/is/18-010r7/18-010r7.html>, not
+>     PROJ strings.
+>
+Yes
+>
+>  1. Also custom CRSs are ideally specified as WKT2
+>     <https://docs.opengeospatial.org/is/18-010r7/18-010r7.html>, or
+>     more conveniently as (currently not yet official) PROJJSON
+>     <https://proj.org/specifications/projjson.html>, which follows the
+>     WKT2 structure.
+>
+Yes
+>
+>  1. When specifying a custom CRS with a PROJ string, the WGS84
+>     ensemble datum (EPSG:6326
+>     <https://epsg.org/datum_6326/World-Geodetic-System-1984-ensemble.html>)
+>     will automatically be adopted if no '+ellps' is specified (and
+>     with '+ellps', the datum is considered as 'unknown').
+>
+Yes
+>
+>  1. Note that EPSG:6326 always refers to the latest WGS84 realization,
+>     not to a fixed one. If these conditions are fine for your usecase,
+>     then there's no problem.
+>
+No. For EPSG, EPSG:6326 is the datum ensemble WGS 84, not the latest 
+realization. We have indeed discussed a number of times on this list if 
+we should consider it as the latest realization in practice, but haven't 
+decided so yet.
+>
+>  1. For backward compatibility reasons, PROJ strings with '+towgs84'
+>     or '+datum', although deprecated, will remain supported by PROJ
+>     and GDAL.
+>
+Yes
+>
+> 1.
+>
+>
+>  2. When specifying a custom CRS that doesn't use the WGS84, NAD27 or
+>     NAD83 datum (which can be specified with '+datum'), it is better
+>     to use WKT2
+>     <https://docs.opengeospatial.org/is/18-010r7/18-010r7.html> or
+>     PROJJSON <https://proj.org/specifications/projjson.html> and
+>     properly refer the geodetic datum. A typically less accurate
+>     alternative is defining as a BOUNDCRS by specifying '+towgs84'
+>     transformation parameters.
+>
+Yes
+>
+> With regards
+>
+> Floris
+>
+>
+>
+> mailhandtekening
+>
+> *Floris Vanderhaeghe*
+>
+> Flemish Government
+> RESEARCH INSTITUTE FOR NATURE AND FOREST
+> Team Biometry, Methodology and Quality Assurance
+> Havenlaan 88 bus 73, 1000 Brussels
+> Belgium
+> floris.vanderhaeghe at inbo.be <mailto:floris.vanderhaeghe at inbo.be>
+> www.inbo.be <http://www.inbo.be/>
+>
+> ///////////////////////////////////////////////////////////////////////////////////////////
+>
+>
+>
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210629/e94edd56/attachment.html>
+
+From floris.vanderhaeghe at inbo.be  Tue Jun 29 08:59:17 2021
+From: floris.vanderhaeghe at inbo.be (Floris Vanderhaeghe)
+Date: Tue, 29 Jun 2021 17:59:17 +0200
+Subject: [PROJ] Questions about declaring a CRS
+In-Reply-To: <e33b3a5f-dc3a-9efe-cf14-f0831b8a6f66@spatialys.com>
+References: <5702f5c0-0b0a-2f7b-7f09-44575fc5898c@inbo.be>
+ <485adbb2-a930-c4f2-0325-099565964572@geomatys.com>
+ <2febc290-1039-67dc-3137-0ff5abbcdc25@inbo.be>
+ <cc11c2ae-5586-99b7-a521-3f927af2b618@spatialys.com>
+ <bc873f3f-ff04-6cce-167a-1b23b0117bec@inbo.be>
+ <e33b3a5f-dc3a-9efe-cf14-f0831b8a6f66@spatialys.com>
+Message-ID: <20e28bc2-d6b9-61c8-ca34-1a015cc34951@inbo.be>
+
+Thanks!
+
+I had misinterpreted the short metadata 'remarks' at EPSG:6326 
+<https://epsg.org/datum_6326/World-Geodetic-System-1984-ensemble.html>. 
+Adding some references here:
+
+  * The 'datum ensemble' concept is defined by OGC
+    <https://docs.opengeospatial.org/as/18-005r4/18-005r4.html#97>.
+  * More extensive explanation on the WGS84 ensemble (2019) is (e.g.) at
+    https://dpipwe.tas.gov.au/land-tasmania/datum-modernisation/web-mapping-and-wgs84-web-mercator.
+    And it is referred in
+    https://www.iogp.org/blog/epsg/upgrade-of-epsg-dataset-data-model/.
+
+Floris
+
+
+mailhandtekening
+
+*Floris Vanderhaeghe*
+
+Flemish Government
+RESEARCH INSTITUTE FOR NATURE AND FOREST
+Team Biometry, Methodology and Quality Assurance
+Havenlaan 88 bus 73, 1000 Brussels
+Belgium
+floris.vanderhaeghe at inbo.be <mailto:floris.vanderhaeghe at inbo.be>
+www.inbo.be <http://www.inbo.be/>
+
+///////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210629/d2422a98/attachment.html>
+
+From knudsen.thomas at gmail.com  Tue Jun 29 10:16:14 2021
+From: knudsen.thomas at gmail.com (Thomas Knudsen)
+Date: Tue, 29 Jun 2021 19:16:14 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+Message-ID: <CAH0YoENiu9972LYfCQAWFni=WrOYNrFrb70wn4LXaDA=E80pOQ@mail.gmail.com>
+
++1 /thomas
+
+Den tir. 29. jun. 2021 kl. 16.10 skrev Kristian Evers <
+kristianevers at gmail.com>:
+
+> PSC Members,
+>
+> No issues with the two release candidates have been reported so I hereby
+> motion that
+> PROJ 8.1.0RC1 and PROJ-data 1.7RC1 be promoted to their final versions.
+>
+> I?ll start with my +1.
+>
+> /Kristian
+>
+> > On 25 Jun 2021, at 18:31, Kristian Evers <kristianevers at gmail.com>
+> wrote:
+> >
+> > All,
+> >
+> > I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7.
+> Download them here:
+> >
+> > http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz
+> > http://download.osgeo.org/proj/proj-8.1.0RC1.zip
+> >
+> > http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz
+> > http://download.osgeo.org/proj/proj-data-1.7RC1.zip
+> >
+> > See the PROJ release notes below. The PROJ-data release includes two new
+> grids:
+> > fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the
+> predecessor for the
+> > latter grid, au_ga_AGQG_20191107.tif, has been removed.
+> >
+> > Please test the two release candidates and report back your findings
+> either to the
+> > mailing list or in a GitHub issue.
+> >
+> > /Kristian
+> >
+> > ??????
+> >
+> > 8.1.0 Release Notes
+> > -------------------
+> >
+> > Updates
+> > -------
+> >
+> > + Database
+> >
+> >   o Update to EPSG v10.027 (#2751)
+> >
+> >   o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+> >
+> >   o Add a ANALYZE step during proj.db creation allowing for
+> >     faster lookups (#2729)
+> >
+> >   o Added a PROJ.VERSION metadata entry (#2646)
+> >
+> >   o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+> >     transformation (#2554)
+> >
+> >   o Additions to the norwegian NKG2020 transformation (#2548)
+> >
+> >   o ESRI projection database updated to version 12.8 (#2717)
+> >
+> > + API additions
+> >
+> >   o Added proj_get_geoid_models_from_database() function that returns a
+> list of
+> >     geoid models available for a given CRS (#2681)
+> >
+> >   o Added proj_get_celestial_body_list_from_database that returns a list
+> >     of celestial bodies in the PROJ database (#2667)
+> >
+> >   o Added proj_get_celestial_body_name() (#2662)
+> >
+> > + Various improvements
+> >
+> >   o proj_trans/cs2cs: If two operations have the same accuracy,
+> >     use the one that is contained within a larger one (#2750)
+> >
+> >   o Share SQLite database handle among all contexts (#2738)
+> >
+> >   o Add proj/internal/mutex.hpp as compat layer for mingw32 for
+> std::mutex (#2736)
+> >
+> >   o projsync: make it filter out files not intended for the current
+> version (#2725)
+> >
+> >   o Improvements related to DerivedVerticalCRS using Change Unit and
+> >     Height/Depth reversal methods (#2696)
+> >
+> >   o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+> >     be able to use external nlohmann/json (#2686)
+> >
+> >   o createFromUserInput(): change name of CRS built from URN combined
+> references to match the convention of EPSG projected CRS (#2677)
+> >
+> >   o Parse compound id with two authorities, like ESRI:103668+EPSG:5703
+> (#2669)
+> >
+> >   o Added projinfo option --list-crs (supports --area) (#2663)
+> >
+> >   o Added support for hyperbolic Cassini-Soldner (#2637)
+> >
+> >   o Added capability to get SQL statements to add custom CRS in the
+> database (#2577)
+> >
+> > Bug fixes
+> > ---------
+> >
+> > o Fix 'Please include winsock2.h before windows.h' warning with msys
+> (#2692)
+> >
+> > o Minor changes to address lint in geodesic.c (#2752)
+> >
+> > o BoundCRS::identify(): avoid incompatible transformation for
+> >   WKT1 / TOWGS84 export (#2747)
+> >
+> > o proj_create(): do not open proj.db if string is a PROJ string,
+> >   even if proj_context_set_autoclose_database() has been set (#2735)
+> >
+> > o Fix export of transformation to PROJ string in a particular situation
+> >   where CompoundCRS are involved (#2721)
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210629/353f7d01/attachment-0001.html>
+
+From kristianevers at gmail.com  Wed Jun 30 13:13:22 2021
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Wed, 30 Jun 2021 22:13:22 +0200
+Subject: [PROJ] PROJ 8.1.0RC1 & PROJ-data 1.7RC1
+In-Reply-To: <CAH0YoENiu9972LYfCQAWFni=WrOYNrFrb70wn4LXaDA=E80pOQ@mail.gmail.com>
+References: <DABFD04E-2EB3-4EA7-9E21-EDA4E08AC691@gmail.com>
+ <FC30E95B-A96C-455D-A424-7A6FA4DBBF58@gmail.com>
+ <CAH0YoENiu9972LYfCQAWFni=WrOYNrFrb70wn4LXaDA=E80pOQ@mail.gmail.com>
+Message-ID: <69C65A6A-7A49-4C8D-84A9-75003838ECDC@gmail.com>
+
+With +1?s from 
+
+Kristian
+Even
+Howard
+Charles
+Thomas
+
+the motion is passed. I will announce the release shortly. This is a tad early but I will be too busy to take care of it tomorrow.
+
+/Kristian
+
+> On 29 Jun 2021, at 19:16, Thomas Knudsen <knudsen.thomas at gmail.com> wrote:
+> 
+> +1 /thomas
+> 
+> Den tir. 29. jun. 2021 kl. 16.10 skrev Kristian Evers <kristianevers at gmail.com <mailto:kristianevers at gmail.com>>:
+> PSC Members,
+> 
+> No issues with the two release candidates have been reported so I hereby motion that
+> PROJ 8.1.0RC1 and PROJ-data 1.7RC1 be promoted to their final versions.
+> 
+> I?ll start with my +1.
+> 
+> /Kristian
+> 
+> > On 25 Jun 2021, at 18:31, Kristian Evers <kristianevers at gmail.com <mailto:kristianevers at gmail.com>> wrote:
+> > 
+> > All,
+> > 
+> > I have prepared release candidates for PROJ 8.1.0 and PROJ-data 1.7. Download them here:
+> > 
+> > http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz <http://download.osgeo.org/proj/proj-8.1.0RC1.tar.gz>
+> > http://download.osgeo.org/proj/proj-8.1.0RC1.zip <http://download.osgeo.org/proj/proj-8.1.0RC1.zip>
+> > 
+> > http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz <http://download.osgeo.org/proj/proj-data-1.7RC1.tar.gz>
+> > http://download.osgeo.org/proj/proj-data-1.7RC1.zip <http://download.osgeo.org/proj/proj-data-1.7RC1.zip>
+> > 
+> > See the PROJ release notes below. The PROJ-data release includes two new grids:
+> > fr_ign_RAF18b.tif and au_ga_AGQG_20201120.tif. In addition the predecessor for the
+> > latter grid, au_ga_AGQG_20191107.tif, has been removed.
+> > 
+> > Please test the two release candidates and report back your findings either to the
+> > mailing list or in a GitHub issue.
+> > 
+> > /Kristian
+> > 
+> > ??????
+> > 
+> > 8.1.0 Release Notes
+> > -------------------
+> > 
+> > Updates
+> > -------
+> > 
+> > + Database
+> > 
+> >   o Update to EPSG v10.027 (#2751)
+> > 
+> >   o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+> > 
+> >   o Add a ANALYZE step during proj.db creation allowing for
+> >     faster lookups (#2729)
+> > 
+> >   o Added a PROJ.VERSION metadata entry (#2646)
+> > 
+> >   o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+> >     transformation (#2554)
+> > 
+> >   o Additions to the norwegian NKG2020 transformation (#2548)
+> > 
+> >   o ESRI projection database updated to version 12.8 (#2717)
+> > 
+> > + API additions
+> > 
+> >   o Added proj_get_geoid_models_from_database() function that returns a list of
+> >     geoid models available for a given CRS (#2681)
+> > 
+> >   o Added proj_get_celestial_body_list_from_database that returns a list
+> >     of celestial bodies in the PROJ database (#2667)
+> > 
+> >   o Added proj_get_celestial_body_name() (#2662)
+> > 
+> > + Various improvements
+> > 
+> >   o proj_trans/cs2cs: If two operations have the same accuracy,
+> >     use the one that is contained within a larger one (#2750)
+> > 
+> >   o Share SQLite database handle among all contexts (#2738)
+> > 
+> >   o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+> > 
+> >   o projsync: make it filter out files not intended for the current version (#2725)
+> > 
+> >   o Improvements related to DerivedVerticalCRS using Change Unit and
+> >     Height/Depth reversal methods (#2696)
+> > 
+> >   o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+> >     be able to use external nlohmann/json (#2686)
+> > 
+> >   o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+> > 
+> >   o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+> > 
+> >   o Added projinfo option --list-crs (supports --area) (#2663)
+> > 
+> >   o Added support for hyperbolic Cassini-Soldner (#2637)
+> > 
+> >   o Added capability to get SQL statements to add custom CRS in the database (#2577)
+> > 
+> > Bug fixes
+> > ---------
+> > 
+> > o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+> > 
+> > o Minor changes to address lint in geodesic.c (#2752)
+> > 
+> > o BoundCRS::identify(): avoid incompatible transformation for
+> >   WKT1 / TOWGS84 export (#2747)
+> > 
+> > o proj_create(): do not open proj.db if string is a PROJ string,
+> >   even if proj_context_set_autoclose_database() has been set (#2735)
+> > 
+> > o Fix export of transformation to PROJ string in a particular situation
+> >   where CompoundCRS are involved (#2721)
+> 
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org <mailto:PROJ at lists.osgeo.org>
+> https://lists.osgeo.org/mailman/listinfo/proj <https://lists.osgeo.org/mailman/listinfo/proj>
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210630/949972e4/attachment.html>
+
+From kristianevers at gmail.com  Wed Jun 30 13:36:36 2021
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Wed, 30 Jun 2021 22:36:36 +0200
+Subject: [PROJ] PROJ 8.1.0 & PROJ-data 1.7
+Message-ID: <9A457833-1FA0-4CDD-95D0-83C2D34695B1@gmail.com>
+
+On behalf of the PROJ development team I am happy to announce the
+release of PROJ 8.1.0 and PROJ-data 1.7
+The packages are available from 
+
+http://download.osgeo.org/proj/proj-8.1.0.tar.gz <http://download.osgeo.org/proj/proj-8.1.0.tar.gz>
+http://download.osgeo.org/proj/proj-8.1.0.zip <http://download.osgeo.org/proj/proj-8.1.0.zip>
+
+and
+
+http://download.osgeo.org/proj/proj-data-1.7.tar.gz <http://download.osgeo.org/proj/proj-data-1.7.tar.gz>
+http://download.osgeo.org/proj/proj-data-1.7.zip <http://download.osgeo.org/proj/proj-data-1.7.zip>
+
+The PROJ release includes both bug fixes and new functionality. See the release
+notes below. The PROJ-data release includes two new grids: fr_ign_RAF18b.tif
+and au_ga_AGQG_20201120.tif. In addition the predecessor for the latter grid,
+au_ga_AGQG_20191107.tif, has been removed.
+
+
+/Kristian
+
+??????
+
+8.1.0 Release Notes
+-------------------
+
+Updates
+-------
+
++ Database
+
+  o Update to EPSG v10.027 (#2751)
+
+  o Decrease DB size by using WITHOUT ROWID tables (#2730) (#2647)
+
+  o Add a ANALYZE step during proj.db creation allowing for
+    faster lookups (#2729)
+
+  o Added a PROJ.VERSION metadata entry (#2646)
+
+  o Added NGO48 (EPSG:4273) to ETRS89 (EPSG:4258) triangulation-based
+    transformation (#2554)
+
+  o Additions to the norwegian NKG2020 transformation (#2548)
+
+  o ESRI projection database updated to version 12.8 (#2717)
+
++ API additions
+
+  o Added proj_get_geoid_models_from_database() function that returns a list of
+    geoid models available for a given CRS (#2681)
+
+  o Added proj_get_celestial_body_list_from_database that returns a list
+    of celestial bodies in the PROJ database (#2667)
+
+  o Added proj_get_celestial_body_name() (#2662)
+
++ Various improvements
+
+  o proj_trans/cs2cs: If two operations have the same accuracy,
+    use the one that is contained within a larger one (#2750)
+
+  o Share SQLite database handle among all contexts (#2738)
+
+  o Add proj/internal/mutex.hpp as compat layer for mingw32 for std::mutex (#2736)
+
+  o projsync: make it filter out files not intended for the current version (#2725)
+
+  o Improvements related to DerivedVerticalCRS using Change Unit and
+    Height/Depth reversal methods (#2696)
+
+  o Update internal nlohmann/json to 3.9.1, and add a CMake option to
+    be able to use external nlohmann/json (#2686)
+
+  o createFromUserInput(): change name of CRS built from URN combined references to match the convention of EPSG projected CRS (#2677)
+
+  o Parse compound id with two authorities, like ESRI:103668+EPSG:5703 (#2669)
+
+  o Added projinfo option --list-crs (supports --area) (#2663)
+
+  o Added support for hyperbolic Cassini-Soldner (#2637)
+
+  o Added capability to get SQL statements to add custom CRS in the database (#2577)
+
+Bug fixes
+---------
+
+o Fix 'Please include winsock2.h before windows.h' warning with msys (#2692)
+
+o Minor changes to address lint in geodesic.c (#2752)
+
+o BoundCRS::identify(): avoid incompatible transformation for
+  WKT1 / TOWGS84 export (#2747)
+
+o proj_create(): do not open proj.db if string is a PROJ string,
+  even if proj_context_set_autoclose_database() has been set (#2735)
+
+o Fix export of transformation to PROJ string in a particular situation
+  where CompoundCRS are involved (#2721)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20210630/46734728/attachment-0001.html>
+

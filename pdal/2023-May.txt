@@ -1,0 +1,196 @@
+From howard at hobu.co  Mon May  8 11:08:00 2023
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 8 May 2023 13:08:00 -0500
+Subject: [pdal] 'pdal info' VLR error troubleshooting
+In-Reply-To: <CY4PR06MB31747E70671B3671B82216A1AC6A9@CY4PR06MB3174.namprd06.prod.outlook.com>
+References: <CY4PR06MB31747E70671B3671B82216A1AC6A9@CY4PR06MB3174.namprd06.prod.outlook.com>
+Message-ID: <D8F5D1BE-7BA4-40DE-B1C8-144462641FFF@hobu.co>
+
+
+
+> On Apr 27, 2023, at 11:49 AM, Speed, Cole M <cole.speed at beg.utexas.edu> wrote:
+> 
+> Hello all,
+> 
+> I am using 'pdal info' to view the metadata for a few laz files. For several of the files, pdal info returns the error: 
+> 
+> PDAL: readers.las: VLR 1(SF/0) size too large -- flows into point data.
+> 
+> I believe this may indicate that the header/VLR s longer than is expected, causing the metadata information to be misinterpreted. Attempting to troubleshoot the issue by having a look at the lasreader source code (https://github.com/PDAL/PDAL/blob/master/io/LasReader.cpp), I see the below code snippet:
+>         if ((uint64_t)stream->tellg() + vlr.promisedDataSize > d->header.pointOffset)
+>             throwError("VLR " + std::to_string(i + 1) +
+>                 "(" + vlr.userId + "/" + std::to_string(vlr.recordId) + ") "
+>                 "size too large -- flows into point data.");
+> 
+> I interpret this to indicate an underlying issue related to the laz header/VLR, but I am unsure what specifically this means or how to resolve it. The files are also unreadable by QGIS (Error: 'readers.las: Invalid VLR - exceeds specified file range'). Insight from anyone who has encountered these errors or has any thoughts as to what specifically they imply about the header/VLR formatting of these laz files would be greatly appreciated. Thanks in advance!
+
+I cycled this issue with Cole and a couple things are going on...
+
+1) His pipeline was writing a LAS 1.2 file, which is the default minor_version for writers.las
+2) His input data had scan_angle values that were too big for LAS 1.2 even though it says it is a 1.2 file
+3) PDAL was throwing an error when it encountered a scan angle that was too large and trying to write it in the output in stream mode
+4) The resulting file was partially written and not flushed.
+
+His workaround is to use filters.assign to strip off the offending scan angles and everything works as expected.
+
+I'm not sure there's a fix for us though. We can't guarantee a properly written file in stream mode in this scenario. If you were to write data in --nostream mode, you would get a valid but partial file, but that takes a lot of memory and is slow for pipelines like this. 
+
+Any ideas on how things should behave from anyone?
+
+Howard
+
+From klassen.js at gmail.com  Mon May  8 13:28:32 2023
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Mon, 8 May 2023 15:28:32 -0500
+Subject: [pdal] 'pdal info' VLR error troubleshooting
+In-Reply-To: <D8F5D1BE-7BA4-40DE-B1C8-144462641FFF@hobu.co>
+References: <CY4PR06MB31747E70671B3671B82216A1AC6A9@CY4PR06MB3174.namprd06.prod.outlook.com>
+ <D8F5D1BE-7BA4-40DE-B1C8-144462641FFF@hobu.co>
+Message-ID: <0e77f3d4-a6c0-b9de-f4e3-e3cea0ff1c5b@gmail.com>
+
+
+
+On 5/8/23 13:08, Howard Butler wrote:
+>
+>> On Apr 27, 2023, at 11:49 AM, Speed, Cole M <cole.speed at beg.utexas.edu> wrote:
+>>
+>> Hello all,
+>>
+>> I am using 'pdal info' to view the metadata for a few laz files. For several of the files, pdal info returns the error:
+>>
+>> PDAL: readers.las: VLR 1(SF/0) size too large -- flows into point data.
+>>
+>> I believe this may indicate that the header/VLR s longer than is expected, causing the metadata information to be misinterpreted. Attempting to troubleshoot the issue by having a look at the lasreader source code (https://github.com/PDAL/PDAL/blob/master/io/LasReader.cpp), I see the below code snippet:
+>>          if ((uint64_t)stream->tellg() + vlr.promisedDataSize > d->header.pointOffset)
+>>              throwError("VLR " + std::to_string(i + 1) +
+>>                  "(" + vlr.userId + "/" + std::to_string(vlr.recordId) + ") "
+>>                  "size too large -- flows into point data.");
+>>
+>> I interpret this to indicate an underlying issue related to the laz header/VLR, but I am unsure what specifically this means or how to resolve it. The files are also unreadable by QGIS (Error: 'readers.las: Invalid VLR - exceeds specified file range'). Insight from anyone who has encountered these errors or has any thoughts as to what specifically they imply about the header/VLR formatting of these laz files would be greatly appreciated. Thanks in advance!
+> I cycled this issue with Cole and a couple things are going on...
+>
+> 1) His pipeline was writing a LAS 1.2 file, which is the default minor_version for writers.las
+> 2) His input data had scan_angle values that were too big for LAS 1.2 even though it says it is a 1.2 file
+> 3) PDAL was throwing an error when it encountered a scan angle that was too large and trying to write it in the output in stream mode
+> 4) The resulting file was partially written and not flushed.
+>
+> His workaround is to use filters.assign to strip off the offending scan angles and everything works as expected.
+>
+> I'm not sure there's a fix for us though. We can't guarantee a properly written file in stream mode in this scenario. If you were to write data in --nostream mode, you would get a valid but partial file, but that takes a lot of memory and is slow for pipelines like this.
+>
+> Any ideas on how things should behave from anyone?
+>
+>
+
+My preference is that PDAL exits with an error (causing $? <> 0) allowing the calling script/user to detect this and cleanup.? I suspect this is the current state of things.
+
+If PDAL creates the output file and doesn't finish cleanly before the file is complete, maybe it would be safe for PDAL to delete the file.? Then the user wouldn't be left with a corrupt file, which might be a more obvious sign of an error.? I'm not sure how this would work for operations like tile that make many files or tindex that can append to an existing file, or to operations started from other programs using libpdal_*, or how this works if the output isn't to a local filesystem.
+
+Just my 2?.
+
+
+
+
+From howard at hobu.co  Wed May 10 07:40:08 2023
+From: howard at hobu.co (Howard Butler)
+Date: Wed, 10 May 2023 09:40:08 -0500
+Subject: [pdal] 'pdal info' VLR error troubleshooting
+In-Reply-To: <0e77f3d4-a6c0-b9de-f4e3-e3cea0ff1c5b@gmail.com>
+References: <CY4PR06MB31747E70671B3671B82216A1AC6A9@CY4PR06MB3174.namprd06.prod.outlook.com>
+ <D8F5D1BE-7BA4-40DE-B1C8-144462641FFF@hobu.co>
+ <0e77f3d4-a6c0-b9de-f4e3-e3cea0ff1c5b@gmail.com>
+Message-ID: <26C19A0F-074A-4C53-A839-895270C948B4@hobu.co>
+
+
+
+> On May 8, 2023, at 3:28 PM, Jim Klassen <klassen.js at gmail.com> wrote:
+> 
+> My preference is that PDAL exits with an error (causing $? <> 0) allowing the calling script/user to detect this and cleanup.  I suspect this is the current state of things.
+
+The command line utilities return non-zero when an exception like this is thrown. It is up to the caller to react to it.
+
+> If PDAL creates the output file and doesn't finish cleanly before the file is complete, maybe it would be safe for PDAL to delete the file.  Then the user wouldn't be left with a corrupt file, which might be a more obvious sign of an error.  I'm not sure how this would work for operations like tile that make many files or tindex that can append to an existing file, or to operations started from other programs using libpdal_*, or how this works if the output isn't to a local filesystem.
+
+It seems fraught to try to guess what to do and then take an action. 
+
+
+From howard at hobu.co  Sat May 27 05:00:16 2023
+From: howard at hobu.co (Howard Butler)
+Date: Sat, 27 May 2023 07:00:16 -0500
+Subject: [pdal] PDAL 2.5.4 Released
+Message-ID: <012EF9AE-C066-44A3-A0B8-BCECA2B4CFF7@hobu.co>
+
+All,
+
+PDAL 2.5.4 has been released. It is a bug fix release that addresses a number of small issues.
+
+Visit https://github.com/PDAL/PDAL/releases/tag/2.5.4 for more details, https://pdal.io/en/latest/download.html to download the source release, and expect the Conda builds in a few days.
+
+Howard
+
+From klassen.js at gmail.com  Tue May 30 06:34:51 2023
+From: klassen.js at gmail.com (Jim Klassen)
+Date: Tue, 30 May 2023 08:34:51 -0500
+Subject: [pdal] Trouble Reading USGS LAZ files
+Message-ID: <0def413b-90a9-5bf6-ab2f-b9c0a886148b@gmail.com>
+
+I'm having trouble reading several LAZ files from the USGS for the MN 2020+ collects.? Is there a way I can tell if the LAZ files are bad or if there is a PDAL bug?? Apparently the LAZ files in question can be opened and viewed in GlobalMapper.? My test is simply running 'pdal info' on the file.? I have tested with PDAL 2.3.0, 2.5.3, and 2.5.4, all built from source.
+
+These files fail with:
+
+"PDAL: readers.las: Extra byte specification exceeds point length beyond base format length."
+
+<https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/LPC/Projects/MN_BeckerCounty_2021_D21/MN_BeckerCo_1_2021/LAZ/>https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/LPC/Projects/MN_BeckerCounty_2021_D21/MN_BeckerCo_1_2021/LAZ/
+
+USGS_LPC_MN_BeckerCounty_2021_D21_264_5209.laz
+USGS_LPC_MN_BeckerCounty_2021_D21_264_5210.laz
+USGS_LPC_MN_BeckerCounty_2021_D21_265_5209.laz
+USGS_LPC_MN_BeckerCounty_2021_D21_265_5210.laz
+
+(The other 3951 in the directory read fine).
+
+
+And these files fail with either:
+
+ ?? "PDAL: Invalid version 1464 found in LAZ chunk table."
+or
+ ?? "PDAL: Invalid version 1468 found in LAZ chunk table."
+
+https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/LPC/Projects/MN_SE_Driftless_2021_B21/MN_SEDriftless_5_2021/LAZ/ <https://rockyweb.usgs.gov/vdelivery/Datasets/Staged/Elevation/LPC/Projects/MN_SE_Driftless_2021_B21/MN_SEDriftless_5_2021/LAZ/>
+
+USGS_LPC_MN_SE_Driftless_2021_B21_4195_49005.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4200_49035.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4230_49005.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4255_49155.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4260_49190.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4260_49230.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4265_49070.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4265_49210.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4270_49230.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4275_49080.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4285_49305.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4300_49290.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4365_49200.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4375_48995.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4385_49065.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4385_49225.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4385_49230.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4385_49330.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4405_49310.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4415_49280.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4440_48945.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4440_49145.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4445_49250.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4475_49125.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4480_49125.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4515_49005.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4520_49215.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4535_49285.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4540_49120.laz
+USGS_LPC_MN_SE_Driftless_2021_B21_4575_49205.laz
+
+(The other 5447 files in the directory read fine).
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/pdal/attachments/20230530/fdfa9124/attachment.htm>
+
