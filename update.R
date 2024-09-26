@@ -6,7 +6,11 @@ URL_BASE ='https://lists.osgeo.org/pipermail'
 today = as.POSIXlt(Sys.time())
 ##https://lists.osgeo.org/pipermail/gdal-dev/2024-September.txt.gz
 mailing_lists = list(
-  c(name = 'gdal-dev', current = format(today, '%Y-%B.txt'))
+  c(name = 'gdal-dev', current = format(today, '%Y-%B.txt')), 
+  c(name = 'proj', current = format(today, '%Y-%B.txt')), 
+   c(name = 'geos-devel', current = format(today, '%Y-%B.txt')), 
+  c(name = 'pdal', current = format(today, '%Y-%B.txt')),
+  c(name = 'qgis-developer', current = format(today, '%Y-%B.txt'))
 )
 for (ii in seq_along(mailing_lists)) {
   this_list = mailing_lists[[ii]]
