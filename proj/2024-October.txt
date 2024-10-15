@@ -1,0 +1,1267 @@
+From christian.douliac at magellium.fr  Tue Oct  1 02:04:01 2024
+From: christian.douliac at magellium.fr (Christian DOULIAC)
+Date: Tue, 1 Oct 2024 09:04:01 +0000
+Subject: [PROJ] [Questions] Vertical transformations advices for PROJ >= 9.1
+ version
+Message-ID: <89c8212f2f044a45a02dae850bcf9b32@magellium.fr>
+
+Hello, I would like some precision about CRS conversions.
+
+I'm aware that there are some changes about vertical transformations with PROJ >= 9.1 as stated here : <https://github.com/OSGeo/PROJ/pull/3119> https://github.com/OSGeo/PROJ/pull/3119
+Or here : https://proj.org/en/9.4/apps/cs2cs.html#cmdoption-cs2cs-3d "Starting with PROJ 9.1, both CRS need to be 3D for vertical transformation to possibly happen."
+
+I tested it and I recreated the behavior of pre 9.1 and post 9.1 versions :
+
+-PROJ 8.2.0 :
+echo 0 0 1000 | cs2cs +proj=longlat +datum=WGS84 +geoidgrids=/proj-build/data/for_tests/egm96_15.tif +vunits=m +no_defs +type=crs +to +proj=longlat +datum=WGS84 +no_defs +type=crs -f "%.14f"
+0.00000000000000 0.00000000000000 1017.16157913208008
+
+-PROJ 9.2.0
+echo 0 0 1000 | cs2cs +proj=longlat +datum=WGS84 +geoidgrids=/proj-build/data/for_tests/egm96_15.tif +vunits=m +no_defs +type=crs +to +proj=longlat +datum=WGS84 +no_defs +type=crs -f "%.14f"
+0.00000000000000 0.00000000000000 1000.00000000000000
+
+
+I would like to have some advice to get the past behavior, sometimes I need to do theses vertical transformations.
+I have found some tips here : https://github.com/OSGeo/PROJ/pull/3119#issuecomment-1069272183 and here https://github.com/OSGeo/PROJ/pull/3119#issuecomment-1069272183
+>From theses comments I understood that I need to promote theses CRS to 3D, more precisely the PJ_TYPE_GEOGRAPHIC_2D_CRS and PJ_TYPE_PROJECTED_CRS types.
+
+Did I understood the comments right? Are there any other cases (types) that I should take care the same way? Should I only look for the type of CRS or is there other information that I need to look for?
+My main goal is to get the past behavior.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241001/3fb87624/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Oct  1 06:13:11 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 1 Oct 2024 15:13:11 +0200
+Subject: [PROJ] [Questions] Vertical transformations advices for PROJ >=
+ 9.1 version
+In-Reply-To: <89c8212f2f044a45a02dae850bcf9b32@magellium.fr>
+References: <89c8212f2f044a45a02dae850bcf9b32@magellium.fr>
+Message-ID: <21370853-9011-4c42-91ed-64acc6816623@spatialys.com>
+
+
+Le 01/10/2024 ? 11:04, Christian DOULIAC via PROJ a ?crit?:
+>
+> Hello, I would like some precision about CRS conversions.
+>
+> I'm aware that there are some changes about vertical transformations 
+> with PROJ >= 9.1 as stated here : 
+> <https://github.com/OSGeo/PROJ/pull/3119>https://github.com/OSGeo/PROJ/pull/3119 
+> <https://github.com/OSGeo/PROJ/pull/3119>
+> Or here : https://proj.org/en/9.4/apps/cs2cs.html#cmdoption-cs2cs-3d 
+> "Starting with PROJ 9.1, both CRS need to be 3D for vertical 
+> transformation to possibly happen."
+>
+>
+> I tested it and I recreated the behavior of pre 9.1 and post 9.1 
+> versions :
+>
+> -PROJ 8.2.0 :
+> echo 0 0 1000 | cs2cs +proj=longlat +datum=WGS84 
+> +geoidgrids=/proj-build/data/for_tests/egm96_15.tif +vunits=m +no_defs 
+> +type=crs +to +proj=longlat +datum=WGS84 +no_defs +type=crs -f "%.14f"
+> 0.00000000000000 0.00000000000000 1017.16157913208008
+>
+> -PROJ 9.2.0
+> echo 0 0 1000 | cs2cs +proj=longlat +datum=WGS84 
+> +geoidgrids=/proj-build/data/for_tests/egm96_15.tif +vunits=m +no_defs 
+> +type=crs +to +proj=longlat +datum=WGS84 +no_defs +type=crs -f "%.14f"
+> 0.00000000000000 0.00000000000000 1000.00000000000000
+>
+Add --3d to promote the target CRS to 3D.
+
+
+Or use: cs2cs -f "%.14f" EPSG:4326+5773 EPSG:4979? (with lat, long order)
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241001/0e5cb2df/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Oct  1 09:54:29 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 1 Oct 2024 18:54:29 +0200
+Subject: [PROJ] RFC 102: Embedding resource files into libgdal (and PROJ)
+Message-ID: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+
+Hi,
+
+Sending to both gdal-dev and proj, as this is intended to be a joint RFC.
+
+Summary: This RFC uses C23 ``#embed`` pre-processor directive, when 
+available, to be able to embed GDAL resource files directly into 
+libgdal. It is also intended to be used for PROJ, in particular for its 
+proj.db file.
+
+Details: See https://github.com/OSGeo/gdal/pull/10913
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From gdt at lexort.com  Tue Oct  1 10:19:19 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Tue, 01 Oct 2024 13:19:19 -0400
+Subject: [PROJ] RFC 102: Embedding resource files into libgdal (and PROJ)
+In-Reply-To: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com> (Even
+ Rouault via PROJ's message of "Tue, 1 Oct 2024 18:54:29 +0200")
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+Message-ID: <rmied4zoi5k.fsf@s1.lexort.com>
+
+Even Rouault via PROJ <proj at lists.osgeo.org> writes:
+
+> Sending to both gdal-dev and proj, as this is intended to be a joint RFC.
+>
+> Summary: This RFC uses C23 ``#embed`` pre-processor directive, when
+> available, to be able to embed GDAL resource files directly into
+> libgdal. It is also intended to be used for PROJ, in particular for
+> its proj.db file.
+>
+> Details: See https://github.com/OSGeo/gdal/pull/10913
+
+What's unclear is to what extent things continue to be ok on compilers
+not supporting C23, and if they are, if those systems start to be second
+class.    My overall feeling is that it is vastly too early to be
+depending on C23.
+
+But maybe c23 is c2x, and it's been supported in gcc for 6 years.
+
+(I couldn't figure out any of that from the link.)
+
+From even.rouault at spatialys.com  Tue Oct  1 10:28:28 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 1 Oct 2024 19:28:28 +0200
+Subject: [PROJ] [gdal-dev] RFC 102: Embedding resource files into
+ libgdal (and PROJ)
+In-Reply-To: <rmied4zoi5k.fsf@s1.lexort.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+Message-ID: <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+
+Greg,
+> What's unclear is to what extent things continue to be ok on compilers
+> not supporting C23, and if they are, if those systems start to be second
+> class.    My overall feeling is that it is vastly too early to be
+> depending on C23.
+
+The RFC is clear enough this is an optional feature ("C23 is not 
+required if EMBED_RESOURCE_FILES is not enabled"). If you need it, you 
+will need a C23 compiler, which there is already one available (clang 
+19), and another one in a near future (gcc 15).
+
+C23 is only used to build the .c files where resources are embedded.
+
+If you don't need that new feature, you can use the current minimum 
+build requirements of GDAL/PROJ.
+
+For once that GDAL/PROJ can use shiny new stuff, let's enjoy :-)
+
+>
+> But maybe c23 is c2x, and it's been supported in gcc for 6 years.
+
+No way a gcc from 6 years ago can support #embed: support has literally 
+landed in GCC master 2 weeks ago.
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241001/c9663675/attachment.htm>
+
+From christian.douliac at magellium.fr  Wed Oct  2 05:55:02 2024
+From: christian.douliac at magellium.fr (Christian DOULIAC)
+Date: Wed, 2 Oct 2024 12:55:02 +0000
+Subject: [PROJ] [Questions] Vertical transformations advices for PROJ >=
+ 9.1 version
+In-Reply-To: <21370853-9011-4c42-91ed-64acc6816623@spatialys.com>
+References: <89c8212f2f044a45a02dae850bcf9b32@magellium.fr>,
+ <21370853-9011-4c42-91ed-64acc6816623@spatialys.com>
+Message-ID: <e19ec16caa15436fad3160efb58e40af@magellium.fr>
+
+Hello thanks for your quick answer,
+
+Indeed adding --3d to cs2cs command give me the past behavior.
+The commands that I wrote were only here for the example, to illustrate that I can recreate the behaviors.
+My goal is to be more generic, I would like to be able to do CRS conversions without knownledges of them at first, using the PROJ C API.
+
+I found some advices here https://github.com/OSGeo/PROJ/pull/3119#issuecomment-1069272183
+and here https://github.com/OSGeo/PROJ/pull/3119#issuecomment-1069272183 .
+What I understood from theses comments is that promoting CRS to 3D only make sense for PJ_TYPE_GEOGRAPHIC_2D_CRS and PJ_TYPE_PROJECTED_CRS types.
+I would like to detect theses cases and promoting the CRS accordingly with the API.
+
+My questions are multiple :
+-first did I understood right?
+-Are there others cases (or types) that I should think about?
+-Is looking for the CRS type is enough or should I look for other information?
+
+________________________________
+De : Even Rouault <even.rouault at spatialys.com>
+Envoy? : mardi 1 octobre 2024 15:13:11
+? : Christian DOULIAC; proj at lists.osgeo.org
+Objet : Re: [PROJ] [Questions] Vertical transformations advices for PROJ >= 9.1 version
+
+
+
+Le 01/10/2024 ? 11:04, Christian DOULIAC via PROJ a ?crit :
+
+Hello, I would like some precision about CRS conversions.
+
+I'm aware that there are some changes about vertical transformations with PROJ >= 9.1 as stated here : <https://github.com/OSGeo/PROJ/pull/3119> https://github.com/OSGeo/PROJ/pull/3119
+Or here : https://proj.org/en/9.4/apps/cs2cs.html#cmdoption-cs2cs-3d "Starting with PROJ 9.1, both CRS need to be 3D for vertical transformation to possibly happen."
+
+I tested it and I recreated the behavior of pre 9.1 and post 9.1 versions :
+
+-PROJ 8.2.0 :
+echo 0 0 1000 | cs2cs +proj=longlat +datum=WGS84 +geoidgrids=/proj-build/data/for_tests/egm96_15.tif +vunits=m +no_defs +type=crs +to +proj=longlat +datum=WGS84 +no_defs +type=crs -f "%.14f"
+0.00000000000000 0.00000000000000 1017.16157913208008
+
+-PROJ 9.2.0
+echo 0 0 1000 | cs2cs +proj=longlat +datum=WGS84 +geoidgrids=/proj-build/data/for_tests/egm96_15.tif +vunits=m +no_defs +type=crs +to +proj=longlat +datum=WGS84 +no_defs +type=crs -f "%.14f"
+0.00000000000000 0.00000000000000 1000.00000000000000
+
+Add --3d to promote the target CRS to 3D.
+
+
+Or use: cs2cs -f "%.14f" EPSG:4326+5773 EPSG:4979  (with lat, long order)
+
+--
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241002/332f1a04/attachment.htm>
+
+From schwehr at gmail.com  Wed Oct  2 12:03:06 2024
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Wed, 2 Oct 2024 12:03:06 -0700
+Subject: [PROJ] [gdal-dev] RFC 102: Embedding resource files into
+ libgdal (and PROJ)
+In-Reply-To: <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+Message-ID: <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+
+So excited for this feature. We have custom code that does stuff like this.
+
+e.g.
+
++    // BEGIN GOOGLE MODIFICATION
++    int flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX;
+     if (path.empty()) {
+-        path.resize(2048);
+-        const bool found =
+-            pj_find_file(pjCtxt(), "proj.db", &path[0], path.size() - 1)
+!= 0;
+-        path.resize(strlen(path.c_str()));
+-        if (!found) {
+-            throw FactoryException("Cannot find proj.db");
+-        }
++        static const FileToc *toc = [] {
++          // Enable the memvfs extension.
++          const int init_code = sqlite3_memvfs_init(nullptr, nullptr,
+nullptr);
++          if (init_code != SQLITE_OK_LOAD_PERMANENTLY) {
++            throw FactoryException(
++                absl::StrCat("Can't initialize memvfs, with code ",
+init_code));
++          }
++          // Re-register 'unix' as default filesystem. MemVFS can be used
++          // through URL parameters, or by passing as the fourth argument
+to
++          // sqlite3_open_v2().
++          const int register_code =
++              sqlite3_vfs_register(sqlite3_vfs_find("unix"), /*makeDflt
+=*/1);
++          if (register_code != SQLITE_OK) {
++            throw FactoryException(absl::StrCat(
++                "Can't re-register the default VFS, with code ",
+init_code));
++          }
++          return proj_db_create();
++        }();
++        // Load the database from a cc_embed_file, using the memvfs
++        // extension of sqlite.
++        path =
+absl::StrFormat("file:/proj?ptr=0x%x&sz=%d&max=%d&vfs=memvfs",
++                               reinterpret_cast<uintptr_t>(toc[0].data),
++                               toc[0].size, toc[0].size);
++        flags |= SQLITE_OPEN_URI;
+     }
++    // END GOOGLE MODIFICATION
+
+On Tue, Oct 1, 2024 at 10:28?AM Even Rouault via PROJ <proj at lists.osgeo.org>
+wrote:
+
+> Greg,
+>
+> What's unclear is to what extent things continue to be ok on compilers
+> not supporting C23, and if they are, if those systems start to be second
+> class.    My overall feeling is that it is vastly too early to be
+> depending on C23.
+>
+> The RFC is clear enough this is an optional feature ("C23 is not required
+> if EMBED_RESOURCE_FILES is not enabled"). If you need it, you will need a
+> C23 compiler, which there is already one available (clang 19), and another
+> one in a near future (gcc 15).
+>
+> C23 is only used to build the .c files where resources are embedded.
+>
+> If you don't need that new feature, you can use the current minimum build
+> requirements of GDAL/PROJ.
+>
+> For once that GDAL/PROJ can use shiny new stuff, let's enjoy :-)
+>
+> But maybe c23 is c2x, and it's been supported in gcc for 6 years.
+>
+> No way a gcc from 6 years ago can support #embed: support has literally
+> landed in GCC master 2 weeks ago.
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241002/feb0ec55/attachment.htm>
+
+From even.rouault at spatialys.com  Thu Oct  3 10:30:53 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 3 Oct 2024 19:30:53 +0200
+Subject: [PROJ] [gdal-dev] RFC 102: Embedding resource files into
+ libgdal (and PROJ)
+In-Reply-To: <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+ <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+Message-ID: <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+
+Hi,
+
+I've now a PROJ branch with proj.db embedding working at 
+https://github.com/OSGeo/PROJ/pull/4265. And contrary to the current 
+wording of the RFC text, I've actually invested in making it work with 
+non-C23 compilers too (C23 mechanism used when available), by adapting 
+https://gitlab.com/jhamberg/cmake-examples/-/blob/master/cmake/FileEmbed.cmake 
+and optimizing it because its performance at generating a .c file from a 
+binary was not acceptable on multi-megabyte large files like proj.db.? 
+Non-C23 embedding works fine with older gcc, clang, MSVC. The proj_db.c 
+generation from proj.db runs in 8 seconds, and building it with gcc in 
+18 seconds (looking at build times in CI, that seems to be fast with 
+MSVC too)
+
+But I won't (probably) support non-C23 embedding for GDAL: that would be 
+too much complication w.r.t benefit. Only a "few" GDAL drivers need 
+resource files, whereas access to proj.db is a strong requirement.
+
+Kurt, I had to modify the memOpen() and the memvfs_init() functions of 
+the https://www.sqlite.org/src/doc/tip/ext/misc/memvfs.c (I did other 
+changes in memvfs_init() to avoid making it the default VFS, and 
+registering it per db-connection to avoid a global registration), 
+otherwise some complex SQL requests that require creating a temporary 
+file wouldn't work, such as the ones of 'bin/projinfo --list-crs' or 
+'bin/cct "this is a bogus CRS meant to trigger a syntax error in 
+proj_create"'? (with sqlite 3.46 of fedora:rawhide). Is it something you 
+ran into? Cf the changes in memvfs.c in 
+https://github.com/rouault/PROJ/commit/e7fcf162f6968c48587836f537b506708112e7d4
+
+With those changes, ctest pass
+
+Even
+
+
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From schwehr at gmail.com  Thu Oct  3 11:27:52 2024
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Thu, 3 Oct 2024 11:27:52 -0700
+Subject: [PROJ] [gdal-dev] RFC 102: Embedding resource files into
+ libgdal (and PROJ)
+In-Reply-To: <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+ <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+ <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+Message-ID: <CACmBxysMQBkUk1GjsyP7qmw+3JATGwT+6P_F=ufmTH32zpaQwQ@mail.gmail.com>
+
+For my weird google production setup: I haven't heard of any bugs along
+those lines. I only build cs2cs and gie for running tests and users have no
+access to any of the proj binaries in production. I don't think folks do
+much with sqlite (most db usage are things like Spanner or FireBase) and
+most proj usage is pretty boring.
+
+If they need them, they get them through debian on their desktops or
+whatever cloud container they might use if they are allowed to do that, but
+not in the normal production environment.
+
+On Thu, Oct 3, 2024 at 10:30?AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Hi,
+>
+> I've now a PROJ branch with proj.db embedding working at
+> https://github.com/OSGeo/PROJ/pull/4265. And contrary to the current
+> wording of the RFC text, I've actually invested in making it work with
+> non-C23 compilers too (C23 mechanism used when available), by adapting
+>
+> https://gitlab.com/jhamberg/cmake-examples/-/blob/master/cmake/FileEmbed.cmake
+> and optimizing it because its performance at generating a .c file from a
+> binary was not acceptable on multi-megabyte large files like proj.db.
+> Non-C23 embedding works fine with older gcc, clang, MSVC. The proj_db.c
+> generation from proj.db runs in 8 seconds, and building it with gcc in
+> 18 seconds (looking at build times in CI, that seems to be fast with
+> MSVC too)
+>
+> But I won't (probably) support non-C23 embedding for GDAL: that would be
+> too much complication w.r.t benefit. Only a "few" GDAL drivers need
+> resource files, whereas access to proj.db is a strong requirement.
+>
+> Kurt, I had to modify the memOpen() and the memvfs_init() functions of
+> the https://www.sqlite.org/src/doc/tip/ext/misc/memvfs.c (I did other
+> changes in memvfs_init() to avoid making it the default VFS, and
+> registering it per db-connection to avoid a global registration),
+> otherwise some complex SQL requests that require creating a temporary
+> file wouldn't work, such as the ones of 'bin/projinfo --list-crs' or
+> 'bin/cct "this is a bogus CRS meant to trigger a syntax error in
+> proj_create"'  (with sqlite 3.46 of fedora:rawhide). Is it something you
+> ran into? Cf the changes in memvfs.c in
+>
+> https://github.com/rouault/PROJ/commit/e7fcf162f6968c48587836f537b506708112e7d4
+>
+> With those changes, ctest pass
+>
+> Even
+>
+>
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241003/6900bc14/attachment.htm>
+
+From even.rouault at spatialys.com  Wed Oct  9 09:12:03 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 9 Oct 2024 18:12:03 +0200
+Subject: [PROJ] [gdal-dev] RFC 102: Embedding resource files into
+ libgdal (and PROJ)
+In-Reply-To: <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+ <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+ <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+Message-ID: <eb391c26-7b6a-4f7c-a2a8-89ef8129b242@spatialys.com>
+
+Hi,
+
+Proposed implementations are, as far as I can tell, feature complete now 
+(including docs & CI):
+
+- GDAL: https://github.com/OSGeo/gdal/pull/10972 . I propose that we 
+target 3.11. We are probably too close to the feature freeze of 3.10 and 
+would otherwise need to rush things, which feels unnecessary.
+
+- PROJ: https://github.com/OSGeo/PROJ/pull/4265 . Embedding has also 
+been extended to proj.ini , in addition to proj.db (both available in 
+non-C23 or C23 modes)
+
+I've also updated the RFC text to reflect the current state of things.
+
+I let more time for people to review before submitting to vote, probably 
+end of next week (as usual, tell if you need more time)
+
+Even
+
+Le 03/10/2024 ? 19:30, Even Rouault via PROJ a ?crit?:
+> Hi,
+>
+> I've now a PROJ branch with proj.db embedding working at 
+> https://github.com/OSGeo/PROJ/pull/4265. And contrary to the current 
+> wording of the RFC text, I've actually invested in making it work with 
+> non-C23 compilers too (C23 mechanism used when available), by adapting 
+> https://gitlab.com/jhamberg/cmake-examples/-/blob/master/cmake/FileEmbed.cmake 
+> and optimizing it because its performance at generating a .c file from 
+> a binary was not acceptable on multi-megabyte large files like 
+> proj.db.? Non-C23 embedding works fine with older gcc, clang, MSVC. 
+> The proj_db.c generation from proj.db runs in 8 seconds, and building 
+> it with gcc in 18 seconds (looking at build times in CI, that seems to 
+> be fast with MSVC too)
+>
+> But I won't (probably) support non-C23 embedding for GDAL: that would 
+> be too much complication w.r.t benefit. Only a "few" GDAL drivers need 
+> resource files, whereas access to proj.db is a strong requirement.
+>
+> Kurt, I had to modify the memOpen() and the memvfs_init() functions of 
+> the https://www.sqlite.org/src/doc/tip/ext/misc/memvfs.c (I did other 
+> changes in memvfs_init() to avoid making it the default VFS, and 
+> registering it per db-connection to avoid a global registration), 
+> otherwise some complex SQL requests that require creating a temporary 
+> file wouldn't work, such as the ones of 'bin/projinfo --list-crs' or 
+> 'bin/cct "this is a bogus CRS meant to trigger a syntax error in 
+> proj_create"'? (with sqlite 3.46 of fedora:rawhide). Is it something 
+> you ran into? Cf the changes in memvfs.c in 
+> https://github.com/rouault/PROJ/commit/e7fcf162f6968c48587836f537b506708112e7d4
+>
+> With those changes, ctest pass
+>
+> Even
+>
+>
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From kristianevers at gmail.com  Wed Oct  9 22:40:48 2024
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Thu, 10 Oct 2024 07:40:48 +0200
+Subject: [PROJ] [gdal-dev] RFC 102: Embedding resource files into
+ libgdal (and PROJ)
+In-Reply-To: <eb391c26-7b6a-4f7c-a2a8-89ef8129b242@spatialys.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+ <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+ <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+ <eb391c26-7b6a-4f7c-a2a8-89ef8129b242@spatialys.com>
+Message-ID: <CALECs+f8MADBMKYozMiWa125E1XEZ_XuOL43sPiFHwEsCJ2X2w@mail.gmail.com>
+
+Thanks for the reminder, Even. I haven't had time to properly look at the
+RFC before now and I might have missed some of the discussions so please
+excuse me if I'm repeating something that's already been discussed. I'm
+only concerned about the PROJ specifics of this RFC, so I've cut off the
+GDAL list from this thread to not generate too much noise.
+
+First of all, I think a PROJ-specific RFC is warranted. The contents should
+be largely the same, obviously without the very GDAL-oriented details such
+as affected files etc. I?d like the RFC to touch on the relation to [RFC-3](
+https://proj.org/en/9.5/community/rfc/rfc-3.html) as we are now talking
+about using cutting edge features of C23 and the purpose of RFC3 is to
+avoid that. I don?t think there?s a conflict as it seems you?ve managed to
+write the code in a backwards compatible manner. It does mean there?s a
+bunch of if-compiler-can-embed-files guards which would be great to get rid
+of once this functionality is mainstream. A rough plan for when that can be
+done would be great (as well as an accompanying GitHub issue so we remember
+to do it).
+
+As for the actual embedded files. Is it only contained to proj.db and
+proj.ini in the case of PROJ? Or are there other files that potentially
+would be embedded? I suppose some of the smaller files like the ITRFxxxx
+files potentially could be useful. The RFC doesn?t mention contents from
+PROJ-data - I?m sure someone eventually will want to embed those as well,
+so maybe put in a sentence or two about that (and why it?s probably a bad
+idea).
+
+Lastly, I think it would be good to touch on *when* you might want to embed
+resource files. I know this has been requested in the past but where it is
+actually useful I?m not sure. I?m probably not alone in that, so if the
+docs could include such an explanation it would be great. Could also be
+added to the RFC to make it a little bit easier to digest the thing before
+there?s a vote to adopt it.
+
+/Kristian
+
+On Wed, 9 Oct 2024 at 18:12, Even Rouault via PROJ <proj at lists.osgeo.org>
+wrote:
+
+> Hi,
+>
+> Proposed implementations are, as far as I can tell, feature complete now
+> (including docs & CI):
+>
+> - GDAL: https://github.com/OSGeo/gdal/pull/10972 . I propose that we
+> target 3.11. We are probably too close to the feature freeze of 3.10 and
+> would otherwise need to rush things, which feels unnecessary.
+>
+> - PROJ: https://github.com/OSGeo/PROJ/pull/4265 . Embedding has also
+> been extended to proj.ini , in addition to proj.db (both available in
+> non-C23 or C23 modes)
+>
+> I've also updated the RFC text to reflect the current state of things.
+>
+> I let more time for people to review before submitting to vote, probably
+> end of next week (as usual, tell if you need more time)
+>
+> Even
+>
+> Le 03/10/2024 ? 19:30, Even Rouault via PROJ a ?crit :
+> > Hi,
+> >
+> > I've now a PROJ branch with proj.db embedding working at
+> > https://github.com/OSGeo/PROJ/pull/4265. And contrary to the current
+> > wording of the RFC text, I've actually invested in making it work with
+> > non-C23 compilers too (C23 mechanism used when available), by adapting
+> >
+> https://gitlab.com/jhamberg/cmake-examples/-/blob/master/cmake/FileEmbed.cmake
+> > and optimizing it because its performance at generating a .c file from
+> > a binary was not acceptable on multi-megabyte large files like
+> > proj.db.  Non-C23 embedding works fine with older gcc, clang, MSVC.
+> > The proj_db.c generation from proj.db runs in 8 seconds, and building
+> > it with gcc in 18 seconds (looking at build times in CI, that seems to
+> > be fast with MSVC too)
+> >
+> > But I won't (probably) support non-C23 embedding for GDAL: that would
+> > be too much complication w.r.t benefit. Only a "few" GDAL drivers need
+> > resource files, whereas access to proj.db is a strong requirement.
+> >
+> > Kurt, I had to modify the memOpen() and the memvfs_init() functions of
+> > the https://www.sqlite.org/src/doc/tip/ext/misc/memvfs.c (I did other
+> > changes in memvfs_init() to avoid making it the default VFS, and
+> > registering it per db-connection to avoid a global registration),
+> > otherwise some complex SQL requests that require creating a temporary
+> > file wouldn't work, such as the ones of 'bin/projinfo --list-crs' or
+> > 'bin/cct "this is a bogus CRS meant to trigger a syntax error in
+> > proj_create"'  (with sqlite 3.46 of fedora:rawhide). Is it something
+> > you ran into? Cf the changes in memvfs.c in
+> >
+> https://github.com/rouault/PROJ/commit/e7fcf162f6968c48587836f537b506708112e7d4
+> >
+> > With those changes, ctest pass
+> >
+> > Even
+> >
+> >
+> > http://www.spatialys.com
+> > My software is free, but my time generally not.
+> >
+> > _______________________________________________
+> > PROJ mailing list
+> > PROJ at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/proj
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241010/9b0628fe/attachment.htm>
+
+From even.rouault at spatialys.com  Thu Oct 10 05:59:49 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 10 Oct 2024 14:59:49 +0200
+Subject: [PROJ] RFC 8: Embedding resource files into libproj
+In-Reply-To: <CALECs+f8MADBMKYozMiWa125E1XEZ_XuOL43sPiFHwEsCJ2X2w@mail.gmail.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+ <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+ <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+ <eb391c26-7b6a-4f7c-a2a8-89ef8129b242@spatialys.com>
+ <CALECs+f8MADBMKYozMiWa125E1XEZ_XuOL43sPiFHwEsCJ2X2w@mail.gmail.com>
+Message-ID: <bab69183-7c4e-4c1c-b1c7-f08e73e75867@spatialys.com>
+
+Kristian,
+
+> First of all, I think a PROJ-specific RFC is warranted.
+
+https://github.com/OSGeo/PROJ/pull/4274 should hopefully address your points
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From kristianevers at gmail.com  Thu Oct 10 23:57:58 2024
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 11 Oct 2024 08:57:58 +0200
+Subject: [PROJ] RFC 8: Embedding resource files into libproj
+In-Reply-To: <bab69183-7c4e-4c1c-b1c7-f08e73e75867@spatialys.com>
+References: <89145acc-0b4a-4518-97e9-aefe0f3d7eda@spatialys.com>
+ <rmied4zoi5k.fsf@s1.lexort.com>
+ <aa98ed68-663b-4a8c-be45-dc2fb89293fb@spatialys.com>
+ <CACmBxyuvWsnPCPSwnPyvVS8YbY0VNPSQL6_4u51Ed6z3_khSSw@mail.gmail.com>
+ <e4135b06-7ea6-4fa4-8517-5397a91af49a@spatialys.com>
+ <eb391c26-7b6a-4f7c-a2a8-89ef8129b242@spatialys.com>
+ <CALECs+f8MADBMKYozMiWa125E1XEZ_XuOL43sPiFHwEsCJ2X2w@mail.gmail.com>
+ <bab69183-7c4e-4c1c-b1c7-f08e73e75867@spatialys.com>
+Message-ID: <CALECs+ePc4F763+X5XdxkzJmfopzSybHvk5GLjEGdMMzqie2QQ@mail.gmail.com>
+
+Thank you, Even. Indeed it does!
+
+/Kristian
+
+On Thu, 10 Oct 2024 at 14:59, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Kristian,
+>
+> > First of all, I think a PROJ-specific RFC is warranted.
+>
+> https://github.com/OSGeo/PROJ/pull/4274 should hopefully address your
+> points
+>
+> Even
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/4ea414d2/attachment.htm>
+
+From nigel.stewart at emesent.io  Fri Oct 11 00:36:41 2024
+From: nigel.stewart at emesent.io (Nigel Stewart)
+Date: Fri, 11 Oct 2024 17:36:41 +1000
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+Message-ID: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+
+Hello all, first time posting to this list.
+
+We've come across something a bit disconcerting using PROJ. To and from
+GDA94 and GDA2020 (Australia) PROJ is using Helmert step, but from a
+WGS84-based transverse mercator the Helmert is not used and the coordinates
+are exactly the same for both EPSG:28356 (GDA94) and EPSG:7856 (GDA2020).
+ChatGPT has something to say about telling PROJ about EPSG:8048 for the
+Helmert transformation. Are we being unrealistic about just expecting it to
+work without forming our own pipeline for this particular case? Or does
+this seem like some sort of corner case that PROJ could implement in
+future? Any perspective or guidance appreciated.
+
+The ChatGPT opinion is along the lines of:
+cs2cs +init=epsg:4326 +to +init=epsg:28356 +step +init=epsg:8048
+
+Thanks,
+
+Nigel Stewart
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/822a9914/attachment.htm>
+
+From kristianevers at gmail.com  Fri Oct 11 01:27:42 2024
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 11 Oct 2024 10:27:42 +0200
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+In-Reply-To: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+References: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+Message-ID: <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+
+Hi Nigel
+
+Welcome to the list :-)
+
+First of all I think you are being way too unrealistic about what you can
+use ChatGPT for. If you'd tried the command it's suggested to you, you
+would know that it doesn't work. It has given you an ill-formed CRS, as
+well as suggesting you use deprecated syntax.
+
+It would be helpful if you can be more explicit about what you are trying
+to do. What EPSG-codes are you trying to get a transformation between?
+
+/Kristian
+
+On Fri, 11 Oct 2024 at 09:36, Nigel Stewart via PROJ <proj at lists.osgeo.org>
+wrote:
+
+>
+> Hello all, first time posting to this list.
+>
+> We've come across something a bit disconcerting using PROJ. To and from
+> GDA94 and GDA2020 (Australia) PROJ is using Helmert step, but from a
+> WGS84-based transverse mercator the Helmert is not used and the coordinates
+> are exactly the same for both EPSG:28356 (GDA94) and EPSG:7856 (GDA2020).
+> ChatGPT has something to say about telling PROJ about EPSG:8048 for the
+> Helmert transformation. Are we being unrealistic about just expecting it to
+> work without forming our own pipeline for this particular case? Or does
+> this seem like some sort of corner case that PROJ could implement in
+> future? Any perspective or guidance appreciated.
+>
+> The ChatGPT opinion is along the lines of:
+> cs2cs +init=epsg:4326 +to +init=epsg:28356 +step +init=epsg:8048
+>
+> Thanks,
+>
+> Nigel Stewart
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/fba0756d/attachment.htm>
+
+From nigel.stewart at emesent.io  Fri Oct 11 03:27:03 2024
+From: nigel.stewart at emesent.io (Nigel Stewart)
+Date: Fri, 11 Oct 2024 20:27:03 +1000
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+In-Reply-To: <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+References: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+ <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+Message-ID: <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+
+> First of all I think you are being way too unrealistic about what you can
+use ChatGPT for.
+>If you'd tried the command it's suggested to you, you would know that it
+doesn't work.
+> It has given you an ill-formed CRS, as well as suggesting you use
+deprecated syntax.
+
+It didn't smell good, I must admit.
+
+> It would be helpful if you can be more explicit about what you are trying
+to do.
+> What EPSG-codes are you trying to get a transformation between?
+
+In a nutshell:
+
+# to GDA94 / MGA zone 56
+
+$ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0
++y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:28356'
+222908.70       6233785.28 0.00
+
+# to GDA2020 / MGA zone 56
+
+$ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0
++y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:7856'
+222908.70       6233785.28 0.00
+
+# to GDA2020 / MGA zone 56
+
+$ echo "222908.70       6233785.28 0.00" | cs2cs 'EPSG:28356' +to
+'EPSG:7856'
+222909.17       6233786.71 0.00
+
+Our expectation is that GDA2020 is within a meter or two of GDA94 due to
+the tectonic drift of the Australian plate towards the north east.
+Our concern is that from these custom transverse mercator projections, this
+difference isn't reflected.
+We can see the Helmert transformation being applied in the third case, but
+not in the first two.
+ChatGPT doesn't seem completely off track pointing to EPSG:8048 for GDA94
+to GDA2020 Helmert.
+
+Our application is RTK-based georeferencing, possibly WGS84 is not
+appropriate for our application.
+
+$ cs2cs
+Rel. 6.3.1, February 10th, 2020
+
+(But we're seeing similar for our stack using PROJ 9.4.1)
+
+Thanks in advance,
+
+- Nigel Stewart
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/a2695d80/attachment.htm>
+
+From kristianevers at gmail.com  Fri Oct 11 04:49:36 2024
+From: kristianevers at gmail.com (Kristian Evers)
+Date: Fri, 11 Oct 2024 13:49:36 +0200
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+In-Reply-To: <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+References: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+ <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+ <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+Message-ID: <CALECs+ev8C3zZg=r=_inNivRfKQ+6oCgZb-+QNs+FA0Fmu-RxA@mail.gmail.com>
+
+It doesn't surprise me that you have difficulties getting a better
+transformation between your WGS84-based custom CRS and the GDA94/GDA2020
+CRS's. WGS84 is rather ill-defined, especially when using deprecated
+constructs such as "+datum=WGS84". If your data came from a RTK GNSS
+receiver I would expect it to already be in either GDA94 or GDA2020.
+
+It is likely that you need to construct a custom transformation pipeline to
+achieve your goal. You can use projinfo to get more insight to the various
+transformations you are getting from cs2cs.
+
+/Kristian
+
+On Fri, 11 Oct 2024 at 12:27, Nigel Stewart <nigel.stewart at emesent.io>
+wrote:
+
+> > First of all I think you are being way too unrealistic about what you
+> can use ChatGPT for.
+> >If you'd tried the command it's suggested to you, you would know that it
+> doesn't work.
+> > It has given you an ill-formed CRS, as well as suggesting you use
+> deprecated syntax.
+>
+> It didn't smell good, I must admit.
+>
+> > It would be helpful if you can be more explicit about what you are
+> trying to do.
+> > What EPSG-codes are you trying to get a transformation between?
+>
+> In a nutshell:
+>
+> # to GDA94 / MGA zone 56
+>
+> $ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0
+> +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:28356'
+> 222908.70       6233785.28 0.00
+>
+> # to GDA2020 / MGA zone 56
+>
+> $ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0
+> +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:7856'
+> 222908.70       6233785.28 0.00
+>
+> # to GDA2020 / MGA zone 56
+>
+> $ echo "222908.70       6233785.28 0.00" | cs2cs 'EPSG:28356' +to
+> 'EPSG:7856'
+> 222909.17       6233786.71 0.00
+>
+> Our expectation is that GDA2020 is within a meter or two of GDA94 due to
+> the tectonic drift of the Australian plate towards the north east.
+> Our concern is that from these custom transverse mercator projections,
+> this difference isn't reflected.
+> We can see the Helmert transformation being applied in the third case, but
+> not in the first two.
+> ChatGPT doesn't seem completely off track pointing to EPSG:8048 for GDA94
+> to GDA2020 Helmert.
+>
+> Our application is RTK-based georeferencing, possibly WGS84 is not
+> appropriate for our application.
+>
+> $ cs2cs
+> Rel. 6.3.1, February 10th, 2020
+>
+> (But we're seeing similar for our stack using PROJ 9.4.1)
+>
+> Thanks in advance,
+>
+> - Nigel Stewart
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/4dc13747/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Fri Oct 11 05:24:30 2024
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 11 Oct 2024 14:24:30 +0200
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+In-Reply-To: <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+References: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+ <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+ <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+Message-ID: <a7590caa-657f-4fd4-a71f-bf8d95300ca1@spatialys.com>
+
+Nigel,
+
+Le 11/10/2024 ? 12:27, Nigel Stewart via PROJ a ?crit?:
+> > First of all I think you are being way too unrealistic about what 
+> you can use ChatGPT for.
+> >If you'd tried the command it's suggested to you, you would know that 
+> it doesn't work.
+> > It has given you an ill-formed CRS, as well as suggesting you use 
+> deprecated syntax.
+>
+> It didn't smell good, I must admit.
+>
+> > It would be helpful if you can be more explicit about what you are 
+> trying to do.
+> > What EPSG-codes are you trying to get a transformation between?
+>
+> In a nutshell:
+>
+> # to?GDA94 / MGA zone 56
+>
+> $ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 
+> +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:28356'
+> 222908.70 ? ? ? 6233785.28 0.00
+>
+> # to?GDA2020 / MGA zone 56
+>
+> $ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 
+> +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:7856'
+> 222908.70 ? ? ? 6233785.28 0.00
+>
+> # to?GDA2020 / MGA zone 56
+>
+> $ echo "222908.70 ? ? ? 6233785.28 0.00" | cs2cs 'EPSG:28356' +to 
+> 'EPSG:7856'
+> 222909.17 ? ? ? 6233786.71 0.00
+>
+> Our expectation is that GDA2020 is within a meter or two of GDA94 due 
+> to the tectonic drift of the Australian plate towards the north east.
+> Our concern is that from these custom transverse mercator projections, 
+> this difference isn't reflected.
+> We can see the Helmert transformation being applied in the third case, 
+> but not in the first two.
+
+This is fully expected.
+
+Basically GDA94 ~= WGS84 at epoch 1994.0 and GDA2020 ~= WGS84 at epoch 
+2020.0
+
+So when you ask to transform between GDA94 and WGS84 a null datum 
+transformation is a perfectly valid answer since they matched in 1994.0. 
+As well as a null one between GDA2020 and WGS84 since they matched in 2020.0
+
+There are also alternate transformations available in the EPSG dataset 
+where they consider that when transforming between GDA94 and WGS84, then 
+the user could mean they assume this WGS84 to be a recent one, so you 
+actually want to use the transformation between GDA94 and GDA2020
+
+
+$ projinfo -s "+proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0 +y_0=0 
++datum=WGS84 +type=crs" -t EPSG:28356 --spatial-test intersects -o PROJ
+Candidate operations found: 3
+-------------------------------------
+Operation No. 1:
+
+unknown id, Inverse of unknown + axis order change (2D) + Inverse of 
+GDA94 to WGS 84 (1) + Map Grid of Australia zone 56, 3 m, Australia 
+including Lord Howe Island, Macquarie Island, Ashmore and Cartier 
+Islands, Christmas Island, Cocos (Keeling) Islands, Norfolk Island. All 
+onshore and offshore.
+
+PROJ string:
++proj=pipeline
+ ? +step +inv +proj=tmerc +lat_0=-34 +lon_0=150 +k=1 +x_0=0 +y_0=0 
++ellps=WGS84
+ ? +step +proj=utm +zone=56 +south +ellps=GRS80
+
+-------------------------------------
+Operation No. 2:
+
+unknown id, Inverse of unknown + axis order change (2D) + Inverse of 
+GDA94 to WGS 84 (2) + Map Grid of Australia zone 56, 3 m, Australia 
+including Lord Howe Island, Macquarie Island, Ashmore and Cartier 
+Islands, Christmas Island, Cocos (Keeling) Islands, Norfolk Island. All 
+onshore and offshore.
+
+PROJ string:
++proj=pipeline
+ ? +step +inv +proj=tmerc +lat_0=-34 +lon_0=150 +k=1 +x_0=0 +y_0=0 
++ellps=WGS84
+ ? +step +proj=push +v_3
+ ? +step +proj=cart +ellps=WGS84
+ ? +step +inv +proj=helmert +x=0.06155 +y=-0.01087 +z=-0.04019 
++rx=-0.0394924
+ ??????? +ry=-0.0327221 +rz=-0.0328979 +s=-0.009994 
++convention=coordinate_frame
+ ? +step +inv +proj=cart +ellps=GRS80
+ ? +step +proj=pop +v_3
+ ? +step +proj=utm +zone=56 +south +ellps=GRS80
+
+-------------------------------------
+Operation No. 3:
+
+unknown id, Inverse of unknown + axis order change (2D) + Inverse of 
+GDA94 to WGS 84 (3) + Map Grid of Australia zone 56, 3 m, Australia - 
+Australian Capital Territory; New South Wales; Northern Territory; 
+Queensland; South Australia; Tasmania; Western Australia; Victoria., at 
+least one grid missing
+
+PROJ string:
++proj=pipeline
+ ? +step +inv +proj=tmerc +lat_0=-34 +lon_0=150 +k=1 +x_0=0 +y_0=0 
++ellps=WGS84
+ ? +step +inv +proj=hgridshift
+ ??????? +grids=au_icsm_GDA94_GDA2020_conformal_and_distortion.tif
+ ? +step +proj=utm +zone=56 +south +ellps=GRS80
+
+Grid au_icsm_GDA94_GDA2020_conformal_and_distortion.tif needed but not 
+found on the system. Can be obtained at 
+https://cdn.proj.org/au_icsm_GDA94_GDA2020_conformal_and_distortion.tif
+
+
+You'll notice all those 3 transformations are advertized to have a 3 
+metre accuracy. The first one (note that the heuristics to determine the 
+default one has changed among PROJ versions), which is the one used by 
+default by cs2cs, uses the WGS84 = GDA94 hypothesis. The second and 
+third ones us WGS84 = GDA2020
+
+If you want to use the second one, you need to pass its pipeline to cct:
+
+$ echo 0 0 0 | cct +proj=pipeline +step +inv +proj=tmerc +lat_0=-34 
++lon_0=150 +k=1 +x_0=0 +y_0=0 +ellps=WGS84 +step +proj=push +v_3 +step 
++proj=cart +ellps=WGS84 +step +inv +proj=helmert +x=0.06155 +y=-0.01087 
++z=-0.04019 +rx=-0.0394924 +ry=-0.0327221 +rz=-0.0328979 +s=-0.009994 
++convention=coordinate_frame +step +inv +proj=cart +ellps=GRS80 +step 
++proj=pop +v_3 +step +proj=utm +zone=56 +south +ellps=GRS80
+ ? 222908.2299?? 6233783.8497??????? 0.0000?????????? inf
+
+Rule of thumb: as soon as one of your CRS is WGS84 related, you will 
+generally go into troubles if you are interested in geodetic grade 
+transformations.
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+Mostly a fool, sometimes acting like a professional (or vice versa)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/10616cb5/attachment.htm>
+
+From j1 at jimenezshaw.com  Fri Oct 11 05:35:34 2024
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Fri, 11 Oct 2024 14:35:34 +0200
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+In-Reply-To: <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+References: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+ <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+ <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+Message-ID: <CADRrdKuDzGpesrXvO+sya5Fje2-FSXMYsHNMJGR6qM56=tUTkA@mail.gmail.com>
+
+RTK is definitely not using WGS84 (EPSG:4326) (I talked about that here
+https://youtu.be/M2ck3cAGvhg )
+If you are using an NTRIP service, you should check their specs. Could you
+tell me which NTRIP service are you using? I am working on a open
+source/data project to gather that kind of information (I will tell more
+about it in this mailing list when it is more mature)
+If you are using a based station owned by you, check its specs. It could be
+something more similar to ITRF.
+
+On Fri, 11 Oct 2024 at 12:27, Nigel Stewart via PROJ <proj at lists.osgeo.org>
+wrote:
+
+> > First of all I think you are being way too unrealistic about what you
+> can use ChatGPT for.
+> >If you'd tried the command it's suggested to you, you would know that it
+> doesn't work.
+> > It has given you an ill-formed CRS, as well as suggesting you use
+> deprecated syntax.
+>
+> It didn't smell good, I must admit.
+>
+> > It would be helpful if you can be more explicit about what you are
+> trying to do.
+> > What EPSG-codes are you trying to get a transformation between?
+>
+> In a nutshell:
+>
+> # to GDA94 / MGA zone 56
+>
+> $ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0
+> +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:28356'
+> 222908.70       6233785.28 0.00
+>
+> # to GDA2020 / MGA zone 56
+>
+> $ echo "0 0 0" | cs2cs +proj=tmerc +lat_0=-34.0 +lon_0=150.0 +k=1 +x_0=0
+> +y_0=0 +datum=WGS84 +units=m +no_defs +type=crs +to 'EPSG:7856'
+> 222908.70       6233785.28 0.00
+>
+> # to GDA2020 / MGA zone 56
+>
+> $ echo "222908.70       6233785.28 0.00" | cs2cs 'EPSG:28356' +to
+> 'EPSG:7856'
+> 222909.17       6233786.71 0.00
+>
+> Our expectation is that GDA2020 is within a meter or two of GDA94 due to
+> the tectonic drift of the Australian plate towards the north east.
+> Our concern is that from these custom transverse mercator projections,
+> this difference isn't reflected.
+> We can see the Helmert transformation being applied in the third case, but
+> not in the first two.
+> ChatGPT doesn't seem completely off track pointing to EPSG:8048 for GDA94
+> to GDA2020 Helmert.
+>
+> Our application is RTK-based georeferencing, possibly WGS84 is not
+> appropriate for our application.
+>
+> $ cs2cs
+> Rel. 6.3.1, February 10th, 2020
+>
+> (But we're seeing similar for our stack using PROJ 9.4.1)
+>
+> Thanks in advance,
+>
+> - Nigel Stewart
+> _______________________________________________
+> PROJ mailing list
+> PROJ at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/proj
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/proj/attachments/20241011/d8748d5f/attachment.htm>
+
+From gdt at lexort.com  Fri Oct 11 05:47:26 2024
+From: gdt at lexort.com (Greg Troxel)
+Date: Fri, 11 Oct 2024 08:47:26 -0400
+Subject: [PROJ] WGS84 to GDA94 and GDA2020
+In-Reply-To: <a7590caa-657f-4fd4-a71f-bf8d95300ca1@spatialys.com> (Even
+ Rouault via PROJ's message of "Fri, 11 Oct 2024 14:24:30 +0200")
+References: <CAKhDM9Ny7xFf5bix1Svb20+Y50KpAdrC9qNCDkxqkxkXxZgjcg@mail.gmail.com>
+ <CALECs+eN+g2KfV_5C8-3i8NuuZKOA3HTjeE2+n35ho49b3HxSA@mail.gmail.com>
+ <CAKhDM9N=hB21ySkMqawG5uZu062gQ97LixtzL7TnFAAQyMAUug@mail.gmail.com>
+ <a7590caa-657f-4fd4-a71f-bf8d95300ca1@spatialys.com>
+Message-ID: <rmibjzq4xi9.fsf@s1.lexort.com>
+
+Even Rouault via PROJ <proj at lists.osgeo.org> writes:
+
+> Basically GDA94 ~= WGS84 at epoch 1994.0 and GDA2020 ~= WGS84 at epoch
+> 2020.0
+>
+> So when you ask to transform between GDA94 and WGS84 a null datum
+> transformation is a perfectly valid answer since they matched in
+> 1994.0. As well as a null one between GDA2020 and WGS84 since they
+> matched in 2020.0
+>
+> There are also alternate transformations available in the EPSG dataset
+> where they consider that when transforming between GDA94 and WGS84,
+> then the user could mean they assume this WGS84 to be a recent one, so
+> you actually want to use the transformation between GDA94 and GDA2020
+
+I know regular list users know this, but for Nigel:
+
+  WGS84 is an ensemble, and contains WGS84(TRANSIT) which is a
+  low-accuracy datum.  There is about a 2m shift between that and recent
+  members.  Therefore you cannot expect better than 2m for anything
+  involving data that is in "WGS84" (unqualified).
+
+  People label data as WGS84 when really it is in some recent ensemble
+  member.  Recent ensemble memers are high-accuracy datums which are
+  essentially equivalent to recent ITRF.  The fix is to stop doing this.
+
+  There is no way to get high-accuracy coordinates in WGS84, unless you
+  are the US DoD.  But that's ok, because anybody who wants
+  high-accuracy coordinates will use ITRF or a national/regional
+  plate-fixed datum.
+
+  WGS84 members, like ITRF realizations, are a dynamic datum.  If you
+  care about 2m (both the ground motion in AU at 7cm/y over 30 years,
+  ish, and the spread among WGS84 members), then you cannot use WGS84
+  coordinates without an epoch.
+
+  If you don't care about 2-4m, then I supsect you don't have a problem.
+
+
+Even in the US, which is moving more slowly than AU, I have been using
+NAD83(2011) epoch 2010.0 for all my RTK data.    I would suggest that
+you banish WGS84 from your data world.
+
