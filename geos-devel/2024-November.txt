@@ -1,0 +1,523 @@
+From szekerest at gmail.com  Tue Nov  5 11:35:40 2024
+From: szekerest at gmail.com (Tamas Szekeres)
+Date: Tue, 5 Nov 2024 20:35:40 +0100
+Subject: First and last segments of a closed linestring are not rendered when
+ using a positive line offset
+Message-ID: <CACALY+Rz_G1HfWoyQGEpiZZmN6WLiAggW_FgnOmp_zwpnDBFBQ@mail.gmail.com>
+
+Hi,
+
+I'm experiencing an issue that the first and the last segment is missing
+when using offestCurve on a closed linestring. It is relatively easy to
+reproduce that issue, using the following code sample which results a
+geometry of 3 points instead of 5:
+
+// Create the LINESTRING
+GEOSCoordSequence* sequence = GEOSCoordSeq_create_r(handle, 5, 2);
+GEOSCoordSeq_setXY_r(handle, sequence, 0, 252.68873929007674,
+411.71254313074394);
+GEOSCoordSeq_setXY_r(handle, sequence, 1, 505.82866421616694,
+411.71254313074394);
+GEOSCoordSeq_setXY_r(handle, sequence, 2, 505.82866421616694,
+158.57261820465371);
+GEOSCoordSeq_setXY_r(handle, sequence, 3, 252.68873929007674,
+158.57261820465371);
+GEOSCoordSeq_setXY_r(handle, sequence, 4, 252.68873929007674,
+411.71254313074394);  // Closing the LINESTRING
+
+GEOSGeometry* line = GEOSGeom_createLineString_r(handle, sequence);
+
+// Set the offset and other parameters
+double offset = 5.0;
+GEOSBufJoinStyles joinStyle = GEOSBUF_JOIN_MITRE;
+double mitreLimit = fabs(offset * 1.5);
+
+// Apply the offset curve
+GEOSGeometry* offsetResult = GEOSOffsetCurve_r(handle, line, offset, 4,
+joinStyle, mitreLimit);
+
+I've checked that this behavior was introduced in 3.11.0 (3.10.6 was OK)
+and it still exists in the latest stable branch.
+Similar issue has already been reported against qgis in the following
+ticket:
+
+https://github.com/qgis/QGIS/issues/51583
+
+Do we have a workaround or plans to fix this issue?
+
+Thanks,
+
+Tamas
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20241105/c1b24a13/attachment.htm>
+
+From twpayne at gmail.com  Fri Nov 22 01:50:55 2024
+From: twpayne at gmail.com (Tom Payne)
+Date: Fri, 22 Nov 2024 10:50:55 +0100
+Subject: Contexts and functions taking multiple geometries
+Message-ID: <CAHY_QbTQCYLJG2rH763SdvOodcGNL+OSR7mYOmH7SHMrcGmK5A@mail.gmail.com>
+
+Hi,
+
+tl;dr when calling a function which takes multiple geometries, like
+GEOSUnion_r
+<https://libgeos.org/doxygen/geos__c_8h.html#afd3d82a6d039ab5637e0a8a066694b7d>,
+where
+the two geometries are associated with different contexts, do I have to
+ensure that both geometries' contexts are used exclusively?
+
+Background:
+
+I maintain the Go bindings for GEOS <https://github.com/twpayne/go-geos>,
+which exclusively use the thread-safe *_r functions. Every created geometry
+is associated with a context. Every context has a mutex to ensure that it
+is only accessed from a single thread at time.
+
+For functions that take multiple geometries I check if the geometries are
+from different contexts, and if so, lock both mutexes. Here
+<https://github.com/twpayne/go-geos/blob/c9ed31526fa2ee3599ffe0fdf4556a6cf9c0b204/geommethods.go#L865-L875>
+is an example:
+
+    // Union returns the union of g and other.
+    func (g *Geom) Union(other *Geom) *Geom {
+        g.mustNotBeDestroyed()
+        g.context.Lock()
+        defer g.context.Unlock()
+        if other.context != g.context {
+            other.context.Lock()
+            defer other.context.Unlock()
+        }
+        return g.context.newGeom(C.GEOSUnion_r(g.context.handle, g.geom,
+other.geom), nil)
+    }
+
+However, there is a potential deadlock if there are two geometries A and B
+owned by different contexts and A.Union(B) and B.Union(A) are called
+simultaneously from different threads. In practice this pattern is unlikely
+to occur, but I would like to guard against it.
+
+I checked the documentation on GEOS's C API
+<https://libgeos.org/usage/c_api/>, the GEOS developer notes
+<https://github.com/libgeos/geos/blob/main/DEVELOPER-NOTES.md>, did a
+superficial search of the GitHub issues
+<https://github.com/search?q=repo%3Alibgeos%2Fgeos+context&type=issues>,
+and a superficial search of the geos-devel
+<https://www.google.com/search?q=site%3Alists.osgeo.org+%22%5Bgeos-devel%5D%22+context>
+archives, and could not find an answer to this question.
+
+Many thanks for any insight,
+Tom
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20241122/2a3b4171/attachment.htm>
+
+From arno at renevier.net  Sun Nov 24 21:55:53 2024
+From: arno at renevier.net (arno)
+Date: Sun, 24 Nov 2024 21:55:53 -0800
+Subject: questions about RECTANGLE_INTERSECTION flag
+Message-ID: <Z0QRaUP1aYshg2sY@renevier.net>
+
+Hi,
+
+Long story short:
+Enabling USE_RECTANGLE_INTERSECTION flag speeds up postgis ST_Intersection by 60x for my use case
+
+Long story long:
+I recently wrote a strava like heatmap. It requires computing the intersections of my gpx tracks with tile layers. The PostGIS query used is:
+
+```
+const query = `SELECT ST_ASGeoJson(ST_Intersection(geom, ST_MakeEnvelope($1, $2, $3, $4, 4326))) AS geom from ${this.#tableName}`
+```
+
+It is the performance bottleneck on my application. I have about 2000 gpx tracks. On a large tile, where 1300 geometries intersect, the query takes about 2500ms to run. I tried various query optimizations without sucess.
+
+But if I rebuild libgeos with USE_RECTANGLE_INTERSECTION flag set, the query succeeds in about 40ms. (ie: 60x speedup!) (https://github.com/libgeos/geos/blob/main/src/geom/Geometry.cpp#L76)
+
+Is there a way this optimization could be enabled in libgeos?
+
+I understand there are differences between the current intersection operation and the rectangle intersection optimization:
+
++ If the geometries don't intersect, the result is an empty geometry of type geometryA. With RectangleIntersection, it is an empty GEOMETRYCOLLECTION
+```
+% geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120 20, 110 20, 110 10))' clipRect
+GEOMETRYCOLLECTION EMPTY
+% geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120 20, 110 20, 110 10))' intersection
+LINESTRING EMPTY
+```
+
+But hopefully, it shouldn't be too hard to add a special mode to RectangleIntersection to return the expected geometry.
+
++ The resulting geometries gets sometimes rearranged differently. See for example unit test 4 of capi::GEOSIntersection. 2 linestrings are expected. They would not appear with rectangle intersection. By the way, I am pretty novice with geometry computation, and I don't really understand why the linestrings are expected in that case.
+
+Another example: where a linestring self-intersects, and the result will be split at the intersection point. For some reason, it does not seem to happen when the linestring is fully within the rectangle boundary (I'm also confused why that is the case).
+
+```
+% geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))' intersection
+MULTILINESTRING ((13 12, 15.921052631578947 15), (15.921052631578947 15, 20 19.18918918918919), (20 15, 15.921052631578947 15), (15.921052631578947 15, 10 15))
+% geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10 10, 20 10, 20 20, 10 20, 10 10))' clipRect
+MULTILINESTRING ((13 12, 20 19.189189189189186), (20 15, 10 15))
+```
+
+Are there other differences between the current intersection operation, and the rectangle intersection operation? Or any other issue or reasons why that optimization is not enabled?
+
+Thank you
+
+Arno
+
+PS: I attach the patch I used to enable Rectangle Intersection
+-------------- next part --------------
+diff --git SRC src/geom/Geometry.cpp DST src/geom/Geometry.cpp
+index 433933587..8f960c0fd 100644
+--- SRC src/geom/Geometry.cpp	
++++ DST src/geom/Geometry.cpp	
+@@ -73,7 +73,7 @@
+ #endif
+ 
+ #define SHORTCIRCUIT_PREDICATES 1
+-//#define USE_RECTANGLE_INTERSECTION 1
++#define USE_RECTANGLE_INTERSECTION 1
+ #define USE_RELATENG 1
+ 
+ using namespace geos::algorithm;
+@@ -603,13 +603,13 @@ Geometry::intersection(const Geometry* other) const
+         const Envelope* env = getEnvelopeInternal();
+         Rectangle rect(env->getMinX(), env->getMinY(),
+                        env->getMaxX(), env->getMaxY());
+-        return RectangleIntersection::clip(*other, rect).release();
++        return RectangleIntersection::clip(*other, rect);
+     }
+     if(other->isRectangle()) {
+         const Envelope* env = other->getEnvelopeInternal();
+         Rectangle rect(env->getMinX(), env->getMinY(),
+                        env->getMaxX(), env->getMaxY());
+-        return RectangleIntersection::clip(*this, rect).release();
++        return RectangleIntersection::clip(*this, rect);
+     }
+ #endif
+ 
+
+From mtnclimb at gmail.com  Tue Nov 26 07:56:26 2024
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Tue, 26 Nov 2024 07:56:26 -0800
+Subject: questions about RECTANGLE_INTERSECTION flag
+In-Reply-To: <Z0QRaUP1aYshg2sY@renevier.net>
+References: <Z0QRaUP1aYshg2sY@renevier.net>
+Message-ID: <CAK2ens2bnMB3qy4cvLWDWNiOXBxMTs9XCDDSyOs2PS3Z4z4zkg@mail.gmail.com>
+
+One reason RectangleIntersection is not enabled in the Intersection code
+path is that it has different semantics than the OverlayNG algorithm.  This
+might be undesirable or confusing in some use cases.
+
+It is exposed by GEOSClipByRect.  And this is used by PostGIS (at least in
+some circumstances).  So have you tried using ST_ClipByBox2D?
+
+On Tue, Nov 26, 2024 at 1:02?AM arno <arno at renevier.net> wrote:
+
+> Hi,
+>
+> Long story short:
+> Enabling USE_RECTANGLE_INTERSECTION flag speeds up postgis ST_Intersection
+> by 60x for my use case
+>
+> Long story long:
+> I recently wrote a strava like heatmap. It requires computing the
+> intersections of my gpx tracks with tile layers. The PostGIS query used is:
+>
+> ```
+> const query = `SELECT ST_ASGeoJson(ST_Intersection(geom,
+> ST_MakeEnvelope($1, $2, $3, $4, 4326))) AS geom from ${this.#tableName}`
+> ```
+>
+> It is the performance bottleneck on my application. I have about 2000 gpx
+> tracks. On a large tile, where 1300 geometries intersect, the query takes
+> about 2500ms to run. I tried various query optimizations without sucess.
+>
+> But if I rebuild libgeos with USE_RECTANGLE_INTERSECTION flag set, the
+> query succeeds in about 40ms. (ie: 60x speedup!) (
+> https://github.com/libgeos/geos/blob/main/src/geom/Geometry.cpp#L76)
+>
+> Is there a way this optimization could be enabled in libgeos?
+>
+> I understand there are differences between the current intersection
+> operation and the rectangle intersection optimization:
+>
+> + If the geometries don't intersect, the result is an empty geometry of
+> type geometryA. With RectangleIntersection, it is an empty
+> GEOMETRYCOLLECTION
+> ```
+> % geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120
+> 20, 110 20, 110 10))' clipRect
+> GEOMETRYCOLLECTION EMPTY
+> % geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120
+> 20, 110 20, 110 10))' intersection
+> LINESTRING EMPTY
+> ```
+>
+> But hopefully, it shouldn't be too hard to add a special mode to
+> RectangleIntersection to return the expected geometry.
+>
+> + The resulting geometries gets sometimes rearranged differently. See for
+> example unit test 4 of capi::GEOSIntersection. 2 linestrings are expected.
+> They would not appear with rectangle intersection. By the way, I am pretty
+> novice with geometry computation, and I don't really understand why the
+> linestrings are expected in that case.
+>
+> Another example: where a linestring self-intersects, and the result will
+> be split at the intersection point. For some reason, it does not seem to
+> happen when the linestring is fully within the rectangle boundary (I'm also
+> confused why that is the case).
+>
+> ```
+> % geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10 10,
+> 20 10, 20 20, 10 20, 10 10))' intersection
+> MULTILINESTRING ((13 12, 15.921052631578947 15), (15.921052631578947 15,
+> 20 19.18918918918919), (20 15, 15.921052631578947 15), (15.921052631578947
+> 15, 10 15))
+> % geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10 10,
+> 20 10, 20 20, 10 20, 10 10))' clipRect
+> MULTILINESTRING ((13 12, 20 19.189189189189186), (20 15, 10 15))
+> ```
+>
+> Are there other differences between the current intersection operation,
+> and the rectangle intersection operation? Or any other issue or reasons why
+> that optimization is not enabled?
+>
+> Thank you
+>
+> Arno
+>
+> PS: I attach the patch I used to enable Rectangle Intersection
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20241126/96a2333c/attachment.htm>
+
+From arno at renevier.net  Wed Nov 27 11:27:15 2024
+From: arno at renevier.net (arno)
+Date: Wed, 27 Nov 2024 11:27:15 -0800
+Subject: questions about RECTANGLE_INTERSECTION flag
+In-Reply-To: <CAK2ens2bnMB3qy4cvLWDWNiOXBxMTs9XCDDSyOs2PS3Z4z4zkg@mail.gmail.com>
+References: <Z0QRaUP1aYshg2sY@renevier.net>
+ <CAK2ens2bnMB3qy4cvLWDWNiOXBxMTs9XCDDSyOs2PS3Z4z4zkg@mail.gmail.com>
+Message-ID: <Z0dyk7yh3fbD9LYs@renevier.net>
+
+Thanks a lot. I was not aware of ST_ClipByBox2D, but it seems to be what I need.
+
+On Tue, Nov 26, 2024 at 07:56:26AM -0800, Martin Davis wrote:
+> One reason RectangleIntersection is not enabled in the Intersection code
+> path is that it has different semantics than the OverlayNG algorithm.  This
+> might be undesirable or confusing in some use cases.
+> 
+> It is exposed by GEOSClipByRect.  And this is used by PostGIS (at least in
+> some circumstances).  So have you tried using ST_ClipByBox2D?
+> 
+> On Tue, Nov 26, 2024 at 1:02?AM arno <arno at renevier.net> wrote:
+> 
+> > Hi,
+> >
+> > Long story short:
+> > Enabling USE_RECTANGLE_INTERSECTION flag speeds up postgis ST_Intersection
+> > by 60x for my use case
+> >
+> > Long story long:
+> > I recently wrote a strava like heatmap. It requires computing the
+> > intersections of my gpx tracks with tile layers. The PostGIS query used is:
+> >
+> > ```
+> > const query = `SELECT ST_ASGeoJson(ST_Intersection(geom,
+> > ST_MakeEnvelope($1, $2, $3, $4, 4326))) AS geom from ${this.#tableName}`
+> > ```
+> >
+> > It is the performance bottleneck on my application. I have about 2000 gpx
+> > tracks. On a large tile, where 1300 geometries intersect, the query takes
+> > about 2500ms to run. I tried various query optimizations without sucess.
+> >
+> > But if I rebuild libgeos with USE_RECTANGLE_INTERSECTION flag set, the
+> > query succeeds in about 40ms. (ie: 60x speedup!) (
+> > https://github.com/libgeos/geos/blob/main/src/geom/Geometry.cpp#L76)
+> >
+> > Is there a way this optimization could be enabled in libgeos?
+> >
+> > I understand there are differences between the current intersection
+> > operation and the rectangle intersection optimization:
+> >
+> > + If the geometries don't intersect, the result is an empty geometry of
+> > type geometryA. With RectangleIntersection, it is an empty
+> > GEOMETRYCOLLECTION
+> > ```
+> > % geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120
+> > 20, 110 20, 110 10))' clipRect
+> > GEOMETRYCOLLECTION EMPTY
+> > % geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120
+> > 20, 110 20, 110 10))' intersection
+> > LINESTRING EMPTY
+> > ```
+> >
+> > But hopefully, it shouldn't be too hard to add a special mode to
+> > RectangleIntersection to return the expected geometry.
+> >
+> > + The resulting geometries gets sometimes rearranged differently. See for
+> > example unit test 4 of capi::GEOSIntersection. 2 linestrings are expected.
+> > They would not appear with rectangle intersection. By the way, I am pretty
+> > novice with geometry computation, and I don't really understand why the
+> > linestrings are expected in that case.
+> >
+> > Another example: where a linestring self-intersects, and the result will
+> > be split at the intersection point. For some reason, it does not seem to
+> > happen when the linestring is fully within the rectangle boundary (I'm also
+> > confused why that is the case).
+> >
+> > ```
+> > % geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10 10,
+> > 20 10, 20 20, 10 20, 10 10))' intersection
+> > MULTILINESTRING ((13 12, 15.921052631578947 15), (15.921052631578947 15,
+> > 20 19.18918918918919), (20 15, 15.921052631578947 15), (15.921052631578947
+> > 15, 10 15))
+> > % geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10 10,
+> > 20 10, 20 20, 10 20, 10 10))' clipRect
+> > MULTILINESTRING ((13 12, 20 19.189189189189186), (20 15, 10 15))
+> > ```
+> >
+> > Are there other differences between the current intersection operation,
+> > and the rectangle intersection operation? Or any other issue or reasons why
+> > that optimization is not enabled?
+> >
+> > Thank you
+> >
+> > Arno
+> >
+> > PS: I attach the patch I used to enable Rectangle Intersection
+> >
+
+From mtnclimb at gmail.com  Wed Nov 27 13:03:00 2024
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 27 Nov 2024 11:03:00 -1000
+Subject: questions about RECTANGLE_INTERSECTION flag
+In-Reply-To: <Z0dyk7yh3fbD9LYs@renevier.net>
+References: <Z0QRaUP1aYshg2sY@renevier.net>
+ <CAK2ens2bnMB3qy4cvLWDWNiOXBxMTs9XCDDSyOs2PS3Z4z4zkg@mail.gmail.com>
+ <Z0dyk7yh3fbD9LYs@renevier.net>
+Message-ID: <CAK2ens0DbX7UJFn9_aYudkGkxzWdx67gkmsgFJ2NEzKDY0DA=Q@mail.gmail.com>
+
+Excellent.
+
+It seems there might be some bugs lurking in GEOSClipByRect.  If you come
+across any failure cases or things that don't work as expected, please file
+an issue in GEOS or PostGIS for them.  It would be nice to get rectangle
+clipping working error-free and as fast as possible.
+
+On Wed, Nov 27, 2024 at 9:32?AM arno <arno at renevier.net> wrote:
+
+> Thanks a lot. I was not aware of ST_ClipByBox2D, but it seems to be what I
+> need.
+>
+> On Tue, Nov 26, 2024 at 07:56:26AM -0800, Martin Davis wrote:
+> > One reason RectangleIntersection is not enabled in the Intersection code
+> > path is that it has different semantics than the OverlayNG algorithm.
+> This
+> > might be undesirable or confusing in some use cases.
+> >
+> > It is exposed by GEOSClipByRect.  And this is used by PostGIS (at least
+> in
+> > some circumstances).  So have you tried using ST_ClipByBox2D?
+> >
+> > On Tue, Nov 26, 2024 at 1:02?AM arno <arno at renevier.net> wrote:
+> >
+> > > Hi,
+> > >
+> > > Long story short:
+> > > Enabling USE_RECTANGLE_INTERSECTION flag speeds up postgis
+> ST_Intersection
+> > > by 60x for my use case
+> > >
+> > > Long story long:
+> > > I recently wrote a strava like heatmap. It requires computing the
+> > > intersections of my gpx tracks with tile layers. The PostGIS query
+> used is:
+> > >
+> > > ```
+> > > const query = `SELECT ST_ASGeoJson(ST_Intersection(geom,
+> > > ST_MakeEnvelope($1, $2, $3, $4, 4326))) AS geom from
+> ${this.#tableName}`
+> > > ```
+> > >
+> > > It is the performance bottleneck on my application. I have about 2000
+> gpx
+> > > tracks. On a large tile, where 1300 geometries intersect, the query
+> takes
+> > > about 2500ms to run. I tried various query optimizations without
+> sucess.
+> > >
+> > > But if I rebuild libgeos with USE_RECTANGLE_INTERSECTION flag set, the
+> > > query succeeds in about 40ms. (ie: 60x speedup!) (
+> > > https://github.com/libgeos/geos/blob/main/src/geom/Geometry.cpp#L76)
+> > >
+> > > Is there a way this optimization could be enabled in libgeos?
+> > >
+> > > I understand there are differences between the current intersection
+> > > operation and the rectangle intersection optimization:
+> > >
+> > > + If the geometries don't intersect, the result is an empty geometry of
+> > > type geometryA. With RectangleIntersection, it is an empty
+> > > GEOMETRYCOLLECTION
+> > > ```
+> > > % geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120
+> > > 20, 110 20, 110 10))' clipRect
+> > > GEOMETRYCOLLECTION EMPTY
+> > > % geosop -a 'LINESTRING(10 10, 20 20)' -b 'POLYGON((110 10, 120 10, 120
+> > > 20, 110 20, 110 10))' intersection
+> > > LINESTRING EMPTY
+> > > ```
+> > >
+> > > But hopefully, it shouldn't be too hard to add a special mode to
+> > > RectangleIntersection to return the expected geometry.
+> > >
+> > > + The resulting geometries gets sometimes rearranged differently. See
+> for
+> > > example unit test 4 of capi::GEOSIntersection. 2 linestrings are
+> expected.
+> > > They would not appear with rectangle intersection. By the way, I am
+> pretty
+> > > novice with geometry computation, and I don't really understand why the
+> > > linestrings are expected in that case.
+> > >
+> > > Another example: where a linestring self-intersects, and the result
+> will
+> > > be split at the intersection point. For some reason, it does not seem
+> to
+> > > happen when the linestring is fully within the rectangle boundary (I'm
+> also
+> > > confused why that is the case).
+> > >
+> > > ```
+> > > % geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10
+> 10,
+> > > 20 10, 20 20, 10 20, 10 10))' intersection
+> > > MULTILINESTRING ((13 12, 15.921052631578947 15), (15.921052631578947
+> 15,
+> > > 20 19.18918918918919), (20 15, 15.921052631578947 15),
+> (15.921052631578947
+> > > 15, 10 15))
+> > > % geosop -a 'LINESTRING(13 12, 50 50, 50 15, 10 15)' -b 'POLYGON((10
+> 10,
+> > > 20 10, 20 20, 10 20, 10 10))' clipRect
+> > > MULTILINESTRING ((13 12, 20 19.189189189189186), (20 15, 10 15))
+> > > ```
+> > >
+> > > Are there other differences between the current intersection operation,
+> > > and the rectangle intersection operation? Or any other issue or
+> reasons why
+> > > that optimization is not enabled?
+> > >
+> > > Thank you
+> > >
+> > > Arno
+> > >
+> > > PS: I attach the patch I used to enable Rectangle Intersection
+> > >
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20241127/b85abb4d/attachment.htm>
+
