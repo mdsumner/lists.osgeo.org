@@ -1,0 +1,583 @@
+From mtnclimb at gmail.com  Wed Jan  8 11:30:17 2025
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Wed, 8 Jan 2025 11:30:17 -0800
+Subject: Purge Geometry pointer aliases?
+Message-ID: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+
+The GEOS codebase has several typedefs called GeometryPtr and GeomPtr.
+They are aliases for a mixture of Geometry * and std::unique_Ptr<Geometry>.
+I'm thinking it's a good thing to purge them from the codebase in favour of
+explicit type signatures, because:
+
+- it's highly confusing that they can be aliases for different things
+- it's complicated that they are defined in multiple places
+- it can be hard to see what they represent
+- they don't save much typing in the case of Geometry*, and using auto can
+simplify other uses
+
+This was discussed a while back.  The general feeling was that it's better
+to use explicit types.  Is this still the consensus?
+
+Some notes on the process:
+- I expect this will be done in multiple passes, to fit work schedules.
+Will start with the least intrusive changes
+- when this is done, it needs to be backported so that subsequent backports
+don't collide with unchanged code.
+- If older versions use the aliases in dead code, it may not be removed,
+just patched to ensure it still compiles (i.e. by leaving the typedefs in
+place)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250108/eb5bbe9f/attachment.htm>
+
+From twpayne at gmail.com  Wed Jan  8 18:00:00 2025
+From: twpayne at gmail.com (Tom Payne)
+Date: Thu, 9 Jan 2025 03:00:00 +0100
+Subject: Contexts and functions taking multiple geometries
+In-Reply-To: <CAHY_QbTQCYLJG2rH763SdvOodcGNL+OSR7mYOmH7SHMrcGmK5A@mail.gmail.com>
+References: <CAHY_QbTQCYLJG2rH763SdvOodcGNL+OSR7mYOmH7SHMrcGmK5A@mail.gmail.com>
+Message-ID: <CAHY_QbRQZK9ge7u-AMOncxjYw_+kJjHsPr005-tLP02kf67gKw@mail.gmail.com>
+
+Gentle ping on this. I would really like to understand the requirements for
+combining geometries from different GEOS contexts.
+
+If my question is unclear, missing information, stupid, answered elsewhere,
+or there is any other problem with it then please tell me. I would really
+like to understand this.
+
+Regards,
+Tom
+
+On Fri, 22 Nov 2024 at 10:50, Tom Payne <twpayne at gmail.com> wrote:
+
+> Hi,
+>
+> tl;dr when calling a function which takes multiple geometries, like
+> GEOSUnion_r
+> <https://libgeos.org/doxygen/geos__c_8h.html#afd3d82a6d039ab5637e0a8a066694b7d>, where
+> the two geometries are associated with different contexts, do I have to
+> ensure that both geometries' contexts are used exclusively?
+>
+> Background:
+>
+> I maintain the Go bindings for GEOS <https://github.com/twpayne/go-geos>,
+> which exclusively use the thread-safe *_r functions. Every created geometry
+> is associated with a context. Every context has a mutex to ensure that it
+> is only accessed from a single thread at time.
+>
+> For functions that take multiple geometries I check if the geometries are
+> from different contexts, and if so, lock both mutexes. Here
+> <https://github.com/twpayne/go-geos/blob/c9ed31526fa2ee3599ffe0fdf4556a6cf9c0b204/geommethods.go#L865-L875>
+> is an example:
+>
+>     // Union returns the union of g and other.
+>     func (g *Geom) Union(other *Geom) *Geom {
+>         g.mustNotBeDestroyed()
+>         g.context.Lock()
+>         defer g.context.Unlock()
+>         if other.context != g.context {
+>             other.context.Lock()
+>             defer other.context.Unlock()
+>         }
+>         return g.context.newGeom(C.GEOSUnion_r(g.context.handle, g.geom,
+> other.geom), nil)
+>     }
+>
+> However, there is a potential deadlock if there are two geometries A and B
+> owned by different contexts and A.Union(B) and B.Union(A) are called
+> simultaneously from different threads. In practice this pattern is unlikely
+> to occur, but I would like to guard against it.
+>
+> I checked the documentation on GEOS's C API
+> <https://libgeos.org/usage/c_api/>, the GEOS developer notes
+> <https://github.com/libgeos/geos/blob/main/DEVELOPER-NOTES.md>, did a
+> superficial search of the GitHub issues
+> <https://github.com/search?q=repo%3Alibgeos%2Fgeos+context&type=issues>,
+> and a superficial search of the geos-devel
+> <https://www.google.com/search?q=site%3Alists.osgeo.org+%22%5Bgeos-devel%5D%22+context>
+> archives, and could not find an answer to this question.
+>
+> Many thanks for any insight,
+> Tom
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250109/8f3472d6/attachment.htm>
+
+From dbaston at gmail.com  Thu Jan  9 05:40:58 2025
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 9 Jan 2025 08:40:58 -0500
+Subject: Contexts and functions taking multiple geometries
+In-Reply-To: <CAHY_QbRQZK9ge7u-AMOncxjYw_+kJjHsPr005-tLP02kf67gKw@mail.gmail.com>
+References: <CAHY_QbTQCYLJG2rH763SdvOodcGNL+OSR7mYOmH7SHMrcGmK5A@mail.gmail.com>
+ <CAHY_QbRQZK9ge7u-AMOncxjYw_+kJjHsPr005-tLP02kf67gKw@mail.gmail.com>
+Message-ID: <CA+K_q_pTJ48536QrzHLU=ua=6_VPR-VrJWavb-xvA8mLfbxDYQ@mail.gmail.com>
+
+Hi Tom,
+
+With the caveat that I did not develop the "_r" API, here's my
+understanding. The implementation of GEOS contexts is quite short and can
+be found near the top of geos_ts_c.cpp. From looking at the implementation
+we can see that a context has pretty limited functionality:
+
+- registering error and notice handlers
+- passing error messages to these handlers using a context-local buffer
+- storing properties of a global WKB writer
+- storing a single point that is mutated by a small set of functions such
+as GEOSPreparedContainsXY that want to avoid instantiating a point on each
+call
+
+The "_r" functions are a C API construct only and do not indicate anything
+about the thread-safety of the underlying algorithms. The parts of GEOS
+that actually _do_ things are implemented in C++ and have no notion of a
+"context."
+
+With regard to the situation you describe in your email:
+
+GEOSUnion_r(g.context.handle, g.geom, other.geom)
+
+GEOSUnion_r only accesses a context for the purpose of error reporting, and
+the only context it will access is the first argument. It does not matter
+whether "g" or "other" were created using this context, or whether "g" and
+"other" have the same context. If you were to call GEOSUnion_r
+simultaneously from multiple threads using the same first argument, AFAIK
+the worst thing that could happen is that simultaneously-emitted error
+messages generated would be garbled. But you can prevent that by locking
+the context provided in the first argument.
+
+If the context of "g" and "other" is irrelevant, can you use them safely
+from multiple threads? Not necessarily. The programming style used in GEOS
+lends itself to thread-safety (objects are generally immutable, etc.)
+although the use of lazy initialization sometimes gets in the way and the
+thread-safety of various operations is not well-documented or tested. The
+pattern you describe of locking the contexts of both "g" and "other" will
+protect against thread-safety issues but is unnecessarily broad; the same
+benefit could be achieved with locks scoped to the geometries themselves.
+Even this more limited locking is unnecessary for many operations, but
+unfortunately the GEOS docs don't give any guidance about which ones.
+Adding more tests and documentation around GEOS thread-safety would be a
+big improvement for the library.
+
+Dan
+
+PS
+
+There has been some discussion about giving contexts additional
+responsibility, such as managing interrupts:
+https://github.com/libgeos/geos/pull/803
+
+You might also find some useful discussion within the georust project, e.g.
+https://github.com/georust/geos/pull/164
+
+On Wed, Jan 8, 2025 at 9:36?PM Tom Payne <twpayne at gmail.com> wrote:
+
+> Gentle ping on this. I would really like to understand the requirements
+> for combining geometries from different GEOS contexts.
+>
+> If my question is unclear, missing information, stupid, answered
+> elsewhere, or there is any other problem with it then please tell me. I
+> would really like to understand this.
+>
+> Regards,
+> Tom
+>
+> On Fri, 22 Nov 2024 at 10:50, Tom Payne <twpayne at gmail.com> wrote:
+>
+>> Hi,
+>>
+>> tl;dr when calling a function which takes multiple geometries, like
+>> GEOSUnion_r
+>> <https://libgeos.org/doxygen/geos__c_8h.html#afd3d82a6d039ab5637e0a8a066694b7d>, where
+>> the two geometries are associated with different contexts, do I have to
+>> ensure that both geometries' contexts are used exclusively?
+>>
+>> Background:
+>>
+>> I maintain the Go bindings for GEOS <https://github.com/twpayne/go-geos>,
+>> which exclusively use the thread-safe *_r functions. Every created geometry
+>> is associated with a context. Every context has a mutex to ensure that it
+>> is only accessed from a single thread at time.
+>>
+>> For functions that take multiple geometries I check if the geometries are
+>> from different contexts, and if so, lock both mutexes. Here
+>> <https://github.com/twpayne/go-geos/blob/c9ed31526fa2ee3599ffe0fdf4556a6cf9c0b204/geommethods.go#L865-L875>
+>> is an example:
+>>
+>>     // Union returns the union of g and other.
+>>     func (g *Geom) Union(other *Geom) *Geom {
+>>         g.mustNotBeDestroyed()
+>>         g.context.Lock()
+>>         defer g.context.Unlock()
+>>         if other.context != g.context {
+>>             other.context.Lock()
+>>             defer other.context.Unlock()
+>>         }
+>>         return g.context.newGeom(C.GEOSUnion_r(g.context.handle, g.geom,
+>> other.geom), nil)
+>>     }
+>>
+>> However, there is a potential deadlock if there are two geometries A and
+>> B owned by different contexts and A.Union(B) and B.Union(A) are called
+>> simultaneously from different threads. In practice this pattern is unlikely
+>> to occur, but I would like to guard against it.
+>>
+>> I checked the documentation on GEOS's C API
+>> <https://libgeos.org/usage/c_api/>, the GEOS developer notes
+>> <https://github.com/libgeos/geos/blob/main/DEVELOPER-NOTES.md>, did a
+>> superficial search of the GitHub issues
+>> <https://github.com/search?q=repo%3Alibgeos%2Fgeos+context&type=issues>,
+>> and a superficial search of the geos-devel
+>> <https://www.google.com/search?q=site%3Alists.osgeo.org+%22%5Bgeos-devel%5D%22+context>
+>> archives, and could not find an answer to this question.
+>>
+>> Many thanks for any insight,
+>> Tom
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250109/5c9fa730/attachment.htm>
+
+From dbaston at gmail.com  Thu Jan  9 05:52:04 2025
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 9 Jan 2025 08:52:04 -0500
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+Message-ID: <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+
+Hi Martin,
+
+I avoid the typedefs for the same reasons you listed, but they seem to be
+rarely used outside of unit tests (grep shows 97 lines with "Ptr" under
+"src" and 825 lines under "tests"). I'm not sure if a purge is the highest
+priority for improving the test suite, but am not opposed if others want to
+take that on. I would not be in favor of backporting this type of change,
+which would break the API in a minor release while offering no benefit to
+users.
+
+Dan
+
+On Wed, Jan 8, 2025 at 7:16?PM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> The GEOS codebase has several typedefs called GeometryPtr and GeomPtr.
+> They are aliases for a mixture of Geometry * and std::unique_Ptr<Geometry>.
+> I'm thinking it's a good thing to purge them from the codebase in favour of
+> explicit type signatures, because:
+>
+> - it's highly confusing that they can be aliases for different things
+> - it's complicated that they are defined in multiple places
+> - it can be hard to see what they represent
+> - they don't save much typing in the case of Geometry*, and using auto can
+> simplify other uses
+>
+> This was discussed a while back.  The general feeling was that it's better
+> to use explicit types.  Is this still the consensus?
+>
+> Some notes on the process:
+> - I expect this will be done in multiple passes, to fit work schedules.
+> Will start with the least intrusive changes
+> - when this is done, it needs to be backported so that subsequent
+> backports don't collide with unchanged code.
+> - If older versions use the aliases in dead code, it may not be removed,
+> just patched to ensure it still compiles (i.e. by leaving the typedefs in
+> place)
+>
+>
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250109/93a95f80/attachment-0001.htm>
+
+From mtnclimb at gmail.com  Thu Jan  9 15:32:54 2025
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Thu, 9 Jan 2025 15:32:54 -0800
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+ <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+Message-ID: <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+
+There seems to be agreement that purging pointer aliases is A Good Thing To
+Do.
+
+Much of the usage in the test suite, with fewer occurrences present in the
+main code base.  So this makes it easier to clean up the main code base,
+which is the priority.
+
+Not backporting the changes may make it harder in the future to port bug
+fixes and improvements to older major versions.  We don't promise ABI
+stability for the C++ API, so I'm not sure whether this is a real concern?
+
+
+On Thu, Jan 9, 2025 at 5:52?AM Daniel Baston <dbaston at gmail.com> wrote:
+
+> Hi Martin,
+>
+> I avoid the typedefs for the same reasons you listed, but they seem to be
+> rarely used outside of unit tests (grep shows 97 lines with "Ptr" under
+> "src" and 825 lines under "tests"). I'm not sure if a purge is the highest
+> priority for improving the test suite, but am not opposed if others want to
+> take that on. I would not be in favor of backporting this type of change,
+> which would break the API in a minor release while offering no benefit to
+> users.
+>
+> Dan
+>
+> On Wed, Jan 8, 2025 at 7:16?PM Martin Davis <mtnclimb at gmail.com> wrote:
+>
+>> The GEOS codebase has several typedefs called GeometryPtr and GeomPtr.
+>> They are aliases for a mixture of Geometry * and std::unique_Ptr<Geometry>.
+>> I'm thinking it's a good thing to purge them from the codebase in favour of
+>> explicit type signatures, because:
+>>
+>> - it's highly confusing that they can be aliases for different things
+>> - it's complicated that they are defined in multiple places
+>> - it can be hard to see what they represent
+>> - they don't save much typing in the case of Geometry*, and using auto
+>> can simplify other uses
+>>
+>> This was discussed a while back.  The general feeling was that it's
+>> better to use explicit types.  Is this still the consensus?
+>>
+>> Some notes on the process:
+>> - I expect this will be done in multiple passes, to fit work schedules.
+>> Will start with the least intrusive changes
+>> - when this is done, it needs to be backported so that subsequent
+>> backports don't collide with unchanged code.
+>> - If older versions use the aliases in dead code, it may not be removed,
+>> just patched to ensure it still compiles (i.e. by leaving the typedefs in
+>> place)
+>>
+>>
+>>
+>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250109/4dde80fc/attachment.htm>
+
+From dbaston at gmail.com  Thu Jan  9 16:09:38 2025
+From: dbaston at gmail.com (Daniel Baston)
+Date: Thu, 9 Jan 2025 19:09:38 -0500
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+ <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+ <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+Message-ID: <CA+K_q_pWYtRDDpWsBvEbNiShUiZdt1hE5xe4i2Qa0GhrYBFdfg@mail.gmail.com>
+
+I would suggest that we should only commit to stable branches for the
+purpose of fixing a bug. No, we don't promise a stable API, so it may arise
+that we need/want to change the API in a micro release to accomodate a
+bugfix, though we still should try to avoid it (and generally have, I
+think.)
+
+Changing the API in a stable branch because our aesthetics have changed, or
+because it might make it easier to backport a hypothetical bugfix, seems
+like a bad idea. If I were an external user of these typedefs (
+https://github.com/search?q=geom%3A%3AGeometry%3A%3APtr+NOT+is%3Afork&type=code&p=1),
+or a packager of software that uses them, I would be upset that upgrading
+from 3.12.2 to 3.12.3 caused them to disappear.
+
+Dan
+
+On Thu, Jan 9, 2025 at 6:33?PM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> There seems to be agreement that purging pointer aliases is A Good Thing
+> To Do.
+>
+> Much of the usage in the test suite, with fewer occurrences present in the
+> main code base.  So this makes it easier to clean up the main code base,
+> which is the priority.
+>
+> Not backporting the changes may make it harder in the future to port bug
+> fixes and improvements to older major versions.  We don't promise ABI
+> stability for the C++ API, so I'm not sure whether this is a real concern?
+>
+>
+> On Thu, Jan 9, 2025 at 5:52?AM Daniel Baston <dbaston at gmail.com> wrote:
+>
+>> Hi Martin,
+>>
+>> I avoid the typedefs for the same reasons you listed, but they seem to be
+>> rarely used outside of unit tests (grep shows 97 lines with "Ptr" under
+>> "src" and 825 lines under "tests"). I'm not sure if a purge is the highest
+>> priority for improving the test suite, but am not opposed if others want to
+>> take that on. I would not be in favor of backporting this type of change,
+>> which would break the API in a minor release while offering no benefit to
+>> users.
+>>
+>> Dan
+>>
+>> On Wed, Jan 8, 2025 at 7:16?PM Martin Davis <mtnclimb at gmail.com> wrote:
+>>
+>>> The GEOS codebase has several typedefs called GeometryPtr and GeomPtr.
+>>> They are aliases for a mixture of Geometry * and std::unique_Ptr<Geometry>.
+>>> I'm thinking it's a good thing to purge them from the codebase in favour of
+>>> explicit type signatures, because:
+>>>
+>>> - it's highly confusing that they can be aliases for different things
+>>> - it's complicated that they are defined in multiple places
+>>> - it can be hard to see what they represent
+>>> - they don't save much typing in the case of Geometry*, and using auto
+>>> can simplify other uses
+>>>
+>>> This was discussed a while back.  The general feeling was that it's
+>>> better to use explicit types.  Is this still the consensus?
+>>>
+>>> Some notes on the process:
+>>> - I expect this will be done in multiple passes, to fit work schedules.
+>>> Will start with the least intrusive changes
+>>> - when this is done, it needs to be backported so that subsequent
+>>> backports don't collide with unchanged code.
+>>> - If older versions use the aliases in dead code, it may not be removed,
+>>> just patched to ensure it still compiles (i.e. by leaving the typedefs in
+>>> place)
+>>>
+>>>
+>>>
+>>>
+>>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250109/43fd5d1d/attachment.htm>
+
+From gdt at lexort.com  Thu Jan  9 16:39:31 2025
+From: gdt at lexort.com (Greg Troxel)
+Date: Thu, 09 Jan 2025 19:39:31 -0500
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <CA+K_q_pWYtRDDpWsBvEbNiShUiZdt1hE5xe4i2Qa0GhrYBFdfg@mail.gmail.com>
+ (Daniel Baston's message of "Thu, 9 Jan 2025 19:09:38 -0500")
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+ <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+ <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+ <CA+K_q_pWYtRDDpWsBvEbNiShUiZdt1hE5xe4i2Qa0GhrYBFdfg@mail.gmail.com>
+Message-ID: <rmi7c73sdrw.fsf@s1.lexort.com>
+
+Daniel Baston <dbaston at gmail.com> writes:
+
+> I would suggest that we should only commit to stable branches for the
+> purpose of fixing a bug. No, we don't promise a stable API, so it may arise
+> that we need/want to change the API in a micro release to accomodate a
+> bugfix, though we still should try to avoid it (and generally have, I
+> think.)
+
+I agree, and would say there should be a real focus on stability, so
+bugfixes only as Daniel says, plus doc improvements.
+
+Packaging systems update to new micro releases.  The social contract is
+that such updates are nearly 100% safe, and are just bugfixes.  Once you
+change that, even if a micro in name, it isn't really a micro.
+
+From mtnclimb at gmail.com  Fri Jan 10 13:20:14 2025
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Fri, 10 Jan 2025 13:20:14 -0800
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <rmi7c73sdrw.fsf@s1.lexort.com>
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+ <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+ <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+ <CA+K_q_pWYtRDDpWsBvEbNiShUiZdt1hE5xe4i2Qa0GhrYBFdfg@mail.gmail.com>
+ <rmi7c73sdrw.fsf@s1.lexort.com>
+Message-ID: <CAK2ens3SEr7jx-AKCYMU87giWU8-ZX=4CqGo0HLbKrWpf9cTMw@mail.gmail.com>
+
+Given the desire to avoid changes to ABI for micro versions, it sounds like
+the path to removing pointer aliases is:
+
+- remove aliases in src in main
+- do not backport alias removal to previous versions (this may create some
+backporting pain, but since there are relatively few uses of alias in src
+hopefully this won't be too bad)
+- remove aliases in test code as a lower priority, perhaps on an
+as-encountered basis
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250110/79b24bbc/attachment.htm>
+
+From howard at hobu.co  Mon Jan 13 06:06:01 2025
+From: howard at hobu.co (Howard Butler)
+Date: Mon, 13 Jan 2025 08:06:01 -0600
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <CAK2ens3SEr7jx-AKCYMU87giWU8-ZX=4CqGo0HLbKrWpf9cTMw@mail.gmail.com>
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+ <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+ <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+ <CA+K_q_pWYtRDDpWsBvEbNiShUiZdt1hE5xe4i2Qa0GhrYBFdfg@mail.gmail.com>
+ <rmi7c73sdrw.fsf@s1.lexort.com>
+ <CAK2ens3SEr7jx-AKCYMU87giWU8-ZX=4CqGo0HLbKrWpf9cTMw@mail.gmail.com>
+Message-ID: <62D35852-BD1F-4850-8E24-41F59EAEF1B5@hobu.co>
+
+
+
+> On Jan 10, 2025, at 3:20?PM, Martin Davis <mtnclimb at gmail.com> wrote:
+> 
+> Given the desire to avoid changes to ABI for micro versions, it sounds like the path to removing pointer aliases is:
+> 
+> - remove aliases in src in main
+> - do not backport alias removal to previous versions (this may create some backporting pain, but since there are relatively few uses of alias in src hopefully this won't be too bad)
+> - remove aliases in test code as a lower priority, perhaps on an as-encountered basis
+
+Can we please stash the aliases in a header file that is still installed but nothing in the GEOS API actually uses? Then can we mark it all [[deprecated]]?
+
+This change is very likely to break people who have historical codebases that have tightly wrapped around GEOS. A special-for-them header to ease their transition would be a bit courteous, whereas an abrupt change of types in an a part of their codebase that is likely ancient is going to be very disorienting. 
+
+Howard 
+
+
+From dbaston at gmail.com  Mon Jan 13 07:06:32 2025
+From: dbaston at gmail.com (Daniel Baston)
+Date: Mon, 13 Jan 2025 10:06:32 -0500
+Subject: Purge Geometry pointer aliases?
+In-Reply-To: <62D35852-BD1F-4850-8E24-41F59EAEF1B5@hobu.co>
+References: <CAK2ens2huTV-0TpNrgaU20HDNRA2WsT2JM0T=BBa56xiLaaR5Q@mail.gmail.com>
+ <CA+K_q_r6nx0PbPruxeo2YK=r_vAP+LE6jep61cnydr1Anbw5nA@mail.gmail.com>
+ <CAK2ens3uidUuxM7LG1PPDnJZxNME3oDHTV+YLDzqnHzCTUrrzg@mail.gmail.com>
+ <CA+K_q_pWYtRDDpWsBvEbNiShUiZdt1hE5xe4i2Qa0GhrYBFdfg@mail.gmail.com>
+ <rmi7c73sdrw.fsf@s1.lexort.com>
+ <CAK2ens3SEr7jx-AKCYMU87giWU8-ZX=4CqGo0HLbKrWpf9cTMw@mail.gmail.com>
+ <62D35852-BD1F-4850-8E24-41F59EAEF1B5@hobu.co>
+Message-ID: <CA+K_q_pJr1vWjhCzsxixHnZooyHeT4vWV0bGA1aNxJLxA_PsLA@mail.gmail.com>
+
+I'm not sure how this would work, since many aliases are defined as class
+members (e.g. Geometry::Ptr). I would just leave the typdefs and
+discontinue our (minimal) use of them.
+
+Dan
+
+
+On Mon, Jan 13, 2025 at 9:16?AM Howard Butler <howard at hobu.co> wrote:
+
+>
+>
+> > On Jan 10, 2025, at 3:20?PM, Martin Davis <mtnclimb at gmail.com> wrote:
+> >
+> > Given the desire to avoid changes to ABI for micro versions, it sounds
+> like the path to removing pointer aliases is:
+> >
+> > - remove aliases in src in main
+> > - do not backport alias removal to previous versions (this may create
+> some backporting pain, but since there are relatively few uses of alias in
+> src hopefully this won't be too bad)
+> > - remove aliases in test code as a lower priority, perhaps on an
+> as-encountered basis
+>
+> Can we please stash the aliases in a header file that is still installed
+> but nothing in the GEOS API actually uses? Then can we mark it all
+> [[deprecated]]?
+>
+> This change is very likely to break people who have historical codebases
+> that have tightly wrapped around GEOS. A special-for-them header to ease
+> their transition would be a bit courteous, whereas an abrupt change of
+> types in an a part of their codebase that is likely ancient is going to be
+> very disorienting.
+>
+> Howard
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250113/2d0a77a5/attachment.htm>
+
