@@ -1,0 +1,3538 @@
+From j1 at jimenezshaw.com  Sat Mar  1 06:57:50 2025
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sat, 1 Mar 2025 15:57:50 +0100
+Subject: [gdal-dev] Missing exception when using multithread=True for
+ gdal.Warp
+In-Reply-To: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+References: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+Message-ID: <CADRrdKu3B-cw4XNOzmki1dpRUdy3B1Gh5fHakFZzyqWx_y1e2A@mail.gmail.com>
+
+Does it also happen without S3, just with local files?
+It would simplify the analysis
+
+On Sat, 1 Mar 2025, 01:01 Tim Harris via gdal-dev, <gdal-dev at lists.osgeo.org>
+wrote:
+
+> Hi, I'm having some trouble warping a VRT to a TIF where the VRT and its
+> constituent rasters are in S3. It stems from a random read error, but the
+> real problem is that the gdal.Warp call didn't throw an exception when it
+> was supposed to.
+>
+> I saw there's this pretty old GitHub issue that may be related, but I'm
+> not sure:
+> https://github.com/OSGeo/gdal/issues/3372
+>
+> In my situation what really happened was a random /vsicurl read failed...
+> sort of like an issue I reported in December that was fixed in GDAL 3.10.1:
+> https://github.com/OSGeo/gdal/issues/11552
+>
+> Here's a section of my log file (filename sanitized):
+> ERROR 11: CURL error: Empty reply from server
+> 0...10...20...30...40...50...60...70...80...90...100 - done.
+> ERROR 4: `/vsis3/path/to/raster.tif' does not exist in the file system,
+> and is not recognized as a supported dataset name.
+>
+> Notice the CURL error but the progress still goes to 100%. The warp
+> completed successfully despite the read error.
+>
+> I have a hopefully simple reproduce case here. The first few shell
+> commands will make two TIFs, put them in S3, then make a VRT of those TIFs
+> and also put that in S3. Then to simulate the CURL error above, it just
+> deletes one of the TIFs so that the VRT references a non-existent file:
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+> 0 1 1 0 input1.tif
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+> 1 1 2 0 input2.tif
+> aws s3 cp input1.tif s3://your-bucket/test/input1.tif
+> aws s3 cp input2.tif s3://your-bucket/test/input2.tif
+> gdalbuildvrt input.vrt /vsis3/your-bucket/test/input1.tif
+> /vsis3/your-bucket/test/input2.tif
+> aws s3 cp input.vrt s3://your-bucket/test/input.vrt
+> aws s3 rm s3://your-bucket/test/input2.tif
+>
+> Then in Python:
+> from osgeo import gdal
+> gdal.UseExceptions()
+> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+> callback=gdal.TermProgress)
+>
+> This throws a RuntimeError, as expected. But delete the partial file and
+> try with multithread=True:
+> rm output.tif
+> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+> callback=gdal.TermProgress, multithread=True)
+>
+> This logs the error, but doesn't throw an exception. The end result is
+> that I have a TIF that is missing the contents of the file that suffered
+> from that CURL read error.
+>
+> For what it's worth this also happens with the command line utility, it's
+> just not as obvious. Without -multi, it only prints the "0" for the
+> progress before the error halts execution:
+> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif
+> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+> is not recognized as a supported dataset name.
+>
+> But with -multi, notice the progress goes to 100%:
+> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif -multi
+> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+> is not recognized as a supported dataset name.
+> ...10...20...30...40...50...60...70...80...90...100 - done.
+>
+> I guess my workaround is to just not use multithread=True. But is this
+> something that could be fixed?
+>
+> Thanks
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250301/a93afb6b/attachment.htm>
+
+From trharris78 at gmail.com  Sat Mar  1 10:29:54 2025
+From: trharris78 at gmail.com (Tim Harris)
+Date: Sat, 1 Mar 2025 11:29:54 -0700
+Subject: [gdal-dev] Missing exception when using multithread=True for
+ gdal.Warp
+In-Reply-To: <CADRrdKu3B-cw4XNOzmki1dpRUdy3B1Gh5fHakFZzyqWx_y1e2A@mail.gmail.com>
+References: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+ <CADRrdKu3B-cw4XNOzmki1dpRUdy3B1Gh5fHakFZzyqWx_y1e2A@mail.gmail.com>
+Message-ID: <CAK3fJgVJ33y_4u9zuyPvD-k=eba5dUfPZBLOTMQH6R-BmS2g3Q@mail.gmail.com>
+
+Aha, yes, it does appear to happen just with local files. In my attempts to
+create a reproduce case yesterday, I overlooked that part. I did try it
+early on but just with a single TIF in the VRT, in which case it does the
+right thing and raises an exception. But with two TIFs and one missing, it
+behaves as I explained with /vsis3.
+
+So create two TIFs and a VRT, then remove one TIF:
+gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+0 1 1 0 input1.tif
+gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+1 1 2 0 input2.tif
+gdalbuildvrt input.vrt input1.tif input2.tif
+rm input2.tif
+
+Then in Python:
+from osgeo import gdal
+gdal.UseExceptions()
+
+This raises an exception
+gdal.Warp("output.tif", "input.vrt", callback=gdal.TermProgress)
+
+But this does not:
+gdal.Warp("output.tif", "input.vrt", callback=gdal.TermProgress,
+multithread=True)
+
+
+On Sat, Mar 1, 2025 at 7:58?AM Javier Jimenez Shaw <j1 at jimenezshaw.com>
+wrote:
+
+> Does it also happen without S3, just with local files?
+> It would simplify the analysis
+>
+> On Sat, 1 Mar 2025, 01:01 Tim Harris via gdal-dev, <
+> gdal-dev at lists.osgeo.org> wrote:
+>
+>> Hi, I'm having some trouble warping a VRT to a TIF where the VRT and its
+>> constituent rasters are in S3. It stems from a random read error, but the
+>> real problem is that the gdal.Warp call didn't throw an exception when it
+>> was supposed to.
+>>
+>> I saw there's this pretty old GitHub issue that may be related, but I'm
+>> not sure:
+>> https://github.com/OSGeo/gdal/issues/3372
+>>
+>> In my situation what really happened was a random /vsicurl read failed...
+>> sort of like an issue I reported in December that was fixed in GDAL 3.10.1:
+>> https://github.com/OSGeo/gdal/issues/11552
+>>
+>> Here's a section of my log file (filename sanitized):
+>> ERROR 11: CURL error: Empty reply from server
+>> 0...10...20...30...40...50...60...70...80...90...100 - done.
+>> ERROR 4: `/vsis3/path/to/raster.tif' does not exist in the file system,
+>> and is not recognized as a supported dataset name.
+>>
+>> Notice the CURL error but the progress still goes to 100%. The warp
+>> completed successfully despite the read error.
+>>
+>> I have a hopefully simple reproduce case here. The first few shell
+>> commands will make two TIFs, put them in S3, then make a VRT of those TIFs
+>> and also put that in S3. Then to simulate the CURL error above, it just
+>> deletes one of the TIFs so that the VRT references a non-existent file:
+>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>> -a_ullr 0 1 1 0 input1.tif
+>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>> -a_ullr 1 1 2 0 input2.tif
+>> aws s3 cp input1.tif s3://your-bucket/test/input1.tif
+>> aws s3 cp input2.tif s3://your-bucket/test/input2.tif
+>> gdalbuildvrt input.vrt /vsis3/your-bucket/test/input1.tif
+>> /vsis3/your-bucket/test/input2.tif
+>> aws s3 cp input.vrt s3://your-bucket/test/input.vrt
+>> aws s3 rm s3://your-bucket/test/input2.tif
+>>
+>> Then in Python:
+>> from osgeo import gdal
+>> gdal.UseExceptions()
+>> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+>> callback=gdal.TermProgress)
+>>
+>> This throws a RuntimeError, as expected. But delete the partial file and
+>> try with multithread=True:
+>> rm output.tif
+>> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+>> callback=gdal.TermProgress, multithread=True)
+>>
+>> This logs the error, but doesn't throw an exception. The end result is
+>> that I have a TIF that is missing the contents of the file that suffered
+>> from that CURL read error.
+>>
+>> For what it's worth this also happens with the command line utility, it's
+>> just not as obvious. Without -multi, it only prints the "0" for the
+>> progress before the error halts execution:
+>> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif
+>> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+>> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+>> is not recognized as a supported dataset name.
+>>
+>> But with -multi, notice the progress goes to 100%:
+>> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif -multi
+>> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+>> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+>> is not recognized as a supported dataset name.
+>> ...10...20...30...40...50...60...70...80...90...100 - done.
+>>
+>> I guess my workaround is to just not use multithread=True. But is this
+>> something that could be fixed?
+>>
+>> Thanks
+>> _______________________________________________
+>> gdal-dev mailing list
+>> gdal-dev at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250301/9e79e720/attachment-0001.htm>
+
+From sean.gillies at gmail.com  Sat Mar  1 10:56:30 2025
+From: sean.gillies at gmail.com (Sean Gillies)
+Date: Sat, 1 Mar 2025 11:56:30 -0700
+Subject: [gdal-dev] Missing exception when using multithread=True for
+ gdal.Warp
+In-Reply-To: <CAK3fJgVJ33y_4u9zuyPvD-k=eba5dUfPZBLOTMQH6R-BmS2g3Q@mail.gmail.com>
+References: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+ <CADRrdKu3B-cw4XNOzmki1dpRUdy3B1Gh5fHakFZzyqWx_y1e2A@mail.gmail.com>
+ <CAK3fJgVJ33y_4u9zuyPvD-k=eba5dUfPZBLOTMQH6R-BmS2g3Q@mail.gmail.com>
+Message-ID: <CAOodmJqSTEDtQJHUcPU_t4v1DyHO319DPFo6DYNL9f7zpQbZ7Q@mail.gmail.com>
+
+Hi Tim,
+
+UseExceptions() might only affect your main thread. You may want to check
+in GDAL's code to see if this is the case. At any rate, you won't be able
+to handle Python exceptions that you might see raised from the warp threads.
+
+Hope this helps,
+
+On Sat, Mar 1, 2025 at 11:30?AM Tim Harris via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Aha, yes, it does appear to happen just with local files. In my attempts
+> to create a reproduce case yesterday, I overlooked that part. I did try it
+> early on but just with a single TIF in the VRT, in which case it does the
+> right thing and raises an exception. But with two TIFs and one missing, it
+> behaves as I explained with /vsis3.
+>
+> So create two TIFs and a VRT, then remove one TIF:
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+> 0 1 1 0 input1.tif
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+> 1 1 2 0 input2.tif
+> gdalbuildvrt input.vrt input1.tif input2.tif
+> rm input2.tif
+>
+> Then in Python:
+> from osgeo import gdal
+> gdal.UseExceptions()
+>
+> This raises an exception
+> gdal.Warp("output.tif", "input.vrt", callback=gdal.TermProgress)
+>
+> But this does not:
+> gdal.Warp("output.tif", "input.vrt", callback=gdal.TermProgress,
+> multithread=True)
+>
+>
+> On Sat, Mar 1, 2025 at 7:58?AM Javier Jimenez Shaw <j1 at jimenezshaw.com>
+> wrote:
+>
+>> Does it also happen without S3, just with local files?
+>> It would simplify the analysis
+>>
+>> On Sat, 1 Mar 2025, 01:01 Tim Harris via gdal-dev, <
+>> gdal-dev at lists.osgeo.org> wrote:
+>>
+>>> Hi, I'm having some trouble warping a VRT to a TIF where the VRT and its
+>>> constituent rasters are in S3. It stems from a random read error, but the
+>>> real problem is that the gdal.Warp call didn't throw an exception when it
+>>> was supposed to.
+>>>
+>>> I saw there's this pretty old GitHub issue that may be related, but I'm
+>>> not sure:
+>>> https://github.com/OSGeo/gdal/issues/3372
+>>>
+>>> In my situation what really happened was a random /vsicurl read
+>>> failed... sort of like an issue I reported in December that was fixed in
+>>> GDAL 3.10.1:
+>>> https://github.com/OSGeo/gdal/issues/11552
+>>>
+>>> Here's a section of my log file (filename sanitized):
+>>> ERROR 11: CURL error: Empty reply from server
+>>> 0...10...20...30...40...50...60...70...80...90...100 - done.
+>>> ERROR 4: `/vsis3/path/to/raster.tif' does not exist in the file system,
+>>> and is not recognized as a supported dataset name.
+>>>
+>>> Notice the CURL error but the progress still goes to 100%. The warp
+>>> completed successfully despite the read error.
+>>>
+>>> I have a hopefully simple reproduce case here. The first few shell
+>>> commands will make two TIFs, put them in S3, then make a VRT of those TIFs
+>>> and also put that in S3. Then to simulate the CURL error above, it just
+>>> deletes one of the TIFs so that the VRT references a non-existent file:
+>>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>>> -a_ullr 0 1 1 0 input1.tif
+>>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>>> -a_ullr 1 1 2 0 input2.tif
+>>> aws s3 cp input1.tif s3://your-bucket/test/input1.tif
+>>> aws s3 cp input2.tif s3://your-bucket/test/input2.tif
+>>> gdalbuildvrt input.vrt /vsis3/your-bucket/test/input1.tif
+>>> /vsis3/your-bucket/test/input2.tif
+>>> aws s3 cp input.vrt s3://your-bucket/test/input.vrt
+>>> aws s3 rm s3://your-bucket/test/input2.tif
+>>>
+>>> Then in Python:
+>>> from osgeo import gdal
+>>> gdal.UseExceptions()
+>>> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+>>> callback=gdal.TermProgress)
+>>>
+>>> This throws a RuntimeError, as expected. But delete the partial file and
+>>> try with multithread=True:
+>>> rm output.tif
+>>> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+>>> callback=gdal.TermProgress, multithread=True)
+>>>
+>>> This logs the error, but doesn't throw an exception. The end result is
+>>> that I have a TIF that is missing the contents of the file that suffered
+>>> from that CURL read error.
+>>>
+>>> For what it's worth this also happens with the command line utility,
+>>> it's just not as obvious. Without -multi, it only prints the "0" for the
+>>> progress before the error halts execution:
+>>> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif
+>>> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+>>> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+>>> is not recognized as a supported dataset name.
+>>>
+>>> But with -multi, notice the progress goes to 100%:
+>>> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif -multi
+>>> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+>>> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+>>> is not recognized as a supported dataset name.
+>>> ...10...20...30...40...50...60...70...80...90...100 - done.
+>>>
+>>> I guess my workaround is to just not use multithread=True. But is this
+>>> something that could be fixed?
+>>>
+>>> Thanks
+>>> _______________________________________________
+>>> gdal-dev mailing list
+>>> gdal-dev at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>>>
+>> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+
+
+-- 
+Sean Gillies
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250301/19b24a28/attachment.htm>
+
+From j1 at jimenezshaw.com  Sat Mar  1 15:20:00 2025
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sun, 2 Mar 2025 00:20:00 +0100
+Subject: [gdal-dev] Missing exception when using multithread=True for
+ gdal.Warp
+In-Reply-To: <CAOodmJqSTEDtQJHUcPU_t4v1DyHO319DPFo6DYNL9f7zpQbZ7Q@mail.gmail.com>
+References: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+ <CADRrdKu3B-cw4XNOzmki1dpRUdy3B1Gh5fHakFZzyqWx_y1e2A@mail.gmail.com>
+ <CAK3fJgVJ33y_4u9zuyPvD-k=eba5dUfPZBLOTMQH6R-BmS2g3Q@mail.gmail.com>
+ <CAOodmJqSTEDtQJHUcPU_t4v1DyHO319DPFo6DYNL9f7zpQbZ7Q@mail.gmail.com>
+Message-ID: <CADRrdKvOTG1TnEO2SKyeb7_Eg-hM3o08MMpPrq6LgyhudeONuw@mail.gmail.com>
+
+I'm trying to debug it in my machine. But after building in debug mode
+enabling the environment with
+. ../scripts/setdevenv.sh
+the exceptions are not thrown any more in python (neither with
+multithread=False)
+
+On Sat, 1 Mar 2025 at 19:56, Sean Gillies via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi Tim,
+>
+> UseExceptions() might only affect your main thread. You may want to check
+> in GDAL's code to see if this is the case. At any rate, you won't be able
+> to handle Python exceptions that you might see raised from the warp threads.
+>
+> Hope this helps,
+>
+> On Sat, Mar 1, 2025 at 11:30?AM Tim Harris via gdal-dev <
+> gdal-dev at lists.osgeo.org> wrote:
+>
+>> Aha, yes, it does appear to happen just with local files. In my attempts
+>> to create a reproduce case yesterday, I overlooked that part. I did try it
+>> early on but just with a single TIF in the VRT, in which case it does the
+>> right thing and raises an exception. But with two TIFs and one missing, it
+>> behaves as I explained with /vsis3.
+>>
+>> So create two TIFs and a VRT, then remove one TIF:
+>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>> -a_ullr 0 1 1 0 input1.tif
+>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>> -a_ullr 1 1 2 0 input2.tif
+>> gdalbuildvrt input.vrt input1.tif input2.tif
+>> rm input2.tif
+>>
+>> Then in Python:
+>> from osgeo import gdal
+>> gdal.UseExceptions()
+>>
+>> This raises an exception
+>> gdal.Warp("output.tif", "input.vrt", callback=gdal.TermProgress)
+>>
+>> But this does not:
+>> gdal.Warp("output.tif", "input.vrt", callback=gdal.TermProgress,
+>> multithread=True)
+>>
+>>
+>> On Sat, Mar 1, 2025 at 7:58?AM Javier Jimenez Shaw <j1 at jimenezshaw.com>
+>> wrote:
+>>
+>>> Does it also happen without S3, just with local files?
+>>> It would simplify the analysis
+>>>
+>>> On Sat, 1 Mar 2025, 01:01 Tim Harris via gdal-dev, <
+>>> gdal-dev at lists.osgeo.org> wrote:
+>>>
+>>>> Hi, I'm having some trouble warping a VRT to a TIF where the VRT and
+>>>> its constituent rasters are in S3. It stems from a random read error, but
+>>>> the real problem is that the gdal.Warp call didn't throw an exception when
+>>>> it was supposed to.
+>>>>
+>>>> I saw there's this pretty old GitHub issue that may be related, but I'm
+>>>> not sure:
+>>>> https://github.com/OSGeo/gdal/issues/3372
+>>>>
+>>>> In my situation what really happened was a random /vsicurl read
+>>>> failed... sort of like an issue I reported in December that was fixed in
+>>>> GDAL 3.10.1:
+>>>> https://github.com/OSGeo/gdal/issues/11552
+>>>>
+>>>> Here's a section of my log file (filename sanitized):
+>>>> ERROR 11: CURL error: Empty reply from server
+>>>> 0...10...20...30...40...50...60...70...80...90...100 - done.
+>>>> ERROR 4: `/vsis3/path/to/raster.tif' does not exist in the file system,
+>>>> and is not recognized as a supported dataset name.
+>>>>
+>>>> Notice the CURL error but the progress still goes to 100%. The warp
+>>>> completed successfully despite the read error.
+>>>>
+>>>> I have a hopefully simple reproduce case here. The first few shell
+>>>> commands will make two TIFs, put them in S3, then make a VRT of those TIFs
+>>>> and also put that in S3. Then to simulate the CURL error above, it just
+>>>> deletes one of the TIFs so that the VRT references a non-existent file:
+>>>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>>>> -a_ullr 0 1 1 0 input1.tif
+>>>> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326
+>>>> -a_ullr 1 1 2 0 input2.tif
+>>>> aws s3 cp input1.tif s3://your-bucket/test/input1.tif
+>>>> aws s3 cp input2.tif s3://your-bucket/test/input2.tif
+>>>> gdalbuildvrt input.vrt /vsis3/your-bucket/test/input1.tif
+>>>> /vsis3/your-bucket/test/input2.tif
+>>>> aws s3 cp input.vrt s3://your-bucket/test/input.vrt
+>>>> aws s3 rm s3://your-bucket/test/input2.tif
+>>>>
+>>>> Then in Python:
+>>>> from osgeo import gdal
+>>>> gdal.UseExceptions()
+>>>> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+>>>> callback=gdal.TermProgress)
+>>>>
+>>>> This throws a RuntimeError, as expected. But delete the partial file
+>>>> and try with multithread=True:
+>>>> rm output.tif
+>>>> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+>>>> callback=gdal.TermProgress, multithread=True)
+>>>>
+>>>> This logs the error, but doesn't throw an exception. The end result is
+>>>> that I have a TIF that is missing the contents of the file that suffered
+>>>> from that CURL read error.
+>>>>
+>>>> For what it's worth this also happens with the command line utility,
+>>>> it's just not as obvious. Without -multi, it only prints the "0" for the
+>>>> progress before the error halts execution:
+>>>> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif
+>>>> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+>>>> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+>>>> is not recognized as a supported dataset name.
+>>>>
+>>>> But with -multi, notice the progress goes to 100%:
+>>>> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif -multi
+>>>> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+>>>> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+>>>> is not recognized as a supported dataset name.
+>>>> ...10...20...30...40...50...60...70...80...90...100 - done.
+>>>>
+>>>> I guess my workaround is to just not use multithread=True. But is this
+>>>> something that could be fixed?
+>>>>
+>>>> Thanks
+>>>> _______________________________________________
+>>>> gdal-dev mailing list
+>>>> gdal-dev at lists.osgeo.org
+>>>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>>>>
+>>> _______________________________________________
+>> gdal-dev mailing list
+>> gdal-dev at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>>
+>
+>
+> --
+> Sean Gillies
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250302/90ef170e/attachment.htm>
+
+From howard at hobu.co  Sun Mar  2 07:16:36 2025
+From: howard at hobu.co (Howard Butler)
+Date: Sun, 2 Mar 2025 09:16:36 -0600
+Subject: [gdal-dev] GDAL Maintainers Meeting Minutes
+Message-ID: <2752BE16-B4CD-4F98-AA00-E39BAA2EB6FA@hobu.co>
+
+Howard Butler, Dan Baston, Alessandro Pasotti, Norman Barker, Daniel Morissette, Kurt Schwehr, Jukka Rahkonen, Michael Sumner, and Javier Jimenez Shaw held the monthly GDAL Maintainers Meeting on 02/27/2025. The following items were discussed and reported upon:
+
+Project News
+----------------------------
+
+* Even engaged two potential part-time (~ half a day / week each) documentation maintainers who are enthusiastic to be supported by the GDAL Sponsorship Program to improve documentation needs highlighted by last fall's GDAL User Survey. A GDAL PSC member is needed to engage with and commit to managing them to continue moving it forward.
+* GDAL 3.10.2 "Gulf of Mexico"  was released https://github.com/OSGeo/gdal/blob/v3.10.2/NEWS.md
+* libgeotiff 1.7.4 was released https://github.com/OSGeo/libgeotiff/releases/tag/1.7.4
+
+Maintenance activities update
+------------------------------------------
+
+Alessandro
+
+* gdal_contour bug fixing https://github.com/OSGeo/gdal/issues/11564 to correct how levels and ranges were set by users or interpreted from the incoming data
+* Implemented synchronization of OGR layer definition with savepoint mechanisms in GeoPackage and SQLite drivers (started as a QGIS bug but was decided it was best fixed in GDAL https://github.com/qgis/QGIS/pull/59797#issuecomment-2544133498)
+
+Dan
+
+* 'gdal raster calc', which is a no-python implementation that depends on the recently added GDAL VRT expression capabilities to lazily compute raster operations https://github.com/OSGeo/gdal/pull/11850
+* 20+ PRs
+* Accumulated stats and potential usage information from website format-specific driver pages to gage 
+
+Even did not attend but provided the following text updates:
+
+* RFC 106: Metadata items to reflect driver update capabilities https://gdal--11862.org.readthedocs.build/en/11862/development/rfc/rfc106_update_metadata.html
+* RFC 107: IGetExtent / ISetSpatialFilter https://gdal--11862.org.readthedocs.build/en/11862/development/rfc/rfc107_igetextent_isetspatialfilter.html
+* RFC 108: Driver removal for GDAL 3.11 https://gdal--11862.org.readthedocs.build/en/11862/development/rfc/rfc108_driver_removal_3_11.html
+* Related to RFC 108, dropping as a maintainer of libogdi (this library probably no longer makes sense for anyone, the to-be-dropped OGR OGDI driver being likely its only user)
+* Implementation of "gdal vector select" and "gdal vector sql"
+* Implementation of "gdal raster mosaic" and "gdal raster stack"
+* Brainstorming about a "gdal vector geom_op": https://github.com/OSGeo/gdal/issues/11826
+* Usual mix of random fixes and pull request reviews
+
+
+The next GDAL Maintainers Meeting is 03/27/2024 at 13:00 UTC. GDAL PSC members and PR contributors are welcome to join by reaching out to me for an invite.
+
+Howard
+
+
+
+From even.rouault at spatialys.com  Sun Mar  2 09:23:51 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sun, 2 Mar 2025 18:23:51 +0100
+Subject: [gdal-dev] Motion: adopt RFC 108 (Re: RFC 108 text: driver
+ removals for GDAL 3.11)
+In-Reply-To: <f4d9d91d-2e5d-40fa-b57b-604c5c0df5ad@spatialys.com>
+References: <f629d32c-f449-4dea-80cb-eab7fbecadd9@spatialys.com>
+ <f4d9d91d-2e5d-40fa-b57b-604c5c0df5ad@spatialys.com>
+Message-ID: <555054f6-5a8e-4e8c-97c6-8139bb9fc693@spatialys.com>
+
+Adopted with +1 from PSC members JukkaR, JavierJS, KurtS, HowardB, 
+DanielM, and -0 from DanB.
+
+Le 19/02/2025 ? 11:24, Even Rouault via gdal-dev a ?crit?:
+> Motion: adopt RFC 108
+>
+> +1 Even
+>
+> Le 18/02/2025 ? 18:28, Even Rouault via gdal-dev a ?crit?:
+>> "Formalizing" recent discussions: 
+>> https://github.com/OSGeo/gdal/pull/11862
+>>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From Simon.Wright at jbarisk.com  Mon Mar  3 06:49:32 2025
+From: Simon.Wright at jbarisk.com (Simon Wright)
+Date: Mon, 3 Mar 2025 14:49:32 +0000
+Subject: [gdal-dev] Masked VRT
+In-Reply-To: <CA+K_q_pTqOCVqGGEoA=_w-qPKzN==UYDZbHv2SQfbKiAgaTtgQ@mail.gmail.com>
+References: <CWLP123MB4131058D12FA60D2FDFADE9590C02@CWLP123MB4131.GBRP123.PROD.OUTLOOK.COM>
+ <CA+K_q_pTqOCVqGGEoA=_w-qPKzN==UYDZbHv2SQfbKiAgaTtgQ@mail.gmail.com>
+Message-ID: <LO2P123MB41446FFB5447577FF218EAC990C92@LO2P123MB4144.GBRP123.PROD.OUTLOOK.COM>
+
+Hi Daniel
+
+Many thanks for taking a look at my dilemma and providing a solution that works.
+
+
+
+Best wishes, Simon.
+
+
+
+
+
+
+Simon Wright
+
+GISMO Scrum Master and RML Head of Software
+
+
+
+--
+
+
+
+
+e: Simon.Wright at jbarisk.com
+d:+44 (0)1756 587258
+t: +44 (0)1756 799919
+www.jbarisk.com
+All JBA Risk Management's email messages contain confidential information and are intended only for the individual(s) named. If you are not the named addressee you should not disseminate, distribute or copy this e-mail.
+Please notify the sender immediately by email if you have received this email by mistake and delete this email from your system. 
+JBA Risk Management Limited is registered in England, company number 07732946, 1 Broughton Park, Old Lane North, Broughton, Skipton, North Yorkshire, BD23 3FD, England.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/50b58686/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image021776.png
+Type: image/png
+Size: 7388 bytes
+Desc: image021776.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/50b58686/attachment-0004.png>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image227747.png
+Type: image/png
+Size: 5172 bytes
+Desc: image227747.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/50b58686/attachment-0005.png>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image732498.png
+Type: image/png
+Size: 774 bytes
+Desc: image732498.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/50b58686/attachment-0006.png>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image187545.png
+Type: image/png
+Size: 797 bytes
+Desc: image187545.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/50b58686/attachment-0007.png>
+
+From dmorissette at mapgears.com  Mon Mar  3 08:30:06 2025
+From: dmorissette at mapgears.com (Daniel Morissette)
+Date: Mon, 3 Mar 2025 11:30:06 -0500
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+Message-ID: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+
+Hi PSC members,
+
+I would like to nominate Michael Smith to become a member of the GDAL 
+Project Steering Committee.
+
+   https://www.osgeo.org/member/michael-smith/
+
+Mike is a long time GDAL power user and contributor/supporter.  He is 
+also very active in several other OSGeo projects including as member of 
+the MapServer and PDAL project PSC's and was actually one of the 
+instigators behind the PDAL project, the GDAL of Point Clouds.
+
+Mike has been active on the OSGeo Board since 2014 as treasurer. Given 
+his years of experience with the management of open source projects (and 
+non-coding activities), a side benefit of having him on the GDAL PSC is 
+that he could also help us with managing the sponsorship program and the 
+NumFocus relationship and take some of this operational work off 
+Howard's shoulders.
+
+I start with my +1
+
+Daniel
+
+-- 
+Daniel Morissette
+Mapgears Inc
+T: +1 418-696-5056 #201
+
+
+From j1 at jimenezshaw.com  Mon Mar  3 08:31:43 2025
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Mon, 3 Mar 2025 17:31:43 +0100
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <CADRrdKs7zFVy7gUXDseJ5Tr8+Yg9oJr+X+2=kjEvp7d9SBcV=w@mail.gmail.com>
+
++1 Javier
+
+On Mon, 3 Mar 2025, 17:30 Daniel Morissette via gdal-dev, <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL
+> Project Steering Committee.
+>
+>    https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.  He is
+> also very active in several other OSGeo projects including as member of
+> the MapServer and PDAL project PSC's and was actually one of the
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given
+> his years of experience with the management of open source projects (and
+> non-coding activities), a side benefit of having him on the GDAL PSC is
+> that he could also help us with managing the sponsorship program and the
+> NumFocus relationship and take some of this operational work off
+> Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+> --
+> Daniel Morissette
+> Mapgears Inc
+> T: +1 418-696-5056 #201
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/294706c1/attachment.htm>
+
+From even.rouault at spatialys.com  Mon Mar  3 08:32:52 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 3 Mar 2025 17:32:52 +0100
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <9f469656-5542-4fd8-aa58-3fdcd005181f@spatialys.com>
+
++1 Even
+
+Le 03/03/2025 ? 17:30, Daniel Morissette via gdal-dev a ?crit?:
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL 
+> Project Steering Committee.
+>
+> ? https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.? He is 
+> also very active in several other OSGeo projects including as member 
+> of the MapServer and PDAL project PSC's and was actually one of the 
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given 
+> his years of experience with the management of open source projects 
+> (and non-coding activities), a side benefit of having him on the GDAL 
+> PSC is that he could also help us with managing the sponsorship 
+> program and the NumFocus relationship and take some of this 
+> operational work off Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From warmerdam at pobox.com  Mon Mar  3 09:58:02 2025
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Mon, 3 Mar 2025 12:58:02 -0500
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <9f469656-5542-4fd8-aa58-3fdcd005181f@spatialys.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+ <9f469656-5542-4fd8-aa58-3fdcd005181f@spatialys.com>
+Message-ID: <CA+YzLBcP3CgAGYO8p0iFpmRu0E6oW_8tsCmRgLJ-mu06Mj_tNg@mail.gmail.com>
+
++1 Frank
+
+On Mon, Mar 3, 2025 at 11:33?AM Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> +1 Even
+>
+> Le 03/03/2025 ? 17:30, Daniel Morissette via gdal-dev a ?crit :
+> > Hi PSC members,
+> >
+> > I would like to nominate Michael Smith to become a member of the GDAL
+> > Project Steering Committee.
+> >
+> >   https://www.osgeo.org/member/michael-smith/
+> >
+> > Mike is a long time GDAL power user and contributor/supporter.  He is
+> > also very active in several other OSGeo projects including as member
+> > of the MapServer and PDAL project PSC's and was actually one of the
+> > instigators behind the PDAL project, the GDAL of Point Clouds.
+> >
+> > Mike has been active on the OSGeo Board since 2014 as treasurer. Given
+> > his years of experience with the management of open source projects
+> > (and non-coding activities), a side benefit of having him on the GDAL
+> > PSC is that he could also help us with managing the sponsorship
+> > program and the NumFocus relationship and take some of this
+> > operational work off Howard's shoulders.
+> >
+> > I start with my +1
+> >
+> > Daniel
+> >
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | USA: +1 650-701-7823
+<http://voice.google.com/calls?a=nc,%2B16507017823>
+and watch the world go round - Rush    | CAN: +1 343-550-9984
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/d23b9d24/attachment.htm>
+
+From schwehr at gmail.com  Mon Mar  3 10:08:03 2025
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Mon, 3 Mar 2025 10:08:03 -0800
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <CACmBxytSHYd9Lj37M68+g7BvDVepaZxsXiYy4NKJSYC+3Ae-ww@mail.gmail.com>
+
++1 KurtS
+
+On Mon, Mar 3, 2025 at 8:30?AM Daniel Morissette via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL
+> Project Steering Committee.
+>
+>    https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.  He is
+> also very active in several other OSGeo projects including as member of
+> the MapServer and PDAL project PSC's and was actually one of the
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given
+> his years of experience with the management of open source projects (and
+> non-coding activities), a side benefit of having him on the GDAL PSC is
+> that he could also help us with managing the sponsorship program and the
+> NumFocus relationship and take some of this operational work off
+> Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+> --
+> Daniel Morissette
+> Mapgears Inc
+> T: +1 418-696-5056 #201
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/74be6b36/attachment.htm>
+
+From szekerest at gmail.com  Mon Mar  3 10:52:36 2025
+From: szekerest at gmail.com (Tamas Szekeres)
+Date: Mon, 3 Mar 2025 19:52:36 +0100
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <CACALY+Q9uPJ6JAES+z0PsX6+F_XW2nyxX992gYvKoje4V7B1iQ@mail.gmail.com>
+
++1
+
+Tamas
+
+Daniel Morissette via gdal-dev <gdal-dev at lists.osgeo.org> ezt ?rta
+(id?pont: 2025. m?rc. 3., H, 17:30):
+
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL
+> Project Steering Committee.
+>
+>    https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.  He is
+> also very active in several other OSGeo projects including as member of
+> the MapServer and PDAL project PSC's and was actually one of the
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given
+> his years of experience with the management of open source projects (and
+> non-coding activities), a side benefit of having him on the GDAL PSC is
+> that he could also help us with managing the sponsorship program and the
+> NumFocus relationship and take some of this operational work off
+> Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+> --
+> Daniel Morissette
+> Mapgears Inc
+> T: +1 418-696-5056 #201
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250303/7231b007/attachment-0001.htm>
+
+From jukka.rahkonen at maanmittauslaitos.fi  Mon Mar  3 13:15:06 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Mon, 3 Mar 2025 21:15:06 +0000
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <DB9PR09MB68877026FE849ED05D1CBC0DFDC92@DB9PR09MB6887.eurprd09.prod.outlook.com>
+
++1
+
+-Jukka Rahkonen-
+
+-----Alkuper?inen viesti-----
+L?hett?j?: gdal-dev <gdal-dev-bounces at lists.osgeo.org> Puolesta Daniel Morissette via gdal-dev
+L?hetetty: maanantai 3. maaliskuuta 2025 18.30
+Vastaanottaja: gdal-dev <gdal-dev at lists.osgeo.org>
+Aihe: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+
+Hi PSC members,
+
+I would like to nominate Michael Smith to become a member of the GDAL Project Steering Committee.
+
+   https://www.osgeo.org/member/michael-smith/
+
+Mike is a long time GDAL power user and contributor/supporter.  He is also very active in several other OSGeo projects including as member of the MapServer and PDAL project PSC's and was actually one of the instigators behind the PDAL project, the GDAL of Point Clouds.
+
+Mike has been active on the OSGeo Board since 2014 as treasurer. Given his years of experience with the management of open source projects (and non-coding activities), a side benefit of having him on the GDAL PSC is that he could also help us with managing the sponsorship program and the NumFocus relationship and take some of this operational work off Howard's shoulders.
+
+I start with my +1
+
+Daniel
+
+--
+Daniel Morissette
+Mapgears Inc
+T: +1 418-696-5056 #201
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+From christian.beilschmidt at geoengine.de  Tue Mar  4 00:05:15 2025
+From: christian.beilschmidt at geoengine.de (Christian Beilschmidt)
+Date: Tue, 4 Mar 2025 09:05:15 +0100
+Subject: [gdal-dev] Mute HDF5-DIAG diagnostic output
+Message-ID: <CAAuDOj_c4TL0De31LVgEVN3errVtqFGufbjt7uditHaMB7Wu_A@mail.gmail.com>
+
+ <https://gis.stackexchange.com/posts/490841/timeline>
+
+Dear GDAL devs,
+
+I am using GDAL 3.8.4 and have some tests in a Rust codebase that check
+behavior on trying to open non-existing NetCDF files, non-existing groups
+within the NetCDF, etc.
+
+I am working with the dataset by opening it as a multidimensional GDAL
+dataset and then use GDALGroupOpenGroup, etc.
+
+The testing works fine, but I am getting loads of diagnostic messages from
+the underlying NetCDF library.
+
+HDF5-DIAG: Error detected in HDF5 (1.10.10) thread 3:
+  #000: ../../../src/H5A.c line 484 in H5Aopen_by_name(): can't open attribute
+    major: Attribute
+    minor: Can't open object
+  #001: ../../../src/H5Aint.c line 542 in H5A__open_by_name(): unable
+to load attribute info from object header
+    major: Attribute
+    minor: Unable to initialize object
+  #002: ../../../src/H5Oattribute.c line 496 in
+H5O__attr_open_by_name(): can't locate attribute:
+'_QuantizeGranularBitRoundNumberOfSignificantDigits'
+    major: Attribute
+    minor: Object not found
+
+
+How can I mute these HDF5-DIAG messages?
+
+I tried sending GDAL's error logging to /dev/null but this does not change
+anything.
+
+
+Best regards
+
+ Christian
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/908dcbba/attachment.htm>
+
+From lnicola at dend.ro  Tue Mar  4 00:09:27 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Tue, 04 Mar 2025 10:09:27 +0200
+Subject: [gdal-dev] Mute HDF5-DIAG diagnostic output
+In-Reply-To: <CAAuDOj_c4TL0De31LVgEVN3errVtqFGufbjt7uditHaMB7Wu_A@mail.gmail.com>
+References: <CAAuDOj_c4TL0De31LVgEVN3errVtqFGufbjt7uditHaMB7Wu_A@mail.gmail.com>
+Message-ID: <2434fa4b-a59d-49aa-9643-aa55edb3bb9d@betaapp.fastmail.com>
+
+Hi Christian,
+
+On Tue, Mar 4, 2025, at 10:05, Christian Beilschmidt via gdal-dev wrote:
+ <https://gis.stackexchange.com/posts/490841/timeline>I tried sending GDAL's error logging to /dev/null but this does not change anything.
+
+I take it https://docs.rs/gdal/latest/gdal/config/fn.set_error_handler.html doesn't work? Can you try e.g. gdal.PushErrorHandler('CPLQuietErrorHandler') in Python to make sure?
+
+Laurentiu
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/d64c9f12/attachment.htm>
+
+From lnicola at dend.ro  Tue Mar  4 00:21:43 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Tue, 04 Mar 2025 10:21:43 +0200
+Subject: [gdal-dev] Mute HDF5-DIAG diagnostic output
+In-Reply-To: <2434fa4b-a59d-49aa-9643-aa55edb3bb9d@betaapp.fastmail.com>
+References: <CAAuDOj_c4TL0De31LVgEVN3errVtqFGufbjt7uditHaMB7Wu_A@mail.gmail.com>
+ <2434fa4b-a59d-49aa-9643-aa55edb3bb9d@betaapp.fastmail.com>
+Message-ID: <86f9262b-0634-494f-a5a5-c9c67cb44396@betaapp.fastmail.com>
+
+PS: the only reference to HDF5's error handling I found while skimming the GDAL code was https://github.com/OSGeo/gdal/blob/0caa252/frmts/hdf5/hdf5vfl.h#L236-L241.
+
+On Tue, Mar 4, 2025, at 10:09, Lauren?iu Nicola via gdal-dev wrote:
+> Hi Christian,
+> 
+> On Tue, Mar 4, 2025, at 10:05, Christian Beilschmidt via gdal-dev wrote:
+ <https://gis.stackexchange.com/posts/490841/timeline>I tried sending GDAL's error logging to /dev/null but this does not change anything.
+> 
+> I take it https://docs.rs/gdal/latest/gdal/config/fn.set_error_handler.html doesn't work? Can you try e.g. gdal.PushErrorHandler('CPLQuietErrorHandler') in Python to make sure?
+> 
+> Laurentiu
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/2f60226e/attachment.htm>
+
+From dbaston at gmail.com  Tue Mar  4 05:09:17 2025
+From: dbaston at gmail.com (Daniel Baston)
+Date: Tue, 4 Mar 2025 08:09:17 -0500
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <CA+K_q_qaXuvLzPpZsAaKL7kU+F5+wGr00rqH0TD1X18pRFL_sQ@mail.gmail.com>
+
++1 Dan
+
+On Mon, Mar 3, 2025 at 11:30?AM Daniel Morissette via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL
+> Project Steering Committee.
+>
+>    https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.  He is
+> also very active in several other OSGeo projects including as member of
+> the MapServer and PDAL project PSC's and was actually one of the
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given
+> his years of experience with the management of open source projects (and
+> non-coding activities), a side benefit of having him on the GDAL PSC is
+> that he could also help us with managing the sponsorship program and the
+> NumFocus relationship and take some of this operational work off
+> Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+> --
+> Daniel Morissette
+> Mapgears Inc
+> T: +1 418-696-5056 #201
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/cce254c1/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Tue Mar  4 06:51:13 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 4 Mar 2025 15:51:13 +0100
+Subject: [gdal-dev] Missing exception when using multithread=True for
+ gdal.Warp
+In-Reply-To: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+References: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+Message-ID: <95d50c26-c44a-41ca-8cc8-27fc6b9479f4@spatialys.com>
+
+Tim,
+
+wil be solved (in 3.11 only) per https://github.com/OSGeo/gdal/pull/11915
+
+In the meantime, check for gdal.Warp() return value: if None, an error 
+occurred
+
+Even
+
+Le 01/03/2025 ? 01:00, Tim Harris via gdal-dev a ?crit?:
+> Hi, I'm having some trouble warping a VRT to a TIF where the VRT and 
+> its constituent rasters are in S3. It stems from a random read error, 
+> but the real problem is that the gdal.Warp call didn't throw an 
+> exception when it was supposed to.
+>
+> I saw there's this pretty old GitHub issue that may be related, but 
+> I'm not sure:
+> https://github.com/OSGeo/gdal/issues/3372
+>
+> In my situation what really happened was a random /vsicurl read 
+> failed... sort of like an issue I reported in December that was fixed 
+> in GDAL 3.10.1:
+> https://github.com/OSGeo/gdal/issues/11552
+>
+> Here's a section of my log file (filename sanitized):
+> ERROR 11: CURL error: Empty reply from server
+> 0...10...20...30...40...50...60...70...80...90...100 - done.
+> ERROR 4: `/vsis3/path/to/raster.tif' does not exist in the file 
+> system, and is not recognized as a supported dataset name.
+>
+> Notice the CURL error but the progress still goes to 100%. The warp 
+> completed successfully despite the read error.
+>
+> I have a hopefully simple reproduce case here. The first few shell 
+> commands will make two TIFs, put them in S3, then make a VRT of those 
+> TIFs and also put that in S3. Then to simulate the CURL error above, 
+> it just deletes one of the TIFs so that the VRT references a 
+> non-existent file:
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 
+> -a_ullr 0 1 1 0 input1.tif
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 
+> -a_ullr 1 1 2 0 input2.tif
+> aws s3 cp input1.tif s3://your-bucket/test/input1.tif
+> aws s3 cp input2.tif s3://your-bucket/test/input2.tif
+> gdalbuildvrt input.vrt /vsis3/your-bucket/test/input1.tif 
+> /vsis3/your-bucket/test/input2.tif
+> aws s3 cp input.vrt s3://your-bucket/test/input.vrt
+> aws s3 rm s3://your-bucket/test/input2.tif
+>
+> Then in Python:
+> from osgeo import gdal
+> gdal.UseExceptions()
+> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt", 
+> callback=gdal.TermProgress)
+>
+> This throws a RuntimeError, as expected. But delete the partial file 
+> and try with multithread=True:
+> rm output.tif
+> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt", 
+> callback=gdal.TermProgress, multithread=True)
+>
+> This logs the error, but doesn't throw an exception. The end result is 
+> that I have a TIF that is missing the contents of the file that 
+> suffered from that CURL read error.
+>
+> For what it's worth this also happens with the command line utility, 
+> it's just not as obvious. Without -multi, it only prints the "0" for 
+> the progress before the error halts execution:
+> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif
+> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4: 
+> `/vsis3/your-bucket/test/input2.tif' does not exist in the file 
+> system, and is not recognized as a supported dataset name.
+>
+> But with -multi, notice the progress goes to 100%:
+> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif -multi
+> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4: 
+> `/vsis3/your-bucket/test/input2.tif' does not exist in the file 
+> system, and is not recognized as a supported dataset name.
+> ...10...20...30...40...50...60...70...80...90...100 - done.
+>
+> I guess my workaround is to just not use multithread=True. But is this 
+> something that could be fixed?
+>
+> Thanks
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/5981820e/attachment.htm>
+
+From trharris78 at gmail.com  Tue Mar  4 07:45:04 2025
+From: trharris78 at gmail.com (Tim Harris)
+Date: Tue, 4 Mar 2025 08:45:04 -0700
+Subject: [gdal-dev] Missing exception when using multithread=True for
+ gdal.Warp
+In-Reply-To: <95d50c26-c44a-41ca-8cc8-27fc6b9479f4@spatialys.com>
+References: <CAK3fJgVS+rmzya-NjxsMUguCSneBdHsjsoZNqQx=Lj-kpR=51A@mail.gmail.com>
+ <95d50c26-c44a-41ca-8cc8-27fc6b9479f4@spatialys.com>
+Message-ID: <CAK3fJgVEpfBR1qXmgzOb4-pkh=9PX4G0bQ51X9UN-+BpTtn4tA@mail.gmail.com>
+
+Thanks Even!
+
+On Tue, Mar 4, 2025 at 7:51?AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Tim,
+>
+> wil be solved (in 3.11 only) per https://github.com/OSGeo/gdal/pull/11915
+>
+> In the meantime, check for gdal.Warp() return value: if None, an error
+> occurred
+>
+> Even
+> Le 01/03/2025 ? 01:00, Tim Harris via gdal-dev a ?crit :
+>
+> Hi, I'm having some trouble warping a VRT to a TIF where the VRT and its
+> constituent rasters are in S3. It stems from a random read error, but the
+> real problem is that the gdal.Warp call didn't throw an exception when it
+> was supposed to.
+>
+> I saw there's this pretty old GitHub issue that may be related, but I'm
+> not sure:
+> https://github.com/OSGeo/gdal/issues/3372
+>
+> In my situation what really happened was a random /vsicurl read failed...
+> sort of like an issue I reported in December that was fixed in GDAL 3.10.1:
+> https://github.com/OSGeo/gdal/issues/11552
+>
+> Here's a section of my log file (filename sanitized):
+> ERROR 11: CURL error: Empty reply from server
+> 0...10...20...30...40...50...60...70...80...90...100 - done.
+> ERROR 4: `/vsis3/path/to/raster.tif' does not exist in the file system,
+> and is not recognized as a supported dataset name.
+>
+> Notice the CURL error but the progress still goes to 100%. The warp
+> completed successfully despite the read error.
+>
+> I have a hopefully simple reproduce case here. The first few shell
+> commands will make two TIFs, put them in S3, then make a VRT of those TIFs
+> and also put that in S3. Then to simulate the CURL error above, it just
+> deletes one of the TIFs so that the VRT references a non-existent file:
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+> 0 1 1 0 input1.tif
+> gdal_create -of GTiff -outsize 1000 1000 -bands 1 -a_srs EPSG:4326 -a_ullr
+> 1 1 2 0 input2.tif
+> aws s3 cp input1.tif s3://your-bucket/test/input1.tif
+> aws s3 cp input2.tif s3://your-bucket/test/input2.tif
+> gdalbuildvrt input.vrt /vsis3/your-bucket/test/input1.tif
+> /vsis3/your-bucket/test/input2.tif
+> aws s3 cp input.vrt s3://your-bucket/test/input.vrt
+> aws s3 rm s3://your-bucket/test/input2.tif
+>
+> Then in Python:
+> from osgeo import gdal
+> gdal.UseExceptions()
+> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+> callback=gdal.TermProgress)
+>
+> This throws a RuntimeError, as expected. But delete the partial file and
+> try with multithread=True:
+> rm output.tif
+> gdal.Warp("output.tif", "/vsis3/tharris-bucket/test/input.vrt",
+> callback=gdal.TermProgress, multithread=True)
+>
+> This logs the error, but doesn't throw an exception. The end result is
+> that I have a TIF that is missing the contents of the file that suffered
+> from that CURL read error.
+>
+> For what it's worth this also happens with the command line utility, it's
+> just not as obvious. Without -multi, it only prints the "0" for the
+> progress before the error halts execution:
+> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif
+> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+> is not recognized as a supported dataset name.
+>
+> But with -multi, notice the progress goes to 100%:
+> gdalwarp /vsis3/your-bucket/test/input.vrt output.tif -multi
+> Processing /vsis3/your-bucket/test/input.vrt [1/1] : 0ERROR 4:
+> `/vsis3/your-bucket/test/input2.tif' does not exist in the file system, and
+> is not recognized as a supported dataset name.
+> ...10...20...30...40...50...60...70...80...90...100 - done.
+>
+> I guess my workaround is to just not use multithread=True. But is this
+> something that could be fixed?
+>
+> Thanks
+>
+> _______________________________________________
+> gdal-dev mailing listgdal-dev at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/7ec5f9d4/attachment.htm>
+
+From sean.gillies at gmail.com  Tue Mar  4 08:43:45 2025
+From: sean.gillies at gmail.com (Sean Gillies)
+Date: Tue, 4 Mar 2025 09:43:45 -0700
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <CAOodmJqB2ZE=rOHOd4uoDR-E6TCFagHKc5Wsp1089kZZGPP=xQ@mail.gmail.com>
+
++1
+
+On Mon, Mar 3, 2025 at 9:30?AM Daniel Morissette via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL
+> Project Steering Committee.
+>
+>    https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.  He is
+> also very active in several other OSGeo projects including as member of
+> the MapServer and PDAL project PSC's and was actually one of the
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given
+> his years of experience with the management of open source projects (and
+> non-coding activities), a side benefit of having him on the GDAL PSC is
+> that he could also help us with managing the sponsorship program and the
+> NumFocus relationship and take some of this operational work off
+> Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+>
+-- 
+Sean Gillies
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/471d1930/attachment-0001.htm>
+
+From joe at aidash.com  Tue Mar  4 14:23:33 2025
+From: joe at aidash.com (Joe  McGlinchy)
+Date: Tue, 4 Mar 2025 22:23:33 +0000
+Subject: [gdal-dev] pansharpening on images with RPCs post GDAL 3.6
+In-Reply-To: <MW6PR04MB8871A7FA1DAE62468D20CFA8C3C32@MW6PR04MB8871.namprd04.prod.outlook.com>
+References: <MW6PR04MB8871763303E6496D34E88071C3FE2@MW6PR04MB8871.namprd04.prod.outlook.com>
+ <MW6PR04MB8871E79AAD8C7448097F82E5C3C32@MW6PR04MB8871.namprd04.prod.outlook.com>
+ <B9E7D14F-3D90-425B-B07D-5D47077CFCAD@hobu.co>
+ <MW6PR04MB8871F043E08E58A4476A08F6C3C32@MW6PR04MB8871.namprd04.prod.outlook.com>
+ <DB9PR09MB68874ECFF0368264B2F26817FDC32@DB9PR09MB6887.eurprd09.prod.outlook.com>
+ <MW6PR04MB8871A7FA1DAE62468D20CFA8C3C32@MW6PR04MB8871.namprd04.prod.outlook.com>
+Message-ID: <MW6PR04MB887191331388899F214F2311C3C82@MW6PR04MB8871.namprd04.prod.outlook.com>
+
+Hello,
+
+I figured a way around this, and to be completely honest this issue was coming up from using the DIMAP files (for Pleiades NEO and HR) for the panchromatic and multispectral images and so were loaded with the DIMAP driver.
+
+1. My images for input to pansharpening had no geotransform, as they were generated through several math processing steps using the DIMAP files (for Pleiades NEO and HR) for the panchromatic and multispectral images and so were loaded with the DIMAP driver. The Geotransform was of the form (0.0, 1.0, 0.0, 0.0, 0.0, 1.0), and this makes gdal_pansharpen unhappy.
+2. I set the geotransform to that of one of the tif files (formatted with RxCx, using the first one) that contains a geotransform that makes sense for the origin of the image and RPCs, i.e., R1C1 i.e., the upper leftmost image in the delivery. This geotransform matches well enough to make pansharpening happy across the full dataset extent.
+3. On the pansharpened result, remove the geotransform with gdal_edit.py -unsetgt <file> and copy in the RPCs from the original DIMAP file.
+
+This produces a file that can be used downstream for orthorectification or any other operations utilizing the RPCs.
+
+Thanks for the input!
+
+Cheers,
+Joe
+
+________________________________
+From: Joe McGlinchy <joe at aidash.com>
+Sent: Tuesday, February 25, 2025 14:53
+To: Rahkonen Jukka <jukka.rahkonen at maanmittauslaitos.fi>; Howard Butler <howard at hobu.co>; gdal-dev at lists.osgeo.org <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] pansharpening on images with RPCs post GDAL 3.6
+
+Hi Jukka,
+
+That is almost exactly along the lines of what I was thinking: fake the geotransform  and CRS data to get past the non-existent CRS data within this level of imagery, and then copy back in the appropriate metadata. Thanks for your response! I'll give it a try.
+
+Cheers,
+Joe
+________________________________
+From: Rahkonen Jukka <jukka.rahkonen at maanmittauslaitos.fi>
+Sent: Tuesday, February 25, 2025 14:51
+To: Joe McGlinchy <joe at aidash.com>; Howard Butler <howard at hobu.co>; gdal-dev at lists.osgeo.org <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] pansharpening on images with RPCs post GDAL 3.6
+
+
+EXTERNAL SENDER. DO NOT click links, or open attachments, if the sender is unknown, or the message seems suspicious in any way. DO NOT provide your user ID or Password.
+
+
+
+
+
+Hi,
+
+
+
+I have never done anything with RPCs, but maybe you could remove RPCs with something like ?gdal_translate -co profile=baseline input.tif output.tif? (delete the aux.xml or use that magic config option that I do not remember out of my head), define some fake geotransformation by defining same ullr coordinates and crs for both PAN and MS images, then pansharpen, and finally copy the RPCs back like you have done before. I apologize if this does not make any sense.
+
+
+
+-Jukka Rahkonen-
+
+
+
+L?hett?j?: gdal-dev <gdal-dev-bounces at lists.osgeo.org> Puolesta Joe McGlinchy via gdal-dev
+L?hetetty: tiistai 25. helmikuuta 2025 23.38
+Vastaanottaja: Howard Butler <howard at hobu.co>; gdal-dev at lists.osgeo.org
+Aihe: Re: [gdal-dev] pansharpening on images with RPCs post GDAL 3.6
+
+
+
+My apologies for the repost, was not aware that is against the rules of the list-serv. noted!
+
+
+
+The workflow I described, pansharpening on data in image space, is a common practice. This being deprecated was surprising to see as a user, but I understand the reasoning in the migration notes. If I end up determining a workflow that allows similar functionality with gdal > 3.6, I'll be sure to respond accordingly for the benefit of the community.
+
+
+
+As for the rest of the reply, from one working professional to another, I'll look past it. thanks!
+
+
+
+-Joe
+
+________________________________
+
+From: Howard Butler <howard at hobu.co<mailto:howard at hobu.co>>
+Sent: Tuesday, February 25, 2025 14:25
+To: Joe McGlinchy <joe at aidash.com<mailto:joe at aidash.com>>
+Cc: gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org> <gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>>
+Subject: Re: [gdal-dev] pansharpening on images with RPCs post GDAL 3.6
+
+
+
+EXTERNAL SENDER. DO NOT click links, or open attachments, if the sender is unknown, or the message seems suspicious in any way. DO NOT provide your user ID or Password.
+
+
+
+
+
+Joe,
+
+
+
+Ask the AI from AiDASH to tell you how to do it? Oh, right, the GDAL list is your training corpus, not the inference data.
+
+
+
+Sorry for being snotty, but please refrain from reposting questions to the list like this. If no one answered your question the first time, the LLM hallucinates and pukes out-of-order GDAL arguments at you, and you cannot dig through the source code and documentation to figure it out yourself, you should hire a consultant. https://gdal.org/en/stable/community/service_providers.html is a list of a few, and inspecting the commit history of the repository should give you some inspiration for others to privately contact.
+
+
+
+Howard
+
+
+
+
+
+On Feb 25, 2025, at 2:51?PM, Joe McGlinchy via gdal-dev <gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>> wrote:
+
+
+
+Any advice on how to pansharpen image space data with RPCs in gdal >= 3.7?? Repeating below.
+
+
+
+Hello,
+
+
+
+I saw in the migration notes from GDAL 3.6 -> 3.7:
+
+- Pansharpening now requires that panchromatic and multispectral bands have valid geotransform (in early versions, it was assumed in the case of missing   geotransform that they covered the same geospatial extent).  The undocumented VRT pansharpened MSShiftX and MSShiftY options (and the  corresponding C++ GDALPansharpenOptions::dfMSShiftX and dfMSShiftY members)  have been removed, due to using the inverted convention as one would expect,  and being sub-par solution compared to using geotransform to correlate pixels  of panchromatic and multispectral bands.
+
+
+
+Previously, I had been taking a PAN and MS set of images with RPCs and running gdal_pansharpen, then copying over the RPCs from the PAN file, then continuing on in my workflow. This no long works past GDAL 3.6, so is there a recommended workflow for doing this? I've been able to "gdalwarp -rpc" the files prior to calling gdal_pansharpen, but i'd like to retain the image in image space with RPCs if possible.
+
+
+
+thanks,
+
+Joe
+
+
+
+________________________________
+
+From: Joe McGlinchy <joe at aidash.com<mailto:joe at aidash.com>>
+Sent: Friday, February 14, 2025 10:37
+To: gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org> <gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>>
+Subject: pansharpening on images with RPCs post GDAL 3.6
+
+
+
+Hello,
+
+
+
+I saw in the migration notes from GDAL 3.6 -> 3.7:
+
+- Pansharpening now requires that panchromatic and multispectral bands have valid geotransform (in early versions, it was assumed in the case of missing   geotransform that they covered the same geospatial extent).  The undocumented VRT pansharpened MSShiftX and MSShiftY options (and the  corresponding C++ GDALPansharpenOptions::dfMSShiftX and dfMSShiftY members)  have been removed, due to using the inverted convention as one would expect,  and being sub-par solution compared to using geotransform to correlate pixels  of panchromatic and multispectral bands.
+
+
+
+Previously, I had been taking a PAN and MS set of images with RPCs and running gdal_pansharpen, then copying over the RPCs from the PAN file, then continuing on in my workflow. This no long works past GDAL 3.6, so is there a recommended workflow for doing this? I've been able to "gdalwarp -rpc" the files prior to calling gdal_pansharpen, but i'd like to retain the image in image space with RPCs if possible.
+
+
+
+thanks,
+
+Joe
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250304/6db0f000/attachment-0001.htm>
+
+From christian.beilschmidt at geoengine.de  Tue Mar  4 22:55:59 2025
+From: christian.beilschmidt at geoengine.de (Christian Beilschmidt)
+Date: Wed, 5 Mar 2025 07:55:59 +0100
+Subject: [gdal-dev] Mute HDF5-DIAG diagnostic output
+In-Reply-To: <86f9262b-0634-494f-a5a5-c9c67cb44396@betaapp.fastmail.com>
+References: <CAAuDOj_c4TL0De31LVgEVN3errVtqFGufbjt7uditHaMB7Wu_A@mail.gmail.com>
+ <2434fa4b-a59d-49aa-9643-aa55edb3bb9d@betaapp.fastmail.com>
+ <86f9262b-0634-494f-a5a5-c9c67cb44396@betaapp.fastmail.com>
+Message-ID: <CAAuDOj-c8ecJh47DEY+Q3oTRRNHnbtOfrcBT91TNNk=+qRRtYA@mail.gmail.com>
+
+I tried it with the Python bindings, but there I don't get the
+HDF5-DIAG messages
+at all.
+
+# Ubuntu 24 LTS version
+pip install gdal[numpy]=="3.8.4.*"
+
+*<test.py>*
+from osgeo import gdal
+gdal.UseExceptions()
+dataset = gdal.OpenEx(
+    "path/to/file.nc",
+    nOpenFlags=gdal.OF_MULTIDIM_RASTER | gdal.OF_READONLY,
+)
+print(dataset.GetDriver().ShortName)
+
+rootGroup = dataset.GetRootGroup()
+print(rootGroup.GetGroupNames())
+
+rootGroup.OpenGroup('scenario_6')
+*</test.py>*
+
+*<Output>*
+netCDF
+['scenario_1', 'scenario_2', 'scenario_3', 'scenario_4', 'scenario_5']
+Traceback (most recent call last):
+  File "/examples/hdf5.py", line 14, in <module>
+    rootGroup.OpenGroup('scenario_6')
+  File "/examples/env/lib/python3.12/site-packages/osgeo/gdal.py", line
+4088, in OpenGroup
+    return _gdal.Group_OpenGroup(self, *args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Group scenario_6 does not exist
+*</Output>*
+
+This is what I would hope for, but it is strange indeed.
+
+Best regards
+ Christian
+
+Am Di., 4. M?rz 2025 um 09:22 Uhr schrieb Lauren?iu Nicola via gdal-dev <
+gdal-dev at lists.osgeo.org>:
+
+> PS: the only reference to HDF5's error handling I found while skimming the
+> GDAL code was
+> https://github.com/OSGeo/gdal/blob/0caa252/frmts/hdf5/hdf5vfl.h#L236-L241.
+>
+> On Tue, Mar 4, 2025, at 10:09, Lauren?iu Nicola via gdal-dev wrote:
+>
+> Hi Christian,
+>
+> On Tue, Mar 4, 2025, at 10:05, Christian Beilschmidt via gdal-dev wrote:
+>
+> <https://gis.stackexchange.com/posts/490841/timeline>I tried sending
+> GDAL's error logging to /dev/null but this does not change anything.
+>
+>
+> I take it
+> https://docs.rs/gdal/latest/gdal/config/fn.set_error_handler.html doesn't
+> work? Can you try e.g. gdal.PushErrorHandler('CPLQuietErrorHandler') in
+> Python to make sure?
+>
+> Laurentiu
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250305/635e6702/attachment.htm>
+
+From lnicola at dend.ro  Tue Mar  4 22:59:19 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Wed, 05 Mar 2025 08:59:19 +0200
+Subject: [gdal-dev] Mute HDF5-DIAG diagnostic output
+In-Reply-To: <CAAuDOj-c8ecJh47DEY+Q3oTRRNHnbtOfrcBT91TNNk=+qRRtYA@mail.gmail.com>
+References: <CAAuDOj_c4TL0De31LVgEVN3errVtqFGufbjt7uditHaMB7Wu_A@mail.gmail.com>
+ <2434fa4b-a59d-49aa-9643-aa55edb3bb9d@betaapp.fastmail.com>
+ <86f9262b-0634-494f-a5a5-c9c67cb44396@betaapp.fastmail.com>
+ <CAAuDOj-c8ecJh47DEY+Q3oTRRNHnbtOfrcBT91TNNk=+qRRtYA@mail.gmail.com>
+Message-ID: <24174a05-60cb-40f4-9bb5-e7a1b4a5f908@betaapp.fastmail.com>
+
+I guess that's because you're enabling exceptions, but even without them I get no error logging at all, at least on the file I tried with.
+
+Laurentiu
+
+On Wed, Mar 5, 2025, at 08:55, Christian Beilschmidt via gdal-dev wrote:
+> I tried it with the Python bindings, but there I don't get the `HDF5-DIAG `messages at all`.`
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250305/a204d814/attachment.htm>
+
+From vincent.loppin at cs-soprasteria.com  Wed Mar  5 01:12:37 2025
+From: vincent.loppin at cs-soprasteria.com (LOPPIN Vincent)
+Date: Wed, 5 Mar 2025 09:12:37 +0000
+Subject: [gdal-dev] OGRCoordinateTransformation & MultiThread
+Message-ID: <DU2PR07MB8126BC4D697E66F470176ED6A8CB2@DU2PR07MB8126.eurprd07.prod.outlook.com>
+
+
+Hi there,
+
+In our application, we integrate GDAL (3.8.4 with proj 9.4.0) in order to deals with geographic projections and data loading.
+To improve loading & processing time we use multithreading.
+Until now everything was right, but we start dealing with dataset expressed on EPSG:28992 (Amersfoort / RD New -- Netherlands - Holland - Dutch).
+Then our application starts to crash. After some investigations, it appears that PROJ is modifying the pipeline used to perform transformation.
+(Into pipeline, some pop operation)
+
+We use OGRCoordinateTransformation into a wrapper, each Transformation object is unique throught the whole application (I.E. one object to convert EPSG:4326 to EPSG:28992).
+For now this implementation works wells (At least for UTM / Lambert / WorldMercator, maybe anothers) but for this particular one don't.
+
+Did we miss something ? Should we have a threadlocal based implementation on OGRCoordinateTransformation object ?
+
+Thanks !
+
+
+
+
+C2 - Usage restreint
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250305/e80ddffa/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Wed Mar  5 01:17:31 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 5 Mar 2025 10:17:31 +0100
+Subject: [gdal-dev] OGRCoordinateTransformation & MultiThread
+In-Reply-To: <DU2PR07MB8126BC4D697E66F470176ED6A8CB2@DU2PR07MB8126.eurprd07.prod.outlook.com>
+References: <DU2PR07MB8126BC4D697E66F470176ED6A8CB2@DU2PR07MB8126.eurprd07.prod.outlook.com>
+Message-ID: <3a8c0606-e895-45d8-8863-eb949aee69a0@spatialys.com>
+
+Vincent,
+> Should we have a threadlocal based implementation on 
+> OGRCoordinateTransformation object ?
+
+Yes, one OGRCoordinateTransformation object per thread. See 
+https://gdal.org/en/stable/user/multithreading.html : "Unless otherwise 
+stated, no GDAL public C functions and C++ methods should be assumed to 
+be thread-safe. That is you should not call simultaneously GDAL 
+functions from multiple threads on the same data instance"
+
+Even
+
+-- 
+
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250305/cd889c3e/attachment.htm>
+
+From schwehr at gmail.com  Wed Mar  5 09:47:13 2025
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Wed, 5 Mar 2025 09:47:13 -0800
+Subject: [gdal-dev] Reading older NOAA GOES sat data in McIDAS format?
+Message-ID: <CACmBxyuBAaqVjV-qu1AGcYs2oF9RS4JE+9Gp+Tos7DFLbwDNZQ@mail.gmail.com>
+
+Hi all,
+
+A little off topic for GDAL as I'm not suggesting GDAL needs a driver for
+this.
+
+Does anyone know of tools other than McIDAS-X / McIDAS-V for reading older
+NOAA GOES 08-15 data as described in the McIDAS Programmer's Manual
+<https://www.ssec.wisc.edu/mcidas/doc/prog_man/2003print/progman2003-formats.html>
+as
+AREAnnnn - Area (image) files? e.g. the files here:
+
+https://console.cloud.google.com/storage/browser/noaa-goes-legacy
+
+One example file:
+
+wget
+https://storage.googleapis.com/noaa-goes-legacy/goes11/2010/008/goes11.2010.008.004514.BAND_04
+
+strings goes11.2010.008.004514.BAND_04 | egrep -i '[A-Z][A-Z][A-Z][A-Z]'
+RT GVAR
+GVARRAW
+GVAR100J
+MORERAVG
+MORERAVG
+MORERAVG
+MORERAVG
+16154 202023 IMGCOPY DELIVERY/IN2393848603.1 DELIVERY/AR2393848603.4
+LINELE=2557              10065 I PLACE=ULEFT BAND=4 DOC=YES MAG=-1 -1
+SIZE=982 2853
+
+https://pillow.readthedocs.io/en/stable/_modules/PIL/McIdasImagePlugin.html
+might be a start but it doesn't look to readthe associated meta data so I
+haven't even tried running it.
+
+Thanks!
+-Kurt
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250305/cfb8036d/attachment.htm>
+
+From dmorissette at mapgears.com  Wed Mar  5 10:32:07 2025
+From: dmorissette at mapgears.com (Daniel Morissette)
+Date: Wed, 5 Mar 2025 13:32:07 -0500
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+Message-ID: <ce54eeda-ebf1-4dd0-9db1-ab7ec11d051d@mapgears.com>
+
+Hi everyone,
+
+I declare this motion passed with +1 from PSC members JavierJS, EvenR, 
+FrankW, KurtS, TamasS, JukkaR, DanB, SeanG and me.
+
+Welcome and thank you for joining the PSC Michael!
+
+Daniel
+
+
+On 2025-03-03 11:30, Daniel Morissette wrote:
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL 
+> Project Steering Committee.
+>
+> https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.? He is 
+> also very active in several other OSGeo projects including as member 
+> of the MapServer and PDAL project PSC's and was actually one of the 
+> instigators behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given 
+> his years of experience with the management of open source projects 
+> (and non-coding activities), a side benefit of having him on the GDAL 
+> PSC is that he could also help us with managing the sponsorship 
+> program and the NumFocus relationship and take some of this 
+> operational work off Howard's shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+
+-- 
+Daniel Morissette
+Mapgears Inc
+T: +1 418-696-5056 #201
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250305/9d0bf2e1/attachment.htm>
+
+From salmanami22 at gmail.com  Wed Mar  5 19:29:12 2025
+From: salmanami22 at gmail.com (Shaima Alsharif)
+Date: Thu, 6 Mar 2025 06:29:12 +0300
+Subject: [gdal-dev] Creating Mosaic - Ensuring Maximum Pixel Value is
+ brought forward
+Message-ID: <CAOHJxn5UimEHRJxFBfW4r+mr=jN6h0Osd4GgqT9gixJ2yjOGUw@mail.gmail.com>
+
+Dear Developers,
+
+I am working on generating a mosaic, and I need to ensure that the maximum
+pixel value (dBZ) is selected when merging overlapping raster files.
+Despite my attempts using gdalbuildvrt and gdalwarp, I continue to
+encounter issues where it does not always pick the maximum pixel value in
+overlapping areas.
+
+notes: CRS is EPSG:4326 and GDAL 3.8.5, released 2024/04/02
+
+Commands Used:
+
+1.
+gdalwarp -overwrite -multi -r
+max  /nfs/radar/max-reflectivity/tiff/raw/*/2025/3/5/20250305T2145*.tif
+test-20250305T2145.png.composite.tif
+or
+gdalbuildvrt test-20250305T2145.png.composite.vrt
+/nfs/radar/max-reflectivity/tiff/raw/*/2025/3/5/20250305T2145*.tif
+
+gdalwarp -overwrite -q -r max test-20250305T2145.png.composite.vrt
+test-20250305T2145.png.composite.tif
+
+
+2.
+
+gdaldem color-relief -alpha -q test-20250305T2145.composite.tif \
+/color-ramps/reflectivity/titan.txt \ test-20250305T2145.png
+*Questions:*
+
+   1. How can I ensure that gdalbuildvrt properly stacks overlapping
+   rasters while keeping the maximum pixel values?
+   2. Is gdalwarp -r max the correct approach to pick the highest dBZ
+   reflectivity values?
+
+Any guidance or suggestions would be greatly appreciated! Thank you in
+advance for your help.
+
+With Regards,
+--
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/a91d33fe/attachment.htm>
+
+From sharma1981 at outlook.com  Thu Mar  6 00:27:49 2025
+From: sharma1981 at outlook.com (Parveen Sharma)
+Date: Thu, 6 Mar 2025 08:27:49 +0000
+Subject: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or later
+ with DOT NET FRAMEWORK 4.8?
+In-Reply-To: <SYZP282MB3150000DBB76A09B736DD844E5C42@SYZP282MB3150.AUSP282.PROD.OUTLOOK.COM>
+References: <SYZP282MB31894B60656F2FAFCA27562ED91F2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189A3F2EA079CE3017EFAB1D9EE2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189E3955054F50FDD8769DCD9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <CAE8nN5PFwNAu2L1sqnonzNPVSdBUoKkRzgzmcrRFF08m25=kLA@mail.gmail.com>
+ <SYZP282MB3189A974081E643F62827971D9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB318901D8EFE9E84200608419D9F52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189233CF223EB841BB13933D9C52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3150000DBB76A09B736DD844E5C42@SYZP282MB3150.AUSP282.PROD.OUTLOOK.COM>
+Message-ID: <SYZP282MB31898B28AB8FED8474CC83DED9CA2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+
+Hello
+
+We have a slightly renamed GDAL DLLs for e.g. gdal393.dll and hence the below NuGet packages that are built for .NET Framework won't work with our DLLs.
+https://www.nuget.org/packages?q=MaxRev.Gdal
+
+
+
+So, Is there a fork for these NUGET Packages which we can look at ?
+
+Best regards,
+
+________________________________
+From: Ross King <ross.king at Altavec.com>
+Sent: Thursday, February 20, 2025 9:40 AM
+To: Micha? Kowalczuk via gdal-dev <gdal-dev at lists.osgeo.org>; Parveen Sharma <sharma1981 at outlook.com>
+Subject: Re: Can we build CSharp Bindings in GDAL v3.9.3 or later with DOT NET FRAMEWORK 4.8?
+
+I would use one of the NuGet packages that are built for .NET Framework
+
+https://www.nuget.org/packages?q=MaxRev.Gdal
+
+These should suffice, rather than building the bindings yourself.
+
+
+Cheers,
+
+
+
+Ross
+
+
+
+________________________________
+From: gdal-dev <gdal-dev-bounces at lists.osgeo.org> on behalf of Parveen Sharma via gdal-dev <gdal-dev at lists.osgeo.org>
+Sent: Wednesday, 19 February 2025 19:58
+To: Micha? Kowalczuk via gdal-dev <gdal-dev at lists.osgeo.org>
+Subject: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or later with DOT NET FRAMEWORK 4.8?
+
+Hello
+
+I am trying to build GDAL CSharp bindings from v3.9.3 branch<https://github.com/OSGeo/gdal/tree/v3.9.3/swig/csharp>.
+
+The documentation for v3.9.3<https://gdal.org/en/stable/api/csharp/csharp_compile_cmake.html#net-build-toolchain> states that it needs .NET 5.0 OR Mono
+
+[cid:459f78aa-7867-445a-8c18-cbdc80f04432]
+
+Question : Is it possible to build GDAL source v3.9.3 using DOT NET Framework 4.8 or less? I am using below flags BUT it seems the build process is attempting to look for only .NET SDK and not the DOT NET FRAMEWORK
+
+??????<arg value="-DBUILD_CSHARP_BINDINGS=ON"/><!-- C# Bindings-->
+??????<arg value="-DCSHARP_LIBRARY_VERSION=4.8"/>
+??????<arg value="-DCSHARP_APPLICATION_VERSION=4.8"/>
+
+
+Does GDAL still support building CSharp Bindings with .net framework?
+
+Please let me know.
+
+Best regards,
+Parveen
+
+Caution: Please do not click links or open attachments unless you recognise the sender and know the content is safe.
+
+This email and any files transmitted with it may be confidential and are intended solely for the use of the individual or entity to whom they are addressed. Any confidentiality is not waived or lost because this email has been sent to you by mistake. This email may contain personal information of individuals, and be subject to Commonwealth and/or State privacy laws in Australia. This email is also subject to copyright. If you are not the intended recipient, you must not read, print, store, copy, forward or use this email for any reason, in accordance with privacy and copyright laws. If you have received this email in error, please notify the sender by return email, and delete this email from your inbox.
+
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/061746d7/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image.png
+Type: image/png
+Size: 40496 bytes
+Desc: image.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/061746d7/attachment-0001.png>
+
+From szekerest at gmail.com  Thu Mar  6 01:12:46 2025
+From: szekerest at gmail.com (Tamas Szekeres)
+Date: Thu, 6 Mar 2025 10:12:46 +0100
+Subject: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or later
+ with DOT NET FRAMEWORK 4.8?
+In-Reply-To: <SYZP282MB3189233CF223EB841BB13933D9C52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+References: <SYZP282MB31894B60656F2FAFCA27562ED91F2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189A3F2EA079CE3017EFAB1D9EE2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189E3955054F50FDD8769DCD9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <CAE8nN5PFwNAu2L1sqnonzNPVSdBUoKkRzgzmcrRFF08m25=kLA@mail.gmail.com>
+ <SYZP282MB3189A974081E643F62827971D9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB318901D8EFE9E84200608419D9F52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189233CF223EB841BB13933D9C52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+Message-ID: <CACALY+SSsefnZwi=-gY8Gaq5nec8fjrLy2esMWb145YGcXGbVA@mail.gmail.com>
+
+Hi,
+
+You can let cmake to build the csharp libs for netstandard2.0
+("-DCSHARP_LIBRARY_VERSION=netstandard2.0") which makes it compatible with
+both the netframework and netcore versions.
+
+Best regards,
+
+Tamas
+
+
+Parveen Sharma via gdal-dev <gdal-dev at lists.osgeo.org> ezt ?rta (id?pont:
+2025. febr. 19., Sze, 9:59):
+
+> Hello
+>
+> I am trying to build GDAL CSharp bindings from v3.9.3 branch
+> <https://github.com/OSGeo/gdal/tree/v3.9.3/swig/csharp>.
+>
+> The documentation for v3.9.3
+> <https://gdal.org/en/stable/api/csharp/csharp_compile_cmake.html#net-build-toolchain> states
+> that it needs .NET 5.0 OR Mono
+>
+>
+> *Question : **Is it possible to build GDAL source v3.9.3 using DOT NET
+> Framework 4.8 or less? *I am using below flags BUT it seems the build
+> process is attempting to look for only .NET SDK and not the DOT NET
+> FRAMEWORK
+>
+> <arg value="-DBUILD_CSHARP_BINDINGS=ON"/><!-- C# Bindings-->
+> <arg value="-DCSHARP_LIBRARY_VERSION=4.8"/>
+> <arg value="-DCSHARP_APPLICATION_VERSION=4.8"/>
+>
+>
+> *Does GDAL still support building CSharp Bindings with .net framework?*
+>
+> Please let me know.
+>
+> Best regards,
+> Parveen
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/3c51157f/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image.png
+Type: image/png
+Size: 40496 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/3c51157f/attachment-0001.png>
+
+From sharma1981 at outlook.com  Thu Mar  6 03:27:25 2025
+From: sharma1981 at outlook.com (Parveen Sharma)
+Date: Thu, 6 Mar 2025 11:27:25 +0000
+Subject: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or later
+ with DOT NET FRAMEWORK 4.8?
+In-Reply-To: <CACALY+SSsefnZwi=-gY8Gaq5nec8fjrLy2esMWb145YGcXGbVA@mail.gmail.com>
+References: <SYZP282MB31894B60656F2FAFCA27562ED91F2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189A3F2EA079CE3017EFAB1D9EE2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189E3955054F50FDD8769DCD9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <CAE8nN5PFwNAu2L1sqnonzNPVSdBUoKkRzgzmcrRFF08m25=kLA@mail.gmail.com>
+ <SYZP282MB3189A974081E643F62827971D9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB318901D8EFE9E84200608419D9F52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189233CF223EB841BB13933D9C52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <CACALY+SSsefnZwi=-gY8Gaq5nec8fjrLy2esMWb145YGcXGbVA@mail.gmail.com>
+Message-ID: <SYZP282MB3189251431D7C2389BB52CC2D9CA2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+
+Hello tamas
+
+I am trying to build with these options
+
+<arg value="-DBUILD_CSHARP_BINDINGS=ON"/><!-- C# Bindings-->
+<arg value="-DCSHARP_LIBRARY_VERSION=netstandard2.0"/>
+<arg value="-DCSHARP_APPLICATION_VERSION=netstandard2.0"/>
+
+
+However, I am getting errors wrt to finding the executables like OGRInfo.exe etc among others
+
+[INFO]      [exec]   -- Installing: C:/workarea/Source/gdal/build_Debug/install/share/csharp/OgrInfo/OgrInfo.deps.json
+[INFO]      [exec]   CMake Error at swig/csharp/cmake_install.cmake:152 (file):
+[INFO]      [exec]     file INSTALL cannot find
+[INFO]      [exec]     "C:/workarea/Source/gdal/build_Debug/swig/csharp/OgrInfo/OgrInfo.exe":
+
+
+
+
+My question : If I set CMAKE OPTIONS as shown to "netstandard2.0" then do i expect to see the EXEs getting generated as I understand that .NET STANDARD is just specification and not any runtime. Will these make any difference?
+
+Best regards,
+
+
+________________________________
+From: Tamas Szekeres <szekerest at gmail.com>
+Sent: Thursday, March 6, 2025 5:12 PM
+To: Parveen Sharma <sharma1981 at outlook.com>
+Cc: Micha? Kowalczuk via gdal-dev <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or later with DOT NET FRAMEWORK 4.8?
+
+Hi,
+
+You can let cmake to build the csharp libs for netstandard2.0  ("-DCSHARP_LIBRARY_VERSION=netstandard2.0") which makes it compatible with both the netframework and netcore versions.
+
+Best regards,
+
+Tamas
+
+
+Parveen Sharma via gdal-dev <gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>> ezt ?rta (id?pont: 2025. febr. 19., Sze, 9:59):
+Hello
+
+I am trying to build GDAL CSharp bindings from v3.9.3 branch<https://github.com/OSGeo/gdal/tree/v3.9.3/swig/csharp>.
+
+The documentation for v3.9.3<https://gdal.org/en/stable/api/csharp/csharp_compile_cmake.html#net-build-toolchain> states that it needs .NET 5.0 OR Mono
+
+[cid:ii_1956ab8f04dcb971f161]
+
+Question : Is it possible to build GDAL source v3.9.3 using DOT NET Framework 4.8 or less? I am using below flags BUT it seems the build process is attempting to look for only .NET SDK and not the DOT NET FRAMEWORK
+
+??????<arg value="-DBUILD_CSHARP_BINDINGS=ON"/><!-- C# Bindings-->
+??????<arg value="-DCSHARP_LIBRARY_VERSION=4.8"/>
+??????<arg value="-DCSHARP_APPLICATION_VERSION=4.8"/>
+
+
+Does GDAL still support building CSharp Bindings with .net framework?
+
+Please let me know.
+
+Best regards,
+Parveen
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/0d6d63d4/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image.png
+Type: image/png
+Size: 40496 bytes
+Desc: image.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/0d6d63d4/attachment-0001.png>
+
+From even.rouault at spatialys.com  Thu Mar  6 10:07:59 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 6 Mar 2025 19:07:59 +0100
+Subject: [gdal-dev] Nobody cares about OpenCL warping, right?
+Message-ID: <717b834e-1f68-409a-9151-d1b33a2e3906@spatialys.com>
+
+==> https://github.com/OSGeo/gdal/pull/11929
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From szekerest at gmail.com  Thu Mar  6 10:56:27 2025
+From: szekerest at gmail.com (Tamas Szekeres)
+Date: Thu, 6 Mar 2025 19:56:27 +0100
+Subject: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or later
+ with DOT NET FRAMEWORK 4.8?
+In-Reply-To: <SYZP282MB3189251431D7C2389BB52CC2D9CA2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+References: <SYZP282MB31894B60656F2FAFCA27562ED91F2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189A3F2EA079CE3017EFAB1D9EE2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189E3955054F50FDD8769DCD9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <CAE8nN5PFwNAu2L1sqnonzNPVSdBUoKkRzgzmcrRFF08m25=kLA@mail.gmail.com>
+ <SYZP282MB3189A974081E643F62827971D9E82@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB318901D8EFE9E84200608419D9F52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <SYZP282MB3189233CF223EB841BB13933D9C52@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+ <CACALY+SSsefnZwi=-gY8Gaq5nec8fjrLy2esMWb145YGcXGbVA@mail.gmail.com>
+ <SYZP282MB3189251431D7C2389BB52CC2D9CA2@SYZP282MB3189.AUSP282.PROD.OUTLOOK.COM>
+Message-ID: <CACALY+RgNgObPPrtR-7QvHUHXZeDxen4X+m0ARGCi=0un+eGrA@mail.gmail.com>
+
+Hi,
+
+The sample applications should be compiled to net5.0 or above:
+
+"-DCSHARP_LIBRARY_VERSION=netstandard2.0"
+"-DCSHARP_APPLICATION_VERSION=net5.0"
+
+Best regards,
+
+Tamas
+
+
+Parveen Sharma <sharma1981 at outlook.com> ezt ?rta (id?pont: 2025. m?rc. 6.,
+Cs, 12:27):
+
+> Hello tamas
+>
+> I am trying to build with these options
+>
+> <arg value="-DBUILD_CSHARP_BINDINGS=ON"/><!-- C# Bindings-->
+> <arg value="-DCSHARP_LIBRARY_VERSION=netstandard2.0"/>
+> <arg value="-DCSHARP_APPLICATION_VERSION=netstandard2.0"/>
+>
+>
+> However, I am getting errors wrt to finding the executables like
+> OGRInfo.exe etc among others
+>
+> [INFO]      [exec]   -- Installing:
+> C:/workarea/Source/gdal/build_Debug/install/share/csharp/OgrInfo/OgrInfo.deps.json
+> [INFO]      [exec]   CMake Error at swig/csharp/cmake_install.cmake:152
+> (file):
+> [INFO]      [exec]     file INSTALL cannot find
+> [INFO]      [exec]
+> "C:/workarea/Source/gdal/build_Debug/swig/csharp/OgrInfo/OgrInfo.exe":
+>
+>
+>
+>
+> My question : If I set CMAKE OPTIONS as shown to "netstandard2.0" then do
+> i expect to see the EXEs getting generated as I understand that .NET
+> STANDARD is just specification and not any runtime. Will these make any
+> difference?
+>
+> Best regards,
+>
+>
+> ------------------------------
+> *From:* Tamas Szekeres <szekerest at gmail.com>
+> *Sent:* Thursday, March 6, 2025 5:12 PM
+> *To:* Parveen Sharma <sharma1981 at outlook.com>
+> *Cc:* Micha? Kowalczuk via gdal-dev <gdal-dev at lists.osgeo.org>
+> *Subject:* Re: [gdal-dev] Can we build CSharp Bindings in GDAL v3.9.3 or
+> later with DOT NET FRAMEWORK 4.8?
+>
+> Hi,
+>
+> You can let cmake to build the csharp libs for netstandard2.0
+> ("-DCSHARP_LIBRARY_VERSION=netstandard2.0") which makes it compatible with
+> both the netframework and netcore versions.
+>
+> Best regards,
+>
+> Tamas
+>
+>
+> Parveen Sharma via gdal-dev <gdal-dev at lists.osgeo.org> ezt ?rta (id?pont:
+> 2025. febr. 19., Sze, 9:59):
+>
+> Hello
+>
+> I am trying to build GDAL CSharp bindings from v3.9.3 branch
+> <https://github.com/OSGeo/gdal/tree/v3.9.3/swig/csharp>.
+>
+> The documentation for v3.9.3
+> <https://gdal.org/en/stable/api/csharp/csharp_compile_cmake.html#net-build-toolchain> states
+> that it needs .NET 5.0 OR Mono
+>
+>
+> *Question : **Is it possible to build GDAL source v3.9.3 using DOT NET
+> Framework 4.8 or less? *I am using below flags BUT it seems the build
+> process is attempting to look for only .NET SDK and not the DOT NET
+> FRAMEWORK
+>
+> <arg value="-DBUILD_CSHARP_BINDINGS=ON"/><!-- C# Bindings-->
+> <arg value="-DCSHARP_LIBRARY_VERSION=4.8"/>
+> <arg value="-DCSHARP_APPLICATION_VERSION=4.8"/>
+>
+>
+> *Does GDAL still support building CSharp Bindings with .net framework?*
+>
+> Please let me know.
+>
+> Best regards,
+> Parveen
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/d1cc2c49/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: image.png
+Type: image/png
+Size: 40496 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/d1cc2c49/attachment-0001.png>
+
+From warmerdam at pobox.com  Thu Mar  6 11:11:59 2025
+From: warmerdam at pobox.com (Frank Warmerdam)
+Date: Thu, 6 Mar 2025 14:11:59 -0500
+Subject: [gdal-dev] Nobody cares about OpenCL warping, right?
+In-Reply-To: <717b834e-1f68-409a-9151-d1b33a2e3906@spatialys.com>
+References: <717b834e-1f68-409a-9151-d1b33a2e3906@spatialys.com>
+Message-ID: <CA+YzLBf2nNyoLO06ZpQkUjzFmTeRb1pJ6CGSwNoeQgn6QKDhNg@mail.gmail.com>
+
+Even,
+
+I have no objection.  FWIW, Seth who wrote this is actively working on CUDA
+image warping work these days!
+
+Best regards,
+Frank
+
+
+On Thu, Mar 6, 2025 at 1:08?PM Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> ==> https://github.com/OSGeo/gdal/pull/11929
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up   | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | USA: +1 650-701-7823
+<http://voice.google.com/calls?a=nc,%2B16507017823>
+and watch the world go round - Rush    | CAN: +1 343-550-9984
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/5e945769/attachment.htm>
+
+From patrick.mckendree.young at gmail.com  Thu Mar  6 15:39:37 2025
+From: patrick.mckendree.young at gmail.com (Patrick Young)
+Date: Thu, 6 Mar 2025 16:39:37 -0700
+Subject: [gdal-dev] FlatGeobuf Layer vs Feature Columns
+Message-ID: <CADXYQQ6zQ8iASqcjrJJ0okAA3gAFqW7_qUu4KPE-K95j74dueg@mail.gmail.com>
+
+Hello,
+
+I translated some geojson to flatgeobuf where the geojson features have a
+variable number of properties (e.g. some features have a bunch of
+translations for the name of a place pulled from OSM).
+
+I noticed in the ogrinfo output that while the summary info has all the
+fields possible,
+
+name: String (0.0)
+name:ar: String (0.0)
+name:bn: String (0.0)
+...etc...
+
+each feature prints out just its actual fields associated with it:
+
+OGRFeature(layer):1
+  name (String) = Huselva
+  LINESTRING (-36.7425039 -54.1973051 ...etc..)
+
+I had expected a bunch of NULL values for all the fields not set, much like
+what QGIS shows or what happens if I translate to e.g. geoparquet.
+
+In the flatgeobuf spec, I noticed it supports a per feature schema
+
+https://github.com/flatgeobuf/flatgeobuf/blob/3d488b384a911b3a18d8b28ee730fb8f3831a39b/src/fbs/header.fbs#L75
+
+Is ogr taking advantage of this? Or is it just aware that those fields were
+never set for that feature?
+
+I am asking because if I was to create the flatgeobuf directly with OGR, I
+am not sure if I need to call CreateField on the layer itself for all
+possible fields, or can I do something per feature?
+
+Thanks!
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/e395c7dd/attachment.htm>
+
+From public at postholer.com  Thu Mar  6 15:46:24 2025
+From: public at postholer.com (Scott)
+Date: Thu, 6 Mar 2025 15:46:24 -0800
+Subject: [gdal-dev] FlatGeobuf Layer vs Feature Columns
+In-Reply-To: <CADXYQQ6zQ8iASqcjrJJ0okAA3gAFqW7_qUu4KPE-K95j74dueg@mail.gmail.com>
+References: <CADXYQQ6zQ8iASqcjrJJ0okAA3gAFqW7_qUu4KPE-K95j74dueg@mail.gmail.com>
+Message-ID: <c375e0ef-d167-4392-9443-707109f605bd@postholer.com>
+
+If your using ogr2ogr try using the switch -emptyStrAsNull if you're not.
+
+On 3/6/25 15:39, Patrick Young via gdal-dev wrote:
+> Hello,
+> 
+> I translated some geojson to flatgeobuf?where the geojson features have 
+> a variable number of properties (e.g. some features have a bunch of 
+> translations for the name of a place pulled from OSM).
+> 
+> I noticed in the ogrinfo output that while the summary info has all the 
+> fields possible,
+> 
+> name: String (0.0)
+> name:ar: String (0.0)
+> name:bn: String (0.0)
+> ...etc...
+> 
+> each feature prints out just its actual fields associated with it:
+> 
+> OGRFeature(layer):1
+>  ? name (String) = Huselva
+>  ? LINESTRING (-36.7425039 -54.1973051 ...etc..)
+> 
+> I had expected a bunch of NULL values for all the fields not set, much 
+> like what QGIS shows or what happens if I translate to e.g. geoparquet.
+> 
+> In the flatgeobuf?spec, I noticed it supports a per feature schema
+> 
+> https://github.com/flatgeobuf/flatgeobuf/ 
+> blob/3d488b384a911b3a18d8b28ee730fb8f3831a39b/src/fbs/header.fbs#L75 
+> <https://github.com/flatgeobuf/flatgeobuf/ 
+> blob/3d488b384a911b3a18d8b28ee730fb8f3831a39b/src/fbs/header.fbs#L75>
+> 
+> Is ogr taking advantage of this? Or is it just aware that those fields 
+> were never set for that feature?
+> 
+> I am asking because if I was to create the flatgeobuf?directly with OGR, 
+> I am not sure if I need to call?CreateField on the layer itself for all 
+> possible fields, or can I do something per feature?
+> 
+> Thanks!
+> 
+> 
+> 
+> 
+> 
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+
+From conrad_bielski at yahoo.com  Fri Mar  7 01:16:05 2025
+From: conrad_bielski at yahoo.com (Conrad Bielski)
+Date: Fri, 7 Mar 2025 09:16:05 +0000 (UTC)
+Subject: [gdal-dev] gdal-dev Digest, Vol 250, Issue 15
+In-Reply-To: <mailman.1.1741291201.18171.gdal-dev@lists.osgeo.org>
+References: <mailman.1.1741291201.18171.gdal-dev@lists.osgeo.org>
+Message-ID: <1260749782.1045217.1741338965113@mail.yahoo.com>
+
+ Hello,I wanted to add my opinion here too. If there is an active development of GPU based warping (or any other gdal functionality) then I would like to get involved. I know the OpenCL was there for many years but I never was able to use it.
+Could you please elaborate about the active work by Seth? Would like to test it out.
+Have a great day,Conrad
+    On Thursday, March 6, 2025 at 08:00:05 PM GMT, gdal-dev-request at lists.osgeo.org <gdal-dev-request at lists.osgeo.org> wrote:  
+ 
+ Send gdal-dev mailing list submissions to
+??? gdal-dev at lists.osgeo.org
+
+To subscribe or unsubscribe via the World Wide Web, visit
+??? https://lists.osgeo.org/mailman/listinfo/gdal-dev
+or, via email, send a message with subject or body 'help' to
+??? gdal-dev-request at lists.osgeo.org
+
+You can reach the person managing the list at
+??? gdal-dev-owner at lists.osgeo.org
+
+When replying, please edit your Subject line so it is more specific
+than "Re: Contents of gdal-dev digest..."
+
+
+Today's Topics:
+
+? 1. Re: Nobody cares about OpenCL warping, right? (Frank Warmerdam)
+
+
+----------------------------------------------------------------------
+
+Message: 1
+Date: Thu, 6 Mar 2025 14:11:59 -0500
+From: Frank Warmerdam <warmerdam at pobox.com>
+To: Even Rouault <even.rouault at spatialys.com>
+Cc: "gdal-dev at lists.osgeo.org" <gdal-dev at lists.osgeo.org>, Seth Price
+??? <seth at planet.com>
+Subject: Re: [gdal-dev] Nobody cares about OpenCL warping, right?
+Message-ID:
+??? <CA+YzLBf2nNyoLO06ZpQkUjzFmTeRb1pJ6CGSwNoeQgn6QKDhNg at mail.gmail.com>
+Content-Type: text/plain; charset="utf-8"
+
+Even,
+
+I have no objection.? FWIW, Seth who wrote this is actively working on CUDA
+image warping work these days!
+
+Best regards,
+Frank
+
+
+On Thu, Mar 6, 2025 at 1:08?PM Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> ==> https://github.com/OSGeo/gdal/pull/11929
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+
+
+-- 
+---------------------------------------+--------------------------------------
+I set the clouds in motion - turn up? | Frank Warmerdam,
+warmerdam at pobox.com
+light and sound - activate the windows | USA: +1 650-701-7823
+<http://voice.google.com/calls?a=nc,%2B16507017823>
+and watch the world go round - Rush? ? | CAN: +1 343-550-9984
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250306/5e945769/attachment-0001.htm>
+
+------------------------------
+
+Subject: Digest Footer
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+
+------------------------------
+
+End of gdal-dev Digest, Vol 250, Issue 15
+*****************************************
+  
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250307/194f6778/attachment.htm>
+
+From norman.barker at gmail.com  Fri Mar  7 08:48:26 2025
+From: norman.barker at gmail.com (Norman Barker)
+Date: Fri, 7 Mar 2025 10:48:26 -0600
+Subject: [gdal-dev] Motion: Add Michael Smith to GDAL PSC
+In-Reply-To: <ce54eeda-ebf1-4dd0-9db1-ab7ec11d051d@mapgears.com>
+References: <f5ba6bf1-2dc4-4d8a-aa43-3f68941be826@mapgears.com>
+ <ce54eeda-ebf1-4dd0-9db1-ab7ec11d051d@mapgears.com>
+Message-ID: <CAN_Dn-GKTq9_2pLi08Tbs5Uxo9xfjC2sRCZdF5eBW-4GWdxFdw@mail.gmail.com>
+
+Sorry for missing the vote, Michael gets my +1!
+
+On Wed, Mar 5, 2025 at 12:32?PM Daniel Morissette via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi everyone,
+>
+> I declare this motion passed with +1 from PSC members JavierJS, EvenR,
+> FrankW, KurtS, TamasS, JukkaR, DanB, SeanG and me.
+>
+> Welcome and thank you for joining the PSC Michael!
+>
+> Daniel
+>
+>
+> On 2025-03-03 11:30, Daniel Morissette wrote:
+>
+> Hi PSC members,
+>
+> I would like to nominate Michael Smith to become a member of the GDAL
+> Project Steering Committee.
+>
+>   https://www.osgeo.org/member/michael-smith/
+>
+> Mike is a long time GDAL power user and contributor/supporter.  He is also
+> very active in several other OSGeo projects including as member of the
+> MapServer and PDAL project PSC's and was actually one of the instigators
+> behind the PDAL project, the GDAL of Point Clouds.
+>
+> Mike has been active on the OSGeo Board since 2014 as treasurer. Given his
+> years of experience with the management of open source projects (and
+> non-coding activities), a side benefit of having him on the GDAL PSC is
+> that he could also help us with managing the sponsorship program and the
+> NumFocus relationship and take some of this operational work off Howard's
+> shoulders.
+>
+> I start with my +1
+>
+> Daniel
+>
+>
+> --
+> Daniel Morissette
+> Mapgears Inc
+> T: +1 418-696-5056 #201
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250307/d961ed7d/attachment-0001.htm>
+
+From mdsumner at gmail.com  Fri Mar  7 13:28:14 2025
+From: mdsumner at gmail.com (Michael Sumner)
+Date: Sat, 8 Mar 2025 08:28:14 +1100
+Subject: [gdal-dev] Building Scalable Mosaic Workflows with Flyte/UnionAI,
+ GDAL, and Xarray (upcoming presentation)
+Message-ID: <CAAcGz9_0UEP8oL820s0MEb5+7OnVjTOLnXN6sZngbk__hR+3gQ@mail.gmail.com>
+
+Sharing this for general interest
+
+"We demonstrate the use of Flyte, deployed by UnionAI, as a workflow
+orchestration system for constructing large-scale Xarray mosaics using
+GDAL?s new GTI driver."
+
+https://discourse.pangeo.io/t/pangeo-showcase-building-scalable-mosaic-workflows-with-flyte-unionai-gdal-and-xarray-march-12-2025/4937
+
+
+These presentations are recorded and will be available at the above link
+afterwards.
+
+Cheers, Mike
+
+
+Michael Sumner
+Research Software Engineer
+Australian Antarctic Division
+Hobart, Australia
+e-mail: mdsumner at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250308/8e2b75d1/attachment.htm>
+
+From jctoney at gmail.com  Sun Mar  9 11:30:58 2025
+From: jctoney at gmail.com (Chris Toney)
+Date: Sun, 9 Mar 2025 12:30:58 -0600
+Subject: [gdal-dev] SQLite / Spatialite RDBMS
+Message-ID: <CALRbqOQks7fZa4is8=EV+Gw3xiWX5b+daBbXmmiS1a+6UEpRDQ@mail.gmail.com>
+
+Hi,
+The SQLite / Spatialite RDBMS driver says "SQLite is an optionally compiled
+in driver. It is not compiled in by default." It seems fairly ubiquitous
+though. Is that a safe assumption (more or less), or are there important
+caveats to know about? I know that SQLite could be present without
+SpatiaLite support, but I'm wondering about the SQLite driver for "regular"
+SQLite databases, with or without SpatiaLite.
+
+Thanks!
+
+Chris Toney
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250309/e5ac0fd2/attachment.htm>
+
+From jukka.rahkonen at maanmittauslaitos.fi  Sun Mar  9 12:02:19 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Sun, 9 Mar 2025 19:02:19 +0000
+Subject: [gdal-dev] SQLite / Spatialite RDBMS
+In-Reply-To: <CALRbqOQks7fZa4is8=EV+Gw3xiWX5b+daBbXmmiS1a+6UEpRDQ@mail.gmail.com>
+References: <CALRbqOQks7fZa4is8=EV+Gw3xiWX5b+daBbXmmiS1a+6UEpRDQ@mail.gmail.com>
+Message-ID: <DB9PR09MB68870D44643C3B9C83FE92BAFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+
+Hi,
+
+Proj requires SQLite anyway and you may want to do coordinate transformations with GDAL. Without SpatiaLite you?ll miss only the SpatiaLite SQL functions, and of course support for SpatiaLite databases.
+
+-Jukka Rahkonen-
+
+L?hett?j?: gdal-dev <gdal-dev-bounces at lists.osgeo.org> Puolesta Chris Toney via gdal-dev
+L?hetetty: sunnuntai 9. maaliskuuta 2025 20.31
+Vastaanottaja: gdal dev <gdal-dev at lists.osgeo.org>
+Aihe: [gdal-dev] SQLite / Spatialite RDBMS
+
+Hi,
+The SQLite / Spatialite RDBMS driver says "SQLite is an optionally compiled in driver. It is not compiled in by default." It seems fairly ubiquitous though. Is that a safe assumption (more or less), or are there important caveats to know about? I know that SQLite could be present without SpatiaLite support, but I'm wondering about the SQLite driver for "regular" SQLite databases, with or without SpatiaLite.
+
+Thanks!
+
+Chris Toney
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250309/d5ceb347/attachment.htm>
+
+From jctoney at gmail.com  Sun Mar  9 12:37:04 2025
+From: jctoney at gmail.com (Chris Toney)
+Date: Sun, 9 Mar 2025 13:37:04 -0600
+Subject: [gdal-dev] SQLite / Spatialite RDBMS
+In-Reply-To: <DB9PR09MB68870D44643C3B9C83FE92BAFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+References: <CALRbqOQks7fZa4is8=EV+Gw3xiWX5b+daBbXmmiS1a+6UEpRDQ@mail.gmail.com>
+ <DB9PR09MB68870D44643C3B9C83FE92BAFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+Message-ID: <CALRbqOTEQBekuVhxFwjQ-iE3bcpEAn-tLhUjDYL65fQkpYroGg@mail.gmail.com>
+
+Right, libsqlite3 is definitely ubiquitous, and I always want libspatialite
+too. But that is different from whether the GDAL vector  driver "SQLite /
+Spatialite RDBMS" is compiled in, which it is not by default. That would
+depend more on whether various package management systems choose to enable
+it in their distributions, for example. Or if there are reasons that custom
+builds would tend to exclude it sometimes. My sense is that the driver is
+generally available even though it's optional at build time. Just wondering
+if there are known exceptions to be aware of, or if my assumptions above
+are wrong? Why is it an optionally compiled in driver given ubiquity of
+SQLite? Just because GPKG mostly fulfills that need and is standard?
+
+Chris
+
+On Sun, Mar 9, 2025 at 1:02?PM Rahkonen Jukka <
+jukka.rahkonen at maanmittauslaitos.fi> wrote:
+
+> Hi,
+>
+>
+>
+> Proj requires SQLite anyway and you may want to do coordinate
+> transformations with GDAL. Without SpatiaLite you?ll miss only the
+> SpatiaLite SQL functions, and of course support for SpatiaLite databases.
+>
+>
+>
+> -Jukka Rahkonen-
+>
+>
+>
+> *L?hett?j?:* gdal-dev <gdal-dev-bounces at lists.osgeo.org> *Puolesta *Chris
+> Toney via gdal-dev
+> *L?hetetty:* sunnuntai 9. maaliskuuta 2025 20.31
+> *Vastaanottaja:* gdal dev <gdal-dev at lists.osgeo.org>
+> *Aihe:* [gdal-dev] SQLite / Spatialite RDBMS
+>
+>
+>
+> Hi,
+>
+> The SQLite / Spatialite RDBMS driver says "SQLite is an optionally
+> compiled in driver. It is not compiled in by default." It seems fairly
+> ubiquitous though. Is that a safe assumption (more or less), or are there
+> important caveats to know about? I know that SQLite could be present
+> without SpatiaLite support, but I'm wondering about the SQLite driver for
+> "regular" SQLite databases, with or without SpatiaLite.
+>
+>
+>
+> Thanks!
+>
+>
+>
+> Chris Toney
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250309/fba89397/attachment.htm>
+
+From jukka.rahkonen at maanmittauslaitos.fi  Sun Mar  9 13:29:13 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Sun, 9 Mar 2025 20:29:13 +0000
+Subject: [gdal-dev] SQLite / Spatialite RDBMS
+In-Reply-To: <CALRbqOTEQBekuVhxFwjQ-iE3bcpEAn-tLhUjDYL65fQkpYroGg@mail.gmail.com>
+References: <CALRbqOQks7fZa4is8=EV+Gw3xiWX5b+daBbXmmiS1a+6UEpRDQ@mail.gmail.com>
+ <DB9PR09MB68870D44643C3B9C83FE92BAFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+ <CALRbqOTEQBekuVhxFwjQ-iE3bcpEAn-tLhUjDYL65fQkpYroGg@mail.gmail.com>
+Message-ID: <DB9PR09MB6887B70021C83FD9C3D292ADFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+
+Hi,
+
+The SQLite driver has a long history, I guess it was originally made to support FDO https://web.archive.org/web/20240811210751/https://trac.osgeo.org/fdo/wiki/FDORfc16<https://web.archive.org/web/20240811210751/https:/trac.osgeo.org/fdo/wiki/FDORfc16>.
+By that time there was no other use for SQLite so making it optional was probably natural.
+
+-Jukka Rahkonen-
+
+L?hett?j?: Chris Toney <jctoney at gmail.com>
+L?hetetty: sunnuntai 9. maaliskuuta 2025 21.37
+Vastaanottaja: Rahkonen Jukka <jukka.rahkonen at maanmittauslaitos.fi>
+Kopio: gdal dev <gdal-dev at lists.osgeo.org>
+Aihe: Re: [gdal-dev] SQLite / Spatialite RDBMS
+
+Right, libsqlite3 is definitely ubiquitous, and I always want libspatialite too. But that is different from whether the GDAL vector  driver "SQLite / Spatialite RDBMS" is compiled in, which it is not by default. That would depend more on whether various package management systems choose to enable it in their distributions, for example. Or if there are reasons that custom builds would tend to exclude it sometimes. My sense is that the driver is generally available even though it's optional at build time. Just wondering if there are known exceptions to be aware of, or if my assumptions above are wrong? Why is it an optionally compiled in driver given ubiquity of SQLite? Just because GPKG mostly fulfills that need and is standard?
+
+Chris
+
+On Sun, Mar 9, 2025 at 1:02?PM Rahkonen Jukka <jukka.rahkonen at maanmittauslaitos.fi<mailto:jukka.rahkonen at maanmittauslaitos.fi>> wrote:
+Hi,
+
+Proj requires SQLite anyway and you may want to do coordinate transformations with GDAL. Without SpatiaLite you?ll miss only the SpatiaLite SQL functions, and of course support for SpatiaLite databases.
+
+-Jukka Rahkonen-
+
+L?hett?j?: gdal-dev <gdal-dev-bounces at lists.osgeo.org<mailto:gdal-dev-bounces at lists.osgeo.org>> Puolesta Chris Toney via gdal-dev
+L?hetetty: sunnuntai 9. maaliskuuta 2025 20.31
+Vastaanottaja: gdal dev <gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>>
+Aihe: [gdal-dev] SQLite / Spatialite RDBMS
+
+Hi,
+The SQLite / Spatialite RDBMS driver says "SQLite is an optionally compiled in driver. It is not compiled in by default." It seems fairly ubiquitous though. Is that a safe assumption (more or less), or are there important caveats to know about? I know that SQLite could be present without SpatiaLite support, but I'm wondering about the SQLite driver for "regular" SQLite databases, with or without SpatiaLite.
+
+Thanks!
+
+Chris Toney
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250309/36e44b02/attachment-0001.htm>
+
+From jctoney at gmail.com  Sun Mar  9 14:15:24 2025
+From: jctoney at gmail.com (Chris Toney)
+Date: Sun, 9 Mar 2025 15:15:24 -0600
+Subject: [gdal-dev] SQLite / Spatialite RDBMS
+In-Reply-To: <DB9PR09MB6887B70021C83FD9C3D292ADFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+References: <CALRbqOQks7fZa4is8=EV+Gw3xiWX5b+daBbXmmiS1a+6UEpRDQ@mail.gmail.com>
+ <DB9PR09MB68870D44643C3B9C83FE92BAFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+ <CALRbqOTEQBekuVhxFwjQ-iE3bcpEAn-tLhUjDYL65fQkpYroGg@mail.gmail.com>
+ <DB9PR09MB6887B70021C83FD9C3D292ADFDD72@DB9PR09MB6887.eurprd09.prod.outlook.com>
+Message-ID: <CALRbqORAs_fD64dO50qm6CAiuLkNf3JZzUCmq_6pEO6rHnEt=w@mail.gmail.com>
+
+Interesting! Thanks for pointing me to that. Appreciate knowing the
+history. Your explanation for it becoming optional makes sense.
+
+Partly I was just curious that the SQLite driver is not built in by
+default, since today GDAL build requires PROJ, PROJ requires libsqlite3,
+and so the dependency is always there since SQLite driver can be be built
+with or without libspatialite. (I'm not advocating necessarily that SQLite
+driver *should* be built in by default.)
+
+The practical motivation for asking is that SQLite driver supports multiple
+geometry columns on a layer which GPKG does not. It's simple to test for
+availability of SQLite and SpatiaLite before attempting to use them of
+course, but wondered if there's any general sense of potential for SQLite
+driver tending to be unavailable in some cases. It's not uncommon that
+SpatiaLite is unavailable to GDAL on some platforms I encounter, even
+though it seems mostly available in general.
+
+Chris
+
+
+
+On Sun, Mar 9, 2025 at 2:29?PM Rahkonen Jukka <
+jukka.rahkonen at maanmittauslaitos.fi> wrote:
+
+> Hi,
+>
+>
+>
+> The SQLite driver has a long history, I guess it was originally made to
+> support FDO
+> https://web.archive.org/web/20240811210751/https://trac.osgeo.org/fdo/wiki/FDORfc16
+> <https://web.archive.org/web/20240811210751/https:/trac.osgeo.org/fdo/wiki/FDORfc16>
+> .
+>
+> By that time there was no other use for SQLite so making it optional was
+> probably natural.
+>
+>
+>
+> -Jukka Rahkonen-
+>
+>
+>
+> *L?hett?j?:* Chris Toney <jctoney at gmail.com>
+> *L?hetetty:* sunnuntai 9. maaliskuuta 2025 21.37
+> *Vastaanottaja:* Rahkonen Jukka <jukka.rahkonen at maanmittauslaitos.fi>
+> *Kopio:* gdal dev <gdal-dev at lists.osgeo.org>
+> *Aihe:* Re: [gdal-dev] SQLite / Spatialite RDBMS
+>
+>
+>
+> Right, libsqlite3 is definitely ubiquitous, and I always want
+> libspatialite too. But that is different from whether the GDAL vector
+> driver "SQLite / Spatialite RDBMS" is compiled in, which it is not by
+> default. That would depend more on whether various package management
+> systems choose to enable it in their distributions, for example. Or if
+> there are reasons that custom builds would tend to exclude it sometimes. My
+> sense is that the driver is generally available even though it's optional
+> at build time. Just wondering if there are known exceptions to be aware of,
+> or if my assumptions above are wrong? Why is it an optionally compiled in
+> driver given ubiquity of SQLite? Just because GPKG mostly fulfills that
+> need and is standard?
+>
+>
+>
+> Chris
+>
+>
+>
+> On Sun, Mar 9, 2025 at 1:02?PM Rahkonen Jukka <
+> jukka.rahkonen at maanmittauslaitos.fi> wrote:
+>
+> Hi,
+>
+>
+>
+> Proj requires SQLite anyway and you may want to do coordinate
+> transformations with GDAL. Without SpatiaLite you?ll miss only the
+> SpatiaLite SQL functions, and of course support for SpatiaLite databases.
+>
+>
+>
+> -Jukka Rahkonen-
+>
+>
+>
+> *L?hett?j?:* gdal-dev <gdal-dev-bounces at lists.osgeo.org> *Puolesta *Chris
+> Toney via gdal-dev
+> *L?hetetty:* sunnuntai 9. maaliskuuta 2025 20.31
+> *Vastaanottaja:* gdal dev <gdal-dev at lists.osgeo.org>
+> *Aihe:* [gdal-dev] SQLite / Spatialite RDBMS
+>
+>
+>
+> Hi,
+>
+> The SQLite / Spatialite RDBMS driver says "SQLite is an optionally
+> compiled in driver. It is not compiled in by default." It seems fairly
+> ubiquitous though. Is that a safe assumption (more or less), or are there
+> important caveats to know about? I know that SQLite could be present
+> without SpatiaLite support, but I'm wondering about the SQLite driver for
+> "regular" SQLite databases, with or without SpatiaLite.
+>
+>
+>
+> Thanks!
+>
+>
+>
+> Chris Toney
+>
+>
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250309/9a58d07f/attachment.htm>
+
+From antonio.rrz at gmail.com  Sun Mar  9 23:29:53 2025
+From: antonio.rrz at gmail.com (Ramon Antonio)
+Date: Mon, 10 Mar 2025 09:29:53 +0300
+Subject: [gdal-dev] Java GDAL: how to call GetDataAxisToSRSAxisMapping
+Message-ID: <CAPrLoNd1b4XMSa9w8OhCs6eNYdbuJp7mNL9Gk83wxGK6XCvStQ@mail.gmail.com>
+
+Dear Community,
+
+The Java GDAL bindings provide the method
+
+    public int[] GetDataAxisToSRSAxisMapping(SWIGTYPE_p_int nLen,
+SWIGTYPE_p_p_int pList)
+
+The corresponding [C++ function][1] is
+
+    const std::vector< int > &
+OGRSpatialReference::GetDataAxisToSRSAxisMapping ()    const
+
+The Java method is not documented: [Java Docs for
+GetDataAxisToSRSAxisMapping][2]
+
+The data axis to SRS axis mapping should return an array and take no
+arguments. What should be provided as `SWIGTYPE_p_int nLen,
+SWIGTYPE_p_p_int pList` in Java to get data axis to SRS axis mapping?
+
+
+  [1]: https://gdal.org/en/stable/doxygen/classOGRSpatialReference.html#a50a4542a228db455df2126e98a971d5d
+  [2]: https://gdal.org/en/stable/java/org/gdal/osr/SpatialReference.html#GetDataAxisToSRSAxisMapping(org.gdal.osr.SWIGTYPE_p_int,org.gdal.osr.SWIGTYPE_p_p_int)
+
+From silyko at gmail.com  Wed Mar 12 01:23:52 2025
+From: silyko at gmail.com (Simon Lyngby Kokkendorff)
+Date: Wed, 12 Mar 2025 09:23:52 +0100
+Subject: [gdal-dev] Zarr BLOCKSIZE in gdalmdimtranslate with variables of
+ varying dimension
+Message-ID: <CANzGYpTSwkP2V8cGspmPEzDQF_Rrc5gSJD+7c4JY7mYSh+acSw@mail.gmail.com>
+
+Hi list,
+
+  gdalmdimtranslate is a very handy tool e.g. to translate netCDF
+files to Zarr as it can handle huge files that xarray just chokes on.
+   I have a question regarding handling output blocksizes for the Zarr
+format for files with variables of varying dimensions though. For
+example I need to translate a netCDF file with time, z, lat, lon
+dimensions and variables which are either 4D (time, z, lat, lon), 3D
+(time, lat, lon) and 2D (lat, lon). I would like to remap chunksizes /
+blocksizes to better suit my use case. However, it seems that I can
+only specify blocksizes as e.g. -co ARRAY:BLOCKSIZE 2, 2, 128, 128 -
+which will throw an error and skip the variables that don't  have 4
+dimensions. Also, the output doesn't contain the dimension variables
+in this case. Likewise, for 4D variables if I only specify 3
+blocksizes.
+  Have tried this with gdal versions 3.8.4 and 3.4.1 with similar results.
+   So the question is if there is any way to specify blocksizes e.g.
+by dimension name? Or if the approach should rather be to just create
+3 output Zarr folders - one for each variable dimensionality (2D, 3D
+and 4D)? I can of course manually "merge" these folders afterwards.
+
+Best regards,
+Simon
+
+From even.rouault at spatialys.com  Wed Mar 12 01:54:28 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 12 Mar 2025 09:54:28 +0100
+Subject: [gdal-dev] Zarr BLOCKSIZE in gdalmdimtranslate with variables
+ of varying dimension
+In-Reply-To: <CANzGYpTSwkP2V8cGspmPEzDQF_Rrc5gSJD+7c4JY7mYSh+acSw@mail.gmail.com>
+References: <CANzGYpTSwkP2V8cGspmPEzDQF_Rrc5gSJD+7c4JY7mYSh+acSw@mail.gmail.com>
+Message-ID: <16d399ab-5a6d-4ed0-81ae-04663d9d92cc@spatialys.com>
+
+Simon,
+
+see the ARRAY:IF(DIM=2):BLOCKSIZE=256,256 example of 
+GDALGroup::CopyFrom() mentioned at 
+https://gdal.org/en/stable/doxygen/classGDALGroup.html#a28324579902842d7dbd1f93e9698b1ec
+
+Even
+
+Le 12/03/2025 ? 09:23, Simon Lyngby Kokkendorff via gdal-dev a ?crit?:
+> Hi list,
+>
+>    gdalmdimtranslate is a very handy tool e.g. to translate netCDF
+> files to Zarr as it can handle huge files that xarray just chokes on.
+>     I have a question regarding handling output blocksizes for the Zarr
+> format for files with variables of varying dimensions though. For
+> example I need to translate a netCDF file with time, z, lat, lon
+> dimensions and variables which are either 4D (time, z, lat, lon), 3D
+> (time, lat, lon) and 2D (lat, lon). I would like to remap chunksizes /
+> blocksizes to better suit my use case. However, it seems that I can
+> only specify blocksizes as e.g. -co ARRAY:BLOCKSIZE 2, 2, 128, 128 -
+> which will throw an error and skip the variables that don't  have 4
+> dimensions. Also, the output doesn't contain the dimension variables
+> in this case. Likewise, for 4D variables if I only specify 3
+> blocksizes.
+>    Have tried this with gdal versions 3.8.4 and 3.4.1 with similar results.
+>     So the question is if there is any way to specify blocksizes e.g.
+> by dimension name? Or if the approach should rather be to just create
+> 3 output Zarr folders - one for each variable dimensionality (2D, 3D
+> and 4D)? I can of course manually "merge" these folders afterwards.
+>
+> Best regards,
+> Simon
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From silyko at gmail.com  Wed Mar 12 02:08:57 2025
+From: silyko at gmail.com (Simon Lyngby Kokkendorff)
+Date: Wed, 12 Mar 2025 10:08:57 +0100
+Subject: [gdal-dev] Zarr BLOCKSIZE in gdalmdimtranslate with variables
+ of varying dimension
+In-Reply-To: <16d399ab-5a6d-4ed0-81ae-04663d9d92cc@spatialys.com>
+References: <CANzGYpTSwkP2V8cGspmPEzDQF_Rrc5gSJD+7c4JY7mYSh+acSw@mail.gmail.com>
+ <16d399ab-5a6d-4ed0-81ae-04663d9d92cc@spatialys.com>
+Message-ID: <CANzGYpRYVpqLrr7PsosusUM15OfreDhERe_8EiX=USW5wsygXw@mail.gmail.com>
+
+Thanks Even,
+
+  That does the trick :)
+
+Cheers,
+Simon
+
+On Wed, Mar 12, 2025 at 9:54?AM Even Rouault <even.rouault at spatialys.com> wrote:
+>
+> Simon,
+>
+> see the ARRAY:IF(DIM=2):BLOCKSIZE=256,256 example of
+> GDALGroup::CopyFrom() mentioned at
+> https://gdal.org/en/stable/doxygen/classGDALGroup.html#a28324579902842d7dbd1f93e9698b1ec
+>
+> Even
+>
+> Le 12/03/2025 ? 09:23, Simon Lyngby Kokkendorff via gdal-dev a ?crit :
+> > Hi list,
+> >
+> >    gdalmdimtranslate is a very handy tool e.g. to translate netCDF
+> > files to Zarr as it can handle huge files that xarray just chokes on.
+> >     I have a question regarding handling output blocksizes for the Zarr
+> > format for files with variables of varying dimensions though. For
+> > example I need to translate a netCDF file with time, z, lat, lon
+> > dimensions and variables which are either 4D (time, z, lat, lon), 3D
+> > (time, lat, lon) and 2D (lat, lon). I would like to remap chunksizes /
+> > blocksizes to better suit my use case. However, it seems that I can
+> > only specify blocksizes as e.g. -co ARRAY:BLOCKSIZE 2, 2, 128, 128 -
+> > which will throw an error and skip the variables that don't  have 4
+> > dimensions. Also, the output doesn't contain the dimension variables
+> > in this case. Likewise, for 4D variables if I only specify 3
+> > blocksizes.
+> >    Have tried this with gdal versions 3.8.4 and 3.4.1 with similar results.
+> >     So the question is if there is any way to specify blocksizes e.g.
+> > by dimension name? Or if the approach should rather be to just create
+> > 3 output Zarr folders - one for each variable dimensionality (2D, 3D
+> > and 4D)? I can of course manually "merge" these folders afterwards.
+> >
+> > Best regards,
+> > Simon
+> > _______________________________________________
+> > gdal-dev mailing list
+> > gdal-dev at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+
+From even.rouault at spatialys.com  Wed Mar 12 06:15:30 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 12 Mar 2025 14:15:30 +0100
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program funds
+ for 2 documentation contributors
+Message-ID: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+
+Hi,
+
+Seth Girvin (https://github.com/geographika) and Harrissou Sant-anna 
+(DelazJ) are interested in contributing improvements to the GDAL 
+documentation, one of the most recurring item where enhancements are 
+wished from the feedback we got through the User Survey last November. 
+Both have experience on documentation of open source geospatial software 
+(respectively on Mapserver for Seth and QGIS for Harrissou) and are 
+excited to bring it to GDAL. This is understood this will be a small 
+part time activity for both of them. Dan Baston has kindly agreed to 
+supervise their work, regarding initial setup, review of pull requests 
+and filing in documentation tickets for planned tasks in the issue 
+tracker. We will also welcome Seth and Harrissou inputs.
+
+A non-exhaustive list of the potential different activities is:
+
+- Adding more examples to existing documentation (typically for command 
+line utilities)
+- Systematic addition of docstrings for Python API
+- Adding tutorial-like material (with graphics when appropriate), 
+illustrating workflows that can combine several tools to produce a 
+desired outcome
+- Adding a user-focused, example-driven introduction to the project on 
+gdal.org and github.com/OSGeo/GDAL, ala README of 
+https://github.com/qgis/qgis
+- Harmonization of presentation of existing documentation / making it 
+more easy to find content
+- Hierarchisation of content in existing documentation. For popular 
+tools or drivers, it could probably be interesting to have "basic" and 
+"advanced" sections (typically for the GeoTIFF page that could/should 
+probably be split)
+
+Motion: approve use of up to 25,000 euros for Seth Girvin and up to 
+25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship Program, 
+for the period April 1st 2025 - March 31st 2026, on documentation 
+enhancements for GDAL.
+
+Starting with my +1,
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From j1 at jimenezshaw.com  Wed Mar 12 06:16:31 2025
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Wed, 12 Mar 2025 14:16:31 +0100
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+References: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+Message-ID: <CADRrdKsop+UxqxHm51gzBMn-cyFT8+u_0QoZBBqOLOANSDteEg@mail.gmail.com>
+
++1 Javier
+
+On Wed, 12 Mar 2025 at 14:15, Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi,
+>
+> Seth Girvin (https://github.com/geographika) and Harrissou Sant-anna
+> (DelazJ) are interested in contributing improvements to the GDAL
+> documentation, one of the most recurring item where enhancements are
+> wished from the feedback we got through the User Survey last November.
+> Both have experience on documentation of open source geospatial software
+> (respectively on Mapserver for Seth and QGIS for Harrissou) and are
+> excited to bring it to GDAL. This is understood this will be a small
+> part time activity for both of them. Dan Baston has kindly agreed to
+> supervise their work, regarding initial setup, review of pull requests
+> and filing in documentation tickets for planned tasks in the issue
+> tracker. We will also welcome Seth and Harrissou inputs.
+>
+> A non-exhaustive list of the potential different activities is:
+>
+> - Adding more examples to existing documentation (typically for command
+> line utilities)
+> - Systematic addition of docstrings for Python API
+> - Adding tutorial-like material (with graphics when appropriate),
+> illustrating workflows that can combine several tools to produce a
+> desired outcome
+> - Adding a user-focused, example-driven introduction to the project on
+> gdal.org and github.com/OSGeo/GDAL, ala README of
+> https://github.com/qgis/qgis
+> - Harmonization of presentation of existing documentation / making it
+> more easy to find content
+> - Hierarchisation of content in existing documentation. For popular
+> tools or drivers, it could probably be interesting to have "basic" and
+> "advanced" sections (typically for the GeoTIFF page that could/should
+> probably be split)
+>
+> Motion: approve use of up to 25,000 euros for Seth Girvin and up to
+> 25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship Program,
+> for the period April 1st 2025 - March 31st 2026, on documentation
+> enhancements for GDAL.
+>
+> Starting with my +1,
+>
+> Even
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250312/c421e964/attachment.htm>
+
+From howard at hobu.co  Wed Mar 12 06:17:31 2025
+From: howard at hobu.co (Howard Butler)
+Date: Wed, 12 Mar 2025 08:17:31 -0500
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+References: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+Message-ID: <F6599750-8531-45D5-9C41-15B39652A911@hobu.co>
+
+
+
+> On Mar 12, 2025, at 8:15?AM, Even Rouault via gdal-dev <gdal-dev at lists.osgeo.org> wrote:
+> 
+> Motion: approve use of up to 25,000 euros for Seth Girvin and up to 25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship Program, for the period April 1st 2025 - March 31st 2026, on documentation enhancements for GDAL.
+> 
+> Starting with my +1,
+
++1 Howard
+
+From jukka.rahkonen at maanmittauslaitos.fi  Wed Mar 12 06:22:49 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Wed, 12 Mar 2025 13:22:49 +0000
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+References: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+Message-ID: <AS5PR09MB6897CFA932E23584A69A2B17FDD02@AS5PR09MB6897.eurprd09.prod.outlook.com>
+
++1
+
+-Jukka Rahkonen-
+
+-----Alkuper?inen viesti-----
+L?hett?j?: gdal-dev <gdal-dev-bounces at lists.osgeo.org> Puolesta Even Rouault via gdal-dev
+L?hetetty: keskiviikko 12. maaliskuuta 2025 15.16
+Vastaanottaja: gdal-dev at lists.osgeo.org
+Kopio: Seth G <sgirvin at geographika.co.uk>; Delaz J <delazj at gmail.com>
+Aihe: [gdal-dev] Motion: approve use of GDAL Sponsorship Program funds for 2 documentation contributors
+
+Hi,
+
+Seth Girvin (https://github.com/geographika) and Harrissou Sant-anna
+(DelazJ) are interested in contributing improvements to the GDAL documentation, one of the most recurring item where enhancements are wished from the feedback we got through the User Survey last November.
+Both have experience on documentation of open source geospatial software (respectively on Mapserver for Seth and QGIS for Harrissou) and are excited to bring it to GDAL. This is understood this will be a small part time activity for both of them. Dan Baston has kindly agreed to supervise their work, regarding initial setup, review of pull requests and filing in documentation tickets for planned tasks in the issue tracker. We will also welcome Seth and Harrissou inputs.
+
+A non-exhaustive list of the potential different activities is:
+
+- Adding more examples to existing documentation (typically for command line utilities)
+- Systematic addition of docstrings for Python API
+- Adding tutorial-like material (with graphics when appropriate), illustrating workflows that can combine several tools to produce a desired outcome
+- Adding a user-focused, example-driven introduction to the project on gdal.org and github.com/OSGeo/GDAL, ala README of
+https://github.com/qgis/qgis
+- Harmonization of presentation of existing documentation / making it more easy to find content
+- Hierarchisation of content in existing documentation. For popular tools or drivers, it could probably be interesting to have "basic" and "advanced" sections (typically for the GeoTIFF page that could/should probably be split)
+
+Motion: approve use of up to 25,000 euros for Seth Girvin and up to
+25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship Program, for the period April 1st 2025 - March 31st 2026, on documentation enhancements for GDAL.
+
+Starting with my +1,
+
+Even
+
+--
+http://www.spatialys.com/
+My software is free, but my time generally not.
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+From michael.smith.erdc at gmail.com  Wed Mar 12 06:34:22 2025
+From: michael.smith.erdc at gmail.com (Michael Smith)
+Date: Wed, 12 Mar 2025 09:34:22 -0400
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <CADRrdKsop+UxqxHm51gzBMn-cyFT8+u_0QoZBBqOLOANSDteEg@mail.gmail.com>
+References: <CADRrdKsop+UxqxHm51gzBMn-cyFT8+u_0QoZBBqOLOANSDteEg@mail.gmail.com>
+Message-ID: <4C1BCCC1-9FE0-4625-8D55-41846C8F4773@gmail.com>
+
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250312/e6dbdee6/attachment.htm>
+
+From dbaston at gmail.com  Wed Mar 12 06:49:36 2025
+From: dbaston at gmail.com (Daniel Baston)
+Date: Wed, 12 Mar 2025 09:49:36 -0400
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+References: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+Message-ID: <CA+K_q_qdK9Xjh=XTQ5UNOf56HBJ71boUHEhOB4vT+LHYOHS7qA@mail.gmail.com>
+
++1
+Dan
+
+On Wed, Mar 12, 2025 at 9:15?AM Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi,
+>
+> Seth Girvin (https://github.com/geographika) and Harrissou Sant-anna
+> (DelazJ) are interested in contributing improvements to the GDAL
+> documentation, one of the most recurring item where enhancements are
+> wished from the feedback we got through the User Survey last November.
+> Both have experience on documentation of open source geospatial software
+> (respectively on Mapserver for Seth and QGIS for Harrissou) and are
+> excited to bring it to GDAL. This is understood this will be a small
+> part time activity for both of them. Dan Baston has kindly agreed to
+> supervise their work, regarding initial setup, review of pull requests
+> and filing in documentation tickets for planned tasks in the issue
+> tracker. We will also welcome Seth and Harrissou inputs.
+>
+> A non-exhaustive list of the potential different activities is:
+>
+> - Adding more examples to existing documentation (typically for command
+> line utilities)
+> - Systematic addition of docstrings for Python API
+> - Adding tutorial-like material (with graphics when appropriate),
+> illustrating workflows that can combine several tools to produce a
+> desired outcome
+> - Adding a user-focused, example-driven introduction to the project on
+> gdal.org and github.com/OSGeo/GDAL, ala README of
+> https://github.com/qgis/qgis
+> - Harmonization of presentation of existing documentation / making it
+> more easy to find content
+> - Hierarchisation of content in existing documentation. For popular
+> tools or drivers, it could probably be interesting to have "basic" and
+> "advanced" sections (typically for the GeoTIFF page that could/should
+> probably be split)
+>
+> Motion: approve use of up to 25,000 euros for Seth Girvin and up to
+> 25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship Program,
+> for the period April 1st 2025 - March 31st 2026, on documentation
+> enhancements for GDAL.
+>
+> Starting with my +1,
+>
+> Even
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250312/fb89f353/attachment.htm>
+
+From dmorissette at mapgears.com  Wed Mar 12 07:22:36 2025
+From: dmorissette at mapgears.com (Daniel Morissette)
+Date: Wed, 12 Mar 2025 10:22:36 -0400
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+References: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+Message-ID: <7ab5fe07-6057-4ff9-8dd3-5c36e1e70515@mapgears.com>
+
++1
+
+Daniel
+
+
+On 2025-03-12 09:15, Even Rouault via gdal-dev wrote:
+> Hi,
+>
+> Seth Girvin (https://github.com/geographika) and Harrissou Sant-anna 
+> (DelazJ) are interested in contributing improvements to the GDAL 
+> documentation, one of the most recurring item where enhancements are 
+> wished from the feedback we got through the User Survey last November. 
+> Both have experience on documentation of open source geospatial 
+> software (respectively on Mapserver for Seth and QGIS for Harrissou) 
+> and are excited to bring it to GDAL. This is understood this will be a 
+> small part time activity for both of them. Dan Baston has kindly 
+> agreed to supervise their work, regarding initial setup, review of 
+> pull requests and filing in documentation tickets for planned tasks in 
+> the issue tracker. We will also welcome Seth and Harrissou inputs.
+>
+> A non-exhaustive list of the potential different activities is:
+>
+> - Adding more examples to existing documentation (typically for 
+> command line utilities)
+> - Systematic addition of docstrings for Python API
+> - Adding tutorial-like material (with graphics when appropriate), 
+> illustrating workflows that can combine several tools to produce a 
+> desired outcome
+> - Adding a user-focused, example-driven introduction to the project on 
+> gdal.org and github.com/OSGeo/GDAL, ala README of 
+> https://github.com/qgis/qgis
+> - Harmonization of presentation of existing documentation / making it 
+> more easy to find content
+> - Hierarchisation of content in existing documentation. For popular 
+> tools or drivers, it could probably be interesting to have "basic" and 
+> "advanced" sections (typically for the GeoTIFF page that could/should 
+> probably be split)
+>
+> Motion: approve use of up to 25,000 euros for Seth Girvin and up to 
+> 25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship 
+> Program, for the period April 1st 2025 - March 31st 2026, on 
+> documentation enhancements for GDAL.
+>
+> Starting with my +1,
+>
+> Even
+>
+
+-- 
+Daniel Morissette
+Mapgears Inc
+T: +1 418-696-5056 #201
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250312/028d77fe/attachment-0001.htm>
+
+From schwehr at gmail.com  Wed Mar 12 08:50:05 2025
+From: schwehr at gmail.com (Kurt Schwehr)
+Date: Wed, 12 Mar 2025 08:50:05 -0700
+Subject: [gdal-dev] Motion: approve use of GDAL Sponsorship Program
+ funds for 2 documentation contributors
+In-Reply-To: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+References: <b15e3da8-b8b4-4ad1-8aa5-cb4df197b9c7@spatialys.com>
+Message-ID: <CACmBxyt6rxOcDYTYus0dqnCmiOcxwX+3kiXdzfx8igAaa886Wg@mail.gmail.com>
+
++1 KurtS
+
+On Wed, Mar 12, 2025 at 6:16?AM Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi,
+>
+> Seth Girvin (https://github.com/geographika) and Harrissou Sant-anna
+> (DelazJ) are interested in contributing improvements to the GDAL
+> documentation, one of the most recurring item where enhancements are
+> wished from the feedback we got through the User Survey last November.
+> Both have experience on documentation of open source geospatial software
+> (respectively on Mapserver for Seth and QGIS for Harrissou) and are
+> excited to bring it to GDAL. This is understood this will be a small
+> part time activity for both of them. Dan Baston has kindly agreed to
+> supervise their work, regarding initial setup, review of pull requests
+> and filing in documentation tickets for planned tasks in the issue
+> tracker. We will also welcome Seth and Harrissou inputs.
+>
+> A non-exhaustive list of the potential different activities is:
+>
+> - Adding more examples to existing documentation (typically for command
+> line utilities)
+> - Systematic addition of docstrings for Python API
+> - Adding tutorial-like material (with graphics when appropriate),
+> illustrating workflows that can combine several tools to produce a
+> desired outcome
+> - Adding a user-focused, example-driven introduction to the project on
+> gdal.org and github.com/OSGeo/GDAL, ala README of
+> https://github.com/qgis/qgis
+> - Harmonization of presentation of existing documentation / making it
+> more easy to find content
+> - Hierarchisation of content in existing documentation. For popular
+> tools or drivers, it could probably be interesting to have "basic" and
+> "advanced" sections (typically for the GeoTIFF page that could/should
+> probably be split)
+>
+> Motion: approve use of up to 25,000 euros for Seth Girvin and up to
+> 25,000 euros for Harrissous Sant-anna from the GDAL Sponsorship Program,
+> for the period April 1st 2025 - March 31st 2026, on documentation
+> enhancements for GDAL.
+>
+> Starting with my +1,
+>
+> Even
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250312/999b0367/attachment.htm>
+
