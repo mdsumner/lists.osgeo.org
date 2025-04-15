@@ -1,0 +1,2709 @@
+From varisht at tathya.earth  Tue Apr  1 00:19:30 2025
+From: varisht at tathya.earth (Varisht Ghedia)
+Date: Tue, 1 Apr 2025 12:49:30 +0530
+Subject: [gdal-dev] Fwd: Performance Variability with GDAL Caching and
+ Multi-Threading for MODIS Data
+In-Reply-To: <CANMeRgBK6fXLgzirGo_-33csTx52mZZfLY0GaBJigppSspqFgA@mail.gmail.com>
+References: <CANMeRgBK6fXLgzirGo_-33csTx52mZZfLY0GaBJigppSspqFgA@mail.gmail.com>
+Message-ID: <CANMeRgCkfZMsg8BwSjBncU-2ejxb8LxVe-RCtMFHiqw4nraMEQ@mail.gmail.com>
+
+Dear GDAL Developers,
+
+I am working on optimizing the processing times for MODIS datasets (LST_1Km
+and QC Day tile) using pymodis with some modifications. Specifically, I
+have added flags for:
+
+   -
+
+   Running on all available CPU cores (ALL_CORES)
+   -
+
+   Adjusting GDAL cache size (GDAL_CACHEMAX)
+
+However, I am observing unexpected performance variations. In some cases,
+increasing the cache size degrades performance instead of improving it.
+Below are my test results for two different datasets from the same tile.
+Tile used: MOD11A1.A2025073.h10v10.061.2025074095514.hdf
+
+EPSG:32618, Resampled to 30m
+*QC_tile.tif*
+
+ALL_CORES + 2G
+real    0m24.199s
+user    0m53.352s
+sys     0m9.998s
+
+STANDARD RUN (No Cache, No Multi-Threading)
+real    0m32.133s
+user    0m30.581s
+sys     0m2.299s
+
+ALL_CORES + 512M
+real    0m13.830s
+user    0m51.083s
+sys     0m1.911s
+
+With 512M cache, performance improves significantly, but with larger caches
+(1G, 2G, 4G), execution time increases.
+*LST_Day_1km.tif*
+
+ALL_CORES + 512M
+real    0m42.863s
+user    0m44.105s
+sys     0m3.583s
+
+STANDARD RUN (No Cache, No Multi-Threading)
+real    0m45.121s
+user    0m26.477s
+sys     0m3.712s
+
+ALL_CORES + 2G
+real    0m37.548s
+user    0m48.302s
+sys     0m8.113s
+
+ALL_CORES + 4G
+real    0m51.845s
+user    0m48.213s
+sys     0m7.988s
+
+For this dataset, using a 2G cache improves performance, but increasing it
+to 4G makes processing slower.
+*Questions:*
+
+   1.
+
+   How does GDAL?s caching mechanism impact performance in these scenarios?
+   2.
+
+   Why does increasing cache size sometimes degrade performance?
+   3.
+
+   Is there a recommended way to tune cache settings for MODIS HDF
+   processing, considering that some layers (like QC) behave differently from
+   others (like LST_1Km)?
+
+Any insights into how GDAL handles multi-threading and caching internally
+would be greatly appreciated.
+
+Thanks in advance for your help!
+
+Best regards,
+
+Varisht Ghedia
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/4b0b268d/attachment-0001.htm>
+
+From lnicola at dend.ro  Tue Apr  1 00:40:43 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Tue, 01 Apr 2025 10:40:43 +0300
+Subject: [gdal-dev] Fwd: Performance Variability with GDAL Caching and
+ Multi-Threading for MODIS Data
+In-Reply-To: <CANMeRgCkfZMsg8BwSjBncU-2ejxb8LxVe-RCtMFHiqw4nraMEQ@mail.gmail.com>
+References: <CANMeRgBK6fXLgzirGo_-33csTx52mZZfLY0GaBJigppSspqFgA@mail.gmail.com>
+ <CANMeRgCkfZMsg8BwSjBncU-2ejxb8LxVe-RCtMFHiqw4nraMEQ@mail.gmail.com>
+Message-ID: <14435f12-1b87-4373-9e1a-feac68f45253@betaapp.fastmail.com>
+
+Hi,
+
+Since it's not exactly clear from your description, what operations are you running, just the equivalent of gdal.Translate()? gdal.Warp()? GDAL can use threading in a couple of places:
+ ? to compress the output before writing it, e.g. the NUM_THREADS creation option of GTiff 
+ ? to decompress the input when reading a region larger than one block or strip, e.g. the NUM_THREADS open option of GTiff
+ ? for pipelining the I/O and warping in gdalwarp (-multi)
+ ? to parallelize warping itself in gdalwarp (-wo NUM_THREADS)
+And of course, there might be others I'm not aware of.
+
+I'm not sure about the effects you see when setting the cache, but note that the default cache GDAL_CACHEMAX is "5% of the  usable physical RAM, [...] consulted the first time the cache size is requested". To disable the cache you can use GDAL_CACHEMAX=0, which can reduce the memory usage and speed up the program in very specific cases (e.g. when processing one block at a time without reading parts of the input twice), but becomes a lot less useful when you do any kind of warping or resampling.
+
+Laurentiu
+
+On Tue, Apr 1, 2025, at 10:19, Varisht Ghedia via gdal-dev wrote:
+> Dear GDAL Developers,
+> 
+> I am working on optimizing the processing times for MODIS datasets (LST_1Km and QC Day tile) using `pymodis` with some modifications. Specifically, I have added flags for:
+> 
+>  ? Running on all available CPU cores (`ALL_CORES`)
+> 
+>  ? Adjusting GDAL cache size (`GDAL_CACHEMAX`)
+> 
+> However, I am observing unexpected performance variations. In some cases, increasing the cache size degrades performance instead of improving it. Below are my test results for two different datasets from the same tile. Tile used: MOD11A1.A2025073.h10v10.061.2025074095514.hdf
+> 
+> EPSG:32618, Resampled to 30m
+> 
+> *QC_tile.tif*
+> 
+> `ALL_CORES + 2G  
+> real    0m24.199s  
+> user    0m53.352s  
+> sys     0m9.998s  
+> 
+> STANDARD RUN (No Cache, No Multi-Threading)  
+> real    0m32.133s  
+> user    0m30.581s  
+> sys     0m2.299s  
+> 
+> ALL_CORES + 512M  
+> real    0m13.830s  
+> user    0m51.083s  
+> sys     0m1.911s  
+`
+> With 512M cache, performance improves significantly, but with larger caches (1G, 2G, 4G), execution time increases.
+> 
+> *LST_Day_1km.tif*
+> 
+> `ALL_CORES + 512M  
+> real    0m42.863s  
+> user    0m44.105s  
+> sys     0m3.583s  
+> 
+> STANDARD RUN (No Cache, No Multi-Threading)  
+> real    0m45.121s  
+> user    0m26.477s  
+> sys     0m3.712s  
+> 
+> ALL_CORES + 2G  
+> real    0m37.548s  
+> user    0m48.302s  
+> sys     0m8.113s  
+> 
+> ALL_CORES + 4G  
+> real    0m51.845s  
+> user    0m48.213s  
+> sys     0m7.988s  
+`
+> For this dataset, using a 2G cache improves performance, but increasing it to 4G makes processing slower.
+> 
+> *Questions:*
+> 
+>  1. How does GDAL?s caching mechanism impact performance in these scenarios?
+> 
+>  2. Why does increasing cache size sometimes degrade performance?
+> 
+>  3. Is there a recommended way to tune cache settings for MODIS HDF processing, considering that some layers (like QC) behave differently from others (like LST_1Km)?
+> 
+> Any insights into how GDAL handles multi-threading and caching internally would be greatly appreciated.
+> 
+> Thanks in advance for your help!
+> 
+> Best regards,
+> 
+> Varisht Ghedia
+> 
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/266ea99f/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Apr  1 04:09:27 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 1 Apr 2025 13:09:27 +0200
+Subject: [gdal-dev] GDAL 3.10.3 release candidate available
+Message-ID: <9cd2cb0d-72e7-4d7d-aacb-837777af34cf@spatialys.com>
+
+Hi,
+
+I have prepared a GDAL/OGR 3.10.3 release candidate.
+
+Pick up an archive among the following ones (by ascending size):
+
+ ? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3rc1.tar.xz
+ ? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3rc1.tar.gz
+ ? https://download.osgeo.org/gdal/3.10.3/gdal3103rc1.zip
+
+A snapshot of the gdalautotest suite is also available:
+
+https://download.osgeo.org/gdal/3.10.3/gdalautotest-3.10.3rc1.tar.gz
+h ttps://download.osgeo.org/gdal/3.10.3/gdalautotest-3.10.3rc1.zip
+
+The NEWS file is here:
+
+ ? https://github.com/OSGeo/gdal/blob/v3.10.3RC1/NEWS.md
+
+Best regards,
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From Yuvraj.Adagale at eurac.edu  Tue Apr  1 09:45:48 2025
+From: Yuvraj.Adagale at eurac.edu (Adagale Yuvraj Bhagwan)
+Date: Tue, 1 Apr 2025 16:45:48 +0000
+Subject: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth Observation
+ Product Format)
+Message-ID: <AS4PR07MB8708B4451041DCA07B88AF3B86AC2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+
+Hello GDAL Community,
+
+We?re developing a GDAL driver for the Earth Observation Product Format (EOPF), a cloud-optimized Zarr-based format tailored for large-scale EO data.
+This driver aims to enable seamless access to EOPF datasets and their metadata through GDAL, supporting features like chunked I/O, and  compatibility with STAC metadata.
+
+Key features:
+- Support for Zarr V2/V3 structures with EOPF-specific enhancements.
+- Integration with cloud storage (S3, GCS, etc.).
+- Alignment with ESA/Copernicus data standards.
+
+We?d appreciate your feedback on integration requirements and best practices. The code is available at EOPF-Sample-Service/GDAL-ZARR-EOPF<https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF>, and we plan to submit a PR soon.
+
+Best regards,
+
+Yuvraj Adagale
+
+Eurac Research
+
+Researcher
+
+Institute for Earth Observation
+T +39 344 584 4031
+
+yuvraj.adagale at eurac.edu
+
+
+
+Drususallee/Viale Druso 1
+
+I-39100 Bozen/Bolzano
+
+
+
+Legal Seat
+
+Drususallee/Viale Druso 1
+
+I-39100 Bozen/Bolzano
+www.eurac.edu<http://www.eurac.edu/>
+
+
+
+Facebook<https://facebook.com/eurac.research> | YouTube<https://www.youtube.com/EURACtv> | X<https://twitter.com/eurac> | LinkedIn<https://www.linkedin.com/company/euracresearch> | Instagram<https://www.instagram.com/euracresearch/> | CV
+
+
+
+
+
+[signature_1401579056]<https://www.eurac.edu/en>
+
+
+
+According to regulation (EU) 2016/679 this transmission is intended only
+
+for the use of the addressee and may contain confidential information.
+
+If you receive this transmission in error, please notify the sender immediately
+
+by email and delete all copies of this message and any attachments.
+
+
+
+Diese Nachricht ist im Sinne der Verordnung (EU) 2016/679 ausschlie?lich f?r
+
+den Adressaten bestimmt und kann vertrauliche Informationen enthalten.
+
+Sollten Sie diese Nachricht irrt?mlich erhalten haben, bitten wir Sie, den
+
+Absender dar?ber unverz?glich per E-Mail in Kenntnis zu setzen sowie die
+
+Nachricht und etwaige Kopien und Anlagen zu vernichten.
+
+
+
+Ai sensi del Regolamento UE 679/2016 questo messaggio ? ad uso esclusivo
+
+del destinatario e pu? contenere informazioni riservate. Qualora Le fosse
+
+pervenuto per errore, Le chiediamo gentilmente di comunicarcelo 
+
+
+immediatamente via e-mail ed eliminare qualsiasi copia e allegato.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/8a22edc7/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Outlook-signature_.png
+Type: image/png
+Size: 17457 bytes
+Desc: Outlook-signature_.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/8a22edc7/attachment-0001.png>
+
+From even.rouault at spatialys.com  Tue Apr  1 12:41:14 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 1 Apr 2025 21:41:14 +0200
+Subject: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth
+ Observation Product Format)
+In-Reply-To: <AS4PR07MB8708B4451041DCA07B88AF3B86AC2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+References: <AS4PR07MB8708B4451041DCA07B88AF3B86AC2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+Message-ID: <2d193c74-6421-4d4d-a608-b1bcd6f8da3d@spatialys.com>
+
+Hi Yuvraj,
+
+
+A few questions:
+
+- what is the maturity of the EOPF enhancements ?
+
+- where are they described ? (i.e. the format specification)
+
+- why not enhancing the existing Zarr driver ?
+
+- from what I can currently see in 
+https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF/tree/main/src, 
+this seems more to be a skeleton of a driver that something production ready
+
+
+Even
+
+
+
+Le 01/04/2025 ? 18:45, Adagale Yuvraj Bhagwan via gdal-dev a ?crit?:
+> Hello GDAL Community,
+> We?re developing a GDAL driver for the Earth Observation Product 
+> Format (EOPF), a cloud-optimized Zarr-based format tailored for 
+> large-scale EO data.
+> This driver aims to enable seamless access to EOPF datasets and their 
+> metadata through GDAL, supporting features like chunked I/O, and? 
+> compatibility with STAC metadata.
+> Key features:
+> - Support for Zarr V2/V3 structures with EOPF-specific enhancements.
+> - Integration with cloud storage (S3, GCS, etc.).
+> - Alignment with ESA/Copernicus data standards.
+> We?d appreciate your feedback on integration requirements and best 
+> practices. The code is available at EOPF-Sample-Service/GDAL-ZARR-EOPF 
+> <https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF>, and we plan 
+> to submit a PR soon.
+> Best regards,
+>
+> *Yuvraj Adagale*
+>
+> *Eurac Research*
+>
+>
+> *Researcher*
+>
+> Institute for Earth Observation
+> *T*?+39 344 584 4031
+>
+> yuvraj.adagale at eurac.edu
+>
+> Drususallee/Viale Druso 1
+>
+> I-39100 Bozen/Bolzano
+>
+> Legal Seat
+>
+> Drususallee/Viale Druso 1
+>
+> I-39100 Bozen/Bolzano
+> *_www.eurac.edu <http://www.eurac.edu/>_*
+>
+> *_Facebook <https://facebook.com/eurac.research>_?| _YouTube 
+> <https://www.youtube.com/EURACtv>_?| _X <https://twitter.com/eurac>_?| 
+> _LinkedIn <https://www.linkedin.com/company/euracresearch>_?| 
+> _Instagram <https://www.instagram.com/euracresearch/>_****| CV*
+>
+> _signature_1401579056 <https://www.eurac.edu/en>_
+>
+> According to regulation?(EU) 2016/679 this transmission is intended only
+>
+> for the use of the?addressee and may contain confidential information.
+>
+> If you receive this?transmission in error, please notify the sender 
+> immediately
+>
+> by email and delete?all copies of this message and any attachments.
+>
+> Diese Nachricht ist im Sinne der Verordnung (EU) 2016/679 
+> ausschlie?lich f?r
+>
+> den Adressaten bestimmt und kann vertrauliche Informationen enthalten.
+>
+> Sollten Sie diese Nachricht irrt?mlich erhalten haben, bitten wir Sie, den
+>
+> Absender dar?ber unverz?glich per E-Mail in Kenntnis zu setzen sowie die
+>
+> Nachricht und etwaige Kopien und Anlagen zu vernichten.
+>
+> Ai sensi del Regolamento UE 679/2016 questo messaggio ? ad uso esclusivo
+>
+> del destinatario e pu? contenere informazioni riservate. Qualora Le fosse
+>
+> pervenuto per errore, Le chiediamo gentilmente di comunicarcelo 
+
+>
+> immediatamente via e-mail ed eliminare qualsiasi copia e allegato.
+>
+>
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/10b12dd0/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Outlook-signature_.png
+Type: image/png
+Size: 17457 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/10b12dd0/attachment-0001.png>
+
+From florian at katerndahl.com  Tue Apr  1 14:12:50 2025
+From: florian at katerndahl.com (Florian Katerndahl)
+Date: Tue, 1 Apr 2025 23:12:50 +0200
+Subject: [gdal-dev] Questions regarding phrasing in the documentation of
+ `OCTTransformBounds`
+Message-ID: <2878b47b-39cb-45b2-be80-420f9d2ba8d0@katerndahl.com>
+
+Dear GDAL-devs,
+
+while working on a small project, I (more or less inevitably) came 
+across the problem of what to do when a bounding box geometry, that is 
+to be translated to EPSG:4326, crosses the antimeridian in the target 
+SRS (i.e. EPSG:4326). The docs for the C function `OCTTransformBounds` 
+note that the user has to check if a) the destination/target SRS is 
+geographic (which it is in my case), b) if the first SRS axis is 
+latitude or longitude and c) depending on that check whether the maximum 
+longitudinal bounding coordinate is smaller then than the minimum 
+bounding longitudinal coordinate, accessing the correct axis.
+
+Unfortunately, the above mentioned check whether the bounding box 
+"crossed the antimeridian" confuses me. Applying this check on the 
+output correctly detects crossing of the antimeridian in EPSG:4326.
+
+While I may very well misunderstand the documentation and/or the 
+underlying processing, I would be thankful for an answer to the 
+following two questions:
+
+ 1. Is the documentation correct that input data must be checked and not
+    the output data, i.e. `out_xmax` etc.?
+ 2. If so, why should this check be done on the input coordinates even
+    though they may not be in a geographic coordinate reference system
+    in the first place or have a SRS assigned that handles 180?
+    crossings (e.g. Mollweide centered at 180?)?
+
+Kind regards and thanks in advance,
+
+Florian Katerndahl
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/fc0ea324/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Apr  1 14:32:58 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 1 Apr 2025 23:32:58 +0200
+Subject: [gdal-dev] Questions regarding phrasing in the documentation of
+ `OCTTransformBounds`
+In-Reply-To: <2878b47b-39cb-45b2-be80-420f9d2ba8d0@katerndahl.com>
+References: <2878b47b-39cb-45b2-be80-420f9d2ba8d0@katerndahl.com>
+Message-ID: <08770d0c-ba6e-4465-b805-2c3e5ce93824@spatialys.com>
+
+Hi Florian,
+
+>  1. Is the documentation correct that input data must be checked and
+>     not the output data, i.e. `out_xmax` etc.?
+>
+No, you're right, the doc is actually incorrect. This must be the out_ 
+variables. Fixed per 
+https://github.com/OSGeo/gdal/commit/1a3f781304cd2856ec0438b2f773357907d7d893
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250401/6f43aada/attachment.htm>
+
+From varisht at tathya.earth  Tue Apr  1 22:34:33 2025
+From: varisht at tathya.earth (Varisht Ghedia)
+Date: Wed, 2 Apr 2025 11:04:33 +0530
+Subject: [gdal-dev] Fwd: Performance Variability with GDAL Caching and
+ Multi-Threading for MODIS Data
+In-Reply-To: <mailman.13629.1743525953.8076.gdal-dev@lists.osgeo.org>
+References: <mailman.13629.1743525953.8076.gdal-dev@lists.osgeo.org>
+Message-ID: <CANMeRgDeBHLegeydoWOpx3rbgpTnK69tf=E4XSep5-voYH5vEw@mail.gmail.com>
+
+Hi Laurentiu,
+
+I am using the pymodis library:
+https://github.com/lucadelu/pyModis/tree/master to extract the LST and QC
+bands from a MODIS (aqua / terra) MOD11A1 product. Upon checking the code,
+it looks like internally the library has the following gdal calls for the
+tasks I execute:
+gdal.AutoCreateWarpedVRT
+gdal.ReprojectImage
+
+I execute the script like this:
+modis_convert.py -s "( 1 0 0 0 0 0 0 0 0 0 0 0 )" -g 30 -o 2025-03-14 -e
+32618 MOD11A1.A2025073.h10v10.061.2025074095514.hdf
+
+Here:
+-s : Select the bands to extract (LST in this case)
+-g : Spatial resolution of the output file (30m)
+-o : Prefix of the output file
+-e : EPSG code for the output (EPSG:32618)
+MOD11A1.A2025073.h10v10.061.2025074095514.hdf: MODIS terra product
+
+To test the effects of cache and multi-threading I set the config options
+at the start of the program like this:
+gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+gdal.SetConfigOption("GDAL_CACHEMAX", "2G")
+
+RAM usage is not much of a concern as at a time, I process a single product
+for now, so I can allocate a higher amount if needed and if it speeds up
+things.
+
+Thanks for your insights regarding NUM_THREADS and CACHEMAX. Is there a
+dedicated option to enable multi-threading i.e. -m using python or does
+ALL_CPUS enable multi-threading automatically. Is there a difference
+between -m and ALL_CPUS?
+
+Thanks and Regards,
+Varisht Ghedia
+
+On Tue, 1 Apr 2025 at 22:15, <gdal-dev-request at lists.osgeo.org> wrote:
+
+> Send gdal-dev mailing list submissions to
+>         gdal-dev at lists.osgeo.org
+>
+> To subscribe or unsubscribe via the World Wide Web, visit
+>         https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> or, via email, send a message with subject or body 'help' to
+>         gdal-dev-request at lists.osgeo.org
+>
+> You can reach the person managing the list at
+>         gdal-dev-owner at lists.osgeo.org
+>
+> When replying, please edit your Subject line so it is more specific
+> than "Re: Contents of gdal-dev digest..."
+> Today's Topics:
+>
+>    1. Re: Fwd: Performance Variability with GDAL Caching and
+>       Multi-Threading for MODIS Data (Lauren?iu Nicola)
+>    2. GDAL 3.10.3 release candidate available (Even Rouault)
+>    3. Proposal for GDAL Driver: EOPF Zarr (Earth Observation
+>       Product Format) (Adagale Yuvraj Bhagwan)
+>
+>
+>
+> ---------- Forwarded message ----------
+> From: "Lauren?iu Nicola" <lnicola at dend.ro>
+> To: gdal-dev at lists.osgeo.org
+> Cc:
+> Bcc:
+> Date: Tue, 01 Apr 2025 10:40:43 +0300
+> Subject: Re: [gdal-dev] Fwd: Performance Variability with GDAL Caching and
+> Multi-Threading for MODIS Data
+> Hi,
+>
+> Since it's not exactly clear from your description, what operations are
+> you running, just the equivalent of gdal.Translate()? gdal.Warp()? GDAL
+> can use threading in a couple of places:
+>
+>    - to compress the output before writing it, e.g. the NUM_THREADS
+>    creation option of GTiff
+>    - to decompress the input when reading a region larger than one block
+>    or strip, e.g. the NUM_THREADS open option of GTiff
+>    - for pipelining the I/O and warping in gdalwarp (-multi)
+>    - to parallelize warping itself in gdalwarp (-wo NUM_THREADS)
+>
+> And of course, there might be others I'm not aware of.
+>
+> I'm not sure about the effects you see when setting the cache, but note
+> that the default cache GDAL_CACHEMAX is "5% of the  usable physical RAM,
+> [...] consulted the first time the cache size is requested". To disable the
+> cache you can use GDAL_CACHEMAX=0, which can reduce the memory usage and
+> speed up the program in very specific cases (e.g. when processing one block
+> at a time without reading parts of the input twice), but becomes a lot less
+> useful when you do any kind of warping or resampling.
+>
+> Laurentiu
+>
+> On Tue, Apr 1, 2025, at 10:19, Varisht Ghedia via gdal-dev wrote:
+>
+> Dear GDAL Developers,
+>
+> I am working on optimizing the processing times for MODIS datasets
+> (LST_1Km and QC Day tile) using pymodis with some modifications.
+> Specifically, I have added flags for:
+>
+>    -
+>
+>    Running on all available CPU cores (ALL_CORES)
+>    -
+>
+>    Adjusting GDAL cache size (GDAL_CACHEMAX)
+>
+> However, I am observing unexpected performance variations. In some cases,
+> increasing the cache size degrades performance instead of improving it.
+> Below are my test results for two different datasets from the same tile.
+> Tile used: MOD11A1.A2025073.h10v10.061.2025074095514.hdf
+>
+> EPSG:32618, Resampled to 30m
+> *QC_tile.tif*
+>
+> ALL_CORES + 2G
+> real    0m24.199s
+> user    0m53.352s
+> sys     0m9.998s
+>
+> STANDARD RUN (No Cache, No Multi-Threading)
+> real    0m32.133s
+> user    0m30.581s
+> sys     0m2.299s
+>
+> ALL_CORES + 512M
+> real    0m13.830s
+> user    0m51.083s
+> sys     0m1.911s
+>
+> With 512M cache, performance improves significantly, but with larger
+> caches (1G, 2G, 4G), execution time increases.
+> *LST_Day_1km.tif*
+>
+> ALL_CORES + 512M
+> real    0m42.863s
+> user    0m44.105s
+> sys     0m3.583s
+>
+> STANDARD RUN (No Cache, No Multi-Threading)
+> real    0m45.121s
+> user    0m26.477s
+> sys     0m3.712s
+>
+> ALL_CORES + 2G
+> real    0m37.548s
+> user    0m48.302s
+> sys     0m8.113s
+>
+> ALL_CORES + 4G
+> real    0m51.845s
+> user    0m48.213s
+> sys     0m7.988s
+>
+> For this dataset, using a 2G cache improves performance, but increasing it
+> to 4G makes processing slower.
+> *Questions:*
+>
+>    1.
+>
+>    How does GDAL?s caching mechanism impact performance in these
+>    scenarios?
+>    2.
+>
+>    Why does increasing cache size sometimes degrade performance?
+>    3.
+>
+>    Is there a recommended way to tune cache settings for MODIS HDF
+>    processing, considering that some layers (like QC) behave differently from
+>    others (like LST_1Km)?
+>
+> Any insights into how GDAL handles multi-threading and caching internally
+> would be greatly appreciated.
+>
+> Thanks in advance for your help!
+>
+> Best regards,
+>
+> Varisht Ghedia
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+>
+>
+>
+>
+> ---------- Forwarded message ----------
+> From: Even Rouault <even.rouault at spatialys.com>
+> To: "gdal-dev at lists.osgeo.org" <gdal-dev at lists.osgeo.org>
+> Cc:
+> Bcc:
+> Date: Tue, 1 Apr 2025 13:09:27 +0200
+> Subject: [gdal-dev] GDAL 3.10.3 release candidate available
+> Hi,
+>
+> I have prepared a GDAL/OGR 3.10.3 release candidate.
+>
+> Pick up an archive among the following ones (by ascending size):
+>
+>    https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3rc1.tar.xz
+>    https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3rc1.tar.gz
+>    https://download.osgeo.org/gdal/3.10.3/gdal3103rc1.zip
+>
+> A snapshot of the gdalautotest suite is also available:
+>
+> https://download.osgeo.org/gdal/3.10.3/gdalautotest-3.10.3rc1.tar.gz
+> h ttps://download.osgeo.org/gdal/3.10.3/gdalautotest-3.10.3rc1.zip
+>
+> The NEWS file is here:
+>
+>    https://github.com/OSGeo/gdal/blob/v3.10.3RC1/NEWS.md
+>
+> Best regards,
+>
+> Even
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+>
+>
+>
+> ---------- Forwarded message ----------
+> From: Adagale Yuvraj Bhagwan <Yuvraj.Adagale at eurac.edu>
+> To: "gdal-dev at lists.osgeo.org" <gdal-dev at lists.osgeo.org>
+> Cc:
+> Bcc:
+> Date: Tue, 1 Apr 2025 16:45:48 +0000
+> Subject: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth Observation
+> Product Format)
+> Hello GDAL Community,
+>
+> We?re developing a GDAL driver for the Earth Observation Product Format
+> (EOPF), a cloud-optimized Zarr-based format tailored for large-scale EO
+> data.
+> This driver aims to enable seamless access to EOPF datasets and their
+> metadata through GDAL, supporting features like chunked I/O, and
+> compatibility with STAC metadata.
+>
+> Key features:
+> - Support for Zarr V2/V3 structures with EOPF-specific enhancements.
+> - Integration with cloud storage (S3, GCS, etc.).
+> - Alignment with ESA/Copernicus data standards.
+>
+> We?d appreciate your feedback on integration requirements and best
+> practices. The code is available at EOPF-Sample-Service/GDAL-ZARR-EOPF
+> <https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF>, and we plan to
+> submit a PR soon.
+>
+> Best regards,
+>
+> *Yuvraj Adagale*
+>
+> *Eurac Research*
+>
+>
+> *Researcher*
+>
+> Institute for Earth Observation
+> *T* +39 344 584 4031
+>
+> yuvraj.adagale at eurac.edu
+>
+>
+>
+> Drususallee/Viale Druso 1
+>
+> I-39100 Bozen/Bolzano
+>
+>
+>
+> Legal Seat
+>
+> Drususallee/Viale Druso 1
+>
+> I-39100 Bozen/Bolzano
+> *www.eurac.edu <http://www.eurac.edu/>*
+>
+>
+>
+> *Facebook <https://facebook.com/eurac.research> | YouTube
+> <https://www.youtube.com/EURACtv> | X <https://twitter.com/eurac> |
+> LinkedIn <https://www.linkedin.com/company/euracresearch> | Instagram
+> <https://www.instagram.com/euracresearch/>* *| CV*
+>
+>
+>
+>
+>
+> *[image: signature_1401579056] <https://www.eurac.edu/en>*
+>
+>
+>
+> According to regulation (EU) 2016/679 this transmission is intended only
+>
+> for the use of the addressee and may contain confidential information.
+>
+> If you receive this transmission in error, please notify the sender
+> immediately
+>
+> by email and delete all copies of this message and any attachments.
+>
+>
+>
+> Diese Nachricht ist im Sinne der Verordnung (EU) 2016/679 ausschlie?lich
+> f?r
+>
+> den Adressaten bestimmt und kann vertrauliche Informationen enthalten.
+>
+> Sollten Sie diese Nachricht irrt?mlich erhalten haben, bitten wir Sie, den
+>
+> Absender dar?ber unverz?glich per E-Mail in Kenntnis zu setzen sowie die
+>
+> Nachricht und etwaige Kopien und Anlagen zu vernichten.
+>
+>
+>
+> Ai sensi del Regolamento UE 679/2016 questo messaggio ? ad uso esclusivo
+>
+> del destinatario e pu? contenere informazioni riservate. Qualora Le fosse
+>
+> pervenuto per errore, Le chiediamo gentilmente di comunicarcelo
+>
+> immediatamente via e-mail ed eliminare qualsiasi copia e allegato.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/0c6a3a76/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Outlook-signature_.png
+Type: image/png
+Size: 17457 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/0c6a3a76/attachment-0001.png>
+
+From lnicola at dend.ro  Tue Apr  1 22:49:00 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Wed, 02 Apr 2025 08:49:00 +0300
+Subject: [gdal-dev] Fwd: Performance Variability with GDAL Caching and
+ Multi-Threading for MODIS Data
+In-Reply-To: <CANMeRgDeBHLegeydoWOpx3rbgpTnK69tf=E4XSep5-voYH5vEw@mail.gmail.com>
+References: <mailman.13629.1743525953.8076.gdal-dev@lists.osgeo.org>
+ <CANMeRgDeBHLegeydoWOpx3rbgpTnK69tf=E4XSep5-voYH5vEw@mail.gmail.com>
+Message-ID: <28e01a34-0307-4b29-811c-0cfbf3bbbc70@betaapp.fastmail.com>
+
+Hi,
+
+ReprojectImage is an older API that doesn't support the full set of warping options. If you're asking about -multi and -wm NUM_THREADS, they don't get (at least in gdalwarp and IIRC) enabled automatically by GDAL_NUM_THREADS. Switching to gdal.Warp might be worthwhile.
+
+Note that pymodis is quite old and could probably do with some updates.
+
+Laurentiu
+
+On Wed, Apr 2, 2025, at 08:34, Varisht Ghedia via gdal-dev wrote:
+> Hi Laurentiu,
+> 
+> I am using the pymodis library: https://github.com/lucadelu/pyModis/tree/master to extract the LST and QC bands from a MODIS (aqua / terra) MOD11A1 product. Upon checking the code, it looks like internally the library has the following gdal calls for the tasks I execute:
+> gdal.AutoCreateWarpedVRT
+> gdal.ReprojectImage
+> 
+> I execute the script like this:
+> modis_convert.py -s "( 1 0 0 0 0 0 0 0 0 0 0 0 )" -g 30 -o 2025-03-14 -e 32618 MOD11A1.A2025073.h10v10.061.2025074095514.hdf
+> 
+> Here:
+> -s : Select the bands to extract (LST in this case)
+> -g : Spatial resolution of the output file (30m)
+> -o : Prefix of the output file
+> -e : EPSG code for the output (EPSG:32618)
+> MOD11A1.A2025073.h10v10.061.2025074095514.hdf: MODIS terra product
+> 
+> To test the effects of cache and multi-threading I set the config options at the start of the program like this:
+> gdal.SetConfigOption("GDAL_NUM_THREADS", "ALL_CPUS")
+> gdal.SetConfigOption("GDAL_CACHEMAX", "2G")
+> 
+> RAM usage is not much of a concern as at a time, I process a single product for now, so I can allocate a higher amount if needed and if it speeds up things.
+> 
+> Thanks for your insights regarding NUM_THREADS and CACHEMAX. Is there a dedicated option to enable multi-threading i.e. -m using python or does ALL_CPUS enable multi-threading automatically. Is there a difference between -m and ALL_CPUS?
+> 
+> Thanks and Regards,
+> Varisht Ghedia
+> 
+> On Tue, 1 Apr 2025 at 22:15, <gdal-dev-request at lists.osgeo.org> wrote:
+>> Send gdal-dev mailing list submissions to
+>>         gdal-dev at lists.osgeo.org
+>> 
+>> To subscribe or unsubscribe via the World Wide Web, visit
+>>         https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>> or, via email, send a message with subject or body 'help' to
+>>         gdal-dev-request at lists.osgeo.org
+>> 
+>> You can reach the person managing the list at
+>>         gdal-dev-owner at lists.osgeo.org
+>> 
+>> When replying, please edit your Subject line so it is more specific
+>> than "Re: Contents of gdal-dev digest..."
+>> Today's Topics:
+>> 
+>>    1. Re: Fwd: Performance Variability with GDAL Caching and
+>>       Multi-Threading for MODIS Data (Lauren?iu Nicola)
+>>    2. GDAL 3.10.3 release candidate available (Even Rouault)
+>>    3. Proposal for GDAL Driver: EOPF Zarr (Earth Observation
+>>       Product Format) (Adagale Yuvraj Bhagwan)
+>> 
+>> 
+>> 
+>> ---------- Forwarded message ----------
+>> From: "Lauren?iu Nicola" <lnicola at dend.ro>
+>> To: gdal-dev at lists.osgeo.org
+>> Cc: 
+>> Bcc: 
+>> Date: Tue, 01 Apr 2025 10:40:43 +0300
+>> Subject: Re: [gdal-dev] Fwd: Performance Variability with GDAL Caching and Multi-Threading for MODIS Data
+>> __
+>> Hi,
+>> 
+>> Since it's not exactly clear from your description, what operations are you running, just the equivalent of gdal.Translate()? gdal.Warp()? GDAL can use threading in a couple of places:
+>>  ? to compress the output before writing it, e.g. the NUM_THREADS creation option of GTiff
+>>  ? to decompress the input when reading a region larger than one block or strip, e.g. the NUM_THREADS open option of GTiff
+>>  ? for pipelining the I/O and warping in gdalwarp (-multi)
+>>  ? to parallelize warping itself in gdalwarp (-wo NUM_THREADS)
+>> And of course, there might be others I'm not aware of.
+>> 
+>> I'm not sure about the effects you see when setting the cache, but note that the default cache GDAL_CACHEMAX is "5% of the  usable physical RAM, [...] consulted the first time the cache size is requested". To disable the cache you can use GDAL_CACHEMAX=0, which can reduce the memory usage and speed up the program in very specific cases (e.g. when processing one block at a time without reading parts of the input twice), but becomes a lot less useful when you do any kind of warping or resampling.
+>> 
+>> Laurentiu
+>> 
+>> On Tue, Apr 1, 2025, at 10:19, Varisht Ghedia via gdal-dev wrote:
+>>> Dear GDAL Developers,
+>>> 
+>>> I am working on optimizing the processing times for MODIS datasets (LST_1Km and QC Day tile) using `pymodis` with some modifications. Specifically, I have added flags for:
+>>> 
+>>>  ? Running on all available CPU cores (`ALL_CORES`)
+>>> 
+>>>  ? Adjusting GDAL cache size (`GDAL_CACHEMAX`)
+>>> 
+>>> However, I am observing unexpected performance variations. In some cases, increasing the cache size degrades performance instead of improving it. Below are my test results for two different datasets from the same tile. Tile used: MOD11A1.A2025073.h10v10.061.2025074095514.hdf
+>>> 
+>>> EPSG:32618, Resampled to 30m
+>>> 
+>>> *QC_tile.tif*
+>>> 
+>>> `ALL_CORES + 2G  
+>>> real    0m24.199s  
+>>> user    0m53.352s  
+>>> sys     0m9.998s  
+>>> 
+>>> STANDARD RUN (No Cache, No Multi-Threading)  
+>>> real    0m32.133s  
+>>> user    0m30.581s  
+>>> sys     0m2.299s  
+>>> 
+>>> ALL_CORES + 512M  
+>>> real    0m13.830s  
+>>> user    0m51.083s  
+>>> sys     0m1.911s  
+`
+>>> With 512M cache, performance improves significantly, but with larger caches (1G, 2G, 4G), execution time increases.
+>>> 
+>>> *LST_Day_1km.tif*
+>>> 
+>>> `ALL_CORES + 512M  
+>>> real    0m42.863s  
+>>> user    0m44.105s  
+>>> sys     0m3.583s  
+>>> 
+>>> STANDARD RUN (No Cache, No Multi-Threading)  
+>>> real    0m45.121s  
+>>> user    0m26.477s  
+>>> sys     0m3.712s  
+>>> 
+>>> ALL_CORES + 2G  
+>>> real    0m37.548s  
+>>> user    0m48.302s  
+>>> sys     0m8.113s  
+>>> 
+>>> ALL_CORES + 4G  
+>>> real    0m51.845s  
+>>> user    0m48.213s  
+>>> sys     0m7.988s  
+`
+>>> For this dataset, using a 2G cache improves performance, but increasing it to 4G makes processing slower.
+>>> 
+>>> *Questions:*
+>>> 
+>>>  1. How does GDAL?s caching mechanism impact performance in these scenarios?
+>>> 
+>>>  2. Why does increasing cache size sometimes degrade performance?
+>>> 
+>>>  3. Is there a recommended way to tune cache settings for MODIS HDF processing, considering that some layers (like QC) behave differently from others (like LST_1Km)?
+>>> 
+>>> Any insights into how GDAL handles multi-threading and caching internally would be greatly appreciated.
+>>> 
+>>> Thanks in advance for your help!
+>>> 
+>>> Best regards,
+>>> 
+>>> Varisht Ghedia
+>>> 
+>>> _______________________________________________
+>>> gdal-dev mailing list
+>>> gdal-dev at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>>> 
+>> 
+>> 
+>> 
+>> 
+>> ---------- Forwarded message ----------
+>> From: Even Rouault <even.rouault at spatialys.com>
+>> To: "gdal-dev at lists.osgeo.org" <gdal-dev at lists.osgeo.org>
+>> Cc: 
+>> Bcc: 
+>> Date: Tue, 1 Apr 2025 13:09:27 +0200
+>> Subject: [gdal-dev] GDAL 3.10.3 release candidate available
+>> Hi,
+>> 
+>> I have prepared a GDAL/OGR 3.10.3 release candidate.
+>> 
+>> Pick up an archive among the following ones (by ascending size):
+>> 
+>>    https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3rc1.tar.xz
+>>    https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3rc1.tar.gz
+>>    https://download.osgeo.org/gdal/3.10.3/gdal3103rc1.zip
+>> 
+>> A snapshot of the gdalautotest suite is also available:
+>> 
+>> https://download.osgeo.org/gdal/3.10.3/gdalautotest-3.10.3rc1.tar.gz
+>> h ttps://download.osgeo.org/gdal/3.10.3/gdalautotest-3.10.3rc1.zip
+>> 
+>> The NEWS file is here:
+>> 
+>>    https://github.com/OSGeo/gdal/blob/v3.10.3RC1/NEWS.md
+>> 
+>> Best regards,
+>> 
+>> Even
+>> 
+>> -- 
+>> http://www.spatialys.com
+>> My software is free, but my time generally not.
+>> 
+>> 
+>> 
+>> 
+>> 
+>> ---------- Forwarded message ----------
+>> From: Adagale Yuvraj Bhagwan <Yuvraj.Adagale at eurac.edu>
+>> To: "gdal-dev at lists.osgeo.org" <gdal-dev at lists.osgeo.org>
+>> Cc: 
+>> Bcc: 
+>> Date: Tue, 1 Apr 2025 16:45:48 +0000
+>> Subject: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth Observation Product Format)
+>> Hello GDAL Community,
+>>  
+>> We?re developing a GDAL driver for the Earth Observation Product Format (EOPF), a cloud-optimized Zarr-based format tailored for large-scale EO data. 
+>> This driver aims to enable seamless access to EOPF datasets and their metadata through GDAL, supporting features like chunked I/O, and  compatibility with STAC metadata.
+>>  
+>> Key features:
+>> - Support for Zarr V2/V3 structures with EOPF-specific enhancements.
+>> - Integration with cloud storage (S3, GCS, etc.).
+>> - Alignment with ESA/Copernicus data standards.
+>>  
+>> We?d appreciate your feedback on integration requirements and best practices. The code is available at EOPF-Sample-Service/GDAL-ZARR-EOPF <https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF>, and we plan to submit a PR soon.
+>> 
+>>  
+>> Best regards,
+>> *Yuvraj Adagale*
+>> 
+>> *Eurac Research*
+>> 
+>> 
+>> *Researcher*
+>> 
+>> Institute for Earth Observation
+>> *T* +39 344 584 4031
+>> 
+>> yuvraj.adagale at eurac.edu
+>> 
+>>  
+>> 
+>> Drususallee/Viale Druso 1
+>> 
+>> I-39100 Bozen/Bolzano
+>> 
+>>  
+>> 
+>> Legal Seat
+>> 
+>> Drususallee/Viale Druso 1
+>> 
+>> I-39100 Bozen/Bolzano
+>> *_www.eurac.edu_*
+>> 
+>>  
+>> 
+>> *_Facebook <https://facebook.com/eurac.research>_ | _YouTube <https://www.youtube.com/EURACtv>_ | _X <https://twitter.com/eurac>_ | _LinkedIn <https://www.linkedin.com/company/euracresearch>_ | _Instagram <https://www.instagram.com/euracresearch/>_** **| CV*
+>> 
+>>  
+>> 
+>>  
+>> 
+>> _signature_1401579056 <https://www.eurac.edu/en>_
+>> 
+>>  
+>> 
+>> According to regulation (EU) 2016/679 this transmission is intended only
+>> 
+>> for the use of the addressee and may contain confidential information.
+>> 
+>> If you receive this transmission in error, please notify the sender immediately
+>> 
+>> by email and delete all copies of this message and any attachments.
+>> 
+>>  
+>> 
+>> Diese Nachricht ist im Sinne der Verordnung (EU) 2016/679 ausschlie?lich f?r
+>> 
+>> den Adressaten bestimmt und kann vertrauliche Informationen enthalten.
+>> 
+>> Sollten Sie diese Nachricht irrt?mlich erhalten haben, bitten wir Sie, den
+>> 
+>> Absender dar?ber unverz?glich per E-Mail in Kenntnis zu setzen sowie die
+>> 
+>> Nachricht und etwaige Kopien und Anlagen zu vernichten.
+>> 
+>>  
+>> 
+>> Ai sensi del Regolamento UE 679/2016 questo messaggio ? ad uso esclusivo
+>> 
+>> del destinatario e pu? contenere informazioni riservate. Qualora Le fosse
+>> 
+>> pervenuto per errore, Le chiediamo gentilmente di comunicarcelo 
+
+>> 
+>> immediatamente via e-mail ed eliminare qualsiasi copia e allegato.
+>> 
+>> 
+>> _______________________________________________
+>> gdal-dev mailing list
+>> gdal-dev at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/3a701db0/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Outlook-signature_.png
+Type: image/png
+Size: 17457 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/3a701db0/attachment-0001.png>
+
+From Yuvraj.Adagale at eurac.edu  Wed Apr  2 04:50:53 2025
+From: Yuvraj.Adagale at eurac.edu (Adagale Yuvraj Bhagwan)
+Date: Wed, 2 Apr 2025 11:50:53 +0000
+Subject: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth
+ Observation Product Format)
+In-Reply-To: <2d193c74-6421-4d4d-a608-b1bcd6f8da3d@spatialys.com>
+References: <AS4PR07MB8708B4451041DCA07B88AF3B86AC2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+ <2d193c74-6421-4d4d-a608-b1bcd6f8da3d@spatialys.com>
+Message-ID: <AS4PR07MB8708A2EB2FB8CFF17CF9C6A786AF2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+
+Hi Even,
+
+1. Maturity of the EOPF Enhancements
+EOPF (Earth Observation Processing Framework) is still in a relatively early stage of development. While the core concepts have been tested in prototype systems, EOPF?s final production readiness is not yet established. We are currently refining specifications and partial read logic, with an aim to gradually move toward production use in the coming months.
+
+2. Location of the Format Specification
+The EOPF format specification is outlined in internal documentation maintained by the EOPF development team (originally used in ESA?s EOPF Sample Service activities). We plan to release a public-facing version of this spec once it stabilizes, so that interested developers can reference it directly.
+
+3. Why Not Enhance the Existing Zarr Driver?
+While the EOPF data layout leverages Zarr-like chunking, it carries additional, domain-specific metadata and conventions?such as specialized Earth Observation fields, naming conventions, and possibly integration with SAFE or STAC metadata. These specialized aspects don?t neatly map onto the existing Zarr driver?s scope.
+
+
+  *
+Technical: Enhancing the Zarr driver to interpret EOPF?s custom logic and metadata might introduce significant complexity or break typical Zarr assumptions.
+  *
+Maintainability: A standalone EOPF driver is less fragile, as we can manage EOPF?s domain rules independently of any future Zarr driver changes.
+  *
+Flexibility: This also allows the EOPF plugin to evolve at a different pace than the generic Zarr driver.
+
+4. Current Skeleton Status
+Yes, the posted code is indeed just a skeleton right now. It demonstrates driver registration, basic dataset creation, and minimal chunk-read placeholders. This is not yet production-ready. Our near-term roadmap includes fleshing out actual reading of Zarr chunks, robust metadata handling, and multi-band support. The skeleton is a starting point that will expand into a more complete EOPF driver in subsequent development stages.
+
+Thanks,
+Yuvraj
+
+________________________________
+From: Even Rouault <even.rouault at spatialys.com>
+Sent: Tuesday, April 1, 2025 9:41 PM
+To: Adagale Yuvraj Bhagwan <Yuvraj.Adagale at eurac.edu>; gdal-dev at lists.osgeo.org <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth Observation Product Format)
+
+You don't often get email from even.rouault at spatialys.com. Learn why this is important<https://aka.ms/LearnAboutSenderIdentification>
+
+Hi Yuvraj,
+
+
+A few questions:
+
+- what is the maturity of the EOPF enhancements ?
+
+- where are they described ? (i.e. the format specification)
+
+- why not enhancing the existing Zarr driver ?
+
+- from what I can currently see in https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF/tree/main/src, this seems more to be a skeleton of a driver that something production ready
+
+
+Even
+
+
+
+Le 01/04/2025 ? 18:45, Adagale Yuvraj Bhagwan via gdal-dev a ?crit :
+Hello GDAL Community,
+
+We?re developing a GDAL driver for the Earth Observation Product Format (EOPF), a cloud-optimized Zarr-based format tailored for large-scale EO data.
+This driver aims to enable seamless access to EOPF datasets and their metadata through GDAL, supporting features like chunked I/O, and  compatibility with STAC metadata.
+
+Key features:
+- Support for Zarr V2/V3 structures with EOPF-specific enhancements.
+- Integration with cloud storage (S3, GCS, etc.).
+- Alignment with ESA/Copernicus data standards.
+
+We?d appreciate your feedback on integration requirements and best practices. The code is available at EOPF-Sample-Service/GDAL-ZARR-EOPF<https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF>, and we plan to submit a PR soon.
+
+Best regards,
+
+Yuvraj Adagale
+
+Eurac Research
+
+Researcher
+
+Institute for Earth Observation
+T +39 344 584 4031
+
+yuvraj.adagale at eurac.edu<mailto:yuvraj.adagale at eurac.edu>
+
+
+
+Drususallee/Viale Druso 1
+
+I-39100 Bozen/Bolzano
+
+
+
+Legal Seat
+
+Drususallee/Viale Druso 1
+
+I-39100 Bozen/Bolzano
+www.eurac.edu<http://www.eurac.edu/>
+
+
+
+Facebook<https://facebook.com/eurac.research> | YouTube<https://www.youtube.com/EURACtv> | X<https://twitter.com/eurac> | LinkedIn<https://www.linkedin.com/company/euracresearch> | Instagram<https://www.instagram.com/euracresearch/> | CV
+
+
+
+
+
+[signature_1401579056]<https://www.eurac.edu/en>
+
+
+
+According to regulation (EU) 2016/679 this transmission is intended only
+
+for the use of the addressee and may contain confidential information.
+
+If you receive this transmission in error, please notify the sender immediately
+
+by email and delete all copies of this message and any attachments.
+
+
+
+Diese Nachricht ist im Sinne der Verordnung (EU) 2016/679 ausschlie?lich f?r
+
+den Adressaten bestimmt und kann vertrauliche Informationen enthalten.
+
+Sollten Sie diese Nachricht irrt?mlich erhalten haben, bitten wir Sie, den
+
+Absender dar?ber unverz?glich per E-Mail in Kenntnis zu setzen sowie die
+
+Nachricht und etwaige Kopien und Anlagen zu vernichten.
+
+
+
+Ai sensi del Regolamento UE 679/2016 questo messaggio ? ad uso esclusivo
+
+del destinatario e pu? contenere informazioni riservate. Qualora Le fosse
+
+pervenuto per errore, Le chiediamo gentilmente di comunicarcelo 
+
+
+immediatamente via e-mail ed eliminare qualsiasi copia e allegato.
+
+
+
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+
+--
+http://www.spatialys.com<http://www.spatialys.com/>
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/372082b5/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Outlook-signature_.png
+Type: image/png
+Size: 17457 bytes
+Desc: Outlook-signature_.png
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/372082b5/attachment-0001.png>
+
+From even.rouault at spatialys.com  Wed Apr  2 05:18:27 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 2 Apr 2025 14:18:27 +0200
+Subject: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth
+ Observation Product Format)
+In-Reply-To: <AS4PR07MB8708A2EB2FB8CFF17CF9C6A786AF2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+References: <AS4PR07MB8708B4451041DCA07B88AF3B86AC2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+ <2d193c74-6421-4d4d-a608-b1bcd6f8da3d@spatialys.com>
+ <AS4PR07MB8708A2EB2FB8CFF17CF9C6A786AF2@AS4PR07MB8708.eurprd07.prod.outlook.com>
+Message-ID: <70ba308b-b0d6-4267-8897-e37efb2a1151@spatialys.com>
+
+Yuvraj,
+
+
+Having the spec publicly available seems to be a pre-condition before 
+submitting a pull request implementing it, otherwise this will make 
+review close to impossible.
+
+
+Regarding a separate EOPF driver vs enhancing the Zarr one, I don't have 
+enough elements to make a judgement. There are other options:
+
+- the EOPF driver uses internally the Zarr one. It seems to be the most 
+attractive option assuming that EOPF Zarr is valid Zarr (which I hope it is)
+
+- if the above hypothesis isn't completely true, the Zarr driver code is 
+restructured so that relevant parts can be reused by EOPF Zarr.
+
+
+In any case, we want to avoid copy&paste of code between the 2 drivers 
+to ease maintenance.
+
+
+Even
+
+
+Le 02/04/2025 ? 13:50, Adagale Yuvraj Bhagwan a ?crit?:
+> Hi Even,
+>
+> 1. Maturity of the EOPF Enhancements
+> EOPF (Earth Observation Processing Framework) is still in a relatively 
+> early stage of development. While the core concepts have been tested 
+> in prototype systems, EOPF?s final production readiness is not yet 
+> established. We are currently refining specifications and partial read 
+> logic, with an aim to gradually move toward production use in the 
+> coming months.
+>
+> 2. Location of the Format Specification
+> The EOPF format specification is outlined in internal documentation 
+> maintained by the EOPF development team (originally used in ESA?s EOPF 
+> Sample Service activities). We plan to release a public-facing version 
+> of this spec once it stabilizes, so that interested developers can 
+> reference it directly.
+>
+> 3. Why Not Enhance the Existing Zarr Driver?
+> While the EOPF data layout leverages Zarr-like chunking, it carries 
+> additional, domain-specific metadata and conventions?such as 
+> specialized Earth Observation fields, naming conventions, and possibly 
+> integration with SAFE or STAC metadata. These specialized aspects 
+> don?t neatly map onto the existing Zarr driver?s scope.
+>
+>  *
+>     *Technical*: Enhancing the Zarr driver to interpret EOPF?s custom
+>     logic and metadata might introduce significant complexity or break
+>     typical Zarr assumptions.
+>  *
+>     *Maintainability*: A standalone EOPF driver is less fragile, as we
+>     can manage EOPF?s domain rules independently of any future Zarr
+>     driver changes.
+>  *
+>     *Flexibility*: This also allows the EOPF plugin to evolve at a
+>     different pace than the generic Zarr driver.
+>
+>
+> 4. Current Skeleton Status
+> Yes, the posted code is indeed just a skeleton right now. It 
+> demonstrates driver registration, basic dataset creation, and minimal 
+> chunk-read placeholders. This is not yet production-ready. Our 
+> near-term roadmap includes fleshing out actual reading of Zarr chunks, 
+> robust metadata handling, and multi-band support. The skeleton is a 
+> starting point that will expand into a more complete EOPF driver in 
+> subsequent development stages.
+>
+> Thanks,
+> Yuvraj
+>
+> ------------------------------------------------------------------------
+> *From:* Even Rouault <even.rouault at spatialys.com>
+> *Sent:* Tuesday, April 1, 2025 9:41 PM
+> *To:* Adagale Yuvraj Bhagwan <Yuvraj.Adagale at eurac.edu>; 
+> gdal-dev at lists.osgeo.org <gdal-dev at lists.osgeo.org>
+> *Subject:* Re: [gdal-dev] Proposal for GDAL Driver: EOPF Zarr (Earth 
+> Observation Product Format)
+>
+> 	
+> You don't often get email from even.rouault at spatialys.com. Learn why 
+> this is important <https://aka.ms/LearnAboutSenderIdentification>
+> 	
+>
+> Hi Yuvraj,
+>
+>
+> A few questions:
+>
+> - what is the maturity of the EOPF enhancements ?
+>
+> - where are they described ? (i.e. the format specification)
+>
+> - why not enhancing the existing Zarr driver ?
+>
+> - from what I can currently see in 
+> https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF/tree/main/src 
+> <https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF/tree/main/src>, 
+> this seems more to be a skeleton of a driver that something production 
+> ready
+>
+>
+> Even
+>
+>
+>
+> Le 01/04/2025 ? 18:45, Adagale Yuvraj Bhagwan via gdal-dev a ?crit?:
+>> Hello GDAL Community,
+>> We?re developing a GDAL driver for the Earth Observation Product 
+>> Format (EOPF), a cloud-optimized Zarr-based format tailored for 
+>> large-scale EO data.
+>> This driver aims to enable seamless access to EOPF datasets and their 
+>> metadata through GDAL, supporting features like chunked I/O, and? 
+>> compatibility with STAC metadata.
+>> Key features:
+>> - Support for Zarr V2/V3 structures with EOPF-specific enhancements.
+>> - Integration with cloud storage (S3, GCS, etc.).
+>> - Alignment with ESA/Copernicus data standards.
+>> We?d appreciate your feedback on integration requirements and best 
+>> practices. The code is available at 
+>> EOPF-Sample-Service/GDAL-ZARR-EOPF 
+>> <https://github.com/EOPF-Sample-Service/GDAL-ZARR-EOPF>, and we plan 
+>> to submit a PR soon.
+>> Best regards,
+>>
+>> *Yuvraj Adagale*
+>>
+>> *Eurac Research*
+>>
+>>
+>> *Researcher*
+>>
+>> Institute for Earth Observation
+>> *T*?+39 344 584 4031
+>>
+>> yuvraj.adagale at eurac.edu <mailto:yuvraj.adagale at eurac.edu>
+>>
+>> Drususallee/Viale Druso 1
+>>
+>> I-39100 Bozen/Bolzano
+>>
+>> Legal Seat
+>>
+>> Drususallee/Viale Druso 1
+>>
+>> I-39100 Bozen/Bolzano
+>> *_www.eurac.edu <http://www.eurac.edu/>_*
+>>
+>> *_Facebook <https://facebook.com/eurac.research>_?| _YouTube 
+>> <https://www.youtube.com/EURACtv>_?| _X 
+>> <https://twitter.com/eurac>_?| _LinkedIn 
+>> <https://www.linkedin.com/company/euracresearch>_?| _Instagram 
+>> <https://www.instagram.com/euracresearch/>_****| CV*
+>>
+>> _signature_1401579056 <https://www.eurac.edu/en>_
+>>
+>> According to regulation?(EU) 2016/679 this transmission is intended only
+>>
+>> for the use of the?addressee and may contain confidential information.
+>>
+>> If you receive this?transmission in error, please notify the sender 
+>> immediately
+>>
+>> by email and delete?all copies of this message and any attachments.
+>>
+>> Diese Nachricht ist im Sinne der Verordnung (EU) 2016/679 
+>> ausschlie?lich f?r
+>>
+>> den Adressaten bestimmt und kann vertrauliche Informationen enthalten.
+>>
+>> Sollten Sie diese Nachricht irrt?mlich erhalten haben, bitten wir 
+>> Sie, den
+>>
+>> Absender dar?ber unverz?glich per E-Mail in Kenntnis zu setzen sowie die
+>>
+>> Nachricht und etwaige Kopien und Anlagen zu vernichten.
+>>
+>> Ai sensi del Regolamento UE 679/2016 questo messaggio ? ad uso esclusivo
+>>
+>> del destinatario e pu? contenere informazioni riservate. Qualora Le fosse
+>>
+>> pervenuto per errore, Le chiediamo gentilmente di comunicarcelo 
+
+>>
+>> immediatamente via e-mail ed eliminare qualsiasi copia e allegato.
+>>
+>>
+>>
+>> _______________________________________________
+>> gdal-dev mailing list
+>> gdal-dev at lists.osgeo.org  <mailto:gdal-dev at lists.osgeo.org>
+>> https://lists.osgeo.org/mailman/listinfo/gdal-dev  <https://lists.osgeo.org/mailman/listinfo/gdal-dev>
+> -- 
+> http://www.spatialys.com  <http://www.spatialys.com/>
+> My software is free, but my time generally not.
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/33c0311c/attachment-0001.htm>
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: Outlook-signature_.png
+Type: image/png
+Size: 17457 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250402/33c0311c/attachment-0001.png>
+
+From even.rouault at spatialys.com  Thu Apr  3 02:25:16 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 3 Apr 2025 11:25:16 +0200
+Subject: [gdal-dev] Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+Message-ID: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+
+Hi,
+
+Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+
++1
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From j1 at jimenezshaw.com  Thu Apr  3 03:21:08 2025
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Thu, 3 Apr 2025 12:21:08 +0200
+Subject: [gdal-dev] Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+In-Reply-To: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+References: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+Message-ID: <CADRrdKvOkkr0UJmHaHHTACV5XA58PfVy6xdFJvOH_4nKGTue5A@mail.gmail.com>
+
++1 Javier
+
+On Thu, 3 Apr 2025 at 11:25, Even Rouault via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Hi,
+>
+> Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+>
+> +1
+>
+> Even
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250403/cd50d1a8/attachment.htm>
+
+From jukka.rahkonen at maanmittauslaitos.fi  Thu Apr  3 03:25:43 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Thu, 3 Apr 2025 10:25:43 +0000
+Subject: [gdal-dev] Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+In-Reply-To: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+References: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+Message-ID: <AS5PR09MB68970C57B0E3FEAF6C3497C4FDAE2@AS5PR09MB6897.eurprd09.prod.outlook.com>
+
++1
+
+-Jukka Rahkonen-
+
+________________________________________
+L?hett?j?: gdal-dev k?ytt?j?n Even Rouault via gdal-dev puolesta
+L?hetetty: Torstai 3. huhtikuuta 2025 12.25
+Vastaanottaja: gdal-dev at lists.osgeo.org
+Aihe: [gdal-dev] Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+
+
+Hi,
+
+Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+
++1
+
+Even
+
+--
+http://www.spatialys.com/
+My software is free, but my time generally not.
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+
+
+From snorris at hillcrestgeo.ca  Fri Apr  4 11:40:40 2025
+From: snorris at hillcrestgeo.ca (snorris at hillcrestgeo.ca)
+Date: Fri, 4 Apr 2025 11:40:40 -0700
+Subject: [gdal-dev] writing parquet to /vsiaz/ fails when chunked
+Message-ID: <491FD4E9-AFCA-44E1-8417-53C72E5FF4EA@hillcrestgeo.ca>
+
+Perhaps another hapless user question:
+
+Using ogr2ogr, I can write very small parquet files to /vsiaz/<container>/<file>.parquet without issue.
+But with larger files (that ogr2ogr tries to write in chunks), Azure does not accept the first PUT request and ogr2ogr fails with:
+
+ERROR 1: PUT of /vsiaz/<container>/<file>.parquet failed
+ERROR 1: WriteColumnChunk() failed for <column>: Error while writing
+ERROR 1: FileWriter::Close() failed with Only 28 out of 84 columns are initialized
+ARROW: Memory pool (writer layer): bytes_allocated = 0
+ARROW: Memory pool (writer layer): max_memory = 56286976
+GDAL: GDALClose(/vsiaz/<container>/<file>.parquet, this=0x5910350ebb10)
+GDAL: In GDALDestroy - unloading GDAL shared library.
+Error: Process completed with exit code 1.
+
+with --config CPL_CURL_VERBOSE=YES, this looks to be the issue:
+
+CURL_INFO_HEADER_OUT: PUT /<container>/<file>.parquet?<token>
+User-Agent: GDAL/3.10.2
+Accept: */*
+Content-Length: 0
+x-ms-blob-type: AppendBlob
+x-ms-date: Thu, 03 Apr 2025 23:02:46 GMT
+
+CURL_INFO_TEXT: Request completely sent off
+CURL_INFO_HEADER_IN: HTTP/1.1 409 The blob type is invalid for this operation.
+CURL_INFO_HEADER_IN: Content-Length: 228
+CURL_INFO_HEADER_IN: Content-Type: application/xml
+CURL_INFO_HEADER_IN: Server: Windows-Azure-Blob/1.0 Microsoft-HTTPAPI/2.0
+CURL_INFO_HEADER_IN: x-ms-request-id: c24de328-b01e-003a-1eec-a49ba5000000
+CURL_INFO_HEADER_IN: x-ms-version: 2022-11-02
+CURL_INFO_HEADER_IN: x-ms-error-code: InvalidBlobType
+CURL_INFO_HEADER_IN: Date: Thu, 03 Apr 2025 23:02:45 GMT
+
+- no issue with ogr2ogr write of same data as flat geobuf to /vsiaz/ (and resulting blob type is AppendBlob)
+- no issue with `az copy` write of the same parquet to azure blob
+- no issue with ogr2ogr write of the same parquet to /vsis3/
+- same issue on macos/gdal 10.2 and ghcr.io/osgeo/gdal:ubuntu-full-3.10.0
+
+I'd file an issue but if it was a bug I'd think it would have already have been found by other users?
+
+thanks
+Simon
+
+
+From even.rouault at spatialys.com  Fri Apr  4 14:52:31 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Fri, 4 Apr 2025 23:52:31 +0200
+Subject: [gdal-dev] writing parquet to /vsiaz/ fails when chunked
+In-Reply-To: <491FD4E9-AFCA-44E1-8417-53C72E5FF4EA@hillcrestgeo.ca>
+References: <491FD4E9-AFCA-44E1-8417-53C72E5FF4EA@hillcrestgeo.ca>
+Message-ID: <a79cead6-058f-4d9c-ac3e-0d6133ef34c0@spatialys.com>
+
+
+Le 04/04/2025 ? 20:40, Simon Norris via gdal-dev a ?crit?:
+> Perhaps another hapless user question:
+>
+> Using ogr2ogr, I can write very small parquet files to /vsiaz/<container>/<file>.parquet without issue.
+> But with larger files (that ogr2ogr tries to write in chunks), Azure does not accept the first PUT request and ogr2ogr fails with:
+
+Can't reproduce with a dataset of mine. Maybe this is specific to your 
+input dataset ?
+
+> I'd file an issue but if it was a bug I'd think it would have already have been found by other users?
+ah ah, if everybody had the same thinking, nobody would report bugs ;-)
+>
+> thanks
+> Simon
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250404/e53d9384/attachment.htm>
+
+From snorris at hillcrestgeo.ca  Fri Apr  4 21:23:44 2025
+From: snorris at hillcrestgeo.ca (snorris at hillcrestgeo.ca)
+Date: Fri, 4 Apr 2025 21:23:44 -0700
+Subject: [gdal-dev] writing parquet to /vsiaz/ fails when chunked
+In-Reply-To: <a79cead6-058f-4d9c-ac3e-0d6133ef34c0@spatialys.com>
+References: <491FD4E9-AFCA-44E1-8417-53C72E5FF4EA@hillcrestgeo.ca>
+ <a79cead6-058f-4d9c-ac3e-0d6133ef34c0@spatialys.com>
+Message-ID: <1990932A-4732-44EC-AB66-D776C0ED278F@hillcrestgeo.ca>
+
+I've posted the data - round-tripping still produces the noted error (PUT as AppendBlob results in InvalidBlobType):
+
+ogr2ogr -f Parquet \
+  /vsiaz/bcfishpass/crossings.parquet \
+  -nln crossings \
+  --debug ON \
+  --config CPL_CURL_VERBOSE=YES \
+  /vsicurl/https://cabdbcfishpassstorage.blob.core.windows.net/bcfishpass/test.parquet
+
+But.... now I've noticed that if I change the output file/blob name it works fine?! (uses AppendBlob)
+
+ogr2ogr -f Parquet \
+  /vsiaz/bcfishpass/temp1.parquet \
+  -nln crossings \
+  --debug ON \
+  --config CPL_CURL_VERBOSE=YES \
+  /vsicurl/https://cabdbcfishpassstorage.blob.core.windows.net/bcfishpass/test.parquet
+
+If pass a single point to the failing file/blob name, it succeeds (using BlockBlob):
+
+echo '{"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [30, 10]}, "properties": {}}]}' | \
+ogr2ogr -f Parquet \
+  /vsiaz/bcfishpass/crossings.parquet \
+  -nln crossings \
+  --debug ON \
+  --config CPL_CURL_VERBOSE=YES \
+ /vsistdin/
+
+Full log for the three commands above is linked below... but this must be an Azure issue.
+https://gist.github.com/smnorris/427ab56914b5bd55ad8f797c107aea73
+
+
+> On Apr 4, 2025, at 2:52?PM, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> 
+> 
+> Le 04/04/2025 ? 20:40, Simon Norris via gdal-dev a ?crit :
+>> Perhaps another hapless user question:
+>> 
+>> Using ogr2ogr, I can write very small parquet files to /vsiaz/<container>/<file>.parquet without issue.
+>> But with larger files (that ogr2ogr tries to write in chunks), Azure does not accept the first PUT request and ogr2ogr fails with:
+> Can't reproduce with a dataset of mine. Maybe this is specific to your input dataset ?
+> 
+> 
+>> I'd file an issue but if it was a bug I'd think it would have already have been found by other users?
+> ah ah, if everybody had the same thinking, nobody would report bugs ;-)
+>> thanks
+>> Simon
+>> 
+>> _______________________________________________
+>> gdal-dev mailing list
+>> gdal-dev at lists.osgeo.org <mailto:gdal-dev at lists.osgeo.org>
+>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> -- 
+> http://www.spatialys.com <http://www.spatialys.com/>
+> My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250404/9e7c99f0/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Apr  5 04:12:11 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 5 Apr 2025 13:12:11 +0200
+Subject: [gdal-dev] writing parquet to /vsiaz/ fails when chunked
+In-Reply-To: <1990932A-4732-44EC-AB66-D776C0ED278F@hillcrestgeo.ca>
+References: <491FD4E9-AFCA-44E1-8417-53C72E5FF4EA@hillcrestgeo.ca>
+ <a79cead6-058f-4d9c-ac3e-0d6133ef34c0@spatialys.com>
+ <1990932A-4732-44EC-AB66-D776C0ED278F@hillcrestgeo.ca>
+Message-ID: <2a81fc18-b31c-4551-a8d7-4f2749d6151a@spatialys.com>
+
+The error is:
+
+URL_INFO_HEADER_OUT: PUT 
+/bcfishpass/crossings.parquet?se=2025-04-05T05%3A19Z&sp=rwdl&sv=2022-11-02&sr=c&skoid=d80366e6-b960-4aad-b22e-879eb27768e8&sktid=8b76c303-01ec-40d5-8d9a-6c2f6d78dcd7&skt=2025-04-05T04%3A19%3A14Z&ske=2025-04-05T05%3A19%3A00Z&sks=b&skv=2022-11-02&sig=kZTkJQ0%2BCS6%2Btm9S/jCjyZ5U4C51%2BJwO9bHNvG19EgU%3D 
+HTTP/1.1
+Host: cabdbcfishpassstorage.blob.core.windows.net
+User-Agent: GDAL/3.10.2
+Accept: */*
+Content-Length: 0
+x-ms-blob-type: AppendBlob
+x-ms-date: Sat, 05 Apr 2025 04:19:18 GMT
+
+CURL_INFO_TEXT: Request completely sent off
+CURL_INFO_HEADER_IN: HTTP/1.1 409 The blob type is invalid for this 
+operation.
+
+
+Googling for this error message leads to a number of issues where the 
+naming of the file seems to be involved. This is quite mysterious. In 
+any case using the same exact command line as yours (that is I created a 
+bfishpass container) works fine for me. But I don't use shared access 
+signature. Maybe that's the difference...
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From snorris at hillcrestgeo.ca  Sat Apr  5 08:25:28 2025
+From: snorris at hillcrestgeo.ca (snorris at hillcrestgeo.ca)
+Date: Sat, 5 Apr 2025 08:25:28 -0700
+Subject: [gdal-dev] writing parquet to /vsiaz/ fails when chunked
+In-Reply-To: <2a81fc18-b31c-4551-a8d7-4f2749d6151a@spatialys.com>
+References: <491FD4E9-AFCA-44E1-8417-53C72E5FF4EA@hillcrestgeo.ca>
+ <a79cead6-058f-4d9c-ac3e-0d6133ef34c0@spatialys.com>
+ <1990932A-4732-44EC-AB66-D776C0ED278F@hillcrestgeo.ca>
+ <2a81fc18-b31c-4551-a8d7-4f2749d6151a@spatialys.com>
+Message-ID: <F720AD20-4BB7-4701-A9EB-1FF40D445CC6@hillcrestgeo.ca>
+
+Thanks Even.
+I didn't scroll down far enough in the google results - this blogger had the same symptoms.
+https://dzone.com/articles/azure-blob-storage-specified
+
+
+> On Apr 5, 2025, at 4:12?AM, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> The error is:
+> 
+> URL_INFO_HEADER_OUT: PUT /bcfishpass/crossings.parquet?se=2025-04-05T05%3A19Z&sp=rwdl&sv=2022-11-02&sr=c&skoid=d80366e6-b960-4aad-b22e-879eb27768e8&sktid=8b76c303-01ec-40d5-8d9a-6c2f6d78dcd7&skt=2025-04-05T04%3A19%3A14Z&ske=2025-04-05T05%3A19%3A00Z&sks=b&skv=2022-11-02&sig=kZTkJQ0%2BCS6%2Btm9S/jCjyZ5U4C51%2BJwO9bHNvG19EgU%3D HTTP/1.1
+> Host: cabdbcfishpassstorage.blob.core.windows.net
+> User-Agent: GDAL/3.10.2
+> Accept: */*
+> Content-Length: 0
+> x-ms-blob-type: AppendBlob
+> x-ms-date: Sat, 05 Apr 2025 04:19:18 GMT
+> 
+> CURL_INFO_TEXT: Request completely sent off
+> CURL_INFO_HEADER_IN: HTTP/1.1 409 The blob type is invalid for this operation.
+> 
+> 
+> Googling for this error message leads to a number of issues where the naming of the file seems to be involved. This is quite mysterious. In any case using the same exact command line as yours (that is I created a bfishpass container) works fine for me. But I don't use shared access signature. Maybe that's the difference...
+> 
+> 
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+> 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250405/9fa3537d/attachment.htm>
+
+From even.rouault at spatialys.com  Mon Apr  7 02:43:33 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 7 Apr 2025 11:43:33 +0200
+Subject: [gdal-dev] Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+In-Reply-To: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+References: <6422ec6a-b247-427d-ad41-88eedfb737d7@spatialys.com>
+Message-ID: <d6a84168-8bdc-4acf-89e7-9b1d872c3af4@spatialys.com>
+
+Motion passed with +1 from PSC members JavierJS, JukkaR and me
+
+Le 03/04/2025 ? 11:25, Even Rouault via gdal-dev a ?crit?:
+> Hi,
+>
+> Motion: adopt GDAL 3.10.3RC1 as final 3.10.3 release
+>
+> +1
+>
+> Even
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From even.rouault at spatialys.com  Mon Apr  7 03:06:37 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 7 Apr 2025 12:06:37 +0200
+Subject: [gdal-dev] GDAL 3.10.3 is released
+Message-ID: <25d4ea44-82a5-4f7c-8172-551fa81c1055@spatialys.com>
+
+Hi,
+
+On behalf of the GDAL/OGR development team, I am pleased to announce the 
+release of the GDAL/OGR 3.10.3 bug fix version, likely the last one in 
+the 3.10 series.
+
+Consult the release notes for the list of issues addressed:
+ ??? https://github.com/OSGeo/gdal/blob/v3.10.3/NEWS.md
+
+The sources are available at:
+
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3.tar.xz
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3.tar.xz.md5
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3.tar.xz.sig
+
+or
+
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3.tar.gz
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3.tar.gz.md5
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal-3.10.3.tar.gz.sig
+
+or
+
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal3103.zip
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal3103.zip.md5
+ ??? https://download.osgeo.org/gdal/3.10.3/gdal3103.zip.sig
+
+Best regards,
+
+Even
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From michael.otto at data-experts.de  Mon Apr  7 05:59:46 2025
+From: michael.otto at data-experts.de (Michael Otto)
+Date: Mon, 7 Apr 2025 14:59:46 +0200
+Subject: [gdal-dev] Extreme time required to create pyramids in MBTiles file
+ (WEBP compression) with large extension but little content
+Message-ID: <OF481DBB48.25BDC9EE-ONC1258C65.00470925-C1258C65.004763F1@data-experts.de>
+
+Hello everyone,
+
+I have a few questions about the following procedure.
+We use gdal to retrieve raster data for several areas from a WMS and save 
+them together in an MBTiles file with a WEBP compression. We then use 
+gdaladdo to generate the pyramid levels for the MBTiles file.
+
+Now we have noticed that the larger the boundaries in the MBTiles file, 
+the longer it takes to create the pyramids, even if there are only two 
+small areas with image tiles.
+For example, here are two small areas (EPGS: 25833, in total only 200ha):
+BBox1(LowerLeft 251000/5891000, UpperRight 252000/5892000) 
+BBox2(LowerLeft 480000/5715000, UpperRight 481000/5716000) 
+
+These times take:
+- the determination of the raster data: 8 seconds
+- the creation of the MBTiles file: 1 second
+- the creation of the pyramids: 16:41 minutes !!!
+
+If such small image areas are close together, the pyramids can be created 
+with a snap of the fingers.
+
+Does anyone have any ideas on how to speed up the pyramid creation 
+process?
+We use gdal 3.8.4.
+
+Best regards.
+Michael Otto
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250407/29ce8b1c/attachment.htm>
+
+From jukka.rahkonen at maanmittauslaitos.fi  Mon Apr  7 13:43:02 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Mon, 7 Apr 2025 20:43:02 +0000
+Subject: [gdal-dev] GeoJSON with "id" in properties and SQLite dialect
+Message-ID: <DB9PR09MB68876DA8AC807BC6B542D4FEFDAA2@DB9PR09MB6887.eurprd09.prod.outlook.com>
+
+Hi,
+
+I notised this question on gis.stackexchange https://gis.stackexchange.com/questions/491741/gdal-sqlite-no-such-table-when-id-in-properties
+
+I tried to make as simple as possible test case and here is the GeoJSON:
+
+{
+    "type": "FeatureCollection",
+    "name": "main",
+        "features": [
+        {
+            "type": "Feature",
+            "properties": {
+                "id": 9794
+            },
+            "geometry": {
+                "type": "Point",
+                "coordinates": [                  
+                 45.14755797662297,
+                -12.770174793784179
+                ]
+           }
+        }
+    ]
+}
+
+Is there any workaround for using SQLite dialect with this dataset? What goes wrong is that an attribute "id" appears inside properties where it actually does not belong. GDAL interprets that it should be used as promary key in the virtual SQLite table that gets created, but it also tries to create another attribute with the same name.
+
+ogrinfo -dialect sqlite -sql "select geometry from main" idtest.json
+INFO: Open of `idtest.json'
+      using driver `GeoJSON' successful.
+ERROR 1: Cannot create virtual table for layer 'main' : CREATE VIRTUAL: invalid SQL statement : CREATE TABLE "main"("id" INTEGER HIDDEN PRIMARY KEY NOT NULL,"id" INTEGER,OGR_STYLE VARCHAR HIDDEN,"GEOMETRY" BLOB_POINT_XY_4326, OGR_NATIVE_DATA VARCHAR, OGR_NATIVE_MEDIA_TYPE VARCHAR)
+ERROR 1: In ExecuteSQL(): sqlite3_prepare_v2(select geometry from main):
+  no such table: main
+
+-Jukka Rahkonen-
+
+From even.rouault at spatialys.com  Mon Apr  7 14:01:39 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 7 Apr 2025 23:01:39 +0200
+Subject: [gdal-dev] GeoJSON with "id" in properties and SQLite dialect
+In-Reply-To: <DB9PR09MB68876DA8AC807BC6B542D4FEFDAA2@DB9PR09MB6887.eurprd09.prod.outlook.com>
+References: <DB9PR09MB68876DA8AC807BC6B542D4FEFDAA2@DB9PR09MB6887.eurprd09.prod.outlook.com>
+Message-ID: <7f193003-4172-4901-bdef-a73f90016ef7@spatialys.com>
+
+Fix queued in https://github.com/OSGeo/gdal/pull/12104
+
+Le 07/04/2025 ? 22:43, Rahkonen Jukka via gdal-dev a ?crit?:
+> Hi,
+>
+> I notised this question on gis.stackexchange https://gis.stackexchange.com/questions/491741/gdal-sqlite-no-such-table-when-id-in-properties
+>
+> I tried to make as simple as possible test case and here is the GeoJSON:
+>
+> {
+>      "type": "FeatureCollection",
+>      "name": "main",
+>          "features": [
+>          {
+>              "type": "Feature",
+>              "properties": {
+>                  "id": 9794
+>              },
+>              "geometry": {
+>                  "type": "Point",
+>                  "coordinates": [
+>                   45.14755797662297,
+>                  -12.770174793784179
+>                  ]
+>             }
+>          }
+>      ]
+> }
+>
+> Is there any workaround for using SQLite dialect with this dataset? What goes wrong is that an attribute "id" appears inside properties where it actually does not belong. GDAL interprets that it should be used as promary key in the virtual SQLite table that gets created, but it also tries to create another attribute with the same name.
+>
+> ogrinfo -dialect sqlite -sql "select geometry from main" idtest.json
+> INFO: Open of `idtest.json'
+>        using driver `GeoJSON' successful.
+> ERROR 1: Cannot create virtual table for layer 'main' : CREATE VIRTUAL: invalid SQL statement : CREATE TABLE "main"("id" INTEGER HIDDEN PRIMARY KEY NOT NULL,"id" INTEGER,OGR_STYLE VARCHAR HIDDEN,"GEOMETRY" BLOB_POINT_XY_4326, OGR_NATIVE_DATA VARCHAR, OGR_NATIVE_MEDIA_TYPE VARCHAR)
+> ERROR 1: In ExecuteSQL(): sqlite3_prepare_v2(select geometry from main):
+>    no such table: main
+>
+> -Jukka Rahkonen-
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From public at postholer.com  Mon Apr  7 14:15:26 2025
+From: public at postholer.com (Scott)
+Date: Mon, 7 Apr 2025 14:15:26 -0700
+Subject: [gdal-dev] GeoJSON with "id" in properties and SQLite dialect
+In-Reply-To: <DB9PR09MB68876DA8AC807BC6B542D4FEFDAA2@DB9PR09MB6887.eurprd09.prod.outlook.com>
+References: <DB9PR09MB68876DA8AC807BC6B542D4FEFDAA2@DB9PR09MB6887.eurprd09.prod.outlook.com>
+Message-ID: <56feb244-64a3-465e-b3d5-e11fa2808ac2@postholer.com>
+
+As a work around, this seems to work:
+
+ogr2ogr -preserve_fid idtest1.geojson idtest.json
+ogrinfo -dialect sqlite -sql "select * from main" idtest1.geojson
+
+On 4/7/25 13:43, Rahkonen Jukka via gdal-dev wrote:
+> Hi,
+> 
+> I notised this question on gis.stackexchange https://gis.stackexchange.com/questions/491741/gdal-sqlite-no-such-table-when-id-in-properties
+> 
+> I tried to make as simple as possible test case and here is the GeoJSON:
+> 
+> {
+>      "type": "FeatureCollection",
+>      "name": "main",
+>          "features": [
+>          {
+>              "type": "Feature",
+>              "properties": {
+>                  "id": 9794
+>              },
+>              "geometry": {
+>                  "type": "Point",
+>                  "coordinates": [
+>                   45.14755797662297,
+>                  -12.770174793784179
+>                  ]
+>             }
+>          }
+>      ]
+> }
+> 
+> Is there any workaround for using SQLite dialect with this dataset? What goes wrong is that an attribute "id" appears inside properties where it actually does not belong. GDAL interprets that it should be used as promary key in the virtual SQLite table that gets created, but it also tries to create another attribute with the same name.
+> 
+> ogrinfo -dialect sqlite -sql "select geometry from main" idtest.json
+> INFO: Open of `idtest.json'
+>        using driver `GeoJSON' successful.
+> ERROR 1: Cannot create virtual table for layer 'main' : CREATE VIRTUAL: invalid SQL statement : CREATE TABLE "main"("id" INTEGER HIDDEN PRIMARY KEY NOT NULL,"id" INTEGER,OGR_STYLE VARCHAR HIDDEN,"GEOMETRY" BLOB_POINT_XY_4326, OGR_NATIVE_DATA VARCHAR, OGR_NATIVE_MEDIA_TYPE VARCHAR)
+> ERROR 1: In ExecuteSQL(): sqlite3_prepare_v2(select geometry from main):
+>    no such table: main
+> 
+> -Jukka Rahkonen-
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+
+From simon.eves at heavy.ai  Mon Apr  7 21:22:21 2025
+From: simon.eves at heavy.ai (Simon Eves)
+Date: Mon, 7 Apr 2025 21:22:21 -0700
+Subject: [gdal-dev] TSAN lock-order-inversion on moving GDAL init to main()
+Message-ID: <CAJf0KTTLXZJf6c8z=r9psTiTM-MV7BK2-wXTUJEYd3Jb-s1hJA@mail.gmail.com>
+
+I just refactored our GDAL init code which required me to add calls to the
+init function to the *main()* of several of our unit test executables. Now
+they all fail our TSAN tests with the following:
+
+*18:46:51* 29: WARNING: ThreadSanitizer: lock-order-inversion
+(potential deadlock) (pid=111437)*18:46:51* 29:   Cycle in lock order
+graph: M889273480187642592 (0x000000000000) => M889596235056216640
+(0x000000000000) => M889273480187642592*18:46:51* 29: *18:46:51* 29:
+Mutex M889596235056216640 acquired here while holding mutex
+M889273480187642592 in main thread:*18:46:51* 29:     #0
+pthread_mutex_lock
+../../../../src/libsanitizer/sanitizer_common/sanitizer_common_interceptors.inc:4240
+(libtsan.so.0+0x53908)*18:46:51* 29:     #1 CPLAcquireMutex <null>
+(RasterTableTests+0x61da93a)*18:46:51* 29:     #2 main
+/home/jenkins-slave/workspace/core-tsan-gcc/Tests/ee/RasterTableTests.cpp:2292
+(RasterTableTests+0x34705ba)
+
+The relevant parts of the init() function are:
+
+GDALAllRegister();
+> OGRRegisterAll();
+> CPLSetErrorHandler(*gdal_error_handler);
+
+
+I found https://github.com/OSGeo/gdal/issues/1108 and related which seems
+to indicate that something was fixed perhaps in 3.9.
+
+We are in the process of updating from 3.7.3 to 3.10.2 and the problem
+occurs in CI builds on machines which still have 3.7.3. It does not occur
+with the new TSAN build container which has 3.10.2.
+
+Can I assume that the reworking of mutex handling in the above issue was
+indeed the cause of this? We can suppress the failure until we are past the
+GDAL update.
+
+-- 
+Simon Eves
+Senior Rendering Engineer
++1 (415) 902-1996
+simon.eves at heavy.ai
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250407/9d557d5c/attachment.htm>
+
+From even.rouault at spatialys.com  Thu Apr 10 12:50:23 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 10 Apr 2025 21:50:23 +0200
+Subject: [gdal-dev] Call for review on RFC 104: Adding a "gdal"
+ front-end command line interface
+In-Reply-To: <08ae8479-d2fd-4b2e-a974-c43a27705100@spatialys.com>
+References: <117a646d-9b34-46a6-9337-0292710fffba@spatialys.com>
+ <78fa9bef-b27f-4437-b0aa-b7a9953f17a2@postholer.com>
+ <712f5407-5378-4545-a49a-553e5a1a8613@spatialys.com>
+ <CAFLLRpJT1kx1frrYUfWeyQubY9nX_ouYsZEegXhJVLtd4ANw8A@mail.gmail.com>
+ <08ae8479-d2fd-4b2e-a974-c43a27705100@spatialys.com>
+Message-ID: <15374d3a-1824-4999-bd65-a6083185e736@spatialys.com>
+
+
+Le 25/11/2024 ? 10:21, Even Rouault via gdal-dev a ?crit?:
+>
+> Hi Rob,
+>
+>>
+>> Is it worth reserving space for a future Git or Github-cli style 
+>> plugin mechanism where third party tools can extend the `gdal` CLI? 
+>> eg: `gdal raster from-contours`
+>>
+>>   * `git foo` simply looks for internal code first, then executes
+>>     `git-foo` if it's present, then expands any configured command
+>>     aliases
+>>   * Github cli has an explicit extension install/packaging mechanism:
+>>     https://docs.github.com/en/github-cli/github-cli/creating-github-cli-extensions
+>>
+> I would let that aside for now (trying to limit as much as possible 
+> the scope of the current RFC to avoid it going out of control). That's 
+> something that should be relatively easy to add if someone needed 
+> that. But actually you can already extend the "gdal" utility, for 
+> commands a the top level, if you provide a shared library in the 
+> gdalplugins directory and that it registers an algorithm the same way 
+> built-in algorithms do. The bonus point doing that way is that 
+> potential GUI built on top of gdal that would use "gdal --json-usage" 
+> (or the equivalent C/C++ API) would autodiscover such extension with 
+> its supported options.
+>
+Implemented per https://github.com/OSGeo/gdal/pull/12126
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250410/a05a8b57/attachment.htm>
+
+From mflan at mflan.com  Fri Apr 11 07:08:51 2025
+From: mflan at mflan.com (Mike Flannigan)
+Date: Fri, 11 Apr 2025 09:08:51 -0500
+Subject: [gdal-dev] Reading Layers In USGS Geospatial Topo Files:
+In-Reply-To: <mailman.12266.1742936605.8076.gdal-dev@lists.osgeo.org>
+References: <mailman.12266.1742936605.8076.gdal-dev@lists.osgeo.org>
+Message-ID: <1395e4ab-add7-48a9-a8c1-d09a2a825ec3@mflan.com>
+
+
+I don't do this much, so I'm not sure this still applies.
+But here are my notes on the subject.? I am on Linux
+now, so windows stuff is generally of no use to me.
+
+
+Convert GeoPDF to GeoTiff:
+
+Do this 1st:
+gdal_translate 'Mount Rose.pdf' 'Mount Rose2.tif' -of GTiff
+
+Do this 2nd:
+gdal_translate 'Mount Rose2.tif' 'Mount Rose.tif' -b 1 -b 2 -b 3 -mask 4 
+-co COMPRESS=JPEG -co PHOTOMETRIC=YCBCR --config GDAL_TIFF_INTERNAL_MASK YES
+
+Works on Linux, but creates a HUGE file (~88 MG):
+gdal_translate -of GTiff -co "COMPRESS=DEFLATE" --config GDAL_PDF_DPI 
+300 /home/mike/Documents/copy2/fv.pdf /home/mike/Documents/copy2/fv-03.tif
+
+Best one to use on Windows, but does not work on Linux:
+C:\GDAL\bin\gdal\apps\gdal_translate -of GTiff C:\Copy\bm.pdf 
+C:\Copy\bm.tif --config GDAL_PDF_DPI 300 -co "COMPRESS=JPEG" -co 
+"JPEG_QUALITY=85"
+
+It takes 2 minutes and 15 seconds to process a 10.1MB GeoPDF file.
+
+Oddly on 10/1/2019 I had to copy all the DLL files from C:\GDAL\bin into 
+C:\GDAL\bin\gdal\apps
+to get this to work.
+
+Another good one:
+C:\Copy\bin\gdal\apps>gdal_translate -of GTiff C:\Copy\wp.pdf 
+C:\Copy\wpt.tif --config GDAL_PDF_DPI 300
+
+
+Don't use this:
+C:\Copy\bin\gdal\apps>gdal_translate -of GTiff -co "TILED=YES" -co 
+"TFW=YES" C:\
+Copy\wp.pdf C:\Copy\wpt.tif --config GDAL_PDF_DPI 300
+
+Don't use this:
+C:\Copy\bin\gdal\apps>gdal_translate -of GTiff -co "TILED=YES" -co 
+"TFW=YES" C:\Copy\wpt.tif --config GDAL_PDF_LAYERS_OFF 
+"Map_Collar","Map_Frame.Projection_and_Grids" --config GDAL_PDF_DPI300
+
+
+Mike
+Houston, TX
+
+
+On 3/25/25 16:03, gdal-dev-request at lists.osgeo.org wrote:
+> Date: Tue, 25 Mar 2025 13:40:18 -0700
+> From: Carl Carlson<cacarlson at alumni.stanford.edu>
+> To:gdal-dev at lists.osgeo.org
+> Subject: [gdal-dev] Reading Layers In USGS Geospatial Topo Files:
+> Message-ID:<2AEBA991-A148-4B9D-A2AA-4F8A6FC94F1F at alumni.stanford.edu>
+> Content-Type: text/plain; charset="utf-8"
+>
+> I have almost no experience with GDAL or python, butI do have  57 years
+> programming experience.  I need some help with GDAL.  At 79 I don?t have
+>   the time and energy to get deeply into these topics.  I need a quick
+> solution
+>
+> I am writing a program to copy selected layers from a 7.5? USGS
+> geospatial PDF Topo File and save them as geoTIFFs.  My efforts with
+> gdalinfo,  gdal.Open, and gdal.Translate have led me nowhere worthwhile.
+>    I can?t find the layers.  I just don?t know enough about this.
+>
+> Would some kind person help me out with sample code?
+>
+> Thanks
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250411/c0ea2525/attachment.htm>
+
+From michael.smith.erdc at gmail.com  Sun Apr 13 07:00:53 2025
+From: michael.smith.erdc at gmail.com (Michael Smith)
+Date: Sun, 13 Apr 2025 10:00:53 -0400
+Subject: [gdal-dev] STAC Geoparquet required fields - Inspecting one feature
+ due to missing metadata items
+Message-ID: <9849584C-4EC4-4F6C-A012-71A9B9144B03@gmail.com>
+
+Looking at some stac geoparquet datasets I created from a VRT, I see this in the gdal debug output:
+
+GDAL: GDALOpen(/Users/rdcrlmds/Downloads/test1.gti.parquet, this=0x1580079d0) succeeds as Parquet.
+GTI: Using assets.data.href as location field
+GTI: Inspecting one feature due to missing metadata items
+
+I see that it's getting the file size with
+ VSICURL: Using effective URL https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif temporarily
+VSICURL: GetFileSize(https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/2315541.tif)=6350041  response_code=200
+
+I do have file.size as the file extension size specified. But maybe it's not in the correct location:
+
+"assets": {"data": {"href": "https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/2315541.tif", "type": "image/tiff; application=geotiff", "title": "data", "file:size": 6350041},
+                  "raster:bands": [{"sampling": "area", "spatial_resolution": 0.30517578125, "unit": "meter"}]}}}
+
+I also see that its getting overviews and mask bands and I do have the raster bands extension added but haven't seen an extension that does overview sizes and band masks. 
+
+VSICURL: Effective URL: https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif
+GTiff: Opened band mask.
+GTiff: Opened 8704x8704 overview.
+GTiff: Opened 4352x4352 overview.
+GTiff: Opened 2176x2176 overview.
+GTiff: Opened 1088x1088 overview.
+GTiff: Opened 544x544 overview.
+GTiff: Opened 272x272 overview.
+GTiff: Opened band mask for 8704x8704 overview.
+GTiff: Opened band mask for 4352x4352 overview.
+GTiff: Opened band mask for 2176x2176 overview.
+GTiff: Opened band mask for 1088x1088 overview.
+GTiff: Opened band mask for 544x544 overview.
+GTiff: Opened band mask for 272x272 overview.
+GDAL: Computing area of interest: 35.2452, 36.9774, 35.3063, 37.0264
+GDAL: GDALDriver::Create(VRT,,19761,15849,3,Byte,0x60000256c840)
+WARP: Copying metadata from first source to destination dataset
+
+Mike
+
+
+-- 
+
+Michael Smith 
+RSGIS Center ? ERDC CRREL NH 
+US Army Corps 
+
+
+
+
+
+
+---- full output
+CPL_DEBUG=on gdalinfo ~/Downloads/test1.gti.parquet
+GDAL: On-demand registering /Users/rdcrlmds/mambaforge/envs/gdalmaster/lib/gdalplugins/ogr_Parquet.dylib using RegisterOGRParquet.
+PARQUET: geo = {"version":"1.1.0","primary_column":"geometry","columns":{"geometry":{"encoding":"WKB","bbox":[35.243924719620402,36.9300944160942,35.4186648392336,37.026356161812899],"covering":{"bbox":{"xmin":["geometry_bbox","xmin"],"ymin":["geometry_bbox","ymin"],"xmax":["geometry_bbox","xmax"],"ymax":["geometry_bbox","ymax"]}},"orientation":"counterclockwise","geometry_types":["Polygon"]}}}
+PARQUET: Bounding box column 'geometry_bbox' detected for geometry column 'geometry'
+PARQUET: Compression (of first column): snappy
+GDAL: GDALOpen(/Users/rdcrlmds/Downloads/test1.gti.parquet, this=0x1580079d0) succeeds as Parquet.
+GTI: Using assets.data.href as location field
+GTI: Inspecting one feature due to missing metadata items
+HTTP: libcurl/8.13.0 OpenSSL/3.5.0 (SecureTransport) zlib/1.3.1 zstd/1.5.7 libssh2/1.11.1 nghttp2/1.64.0
+VSICURL: Using effective URL https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif temporarily
+VSICURL: GetFileSize(https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/xxx/2315541.tif)=6350041  response_code=200
+VSICURL: Downloading 0-16383 (https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/xxx/2315541.tif)...
+VSICURL: Got response_code=206
+VSICURL: Effective URL: https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif
+GDAL: GDALOpen(/vsicurl/https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/xxx/2315541.tif, this=0x13a00aa00) succeeds as GTiff.
+GTiff: ScanDirectories()
+VSICURL: Downloading 4292608-4308991 (https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/xxx/2315541.tif)...
+VSICURL: Got response_code=206
+VSICURL: Effective URL: https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif
+VSICURL: Downloading 4308992-4341759 (https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/xxx/2315541.tif)...
+VSICURL: Got response_code=206
+VSICURL: Effective URL: https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif
+GTiff: Opened band mask.
+GTiff: Opened 8704x8704 overview.
+GTiff: Opened 4352x4352 overview.
+GTiff: Opened 2176x2176 overview.
+GTiff: Opened 1088x1088 overview.
+GTiff: Opened 544x544 overview.
+GTiff: Opened 272x272 overview.
+GTiff: Opened band mask for 8704x8704 overview.
+GTiff: Opened band mask for 4352x4352 overview.
+GTiff: Opened band mask for 2176x2176 overview.
+GTiff: Opened band mask for 1088x1088 overview.
+GTiff: Opened band mask for 544x544 overview.
+GTiff: Opened band mask for 272x272 overview.
+GDAL: Computing area of interest: 35.2452, 36.9774, 35.3063, 37.0264
+GDAL: GDALDriver::Create(VRT,,19761,15849,3,Byte,0x60000256c840)
+WARP: Copying metadata from first source to destination dataset
+GDAL: GDALClose(/vsicurl/https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/xxx/2315541.tif, this=0x13a00aa00)
+GDAL: GDALOpen(/Users/rdcrlmds/Downloads/test1.gti.parquet, this=0x14f615fe0) succeeds as GTI.
+Driver: GTI/GDAL Raster Tile Index
+GDAL: GDALDefaultOverviews::OverviewScan()
+Files: /Users/rdcrlmds/Downloads/test1.gti.parquet
+
+
+
+From even.rouault at spatialys.com  Sun Apr 13 07:13:37 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sun, 13 Apr 2025 16:13:37 +0200
+Subject: [gdal-dev] STAC Geoparquet required fields - Inspecting one
+ feature due to missing metadata items
+In-Reply-To: <9849584C-4EC4-4F6C-A012-71A9B9144B03@gmail.com>
+References: <9849584C-4EC4-4F6C-A012-71A9B9144B03@gmail.com>
+Message-ID: <80b6f5d8-20a8-4462-a88d-f970bee8251d@spatialys.com>
+
+Michael,
+
+file size isn't the issue here, it is more the symptom of the driver 
+having to read one dataset to get on or metadata items it doesn't know, 
+than something it really needs (getting the file size is just a side 
+effect of opening a remote dataset)
+
+Looking at the code I presume it must be BANDCOUNT (it doesn't use 
+raster:bands, although it should probably do).
+
+Even
+
+Le 13/04/2025 ? 16:00, Michael Smith via gdal-dev a ?crit?:
+> Looking at some stac geoparquet datasets I created from a VRT, I see this in the gdal debug output:
+>
+> GDAL: GDALOpen(/Users/rdcrlmds/Downloads/test1.gti.parquet, this=0x1580079d0) succeeds as Parquet.
+> GTI: Using assets.data.href as location field
+> GTI: Inspecting one feature due to missing metadata items
+>
+> I see that it's getting the file size with
+>   VSICURL: Using effective URL https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif temporarily
+> VSICURL: GetFileSize(https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/2315541.tif)=6350041  response_code=200
+>
+> I do have file.size as the file extension size specified. But maybe it's not in the correct location:
+>
+> "assets": {"data": {"href": "https://mds-grid-web.rsgiscx.net/mdsgrid/api/file/stream/2315541.tif", "type": "image/tiff; application=geotiff", "title": "data", "file:size": 6350041},
+>                    "raster:bands": [{"sampling": "area", "spatial_resolution": 0.30517578125, "unit": "meter"}]}}}
+>
+> I also see that its getting overviews and mask bands and I do have the raster bands extension added but haven't seen an extension that does overview sizes and band masks.
+>
+> VSICURL: Effective URL: https://maxar-opendata.s3.us-west-2.amazonaws.com/events/Kahramanmaras-turkey-earthquake-23/ard/36/120022103200/2022-10-17/104001007E564300-visual.tif
+> GTiff: Opened band mask.
+> GTiff: Opened 8704x8704 overview.
+> GTiff: Opened 4352x4352 overview.
+> GTiff: Opened 2176x2176 overview.
+> GTiff: Opened 1088x1088 overview.
+> GTiff: Opened 544x544 overview.
+> GTiff: Opened 272x272 overview.
+> GTiff: Opened band mask for 8704x8704 overview.
+> GTiff: Opened band mask for 4352x4352 overview.
+> GTiff: Opened band mask for 2176x2176 overview.
+> GTiff: Opened band mask for 1088x1088 overview.
+> GTiff: Opened band mask for 544x544 overview.
+> GTiff: Opened band mask for 272x272 overview.
+> GDAL: Computing area of interest: 35.2452, 36.9774, 35.3063, 37.0264
+> GDAL: GDALDriver::Create(VRT,,19761,15849,3,Byte,0x60000256c840)
+> WARP: Copying metadata from first source to destination dataset
+>
+> Mike
+>
+>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From abdulraheemsiddiqui at gmail.com  Sun Apr 13 21:52:05 2025
+From: abdulraheemsiddiqui at gmail.com (Abdul Raheem Siddiqui)
+Date: Mon, 14 Apr 2025 00:52:05 -0400
+Subject: [gdal-dev] Performance Issue with VRT Pixel Function and Large
+ Number of Source Rasters
+Message-ID: <CACh_PwOdQa4gkKKAAkd61O4OfoqVTkdU569OP3D3qmh9DZnDTA@mail.gmail.com>
+
+Dear GDAL Community,
+
+I am encountering a performance issue when using a VRT consisting of a
+large number of source rasters and built-in C++ pixel function ("max"). I
+would appreciate any guidance on whether some GDAL config option can
+improve this, or I am doing something wrong, or this is a potential
+optimization opportunity.
+
+I have A VRT file referencing ~750 individual rasters (Byte data type, avg
+size ~1000x1000 pixels, untiled, and same CRS for all source rasters). The
+VRT uses the built-in ?max? pixel function.
+
+Running gdal_translate to convert the VRT to GTiff takes ~1.5 hours and
+consumes ~4GB RAM.
+gdal_translate -of GTiff merged.vrt OUTPUT.tif
+
+When tripling the number of source rasters (to ~2250) by duplicating
+entries in the VRT, processing time increases to ~4.5 hours, with RAM usage
+rising to ~11.5GB.
+gdal_translate -of GTiff merged_3x.vrt OUTPUT.tif
+
+Extracting a small subset of the VRT via -projwin does not improve
+performance (still slow, ~14GB RAM used).
+gdal_translate -projwin -146955.241 797044.4497 -138766.1444 789656.0648
+-of GTiff merged_3x.vrt OUTPUT.tif
+
+*Removing the pixel function makes processing instantaneous, even with 2250
+rasters.*
+
+Performance is unaffected by --config GDAL_CACHEMAX or -co
+NUM_THREADS=ALL_CPUS.
+
+The issue persists across other datasets that I have. In fact, it gets
+really worse when source rasters are relatively larger or of Float32 data
+type.
+
+Gdalinfo on one of the source rasters: https://pastebin.com/gjHDA2Wd
+*Data:*
+https://drive.google.com/file/d/1LGlzGGZvkPyXvKKgkPVzQGbBw55p5dRd/view?
+
+System: Windows, 8 CPUs, 32GB RAM (GDAL 3.9.2 via OSGeo4W).
+
+Thank you for your time and insights. Please reply if you are aware of how
+performance can be improved.
+
+Regards,
+
+*Abdul Siddiqui, PE*
+
+*abdul.siddiqui at ertcorp.com <abdul.siddiqui at ertcorp.com>*
+
+
+*ERT  | *Earth Resources Technology, Inc.
+
+14401 Sweitzer Ln. Ste 300
+
+Laurel, MD 20707
+
+https://www.ertcorp.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250414/5115d1ac/attachment.htm>
+
+From lnicola at dend.ro  Mon Apr 14 00:55:47 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Mon, 14 Apr 2025 10:55:47 +0300
+Subject: [gdal-dev] Performance Issue with VRT Pixel Function and Large
+ Number of Source Rasters
+In-Reply-To: <CACh_PwOdQa4gkKKAAkd61O4OfoqVTkdU569OP3D3qmh9DZnDTA@mail.gmail.com>
+References: <CACh_PwOdQa4gkKKAAkd61O4OfoqVTkdU569OP3D3qmh9DZnDTA@mail.gmail.com>
+Message-ID: <0a263ce7-b621-43e9-bfe1-53f2be7f6b8b@betaapp.fastmail.com>
+
+Hi Abdul,
+
+Can you bump https://gdal.org/en/stable/user/configoptions.html#config-GDAL_MAX_DATASET_POOL_SIZE and see if it helps? And do all inputs have the same block size of 1048x7? Ideally, your inputs and output will all have the same block size or a multiple of it, so you could also add -co BLOCKXSIZE=1048 -co BLOCKYSIZE=7.
+
+Note that these should apply just as well when you don't have a pixel function, so it's probably not it.
+
+https://github.com/OSGeo/gdal/pull/11850 might also help in the future, but you'll need to change your workflow for it.
+
+Laurentiu
+
+On Mon, Apr 14, 2025, at 07:52, Abdul Raheem Siddiqui via gdal-dev wrote:
+> Dear GDAL Community,
+> 
+> I am encountering a performance issue when using a VRT consisting of a large number of source rasters and built-in C++ pixel function ("max"). I would appreciate any guidance on whether some GDAL config option can improve this, or I am doing something wrong, or this is a potential optimization opportunity.
+> 
+> I have A VRT file referencing ~750 individual rasters (Byte data type, avg size ~1000x1000 pixels, untiled, and same CRS for all source rasters). The VRT uses the built-in ?max? pixel function.
+> 
+> Running gdal_translate to convert the VRT to GTiff takes ~1.5 hours and consumes ~4GB RAM.
+> gdal_translate -of GTiff merged.vrt OUTPUT.tif
+> 
+> When tripling the number of source rasters (to ~2250) by duplicating entries in the VRT, processing time increases to ~4.5 hours, with RAM usage rising to ~11.5GB.
+> gdal_translate -of GTiff merged_3x.vrt OUTPUT.tif
+> 
+> Extracting a small subset of the VRT via -projwin does not improve performance (still slow, ~14GB RAM used).
+> gdal_translate -projwin -146955.241 797044.4497 -138766.1444 789656.0648 -of GTiff merged_3x.vrt OUTPUT.tif
+> 
+> *Removing the pixel function makes processing instantaneous, even with 2250 rasters.*
+> 
+> Performance is unaffected by --config GDAL_CACHEMAX or -co NUM_THREADS=ALL_CPUS.
+> 
+> The issue persists across other datasets that I have. In fact, it gets really worse when source rasters are relatively larger or of Float32 data type.
+> 
+> Gdalinfo on one of the source rasters: https://pastebin.com/gjHDA2Wd
+> *Data:* https://drive.google.com/file/d/1LGlzGGZvkPyXvKKgkPVzQGbBw55p5dRd/view?
+> 
+> System: Windows, 8 CPUs, 32GB RAM (GDAL 3.9.2 via OSGeo4W).
+> 
+> Thank you for your time and insights. Please reply if you are aware of how performance can be improved.
+> 
+> Regards,
+> *Abdul Siddiqui, PE*
+> _abdul.siddiqui at ertcorp.com_
+> 
+> *ERT  | *Earth Resources Technology, Inc.
+> 14401 Sweitzer Ln. Ste 300
+> Laurel, MD 20707
+> https://www.ertcorp.com
+> 
+> 
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250414/df21b767/attachment.htm>
+
+From jukka.rahkonen at maanmittauslaitos.fi  Mon Apr 14 01:20:03 2025
+From: jukka.rahkonen at maanmittauslaitos.fi (Rahkonen Jukka)
+Date: Mon, 14 Apr 2025 08:20:03 +0000
+Subject: [gdal-dev] Performance Issue with VRT Pixel Function and Large
+ Number of Source Rasters
+In-Reply-To: <CACh_PwOdQa4gkKKAAkd61O4OfoqVTkdU569OP3D3qmh9DZnDTA@mail.gmail.com>
+References: <CACh_PwOdQa4gkKKAAkd61O4OfoqVTkdU569OP3D3qmh9DZnDTA@mail.gmail.com>
+Message-ID: <DB9PR09MB68877B423A8D1F73724037D5FDB32@DB9PR09MB6887.eurprd09.prod.outlook.com>
+
+Hi,
+
+Some previous discussion about the same thing in https://gis.stackexchange.com/questions/491309/performent-way-of-merging-multiple-rasters-into-a-single-cog-gtiff-with-gdal-w?
+
+With untiled images it is not a surprise that small -projwin does not have a great effect. But with 1000x1000 pixels sized images and the default tile size 256x256 splittin images internally into four would probably not make much difference anyway.
+
+Processing time and memory usage seems to grow linearly when the number of files in the VRT is increasing. Maybe this is good news.
+
+-Jukka Rahkonen-
+
+________________________________________
+L?hett?j?: gdal-dev k?ytt?j?n Abdul Raheem Siddiqui via gdal-dev puolesta
+L?hetetty: Maanantai 14. huhtikuuta 2025 7.52
+Vastaanottaja: gdal-dev at lists.osgeo.org
+Aihe: [gdal-dev] Performance Issue with VRT Pixel Function and Large Number of Source Rasters
+
+Dear GDAL Community,I am encountering a performance issue when using a VRT consisting of a large number of source?rasters and built-in C++ pixel function ("max"). I would appreciate any guidance on whether some GDAL config option can improve this, or I am doing something wrong, or this is a potential optimization opportunity.I have A VRT file referencing ~750 individual rasters (Byte data type, avg size ~1000x1000 pixels, untiled, and same CRS for all source rasters). The VRT uses the built-in ?max? pixel function.Running gdal_translate to convert the VRT to GTiff takes ~1.5 hours and consumes ~4GB RAM.gdal_translate -of GTiff merged.vrt OUTPUT.tifWhen tripling the number of source rasters (to ~2250) by duplicating entries in the VRT, processing time increases to ~4.5 hours, with RAM usage rising to ~11.5GB.gdal_translate -of GTiff merged_3x.vrt OUTPUT.tifExtracting a small subset of the VRT via -projwin does not improve performance (still slow, ~14GB RAM used).gdal_translate -projwin -146955.241 797044.4497 -138766.1444 789656.0648 -of GTiff merged_3x.vrt OUTPUT.tifRemoving the pixel function makes processing instantaneous, even with 2250 rasters.Performance is unaffected by --config GDAL_CACHEMAX or -co NUM_THREADS=ALL_CPUS.The issue persists across other datasets that I have. In fact, it gets really worse when source rasters are relatively larger or of Float32 data type.Gdalinfo on one of the source rasters:?https://pastebin.com/gjHDA2WdData:?https://drive.google.com/file/d/1LGlzGGZvkPyXvKKgkPVzQGbBw55p5dRd/view?System: Windows, 8 CPUs, 32GB RAM (GDAL 3.9.2 via OSGeo4W).Thank you for your time and insights. Please reply if you are aware of how performance can be improved.Regards,Abdul Siddiqui, PEabdul.siddiqui at ertcorp.comERT? |?Earth Resources Technology, Inc.14401 Sweitzer Ln. Ste 300Laurel, MD 20707https://www.ertcorp.com
+
