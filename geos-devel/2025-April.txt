@@ -1,0 +1,590 @@
+From strk at kbt.io  Mon Apr 14 09:01:06 2025
+From: strk at kbt.io (Sandro Santilli)
+Date: Mon, 14 Apr 2025 18:01:06 +0200
+Subject: Grid based intersection, what to expect ?
+Message-ID: <Z_0xQnlD7hOrK6qz@oli>
+
+
+I'm evaluating the use of the GEOS "grid-based" overlay operations
+available since version 3.9.0 as a way to reduce PostGIS Topology
+states in which vertices of incoming lines end up being closer than
+tolerance to segments of existing lines.
+
+Example of such problematic states:
+
+  - https://trac.osgeo.org/postgis/ticket/5862
+  - https://trac.osgeo.org/postgis/ticket/5786
+
+I thought using the "precise" overlay CAPI functions could reduce
+this problem by always finding intersections when facets are within
+the precision grid, so I tried the inputs of PostGIS ticket #5862:
+
+  =# select ST_AsText(e1) e1, ST_AsText(e2) e2 from t5862_inputs;
+  -[ RECORD 1 ]----------------------------------------------------------------------------------------------------------------------------------------------------
+  e1 | LINESTRING(22.780107846871616 70.70515928614921,22.779899976871615 70.7046262461492)
+  e2 | LINESTRING(22.79217056687162 70.70247684614921,22.779969266871618 70.70480392614921,22.780038556871617 70.7049816061492,22.796764346871615 70.7044482361492)
+
+Here you see how the internal points of the second line (e2) are at a
+distance which is smaller than 1e-14:
+
+  =# select n, ST_Distance(e1, ST_PointN(e2, n)) from t5862_inputs, generate_series(1,4) n;
+   n |      st_distance
+  ---+------------------------
+   1 |   0.012357374241807065
+   2 |  4.855711461806118e-16
+   3 | 2.8243441995579915e-15
+   4 |   0.016671670112874255
+  (4 rows)
+
+Asking GEOS 3.14.0dev-CAPI-1.20.0 to compute the intersection between
+the two lines with a precision of 1e-13 correctly returns those 2
+internal vertices:
+
+  =# select ST_AsText( ST_Intersection(e1, e2, 1e-13) ) from t5862_inputs;
+                                      st_astext
+  ---------------------------------------------------------------------------------
+   LINESTRING(22.7800385568716 70.7049816061492,22.7799692668716 70.7048039261492)
+  (1 row)
+
+But when a precision grid of 1e-14 is used, only one of those two
+internal points are returned (vertex 2, the closest). The other
+vertex, which was ~2.8e-15 distant, is not included in the
+intersection:
+
+  =# select ST_AsText( ST_Intersection(e1, e2, 1e-14) ) from t5862_inputs;
+                   st_astext
+  --------------------------------------------
+   POINT(22.77996926687162 70.70480392614921)
+  (1 row)
+
+How can this be explained ?
+
+--strk;
+
+  Libre GIS consultant/developer ?
+  https://strk.kbt.io/services.html
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 659 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250414/d4668848/attachment.sig>
+
+From mtnclimb at gmail.com  Mon Apr 14 10:04:27 2025
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Mon, 14 Apr 2025 10:04:27 -0700
+Subject: Grid based intersection, what to expect ?
+In-Reply-To: <Z_0xQnlD7hOrK6qz@oli>
+References: <Z_0xQnlD7hOrK6qz@oli>
+Message-ID: <CAK2ens2NHnvh+prwNYNy0-MD4EwsvjeF6QtJf4zR9omDgzEUYQ@mail.gmail.com>
+
+I suspect that the anomalies you're seeing are because the precision grid
+size is so small.  A precision of 1e-14 combined with input values which
+are on the order of 1e2 means that you are asking for 16 digits of decimal
+precision, which is at or over the precision that can be represented using
+double-precision FP.
+
+The precision-based overlay ops are only able to support "reasonable"
+precision for a given data magnitude.  I would say 14 digits of total
+precision is the very most that can be evaluated, and using 12 or even 10
+is safer.  Note that a precision of 10 digits allows representing earth
+coordinates to about 1 mm, which should be plenty for real-world cases.
+
+On Mon, Apr 14, 2025 at 9:01?AM Sandro Santilli <strk at kbt.io> wrote:
+
+>
+> I'm evaluating the use of the GEOS "grid-based" overlay operations
+> available since version 3.9.0 as a way to reduce PostGIS Topology
+> states in which vertices of incoming lines end up being closer than
+> tolerance to segments of existing lines.
+>
+> Example of such problematic states:
+>
+>   - https://trac.osgeo.org/postgis/ticket/5862
+>   - https://trac.osgeo.org/postgis/ticket/5786
+>
+> I thought using the "precise" overlay CAPI functions could reduce
+> this problem by always finding intersections when facets are within
+> the precision grid, so I tried the inputs of PostGIS ticket #5862:
+>
+>   =# select ST_AsText(e1) e1, ST_AsText(e2) e2 from t5862_inputs;
+>   -[ RECORD 1
+> ]----------------------------------------------------------------------------------------------------------------------------------------------------
+>   e1 | LINESTRING(22.780107846871616 70.70515928614921,22.779899976871615
+> 70.7046262461492)
+>   e2 | LINESTRING(22.79217056687162 70.70247684614921,22.779969266871618
+> 70.70480392614921,22.780038556871617 70.7049816061492,22.796764346871615
+> 70.7044482361492)
+>
+> Here you see how the internal points of the second line (e2) are at a
+> distance which is smaller than 1e-14:
+>
+>   =# select n, ST_Distance(e1, ST_PointN(e2, n)) from t5862_inputs,
+> generate_series(1,4) n;
+>    n |      st_distance
+>   ---+------------------------
+>    1 |   0.012357374241807065
+>    2 |  4.855711461806118e-16
+>    3 | 2.8243441995579915e-15
+>    4 |   0.016671670112874255
+>   (4 rows)
+>
+> Asking GEOS 3.14.0dev-CAPI-1.20.0 to compute the intersection between
+> the two lines with a precision of 1e-13 correctly returns those 2
+> internal vertices:
+>
+>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-13) ) from t5862_inputs;
+>                                       st_astext
+>
+> ---------------------------------------------------------------------------------
+>    LINESTRING(22.7800385568716 70.7049816061492,22.7799692668716
+> 70.7048039261492)
+>   (1 row)
+>
+> But when a precision grid of 1e-14 is used, only one of those two
+> internal points are returned (vertex 2, the closest). The other
+> vertex, which was ~2.8e-15 distant, is not included in the
+> intersection:
+>
+>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-14) ) from t5862_inputs;
+>                    st_astext
+>   --------------------------------------------
+>    POINT(22.77996926687162 70.70480392614921)
+>   (1 row)
+>
+> How can this be explained ?
+>
+> --strk;
+>
+>   Libre GIS consultant/developer ?
+>   https://strk.kbt.io/services.html
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250414/3048b4ed/attachment.htm>
+
+From mtnclimb at gmail.com  Mon Apr 14 10:12:47 2025
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Mon, 14 Apr 2025 10:12:47 -0700
+Subject: Grid based intersection, what to expect ?
+In-Reply-To: <CAK2ens2NHnvh+prwNYNy0-MD4EwsvjeF6QtJf4zR9omDgzEUYQ@mail.gmail.com>
+References: <Z_0xQnlD7hOrK6qz@oli>
+ <CAK2ens2NHnvh+prwNYNy0-MD4EwsvjeF6QtJf4zR9omDgzEUYQ@mail.gmail.com>
+Message-ID: <CAK2ens0PMdA7BVzJWP7jS-5_55QShRPmG-OyfFu1Rod3oABK2g@mail.gmail.com>
+
+Also, the input values have not been rounded to the requested precision.
+In general this should be done to use the overlay precision ops correctly.
+(The data will be rounded internally, but the results may not match what
+might be expected from the original inputs).
+
+The goal of the precision-based overlay ops is to support operations on a
+dataset which is stored using a given precision.  The input data
+should either be provided in the required precision, or reduced to it (e.g.
+using GEOSGeom_setPrecision).  All operations on the geometry should be
+done in a way which maintains that precision.  (One gap in the current API
+is that the spatial predicates do not support a precision value.  I'm
+hoping to provide that at some point).
+
+
+On Mon, Apr 14, 2025 at 10:04?AM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> I suspect that the anomalies you're seeing are because the precision grid
+> size is so small.  A precision of 1e-14 combined with input values which
+> are on the order of 1e2 means that you are asking for 16 digits of decimal
+> precision, which is at or over the precision that can be represented using
+> double-precision FP.
+>
+> The precision-based overlay ops are only able to support "reasonable"
+> precision for a given data magnitude.  I would say 14 digits of total
+> precision is the very most that can be evaluated, and using 12 or even 10
+> is safer.  Note that a precision of 10 digits allows representing earth
+> coordinates to about 1 mm, which should be plenty for real-world cases.
+>
+> On Mon, Apr 14, 2025 at 9:01?AM Sandro Santilli <strk at kbt.io> wrote:
+>
+>>
+>> I'm evaluating the use of the GEOS "grid-based" overlay operations
+>> available since version 3.9.0 as a way to reduce PostGIS Topology
+>> states in which vertices of incoming lines end up being closer than
+>> tolerance to segments of existing lines.
+>>
+>> Example of such problematic states:
+>>
+>>   - https://trac.osgeo.org/postgis/ticket/5862
+>>   - https://trac.osgeo.org/postgis/ticket/5786
+>>
+>> I thought using the "precise" overlay CAPI functions could reduce
+>> this problem by always finding intersections when facets are within
+>> the precision grid, so I tried the inputs of PostGIS ticket #5862:
+>>
+>>   =# select ST_AsText(e1) e1, ST_AsText(e2) e2 from t5862_inputs;
+>>   -[ RECORD 1
+>> ]----------------------------------------------------------------------------------------------------------------------------------------------------
+>>   e1 | LINESTRING(22.780107846871616 70.70515928614921,22.779899976871615
+>> 70.7046262461492)
+>>   e2 | LINESTRING(22.79217056687162 70.70247684614921,22.779969266871618
+>> 70.70480392614921,22.780038556871617 70.7049816061492,22.796764346871615
+>> 70.7044482361492)
+>>
+>> Here you see how the internal points of the second line (e2) are at a
+>> distance which is smaller than 1e-14:
+>>
+>>   =# select n, ST_Distance(e1, ST_PointN(e2, n)) from t5862_inputs,
+>> generate_series(1,4) n;
+>>    n |      st_distance
+>>   ---+------------------------
+>>    1 |   0.012357374241807065
+>>    2 |  4.855711461806118e-16
+>>    3 | 2.8243441995579915e-15
+>>    4 |   0.016671670112874255
+>>   (4 rows)
+>>
+>> Asking GEOS 3.14.0dev-CAPI-1.20.0 to compute the intersection between
+>> the two lines with a precision of 1e-13 correctly returns those 2
+>> internal vertices:
+>>
+>>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-13) ) from t5862_inputs;
+>>                                       st_astext
+>>
+>> ---------------------------------------------------------------------------------
+>>    LINESTRING(22.7800385568716 70.7049816061492,22.7799692668716
+>> 70.7048039261492)
+>>   (1 row)
+>>
+>> But when a precision grid of 1e-14 is used, only one of those two
+>> internal points are returned (vertex 2, the closest). The other
+>> vertex, which was ~2.8e-15 distant, is not included in the
+>> intersection:
+>>
+>>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-14) ) from t5862_inputs;
+>>                    st_astext
+>>   --------------------------------------------
+>>    POINT(22.77996926687162 70.70480392614921)
+>>   (1 row)
+>>
+>> How can this be explained ?
+>>
+>> --strk;
+>>
+>>   Libre GIS consultant/developer ?
+>>   https://strk.kbt.io/services.html
+>>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250414/8227ebf1/attachment-0001.htm>
+
+From mtnclimb at gmail.com  Mon Apr 14 21:13:01 2025
+From: mtnclimb at gmail.com (Martin Davis)
+Date: Mon, 14 Apr 2025 21:13:01 -0700
+Subject: Grid based intersection, what to expect ?
+In-Reply-To: <CAK2ens0PMdA7BVzJWP7jS-5_55QShRPmG-OyfFu1Rod3oABK2g@mail.gmail.com>
+References: <Z_0xQnlD7hOrK6qz@oli>
+ <CAK2ens2NHnvh+prwNYNy0-MD4EwsvjeF6QtJf4zR9omDgzEUYQ@mail.gmail.com>
+ <CAK2ens0PMdA7BVzJWP7jS-5_55QShRPmG-OyfFu1Rod3oABK2g@mail.gmail.com>
+Message-ID: <CAK2ens3ffRuCzhdNo3UBdSTtcu3mFD=v2DCA7B_hU8gTuV8rvA@mail.gmail.com>
+
+One more option:  another approach used by OverlayNG to improve robustness
+is Snapped Noding.   This is different to Snap-Rounding.  Instead of
+rounding all coordinates to a precision grid, Snapping Noding uses a
+distance tolerance and snaps vertices to lines or vertices within the
+tolerance.  This improves robustness, but doesn't change vertices unless
+required. (Note it's still not *fully* robust - for that, full
+snap-rounding is required).
+
+This is implemented in GEOS, but is not expose in the C API (and hence not
+in PostGIS).  It could be exposed if required (with some coding, of course).
+
+On Mon, Apr 14, 2025 at 10:12?AM Martin Davis <mtnclimb at gmail.com> wrote:
+
+> Also, the input values have not been rounded to the requested precision.
+> In general this should be done to use the overlay precision ops correctly.
+> (The data will be rounded internally, but the results may not match what
+> might be expected from the original inputs).
+>
+> The goal of the precision-based overlay ops is to support operations on a
+> dataset which is stored using a given precision.  The input data
+> should either be provided in the required precision, or reduced to it (e.g.
+> using GEOSGeom_setPrecision).  All operations on the geometry should be
+> done in a way which maintains that precision.  (One gap in the current API
+> is that the spatial predicates do not support a precision value.  I'm
+> hoping to provide that at some point).
+>
+>
+> On Mon, Apr 14, 2025 at 10:04?AM Martin Davis <mtnclimb at gmail.com> wrote:
+>
+>> I suspect that the anomalies you're seeing are because the precision grid
+>> size is so small.  A precision of 1e-14 combined with input values which
+>> are on the order of 1e2 means that you are asking for 16 digits of decimal
+>> precision, which is at or over the precision that can be represented using
+>> double-precision FP.
+>>
+>> The precision-based overlay ops are only able to support "reasonable"
+>> precision for a given data magnitude.  I would say 14 digits of total
+>> precision is the very most that can be evaluated, and using 12 or even 10
+>> is safer.  Note that a precision of 10 digits allows representing earth
+>> coordinates to about 1 mm, which should be plenty for real-world cases.
+>>
+>> On Mon, Apr 14, 2025 at 9:01?AM Sandro Santilli <strk at kbt.io> wrote:
+>>
+>>>
+>>> I'm evaluating the use of the GEOS "grid-based" overlay operations
+>>> available since version 3.9.0 as a way to reduce PostGIS Topology
+>>> states in which vertices of incoming lines end up being closer than
+>>> tolerance to segments of existing lines.
+>>>
+>>> Example of such problematic states:
+>>>
+>>>   - https://trac.osgeo.org/postgis/ticket/5862
+>>>   - https://trac.osgeo.org/postgis/ticket/5786
+>>>
+>>> I thought using the "precise" overlay CAPI functions could reduce
+>>> this problem by always finding intersections when facets are within
+>>> the precision grid, so I tried the inputs of PostGIS ticket #5862:
+>>>
+>>>   =# select ST_AsText(e1) e1, ST_AsText(e2) e2 from t5862_inputs;
+>>>   -[ RECORD 1
+>>> ]----------------------------------------------------------------------------------------------------------------------------------------------------
+>>>   e1 | LINESTRING(22.780107846871616
+>>> 70.70515928614921,22.779899976871615 70.7046262461492)
+>>>   e2 | LINESTRING(22.79217056687162 70.70247684614921,22.779969266871618
+>>> 70.70480392614921,22.780038556871617 70.7049816061492,22.796764346871615
+>>> 70.7044482361492)
+>>>
+>>> Here you see how the internal points of the second line (e2) are at a
+>>> distance which is smaller than 1e-14:
+>>>
+>>>   =# select n, ST_Distance(e1, ST_PointN(e2, n)) from t5862_inputs,
+>>> generate_series(1,4) n;
+>>>    n |      st_distance
+>>>   ---+------------------------
+>>>    1 |   0.012357374241807065
+>>>    2 |  4.855711461806118e-16
+>>>    3 | 2.8243441995579915e-15
+>>>    4 |   0.016671670112874255
+>>>   (4 rows)
+>>>
+>>> Asking GEOS 3.14.0dev-CAPI-1.20.0 to compute the intersection between
+>>> the two lines with a precision of 1e-13 correctly returns those 2
+>>> internal vertices:
+>>>
+>>>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-13) ) from
+>>> t5862_inputs;
+>>>                                       st_astext
+>>>
+>>> ---------------------------------------------------------------------------------
+>>>    LINESTRING(22.7800385568716 70.7049816061492,22.7799692668716
+>>> 70.7048039261492)
+>>>   (1 row)
+>>>
+>>> But when a precision grid of 1e-14 is used, only one of those two
+>>> internal points are returned (vertex 2, the closest). The other
+>>> vertex, which was ~2.8e-15 distant, is not included in the
+>>> intersection:
+>>>
+>>>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-14) ) from
+>>> t5862_inputs;
+>>>                    st_astext
+>>>   --------------------------------------------
+>>>    POINT(22.77996926687162 70.70480392614921)
+>>>   (1 row)
+>>>
+>>> How can this be explained ?
+>>>
+>>> --strk;
+>>>
+>>>   Libre GIS consultant/developer ?
+>>>   https://strk.kbt.io/services.html
+>>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250414/6d18bb92/attachment.htm>
+
+From strk at kbt.io  Thu Apr 24 03:25:47 2025
+From: strk at kbt.io (Sandro Santilli)
+Date: Thu, 24 Apr 2025 12:25:47 +0200
+Subject: Grid based intersection, what to expect ?
+In-Reply-To: <CAK2ens0PMdA7BVzJWP7jS-5_55QShRPmG-OyfFu1Rod3oABK2g@mail.gmail.com>
+References: <Z_0xQnlD7hOrK6qz@oli>
+ <CAK2ens2NHnvh+prwNYNy0-MD4EwsvjeF6QtJf4zR9omDgzEUYQ@mail.gmail.com>
+ <CAK2ens0PMdA7BVzJWP7jS-5_55QShRPmG-OyfFu1Rod3oABK2g@mail.gmail.com>
+Message-ID: <aAoRqyJCKpwG+sPj@c19>
+
+On Mon, Apr 14, 2025 at 10:12:47AM -0700, Martin Davis wrote:
+> Also, the input values have not been rounded to the requested precision.
+> In general this should be done to use the overlay precision ops correctly.
+> (The data will be rounded internally, but the results may not match what
+> might be expected from the original inputs).
+
+Ouch, it looks like we have a bug in PostGIS, as I'm pretty sure the
+grid-size taking intersection functions should have done this
+internally, instead:;
+
+  =# select ST_AsText( ST_Intersection(e1, e2, 1e-14) ) from t5862_inputs;
+   POINT(22.77996926687162 70.70480392614921)
+
+  =# select ST_AsText( ST_Intersection(ST_ReducePrecision(e1, 1e-14), ST_ReducePrecision(e2, 1e-14), 1e-14) ) from t5862_inputs;
+   LINESTRING(22.78003855687162 70.7049816061492,22.77996926687162 70.70480392614921)
+
+I've filed this downstream: https://trac.osgeo.org/postgis/ticket/5885
+
+--strk;
+
+  Libre GIS consultant/developer ?
+  https://strk.kbt.io/services.html
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 659 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250424/0b30702d/attachment.sig>
+
+From strk at kbt.io  Thu Apr 24 03:28:47 2025
+From: strk at kbt.io (Sandro Santilli)
+Date: Thu, 24 Apr 2025 12:28:47 +0200
+Subject: Grid based intersection, what to expect ?
+In-Reply-To: <CAK2ens3ffRuCzhdNo3UBdSTtcu3mFD=v2DCA7B_hU8gTuV8rvA@mail.gmail.com>
+References: <Z_0xQnlD7hOrK6qz@oli>
+ <CAK2ens2NHnvh+prwNYNy0-MD4EwsvjeF6QtJf4zR9omDgzEUYQ@mail.gmail.com>
+ <CAK2ens0PMdA7BVzJWP7jS-5_55QShRPmG-OyfFu1Rod3oABK2g@mail.gmail.com>
+ <CAK2ens3ffRuCzhdNo3UBdSTtcu3mFD=v2DCA7B_hU8gTuV8rvA@mail.gmail.com>
+Message-ID: <aAoSX/Su3MTS6ZFc@c19>
+
+On Mon, Apr 14, 2025 at 09:13:01PM -0700, Martin Davis wrote:
+> One more option:  another approach used by OverlayNG to improve robustness
+> is Snapped Noding.   This is different to Snap-Rounding.  Instead of
+> rounding all coordinates to a precision grid, Snapping Noding uses a
+> distance tolerance and snaps vertices to lines or vertices within the
+> tolerance.  This improves robustness, but doesn't change vertices unless
+> required. (Note it's still not *fully* robust - for that, full
+> snap-rounding is required).
+> 
+> This is implemented in GEOS, but is not expose in the C API (and hence not
+> in PostGIS).  It could be exposed if required (with some coding, of course).
+
+A stand-alone function to snap to segments would probably be useful, doing
+`so should theoretically result in more intersections being found during
+topology building.
+
+--strk;
+
+
+> 
+> On Mon, Apr 14, 2025 at 10:12?AM Martin Davis <mtnclimb at gmail.com> wrote:
+> 
+> > Also, the input values have not been rounded to the requested precision.
+> > In general this should be done to use the overlay precision ops correctly.
+> > (The data will be rounded internally, but the results may not match what
+> > might be expected from the original inputs).
+> >
+> > The goal of the precision-based overlay ops is to support operations on a
+> > dataset which is stored using a given precision.  The input data
+> > should either be provided in the required precision, or reduced to it (e.g.
+> > using GEOSGeom_setPrecision).  All operations on the geometry should be
+> > done in a way which maintains that precision.  (One gap in the current API
+> > is that the spatial predicates do not support a precision value.  I'm
+> > hoping to provide that at some point).
+> >
+> >
+> > On Mon, Apr 14, 2025 at 10:04?AM Martin Davis <mtnclimb at gmail.com> wrote:
+> >
+> >> I suspect that the anomalies you're seeing are because the precision grid
+> >> size is so small.  A precision of 1e-14 combined with input values which
+> >> are on the order of 1e2 means that you are asking for 16 digits of decimal
+> >> precision, which is at or over the precision that can be represented using
+> >> double-precision FP.
+> >>
+> >> The precision-based overlay ops are only able to support "reasonable"
+> >> precision for a given data magnitude.  I would say 14 digits of total
+> >> precision is the very most that can be evaluated, and using 12 or even 10
+> >> is safer.  Note that a precision of 10 digits allows representing earth
+> >> coordinates to about 1 mm, which should be plenty for real-world cases.
+> >>
+> >> On Mon, Apr 14, 2025 at 9:01?AM Sandro Santilli <strk at kbt.io> wrote:
+> >>
+> >>>
+> >>> I'm evaluating the use of the GEOS "grid-based" overlay operations
+> >>> available since version 3.9.0 as a way to reduce PostGIS Topology
+> >>> states in which vertices of incoming lines end up being closer than
+> >>> tolerance to segments of existing lines.
+> >>>
+> >>> Example of such problematic states:
+> >>>
+> >>>   - https://trac.osgeo.org/postgis/ticket/5862
+> >>>   - https://trac.osgeo.org/postgis/ticket/5786
+> >>>
+> >>> I thought using the "precise" overlay CAPI functions could reduce
+> >>> this problem by always finding intersections when facets are within
+> >>> the precision grid, so I tried the inputs of PostGIS ticket #5862:
+> >>>
+> >>>   =# select ST_AsText(e1) e1, ST_AsText(e2) e2 from t5862_inputs;
+> >>>   -[ RECORD 1
+> >>> ]----------------------------------------------------------------------------------------------------------------------------------------------------
+> >>>   e1 | LINESTRING(22.780107846871616
+> >>> 70.70515928614921,22.779899976871615 70.7046262461492)
+> >>>   e2 | LINESTRING(22.79217056687162 70.70247684614921,22.779969266871618
+> >>> 70.70480392614921,22.780038556871617 70.7049816061492,22.796764346871615
+> >>> 70.7044482361492)
+> >>>
+> >>> Here you see how the internal points of the second line (e2) are at a
+> >>> distance which is smaller than 1e-14:
+> >>>
+> >>>   =# select n, ST_Distance(e1, ST_PointN(e2, n)) from t5862_inputs,
+> >>> generate_series(1,4) n;
+> >>>    n |      st_distance
+> >>>   ---+------------------------
+> >>>    1 |   0.012357374241807065
+> >>>    2 |  4.855711461806118e-16
+> >>>    3 | 2.8243441995579915e-15
+> >>>    4 |   0.016671670112874255
+> >>>   (4 rows)
+> >>>
+> >>> Asking GEOS 3.14.0dev-CAPI-1.20.0 to compute the intersection between
+> >>> the two lines with a precision of 1e-13 correctly returns those 2
+> >>> internal vertices:
+> >>>
+> >>>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-13) ) from
+> >>> t5862_inputs;
+> >>>                                       st_astext
+> >>>
+> >>> ---------------------------------------------------------------------------------
+> >>>    LINESTRING(22.7800385568716 70.7049816061492,22.7799692668716
+> >>> 70.7048039261492)
+> >>>   (1 row)
+> >>>
+> >>> But when a precision grid of 1e-14 is used, only one of those two
+> >>> internal points are returned (vertex 2, the closest). The other
+> >>> vertex, which was ~2.8e-15 distant, is not included in the
+> >>> intersection:
+> >>>
+> >>>   =# select ST_AsText( ST_Intersection(e1, e2, 1e-14) ) from
+> >>> t5862_inputs;
+> >>>                    st_astext
+> >>>   --------------------------------------------
+> >>>    POINT(22.77996926687162 70.70480392614921)
+> >>>   (1 row)
+> >>>
+> >>> How can this be explained ?
+> >>>
+> >>> --strk;
+> >>>
+> >>>   Libre GIS consultant/developer ?
+> >>>   https://strk.kbt.io/services.html
+> >>>
+> >>
+
+-- 
+
+  Libre GIS consultant/developer ?
+  https://strk.kbt.io/services.html
+-------------- next part --------------
+A non-text attachment was scrubbed...
+Name: signature.asc
+Type: application/pgp-signature
+Size: 659 bytes
+Desc: not available
+URL: <http://lists.osgeo.org/pipermail/geos-devel/attachments/20250424/d350a296/attachment.sig>
+
