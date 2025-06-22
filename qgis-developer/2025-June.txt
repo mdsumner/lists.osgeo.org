@@ -3418,3 +3418,2783 @@ Valentin
 
 [1] https://github.com/lmotta/debug_vs_plugin/pull/18
 
+From gdt at lexort.com  Sat Jun 14 13:11:02 2025
+From: gdt at lexort.com (Greg Troxel)
+Date: Sat, 14 Jun 2025 16:11:02 -0400
+Subject: [QGIS-Developer] 3.40 mac binary version of qgis spuriously writing
+ geopackage files, old sqlite3?
+Message-ID: <rmiwm9egk2x.fsf@s1.lexort.com>
+
+This is a little long, but the summary is
+
+  3.40.7, mac binary from qgis.org, appear to write geopackage files
+  when qgis is merely reading them and no layer write operation is
+  invoked.  This is "obviously wrong" from my viewpoint, but I can't
+  find any documentation.
+
+  Not that I think it really matters to the above, but the sqlite
+  version included in the 3.40 mac installer is much older than I would
+  have expected.
+
+  The qgis user manual doesn't explain how this is supposed to work, and
+  the code doesn't have enough comments to see if it is doing what it is
+  supposed to be doing.
+
+  The "isLocal" code seems wrong in the general case.
+
+For background -- since I know it's unusual -- I've been mostly using
+qgis on NetBSD, built via pkgsrc.  It's been working well.  I just
+updated from 3.34.x to 3.40.7, and yes, I know that was overdue.  I have
+several of project files, and data, which I believe is pretty normal:
+  - several gpkg files, usually with multiple tables
+  - postgis
+  - a few csv files (that I treat as read only)
+  - geodatabases and shp from MassGIS (that I treat as read only)
+  - jp2/tif tiles of imagery
+  - online WMTS/TMS
+
+I use unison (a user-mode synchronization program, and I happen to be
+the maintainer) as a replicated filesystem across machines, mostly for
+sort-of-backup and partially for editing on secondary machines.  As a
+side effect unison alerts me to changes, so I notice things others might
+not.
+
+Long ago I remember a problem where qgis (via gdal) would write (in a
+filesystem sense) a gpkg file when it was merely opened for reading.  A
+fix was made to gdal to enable reading a database to simply.... read the
+database file, apparently in gdal 3.4.2, now long-ago history,
+  https://github.com/OSGeo/gdal/pull/5207
+and then used in qgis:
+  https://github.com/qgis/QGIS/pull/47098
+There is also
+  https://github.com/qgis/QGIS/pull/48059
+
+(Separately from unison, whenever there is any kind of sync going on,
+writing files when reading datasets turns a "read read" operation, which
+is not a sync conflict, into a "write write" operation, which will be a
+conflict if the first write does not get synced to the machine that does
+the second read before that second read.  Thus, from long experience
+with distributed filesystems including disconnected operation, I'm of
+the opinion that logically reading should ~never result in a write.)
+
+Since those changes, I have been able to start qgis on a project file
+with geopackage layers, look at the project (and perhaps edit other
+layers), and exit, without any fileysystem writes to the gpkg file.  I
+think it even refrains from opening the file for write and not writing
+-- which on most local filesystems does not cause a modification but can
+interact badly with distributed filesystems such as coda.  I have no
+memory of having to set anything; my memory is that with fixes to
+qgis/gdal, it just worked correctly (where correctly means reading is
+reading, not reading is writing).
+
+Now, I have a project that had two gpkg layers, that I added a shapefile
+to, just to visualize the shapefile and to load it into QField.  I was
+planning to ignore the other layers when looking at the new data, and to
+omit the older layers in QField export.  And, I wanted to access this
+project on a mac notebook, so I installed 3.40 on it, via qgis.org.
+
+On the mac, I started up qgis, and looked at the shapefile, panning and
+zooming, querying features, but not enabling write in any layer.
+
+Later, I noticed that the gpkg files had been written.
+
+Comparing a copy from [before (the -back and the modified file:
+
+foobar-backup-baz.gpkg: SQLite 3.x database (OGC GeoPackage file), user version 10200, last written using SQLite version 3048000, file counter 29, database pages 24, cookie 0x2f, schema 4, UTF-8, version-valid-for 29
+foobar.gpkg:            SQLite 3.x database (OGC GeoPackage file), user version 10200, last written using SQLite version 3035002, file counter 35, database pages 24, cookie 0x2f, schema 4, UTF-8, version-valid-for 35
+
+I see that the file counter has been incremented 6 times (and
+version-valid-for, correspondingly), and the last-written version
+changed from 3.48.0 to 3.35.2.
+
+sqlite3 versions:
+
+  3.49.2	NetBSD/pkgsrc machine (but plausibly 3.48.0 when the
+                gpkg was last written)
+
+  3.35.2	apparently the version in the qgis mac binary
+  3.39.5	/usr/bin/sqlite3 on mac
+  3.48.0	pkgsrc version on mac
+
+This is surprising; it makes sense that Apple is behind (macOS 13)
+because that's what they do, but 3.35 seems much older than I'd expect.
+
+Doing cmp -l backup current:
+    28  35  43
+    96  35  43
+    99 202 117
+   100 100 172
+
+
+I found
+  https://torymur.github.io/sqlite-repr/
+which is really useful, when used with emacs hexl mode, as "sqlite3
+foobar.gpkg dump" omits metadata and sqlite3 doesn't seem to have a full
+deconstruct option.
+
+So my sqlite file change is read version +=8, valid version same, and
+last write sqlite version changed.  .dump is the same for both, and
+"file" above shows all the differences.
+
+This is repeatable; open/view/close results in sqlite version change and
++2 in the database version.  Today, with 3.40.7 built under pkgsrc
+(really a pretty straightforward build), and 3.40.7 mac official, I find
+that
+
+  NetBSD pkgsrc: read is read
+  macOS official: read is write (modified and I see wal when qgis is open)
+
+So, the bug is that read is opening a journal, on macOS.
+
+Looking at 3.40.7:
+
+  src/core/providers/ogr/qgsogrproviderutils.cpp : QgsOgrProviderUtils::GDALOpenWrapper
+
+It looks like QGIS_FORCE_WAL is set (to nullptr) for any geopackage,
+even those that are unrelated to offline editing (a feature I've never
+used).  This doesn't seem to be from PR #48059.  It seems that databases
+for offline storage should have some  sidecar way to force journaling
+for read, but naively I'd expect those to be opened for write anyway.
+
+Then there seems to be code to detect local and set NOLOCK on reading.
+
+And, if not local, to say no journal period.  (I have no idea if sqlite
+really works correctly on remote filesystems but I'm in the "don't do
+that" camp.)
+
+Reading the isLocal code, I notice there are three implementations: one
+for Windows, one for Linux, and one for POSIX except Linux (and maybe
+android?).  I can't understand the code.  It refers to "path" which
+might be relative and not to "dirName" which is absolute (but a path,
+not a directory name, if the qt code names make sense).  And then it
+outright compares path to "nfs" and "smbfs" which appear to intend to be
+filesystem *types*, not pathnames, not using info.fileSystemType which
+was just computed.
+
+But, that means isLocal should always return true, unless the data
+source is literally a relative path to a file named nfs or smbfs.
+
+From even.rouault at spatialys.com  Sun Jun 15 04:33:45 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sun, 15 Jun 2025 13:33:45 +0200
+Subject: [QGIS-Developer] 3.40 mac binary version of qgis spuriously
+ writing geopackage files, old sqlite3?
+In-Reply-To: <rmiwm9egk2x.fsf@s1.lexort.com>
+References: <rmiwm9egk2x.fsf@s1.lexort.com>
+Message-ID: <19d63990-0d94-42c1-a92c-e586dc8ac251@spatialys.com>
+
+Greg,
+
+what is the GDAL version of the Mac binary? If it is older than 3.4.2 
+that could explain it.
+
+For the issue with IsLocalFile() implementation for 
+non-Windows/non-Linux OS, that should be fixed per 
+https://github.com/qgis/QGIS/pull/62284
+
+Even
+
+Le 14/06/2025 ? 22:11, Greg Troxel via QGIS-Developer a ?crit?:
+> This is a little long, but the summary is
+>
+>    3.40.7, mac binary from qgis.org, appear to write geopackage files
+>    when qgis is merely reading them and no layer write operation is
+>    invoked.  This is "obviously wrong" from my viewpoint, but I can't
+>    find any documentation.
+>
+>    Not that I think it really matters to the above, but the sqlite
+>    version included in the 3.40 mac installer is much older than I would
+>    have expected.
+>
+>    The qgis user manual doesn't explain how this is supposed to work, and
+>    the code doesn't have enough comments to see if it is doing what it is
+>    supposed to be doing.
+>
+>    The "isLocal" code seems wrong in the general case.
+>
+> For background -- since I know it's unusual -- I've been mostly using
+> qgis on NetBSD, built via pkgsrc.  It's been working well.  I just
+> updated from 3.34.x to 3.40.7, and yes, I know that was overdue.  I have
+> several of project files, and data, which I believe is pretty normal:
+>    - several gpkg files, usually with multiple tables
+>    - postgis
+>    - a few csv files (that I treat as read only)
+>    - geodatabases and shp from MassGIS (that I treat as read only)
+>    - jp2/tif tiles of imagery
+>    - online WMTS/TMS
+>
+> I use unison (a user-mode synchronization program, and I happen to be
+> the maintainer) as a replicated filesystem across machines, mostly for
+> sort-of-backup and partially for editing on secondary machines.  As a
+> side effect unison alerts me to changes, so I notice things others might
+> not.
+>
+> Long ago I remember a problem where qgis (via gdal) would write (in a
+> filesystem sense) a gpkg file when it was merely opened for reading.  A
+> fix was made to gdal to enable reading a database to simply.... read the
+> database file, apparently in gdal 3.4.2, now long-ago history,
+>    https://github.com/OSGeo/gdal/pull/5207
+> and then used in qgis:
+>    https://github.com/qgis/QGIS/pull/47098
+> There is also
+>    https://github.com/qgis/QGIS/pull/48059
+>
+> (Separately from unison, whenever there is any kind of sync going on,
+> writing files when reading datasets turns a "read read" operation, which
+> is not a sync conflict, into a "write write" operation, which will be a
+> conflict if the first write does not get synced to the machine that does
+> the second read before that second read.  Thus, from long experience
+> with distributed filesystems including disconnected operation, I'm of
+> the opinion that logically reading should ~never result in a write.)
+>
+> Since those changes, I have been able to start qgis on a project file
+> with geopackage layers, look at the project (and perhaps edit other
+> layers), and exit, without any fileysystem writes to the gpkg file.  I
+> think it even refrains from opening the file for write and not writing
+> -- which on most local filesystems does not cause a modification but can
+> interact badly with distributed filesystems such as coda.  I have no
+> memory of having to set anything; my memory is that with fixes to
+> qgis/gdal, it just worked correctly (where correctly means reading is
+> reading, not reading is writing).
+>
+> Now, I have a project that had two gpkg layers, that I added a shapefile
+> to, just to visualize the shapefile and to load it into QField.  I was
+> planning to ignore the other layers when looking at the new data, and to
+> omit the older layers in QField export.  And, I wanted to access this
+> project on a mac notebook, so I installed 3.40 on it, via qgis.org.
+>
+> On the mac, I started up qgis, and looked at the shapefile, panning and
+> zooming, querying features, but not enabling write in any layer.
+>
+> Later, I noticed that the gpkg files had been written.
+>
+> Comparing a copy from [before (the -back and the modified file:
+>
+> foobar-backup-baz.gpkg: SQLite 3.x database (OGC GeoPackage file), user version 10200, last written using SQLite version 3048000, file counter 29, database pages 24, cookie 0x2f, schema 4, UTF-8, version-valid-for 29
+> foobar.gpkg:            SQLite 3.x database (OGC GeoPackage file), user version 10200, last written using SQLite version 3035002, file counter 35, database pages 24, cookie 0x2f, schema 4, UTF-8, version-valid-for 35
+>
+> I see that the file counter has been incremented 6 times (and
+> version-valid-for, correspondingly), and the last-written version
+> changed from 3.48.0 to 3.35.2.
+>
+> sqlite3 versions:
+>
+>    3.49.2	NetBSD/pkgsrc machine (but plausibly 3.48.0 when the
+>                  gpkg was last written)
+>
+>    3.35.2	apparently the version in the qgis mac binary
+>    3.39.5	/usr/bin/sqlite3 on mac
+>    3.48.0	pkgsrc version on mac
+>
+> This is surprising; it makes sense that Apple is behind (macOS 13)
+> because that's what they do, but 3.35 seems much older than I'd expect.
+>
+> Doing cmp -l backup current:
+>      28  35  43
+>      96  35  43
+>      99 202 117
+>     100 100 172
+>
+>
+> I found
+>    https://torymur.github.io/sqlite-repr/
+> which is really useful, when used with emacs hexl mode, as "sqlite3
+> foobar.gpkg dump" omits metadata and sqlite3 doesn't seem to have a full
+> deconstruct option.
+>
+> So my sqlite file change is read version +=8, valid version same, and
+> last write sqlite version changed.  .dump is the same for both, and
+> "file" above shows all the differences.
+>
+> This is repeatable; open/view/close results in sqlite version change and
+> +2 in the database version.  Today, with 3.40.7 built under pkgsrc
+> (really a pretty straightforward build), and 3.40.7 mac official, I find
+> that
+>
+>    NetBSD pkgsrc: read is read
+>    macOS official: read is write (modified and I see wal when qgis is open)
+>
+> So, the bug is that read is opening a journal, on macOS.
+>
+> Looking at 3.40.7:
+>
+>    src/core/providers/ogr/qgsogrproviderutils.cpp : QgsOgrProviderUtils::GDALOpenWrapper
+>
+> It looks like QGIS_FORCE_WAL is set (to nullptr) for any geopackage,
+> even those that are unrelated to offline editing (a feature I've never
+> used).  This doesn't seem to be from PR #48059.  It seems that databases
+> for offline storage should have some  sidecar way to force journaling
+> for read, but naively I'd expect those to be opened for write anyway.
+>
+> Then there seems to be code to detect local and set NOLOCK on reading.
+>
+> And, if not local, to say no journal period.  (I have no idea if sqlite
+> really works correctly on remote filesystems but I'm in the "don't do
+> that" camp.)
+>
+> Reading the isLocal code, I notice there are three implementations: one
+> for Windows, one for Linux, and one for POSIX except Linux (and maybe
+> android?).  I can't understand the code.  It refers to "path" which
+> might be relative and not to "dirName" which is absolute (but a path,
+> not a directory name, if the qt code names make sense).  And then it
+> outright compares path to "nfs" and "smbfs" which appear to intend to be
+> filesystem *types*, not pathnames, not using info.fileSystemType which
+> was just computed.
+>
+> But, that means isLocal should always return true, unless the data
+> source is literally a relative path to a file named nfs or smbfs.
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From gdt at lexort.com  Sun Jun 15 06:46:49 2025
+From: gdt at lexort.com (Greg Troxel)
+Date: Sun, 15 Jun 2025 09:46:49 -0400
+Subject: [QGIS-Developer] 3.40 mac binary version of qgis spuriously
+ writing geopackage files, old sqlite3?
+In-Reply-To: <19d63990-0d94-42c1-a92c-e586dc8ac251@spatialys.com> (Even
+ Rouault's message of "Sun, 15 Jun 2025 13:33:45 +0200")
+References: <rmiwm9egk2x.fsf@s1.lexort.com>
+ <19d63990-0d94-42c1-a92c-e586dc8ac251@spatialys.com>
+Message-ID: <rmiqzzlf77a.fsf@s1.lexort.com>
+
+Even Rouault <even.rouault at spatialys.com> writes:
+
+> Greg,
+>
+> what is the GDAL version of the Mac binary? If it is older than 3.4.2
+> that could explain it.
+
+GDAL 3.3.2, released 2021/09/01
+
+Wow, it never crossed my mind that the mac packages would be so out of
+date; that's 3.75 years ago.  Sorry -- I should have checked -- but I
+assumed that 3.40.x builds would have dependencies that were more or
+less current at the time 3.40 started.  I should have become suspicious
+from the very old sqlite3.
+
+> For the issue with IsLocalFile() implementation for
+> non-Windows/non-Linux OS, that should be fixed per
+> https://github.com/qgis/QGIS/pull/62284
+
+Wow, that was quick.
+
+So it sounds like, if I have a build
+
+  3.40.x
+
+  with modern gdal
+
+then on all platforms, if I just open a qgis project that has geopackage
+layers, causing them to be read, but do not click the 'edit layer'
+button, then I should expect that the geopackage file is not written, or
+even opened for writing at the system call level?
+
+
+And after 62284 is backported, whatever special "turn off WAL harder" is
+supposed to happen on non-local will happen on non-local, while it
+doesn't now.  (That doesn't affect me because I don't put data on
+non-local filesystems.)
+
+From andreaerdna at libero.it  Sun Jun 15 07:17:53 2025
+From: andreaerdna at libero.it (Andrea Giudiceandrea)
+Date: Sun, 15 Jun 2025 16:17:53 +0200
+Subject: [QGIS-Developer] 3.40 mac binary version of qgis spuriously
+ writing geopackage files, old sqlite3?
+Message-ID: <b7703f75-db1c-4351-91a9-2d87b59f62d0@libero.it>
+
+> Greg Troxel gdt at lexort.com
+> Sat Jun 14 13:11:02 PDT 2025
+
+>   3.40.7, mac binary from qgis.org, appear to write geopackage files
+>   when qgis is merely reading them and no layer write operation is
+>   invoked. 
+
+Hi Greg,
+qgis.org doen't provide the QGIS LTR 3.40.7 installer for macOS.
+The latest available QGIS LTR installer for macOS available at qgis.org 
+is QGIS LTR 3.40.5.
+
+As explained in the Download page https://qgis.org/download/ of qgis.org:
+
+"The QGIS installers for macOS are currently outdated and may not 
+reflect the latest version shown in QGIS notifications. We are actively 
+working to update the macOS packages. If you need newer features or 
+fixes, please consider installing QGIS via MacPorts."
+
+Moreover, the QGIS installers for macOS available at qgis.org have old 
+dependent packages like GDAL.
+
+As advised in the Download page of qgis.org:
+
+"Alternatively, for native support of both Intel x86 and Apple ARM 
+architectures, together with the latest versions of key components (e.g. 
+GDAL, PDAL, GRASS GIS) see MacPorts Installing Instructions 
+https://qgis.org/resources/installation-guide/#macports "
+
+Best regards.
+
+Andrea
+
+From gdt at lexort.com  Sun Jun 15 09:49:27 2025
+From: gdt at lexort.com (Greg Troxel)
+Date: Sun, 15 Jun 2025 12:49:27 -0400
+Subject: [QGIS-Developer] 3.40 mac binary version of qgis spuriously
+ writing geopackage files, old sqlite3?
+In-Reply-To: <b7703f75-db1c-4351-91a9-2d87b59f62d0@libero.it> (Andrea
+ Giudiceandrea via's message of "Sun, 15 Jun 2025 16:17:53 +0200")
+References: <b7703f75-db1c-4351-91a9-2d87b59f62d0@libero.it>
+Message-ID: <rmimsa9eyqw.fsf@s1.lexort.com>
+
+Andrea Giudiceandrea via QGIS-Developer <qgis-developer at lists.osgeo.org>
+writes:
+
+>> Greg Troxel gdt at lexort.com
+>> Sat Jun 14 13:11:02 PDT 2025
+>
+>>   3.40.7, mac binary from qgis.org, appear to write geopackage files
+>>   when qgis is merely reading them and no layer write operation is
+>>   invoked. 
+>
+> Hi Greg,
+> qgis.org doen't provide the QGIS LTR 3.40.7 installer for macOS.
+> The latest available QGIS LTR installer for macOS available at
+> qgis.org is QGIS LTR 3.40.5.
+
+I probably missed that and have 3.40.5.   Two micros back is of course
+behind but not a big deal compared to the WAL bugs.
+
+> As explained in the Download page https://qgis.org/download/ of qgis.org:
+>
+> "The QGIS installers for macOS are currently outdated and may not
+> reflect the latest version shown in QGIS notifications. We are
+> actively working to update the macOS packages. If you need newer
+> features or fixes, please consider installing QGIS via MacPorts."
+>
+> Moreover, the QGIS installers for macOS available at qgis.org have old
+> dependent packages like GDAL.
+
+I managed not to read that, or not to absorb that "old" might mean "so
+old it's hard to comprehend" vs "gdal 3.9 instead of 3.10".  If they are
+that old, perhaps they should be withdrawn?  Or perhaps change the text
+to list versions and when they were released, so people can be warned.
+
+Duly noted about homebrew; pkgsrc is the same way, but currently qgis
+there is set up for normal computers, not macs, which Do Many Things
+Different.  It's messy to choose between 'build a normal POSIX program
+that uses X' and 'build the special mac way instead' in a portable
+packaging system (which homebrew isn't, so they don't have this
+problem).
+
+(I don't understand the mac .App build process at all, as I mostly live
+in the POSIX world.  I wonder if the official binary should be a
+homebrew build bootstrapped under a different prefix so it's
+self-contained, sort of all under /opt/homebrew-qgis, that then can just
+be unpacked, and have that replace the outdated version.)
+
+From gdt at lexort.com  Sun Jun 15 09:58:24 2025
+From: gdt at lexort.com (Greg Troxel)
+Date: Sun, 15 Jun 2025 12:58:24 -0400
+Subject: [QGIS-Developer] 3.40 mac binary version of qgis spuriously
+ writing geopackage files, old sqlite3?
+In-Reply-To: <rmimsa9eyqw.fsf@s1.lexort.com> (Greg Troxel via's message of
+ "Sun, 15 Jun 2025 12:49:27 -0400")
+References: <b7703f75-db1c-4351-91a9-2d87b59f62d0@libero.it>
+ <rmimsa9eyqw.fsf@s1.lexort.com>
+Message-ID: <rmiikkxeybz.fsf@s1.lexort.com>
+
+Sorry, I confused macports and homebrew.  I see that qgis is pointing to
+macports (and there's the caution not to install both, probably because
+they use the same prefix).
+
+The warning text at
+
+  https://qgis.org/download/  macos section
+
+is
+
+  ?? QGIS versions for macOS notice
+
+  The QGIS installers for macOS are currently outdated and may not
+  reflect the latest version shown in QGIS notifications. We are
+  actively working to update the macOS packages. If you need newer
+  features or fixes, please consider installing QGIS via MacPorts. Thank
+  you for your patience and understanding.
+
+which doesn't mention "dependencies from 2021".
+
+
+Something else which I've always found awkward is that the installater
+is
+
+  https://qgis.org/downloads/macos/qgis-macos-ltr.dmg
+
+which seems to have variable content.  For caching, for clarifyt, and
+for reproducing a specific install on a new computer, I would far rather
+see this be:
+
+  https://qgis.org/downloads/macos/qgis-macos-3.40.5.dmg
+
+and just have the link in the page changed.
+
+
+
+As another random comment, I find
+
+  "Download QGIS for your platform"
+
+followed by
+
+  windows stuff
+
+and then
+
+  "Other Platforms"
+
+to be strange.  I would expect the title to be just
+
+  "Download QGIS"
+
+and then a "Windows" section, just like the other platform sections,
+with no "other platforms" header.   That's very windows-normative!
+
+
+
+From geosanak at gmail.com  Sun Jun 15 17:42:26 2025
+From: geosanak at gmail.com (Ko Nagase)
+Date: Mon, 16 Jun 2025 09:42:26 +0900
+Subject: [QGIS-Developer] debugvs plugin maintenance
+Message-ID: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+
+Hi ilan, Valentin and Plugin Repository Maintainers,
+
+I am the author of the PR (https://github.com/lmotta/debug_vs_plugin/pull/18),
+and I appreciate you raising this issue.
+
+Personally, I suggest creating a new plugin - such as "debugvs2"
+(https://plugins.qgis.org/plugins/debug_vs2/),
+rather than transferring ownership of the plugin.
+Because I feel changing the ownership of an existing plugin without
+the current owner's confirmation is a bit risky as FOSS spirits.
+
+But I want to confirm the Plugin Repository Maintainers' opinion.
+
+Best regards,
+Nagase
+
+2025?6?14?(?) 3:41 Valentin Buira <valentin.buira at gmail.com>:
+>
+> I don't have any rights over this, but that's a +1 for me as well.
+>
+> I would also like to highlight that the issue preventing Ilian and
+> others from using the plugin affects Windows and MacOS users. And
+> since QGIS on Windows accounts for the majority of users (and plugin
+> users ! )  according to  QGIS's own metrics this makes targeting and
+> debugging plugins for the most popular platform even more challenging.
+>
+> As Ilian said, a fix exists[1]. While I did not review the PR, the fix
+> is working for me locally.  The author of the PR seems to be a member
+> of OSGeo Japan and maybe he would like to be involved too ?
+>
+> Regards,
+> Valentin
+>
+> [1] https://github.com/lmotta/debug_vs_plugin/pull/18
+
+---
+
+2025?6?5?(?) 23:17 Ilan REDON via QGIS-Developer
+<qgis-developer at lists.osgeo.org>:
+>
+> Hi people,
+>
+> I, like some others I would assume seeing the 10k+ downloads, am using regularly the QGIS plugin "debugvs" https://github.com/lmotta/debug_vs_plugin .
+> The last pull request, fixing an issue that prevented me and others from using the plugin, is now 2 years old and has not received any comment from the owner.
+> So I contacted lmotta on the 28/04/2025 on his public email but received no answer, his github also showing no recent public activity.
+> With of course all due respect to them I would like to keep a functioning state of this plugin published on the official repository.
+> Could we transfer ownership of this plugin to me or any other volunteer, to at least review and merge contributions?
+>
+> Thanks,
+> ilan/persephone
+> lmotta/debug_vs_plugin: Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - GitHub
+> Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - lmotta/debug_vs_plugin
+> github.com
+
+-- 
+Ko Nagase (sanak)
+mail: geosanak at gmail.com
+
+From lova at kartoza.com  Sun Jun 15 22:58:20 2025
+From: lova at kartoza.com (Lova Andriarimalala)
+Date: Mon, 16 Jun 2025 08:58:20 +0300
+Subject: [QGIS-Developer] debugvs plugin maintenance
+In-Reply-To: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+References: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+Message-ID: <CAMLC-sAVvgN0pvC7gLpZymK7e7uZ8Ph2xaGUsjJ=Soph37y=LA@mail.gmail.com>
+
+Hi everyone,
+
+I agree with Nagase's suggestion. As a maintainer of the Plugins
+Repository, I would not advise transferring ownership unless the current
+owner has confirmed it.
+
+Best regards,
+
+Lova Andriarimalala
+
+
+*QGIS Full Stack Developer   *
+*T *: +27(0) 87 809 2702          *E *: lova at kartoza.com          *W* :
+kartoza.com
+
+
+
+*This email and any attachments are confidential and intended solely for
+the use of the individual or entity to whom they are addressed. If you *
+*have received this email in error, please notify the sender immediately
+and delete it from your system. Unauthorised use, disclosure, or copying*
+*of the contents is prohibited.*
+
+
+On Mon, 16 Jun 2025 at 03:43, Ko Nagase via QGIS-Developer <
+qgis-developer at lists.osgeo.org> wrote:
+
+> Hi ilan, Valentin and Plugin Repository Maintainers,
+>
+> I am the author of the PR (
+> https://github.com/lmotta/debug_vs_plugin/pull/18),
+> and I appreciate you raising this issue.
+>
+> Personally, I suggest creating a new plugin - such as "debugvs2"
+> (https://plugins.qgis.org/plugins/debug_vs2/),
+> rather than transferring ownership of the plugin.
+> Because I feel changing the ownership of an existing plugin without
+> the current owner's confirmation is a bit risky as FOSS spirits.
+>
+> But I want to confirm the Plugin Repository Maintainers' opinion.
+>
+> Best regards,
+> Nagase
+>
+> 2025?6?14?(?) 3:41 Valentin Buira <valentin.buira at gmail.com>:
+> >
+> > I don't have any rights over this, but that's a +1 for me as well.
+> >
+> > I would also like to highlight that the issue preventing Ilian and
+> > others from using the plugin affects Windows and MacOS users. And
+> > since QGIS on Windows accounts for the majority of users (and plugin
+> > users ! )  according to  QGIS's own metrics this makes targeting and
+> > debugging plugins for the most popular platform even more challenging.
+> >
+> > As Ilian said, a fix exists[1]. While I did not review the PR, the fix
+> > is working for me locally.  The author of the PR seems to be a member
+> > of OSGeo Japan and maybe he would like to be involved too ?
+> >
+> > Regards,
+> > Valentin
+> >
+> > [1] https://github.com/lmotta/debug_vs_plugin/pull/18
+>
+> ---
+>
+> 2025?6?5?(?) 23:17 Ilan REDON via QGIS-Developer
+> <qgis-developer at lists.osgeo.org>:
+> >
+> > Hi people,
+> >
+> > I, like some others I would assume seeing the 10k+ downloads, am using
+> regularly the QGIS plugin "debugvs"
+> https://github.com/lmotta/debug_vs_plugin .
+> > The last pull request, fixing an issue that prevented me and others from
+> using the plugin, is now 2 years old and has not received any comment from
+> the owner.
+> > So I contacted lmotta on the 28/04/2025 on his public email but received
+> no answer, his github also showing no recent public activity.
+> > With of course all due respect to them I would like to keep a
+> functioning state of this plugin published on the official repository.
+> > Could we transfer ownership of this plugin to me or any other volunteer,
+> to at least review and merge contributions?
+> >
+> > Thanks,
+> > ilan/persephone
+> > lmotta/debug_vs_plugin: Plugin to Enable Debug for Visual Studio( tested
+> in Visual Studio Code) - GitHub
+> > Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code)
+> - lmotta/debug_vs_plugin
+> > github.com
+>
+> --
+> Ko Nagase (sanak)
+> mail: geosanak at gmail.com
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250616/58c2e51a/attachment.htm>
+
+From rdmailings at duif.net  Mon Jun 16 00:09:21 2025
+From: rdmailings at duif.net (Richard Duivenvoorde)
+Date: Mon, 16 Jun 2025 09:09:21 +0200
+Subject: [QGIS-Developer] debugvs plugin maintenance
+In-Reply-To: <CAMLC-sAVvgN0pvC7gLpZymK7e7uZ8Ph2xaGUsjJ=Soph37y=LA@mail.gmail.com>
+References: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+ <CAMLC-sAVvgN0pvC7gLpZymK7e7uZ8Ph2xaGUsjJ=Soph37y=LA@mail.gmail.com>
+Message-ID: <807b6002-8e2e-482c-895f-37287882793b@duif.net>
+
+FYI, I have been trying to contact him also.
+
+Another option I'm trying is to contact the Brazilian user group, asking if they know if he is still active in the foss/qgis universe. They are active on channels I'm not :-) Maybe others can ask there?
+
+Else: I'd second the idea of a debugvs2 plugin
+
+Regards,
+
+Richard Duivenvoorde
+
+On 16-06-2025 07:58, Lova Andriarimalala via QGIS-Developer wrote:
+> Hi everyone,
+> 
+> I agree?with Nagase's suggestion. As a maintainer of the Plugins Repository, I would not advise transferring?ownership unless the current owner has confirmed it.
+> 
+> Best regards,
+> 
+> Lova Andriarimalala
+> *QGIS Full Stack Developer
+> 
+> *
+> *T *:?+27(0) 87 809 2702 *E *:**lova at kartoza.com <mailto:lova at kartoza.com> *W*?: kartoza.com <http://kartoza.com>
+> 
+> 
+> 
+> /This email and any attachments are confidential and intended solely for the use of the individual or entity to whom they are addressed. If you /
+> /have received this email in error, please notify the sender immediately and delete it from your system. Unauthorised use, disclosure, or copying/
+> /of the contents is prohibited./
+> 
+> 
+> On Mon, 16 Jun 2025 at 03:43, Ko Nagase via QGIS-Developer <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>> wrote:
+> 
+>     Hi ilan, Valentin and Plugin Repository Maintainers,
+> 
+>     I am the author of the PR (https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>),
+>     and I appreciate you raising this issue.
+> 
+>     Personally, I suggest creating a new plugin - such as "debugvs2"
+>     (https://plugins.qgis.org/plugins/debug_vs2/ <https://plugins.qgis.org/plugins/debug_vs2/>),
+>     rather than transferring ownership of the plugin.
+>     Because I feel changing the ownership of an existing plugin without
+>     the current owner's confirmation is a bit risky as FOSS spirits.
+> 
+>     But I want to confirm the Plugin Repository Maintainers' opinion.
+> 
+>     Best regards,
+>     Nagase
+> 
+>     2025?6?14?(?) 3:41 Valentin Buira <valentin.buira at gmail.com <mailto:valentin.buira at gmail.com>>:
+>      >
+>      > I don't have any rights over this, but that's a +1 for me as well.
+>      >
+>      > I would also like to highlight that the issue preventing Ilian and
+>      > others from using the plugin affects Windows and MacOS users. And
+>      > since QGIS on Windows accounts for the majority of users (and plugin
+>      > users ! )? according to? QGIS's own metrics this makes targeting and
+>      > debugging plugins for the most popular platform even more challenging.
+>      >
+>      > As Ilian said, a fix exists[1]. While I did not review the PR, the fix
+>      > is working for me locally.? The author of the PR seems to be a member
+>      > of OSGeo Japan and maybe he would like to be involved too ?
+>      >
+>      > Regards,
+>      > Valentin
+>      >
+>      > [1] https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>
+> 
+>     ---
+> 
+>     2025?6?5?(?) 23:17 Ilan REDON via QGIS-Developer
+>     <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>>:
+>      >
+>      > Hi people,
+>      >
+>      > I, like some others I would assume seeing the 10k+ downloads, am using regularly the QGIS plugin "debugvs" https://github.com/lmotta/debug_vs_plugin <https://github.com/lmotta/debug_vs_plugin> .
+>      > The last pull request, fixing an issue that prevented me and others from using the plugin, is now 2 years old and has not received any comment from the owner.
+>      > So I contacted lmotta on the 28/04/2025 on his public email but received no answer, his github also showing no recent public activity.
+>      > With of course all due respect to them I would like to keep a functioning state of this plugin published on the official repository.
+>      > Could we transfer ownership of this plugin to me or any other volunteer, to at least review and merge contributions?
+>      >
+>      > Thanks,
+>      > ilan/persephone
+>      > lmotta/debug_vs_plugin: Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - GitHub
+>      > Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - lmotta/debug_vs_plugin
+>      > github.com <http://github.com>
+> 
+>     -- 
+>     Ko Nagase (sanak)
+>     mail: geosanak at gmail.com <mailto:geosanak at gmail.com>
+>     _______________________________________________
+>     QGIS-Developer mailing list
+>     QGIS-Developer at lists.osgeo.org <mailto:QGIS-Developer at lists.osgeo.org>
+>     List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+>     Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+> 
+> 
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+
+From tim at kartoza.com  Mon Jun 16 01:42:29 2025
+From: tim at kartoza.com (Tim Sutton)
+Date: Mon, 16 Jun 2025 09:42:29 +0100
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <CAMtDFLLJ6YwxBz108RamHsDyWceQY9f6JWFmw0=VgVze73XFRw@mail.gmail.com>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+ <CANaz7myQqVKL6GhTaCqZ11sO6o4vFbNDhwnUuNiyjocvjYVQJw@mail.gmail.com>
+ <CAES-DZSuJMtQ08C4vOk6=v_KT94+kurjSuZf+gF3Z6gGU4ieGw@mail.gmail.com>
+ <5e87ea2a-d307-45a1-aad3-38f26413eee2@terglobo.nl>
+ <CAES-DZSVFa+zPC-ezw2NjGnK1b2E2GgMzH-bS2KG9BUzdGtorg@mail.gmail.com>
+ <b665444d-5c53-4e66-b29c-182f14b05a22@duif.net>
+ <CAMtDFLLJ6YwxBz108RamHsDyWceQY9f6JWFmw0=VgVze73XFRw@mail.gmail.com>
+Message-ID: <CAES-DZQ=3cJv7MGVK_haonELs4DKY8MbhDCYfWUtpHRrqFytcA@mail.gmail.com>
+
+Hi Richard and friends
+
+Thanks it works nicely under NixOS yes. It was indeed the http: that was
+causing my issue.
+
+Regards
+
+Tim
+
+On Fri, Jun 13, 2025 at 10:17?AM Etienne Trimaille <
+etienne.trimaille at gmail.com> wrote:
+
+> Hi,
+> Nice work, it works well, on Ubuntu Noble for me. Thanks !
+>
+> Indeed, I got some issues trying to click on the link in Firefox and
+> Chromium, because unsecure HTTP protocol with a "direct" link to a
+> downloadable file (and maybe executable file as well ?)
+>
+>
+> Le ven. 13 juin 2025 ? 09:30, Richard Duivenvoorde via QGIS-Developer <
+> qgis-developer at lists.osgeo.org> a ?crit :
+>
+>> On 12-06-2025 23:32, Tim Sutton via QGIS-Developer wrote:
+>> > Ok this worked
+>> > wget -O qgis.flatpak http://duif.net/qgis-qt6.flatpak <
+>> http://duif.net/qgis-qt6.flatpak>
+>> > Opening the link in my browser not so much...
+>>
+>> Strange, it's just the root of Apache.
+>> Though, now I see, I gave a http url, maybe your browser does not want
+>> http, but httpS?
+>> And I do not have redirection http->https on it because of... testing
+>> stuff
+>>
+>> Is the flatpak working on nixos?
+>>
+>> Richard
+>> _______________________________________________
+>> QGIS-Developer mailing list
+>> QGIS-Developer at lists.osgeo.org
+>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>
+>
+
+-- 
+
+Tim Sutton
+
+*Kartoza Cofounder*Tim is a member of the QGIS Project Steering Committee
+
+*T *: +27(0) 87 809 2702          *E *: tim at kartoza.com          *W* :
+kartoza.com
+
+
+
+*This email and any attachments are confidential and intended solely for
+the use of the individual or entity to whom they are addressed. If you *
+*have received this email in error, please notify the sender immediately
+and delete it from your system. Unauthorised use, disclosure, or copying*
+*of the contents is prohibited.*
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250616/78dbd2e1/attachment-0001.htm>
+
+From tim at kartoza.com  Mon Jun 16 04:00:22 2025
+From: tim at kartoza.com (Tim Sutton)
+Date: Mon, 16 Jun 2025 12:00:22 +0100
+Subject: [QGIS-Developer] [Qgis-psc] MacOS Qt6 builds / Notarization
+In-Reply-To: <CAC7zN95iZdBB4TWT6THxeS1625UBNogq8ydrQrt_Ee7O8FaFXQ@mail.gmail.com>
+References: <CAC7zN95iZdBB4TWT6THxeS1625UBNogq8ydrQrt_Ee7O8FaFXQ@mail.gmail.com>
+Message-ID: <CAES-DZSAKNGEdRd2xhnJ=28KCXqg9yGj7_GfiTrC9iS0UUGTJw@mail.gmail.com>
+
+Hi Matthias
+
+This is so exciting - thank you for bringing this work together! I look
+forward to testing it on my wife's mac soon.
+
+Regards
+
+Tim
+
+On Thu, Jun 12, 2025 at 3:34?PM Matthias Kuhn via QGIS-PSC <
+qgis-psc at lists.osgeo.org> wrote:
+
+> Dear all,
+>
+> Over the last few months I've made good progress on the mac build front.
+> Since the beginning of the year, a pull request has been open that builds
+> QGIS against recent, updated dependencies and Qt6 and creates a dmg
+> installer for download.
+> These packages provide universal binaries that work natively on Intel x64
+> and ARM machines.
+>
+> Overall, the feedback of testers has been encouraging and many things
+> could already be ironed out.
+>
+> Since last week it is now also possible to download notarized versions of
+> these builds. The scripts are in
+> https://github.com/opengisch/qgis-notarize/ and in the actions on this
+> repository, the notarized packages can be downloaded and we also have
+> encouraging feedback there.
+> Eventually I would like to only notarize releases (and not pull requests)
+> and use an OSGEO certificate (not the current OPENGIS.ch one) and produce
+> the packages on a repository under the qgis organization. I'll handle that
+> in the upcoming weeks.
+>
+> Since this is a complete refactoring and cleanup of the mac build chain,
+> it would break the current Qt5 builds and was therefore not merged to not
+> break releases on the QGIS 3 series.
+>
+> With the last minor release QGIS 3 approaching, I would like to proceed
+> with merging this right after 3.44 has been branched off. The pull request
+> is rather large so it's good if this has a long cooldown period before it's
+> released with QGIS 4 later this year. Whoever feels comfortable reviewing
+> cmake code changes, please do so before Friday next week, June 20.
+>
+> Thanks a lot and best wishes
+> Matthias
+>
+> --
+> [image: OG]
+> <https://link.bulksignature.com/4054a10b-3c19-46a2-9e27-813335d7dbdc>
+>
+> *Matthias Kuhn*
+> Mr. Noproblemo
+>
+> CTO | Co-Founder
+> [image: email]
+> matthias at opengis.ch
+>
+> [image: www]
+> https://opengis.ch
+>
+> [image: linkedin] <https://www.linkedin.com/company/opengisch/> [image:
+> mastodon] <https://fosstodon.org/@opengisch> [image: github]
+> <https://github.com/opengisch/>
+> _______________________________________________
+> QGIS-PSC mailing list
+> QGIS-PSC at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/qgis-psc
+>
+
+
+-- 
+
+Tim Sutton
+
+*Kartoza Cofounder*Tim is a member of the QGIS Project Steering Committee
+
+*T *: +27(0) 87 809 2702          *E *: tim at kartoza.com          *W* :
+kartoza.com
+
+
+
+*This email and any attachments are confidential and intended solely for
+the use of the individual or entity to whom they are addressed. If you *
+*have received this email in error, please notify the sender immediately
+and delete it from your system. Unauthorised use, disclosure, or copying*
+*of the contents is prohibited.*
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250616/93e06f5a/attachment.htm>
+
+From marco at qgis.org  Mon Jun 16 04:06:06 2025
+From: marco at qgis.org (Marco Bernasocchi)
+Date: Mon, 16 Jun 2025 13:06:06 +0200
+Subject: [QGIS-Developer] [Qgis-psc] MacOS Qt6 builds / Notarization
+In-Reply-To: <CAES-DZSAKNGEdRd2xhnJ=28KCXqg9yGj7_GfiTrC9iS0UUGTJw@mail.gmail.com>
+References: <CAC7zN95iZdBB4TWT6THxeS1625UBNogq8ydrQrt_Ee7O8FaFXQ@mail.gmail.com>
+ <CAES-DZSAKNGEdRd2xhnJ=28KCXqg9yGj7_GfiTrC9iS0UUGTJw@mail.gmail.com>
+Message-ID: <CAB2ZMRApXt4TR8=BVLB9anPvuQYs0=6+T9rN+Ayj6y8WjUXHsw@mail.gmail.com>
+
+Thanks a lot Matthias!
+Perfect timing with the announcement of better MacOS packaging I made in
+Norrk?ping :)
+
+Marco Bernasocchi
+
+QGIS.org Chair
+OSGEO.org VP Europe
+OPENGIS.ch CEO
+http://berna.io
+
+On Mon, 16 Jun 2025, 13:00 Tim Sutton via QGIS-PSC, <
+qgis-psc at lists.osgeo.org> wrote:
+
+> Hi Matthias
+>
+> This is so exciting - thank you for bringing this work together! I look
+> forward to testing it on my wife's mac soon.
+>
+> Regards
+>
+> Tim
+>
+> On Thu, Jun 12, 2025 at 3:34?PM Matthias Kuhn via QGIS-PSC <
+> qgis-psc at lists.osgeo.org> wrote:
+>
+>> Dear all,
+>>
+>> Over the last few months I've made good progress on the mac build front.
+>> Since the beginning of the year, a pull request has been open that builds
+>> QGIS against recent, updated dependencies and Qt6 and creates a dmg
+>> installer for download.
+>> These packages provide universal binaries that work natively on Intel x64
+>> and ARM machines.
+>>
+>> Overall, the feedback of testers has been encouraging and many things
+>> could already be ironed out.
+>>
+>> Since last week it is now also possible to download notarized versions of
+>> these builds. The scripts are in
+>> https://github.com/opengisch/qgis-notarize/ and in the actions on this
+>> repository, the notarized packages can be downloaded and we also have
+>> encouraging feedback there.
+>> Eventually I would like to only notarize releases (and not pull requests)
+>> and use an OSGEO certificate (not the current OPENGIS.ch one) and produce
+>> the packages on a repository under the qgis organization. I'll handle that
+>> in the upcoming weeks.
+>>
+>> Since this is a complete refactoring and cleanup of the mac build chain,
+>> it would break the current Qt5 builds and was therefore not merged to not
+>> break releases on the QGIS 3 series.
+>>
+>> With the last minor release QGIS 3 approaching, I would like to proceed
+>> with merging this right after 3.44 has been branched off. The pull request
+>> is rather large so it's good if this has a long cooldown period before it's
+>> released with QGIS 4 later this year. Whoever feels comfortable reviewing
+>> cmake code changes, please do so before Friday next week, June 20.
+>>
+>> Thanks a lot and best wishes
+>> Matthias
+>>
+>> --
+>> [image: OG]
+>> <https://link.bulksignature.com/4054a10b-3c19-46a2-9e27-813335d7dbdc>
+>>
+>> *Matthias Kuhn*
+>> Mr. Noproblemo
+>>
+>> CTO | Co-Founder
+>> [image: email]
+>> matthias at opengis.ch
+>>
+>> [image: www]
+>> https://opengis.ch
+>>
+>> [image: linkedin] <https://www.linkedin.com/company/opengisch/> [image:
+>> mastodon] <https://fosstodon.org/@opengisch> [image: github]
+>> <https://github.com/opengisch/>
+>> _______________________________________________
+>> QGIS-PSC mailing list
+>> QGIS-PSC at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/qgis-psc
+>>
+>
+>
+> --
+>
+> Tim Sutton
+>
+> *Kartoza Cofounder*Tim is a member of the QGIS Project Steering Committee
+>
+> *T *: +27(0) 87 809 2702          *E *: tim at kartoza.com          *W* :
+> kartoza.com
+>
+>
+>
+> *This email and any attachments are confidential and intended solely for
+> the use of the individual or entity to whom they are addressed. If you *
+> *have received this email in error, please notify the sender immediately
+> and delete it from your system. Unauthorised use, disclosure, or copying*
+> *of the contents is prohibited.*
+> _______________________________________________
+> QGIS-PSC mailing list
+> QGIS-PSC at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/qgis-psc
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250616/b22acffd/attachment-0001.htm>
+
+From johannes.kroeger at wheregroup.com  Mon Jun 16 06:08:52 2025
+From: johannes.kroeger at wheregroup.com (=?UTF-8?Q?Johannes_Kr=C3=B6ger_=28WhereGroup=29?=)
+Date: Mon, 16 Jun 2025 15:08:52 +0200
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+Message-ID: <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+
+Thank you, this is super useful!
+
+Is there a way to make it not mask my system QGIS? After I installed 
+this on Manjaro or Ubuntu, it took over "QGIS" in the launcher menu. The 
+only way I could still run my normal QGIS was via "qgis" in the terminal.
+
+I expect this to be some configuration setting of flatpak itself, but 
+found literally nothing via Google. So maybe it is something flatpak 
+build specific or my Google fu has broken.
+
+Cheers, Hannes
+
+On 6/11/25 16:48, Richard Duivenvoorde via QGIS-Developer wrote:
+> Hi,
+>
+> Based on the excellent Flatpak work of Aleix Pol 
+> (https://github.com/flathub/org.qgis.qgis), I managed to create a 
+> runnable Qt6 build of QGIS for Linux's (with flatpak available)
+>
+> My idea is that Linux users of distro's without the needed 
+> dependencies can run QGIS and test/update their Python plugins with 
+> this build.
+> This flatpak build (master) is (thanks to Aleix!) having 3D and 
+> PDAL/cloudpoint available too.
+>
+> Note that this is my first flatpak build, probably things go/are 
+> wrong, and I'm not sure how to do further/future distribution...
+>
+> But for now: to run/try it:
+>
+> Download the single-bundle file from
+>
+> http://duif.net/qgis-qt6.flatpak
+>
+> If you do not have flatpak/flathub available, make sure you do by 
+> doing the steps at
+>
+> https://flatpak.org/setup/ for your distro, to
+> 1) install flatpak and
+> 2) make the flathub repo available for needed runtimes and sdk's.
+>
+> Now go to the qgis-qt6.flatpak file and INSTALL it:
+>
+> flatpak install --runtime --include-sdk qgis-qt6.flatpak
+>
+> (this will install the KDE runtime and sdk and then finally the 
+> qgis-qt6 system wide)
+>
+> Then to run it:
+>
+> flatpak run org.qgis.qgis
+>
+> I hope this is useful for anybody.
+>
+> Have to talk to Aleix for more finesses to maybe share this on flathub 
+> or with his Qt5 build.
+>
+> If you want to build it yourself there is some info in: 
+> https://github.com/flathub/org.qgis.qgis/issues/428
+>
+> Regards,
+>
+> Richard Duivenvoorde
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>
+-- 
+Johannes Kr?ger / GIS-Entwickler/-Berater
+
+-------------------------------
+Schon gewusst?
+In unserem Blog geben wir Tipps & Tricks zu Open-Source-GIS-Software
+und berichten aus unserem Experten-Alltag:
+https://wheregroup.com/blog/
+-------------------------------
+
+WhereGroup GmbH
+c/o KK03 GmbH
+Lange Reihe 29
+20099 Hamburg
+Germany
+
+Tel: +49 (0)228 / 90 90 38 - 36
+Fax: +49 (0)228 / 90 90 38 - 11
+
+johannes.kroeger at wheregroup.com
+www.wheregroup.com
+
+Gesch?ftsf?hrer:
+Olaf Knopp, Peter Stamm
+Amtsgericht Bonn, HRB 9885
+-------------------------------
+
+
+
+From rdmailings at duif.net  Mon Jun 16 06:57:39 2025
+From: rdmailings at duif.net (Richard Duivenvoorde)
+Date: Mon, 16 Jun 2025 15:57:39 +0200
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+ <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+Message-ID: <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+
+I think this has to do with the fact that I did not change the id/name of the application.
+It's still called "org.qgis.qgis"...
+Maybe I should call it something like "org.qgis.qgis.next" or so? "org.qgis.qgis.qt6'?
+Then I think it will not conflict with the normal flatpak qgis...
+
+Regards,
+
+Richard Duivenvoorde
+
+On 16-06-2025 15:08, Johannes Kr?ger (WhereGroup) wrote:
+> Thank you, this is super useful!
+> 
+> Is there a way to make it not mask my system QGIS? After I installed this on Manjaro or Ubuntu, it took over "QGIS" in the launcher menu. The only way I could still run my normal QGIS was via "qgis" in the terminal.
+> 
+> I expect this to be some configuration setting of flatpak itself, but found literally nothing via Google. So maybe it is something flatpak build specific or my Google fu has broken.
+> 
+> Cheers, Hannes
+> 
+> On 6/11/25 16:48, Richard Duivenvoorde via QGIS-Developer wrote:
+>> Hi,
+>>
+>> Based on the excellent Flatpak work of Aleix Pol (https://github.com/flathub/org.qgis.qgis), I managed to create a runnable Qt6 build of QGIS for Linux's (with flatpak available)
+>>
+>> My idea is that Linux users of distro's without the needed dependencies can run QGIS and test/update their Python plugins with this build.
+>> This flatpak build (master) is (thanks to Aleix!) having 3D and PDAL/cloudpoint available too.
+>>
+>> Note that this is my first flatpak build, probably things go/are wrong, and I'm not sure how to do further/future distribution...
+>>
+>> But for now: to run/try it:
+>>
+>> Download the single-bundle file from
+>>
+>> http://duif.net/qgis-qt6.flatpak
+>>
+>> If you do not have flatpak/flathub available, make sure you do by doing the steps at
+>>
+>> https://flatpak.org/setup/ for your distro, to
+>> 1) install flatpak and
+>> 2) make the flathub repo available for needed runtimes and sdk's.
+>>
+>> Now go to the qgis-qt6.flatpak file and INSTALL it:
+>>
+>> flatpak install --runtime --include-sdk qgis-qt6.flatpak
+>>
+>> (this will install the KDE runtime and sdk and then finally the qgis-qt6 system wide)
+>>
+>> Then to run it:
+>>
+>> flatpak run org.qgis.qgis
+>>
+>> I hope this is useful for anybody.
+>>
+>> Have to talk to Aleix for more finesses to maybe share this on flathub or with his Qt5 build.
+>>
+>> If you want to build it yourself there is some info in: https://github.com/flathub/org.qgis.qgis/issues/428
+>>
+>> Regards,
+>>
+>> Richard Duivenvoorde
+>> _______________________________________________
+>> QGIS-Developer mailing list
+>> QGIS-Developer at lists.osgeo.org
+>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>
+
+
+From matthias at opengis.ch  Mon Jun 16 07:07:29 2025
+From: matthias at opengis.ch (Matthias Kuhn)
+Date: Mon, 16 Jun 2025 16:07:29 +0200
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+ <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+ <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+Message-ID: <CAC7zN97nc70ctEQPqhTS1_cu9KxBzB-AuBT4KNmneyTZs0UaAQ@mail.gmail.com>
+
+Hi
+
+I was wondering if I should name the new macos builds org.qgis.qgis4 (they
+are still org.qgis.qgis3).
+
+On Mon, Jun 16, 2025 at 3:58?PM Richard Duivenvoorde via QGIS-Developer <
+qgis-developer at lists.osgeo.org> wrote:
+
+> I think this has to do with the fact that I did not change the id/name of
+> the application.
+> It's still called "org.qgis.qgis"...
+> Maybe I should call it something like "org.qgis.qgis.next" or so?
+> "org.qgis.qgis.qt6'?
+> Then I think it will not conflict with the normal flatpak qgis...
+>
+> Regards,
+>
+> Richard Duivenvoorde
+>
+> On 16-06-2025 15:08, Johannes Kr?ger (WhereGroup) wrote:
+> > Thank you, this is super useful!
+> >
+> > Is there a way to make it not mask my system QGIS? After I installed
+> this on Manjaro or Ubuntu, it took over "QGIS" in the launcher menu. The
+> only way I could still run my normal QGIS was via "qgis" in the terminal.
+> >
+> > I expect this to be some configuration setting of flatpak itself, but
+> found literally nothing via Google. So maybe it is something flatpak build
+> specific or my Google fu has broken.
+> >
+> > Cheers, Hannes
+> >
+> > On 6/11/25 16:48, Richard Duivenvoorde via QGIS-Developer wrote:
+> >> Hi,
+> >>
+> >> Based on the excellent Flatpak work of Aleix Pol (
+> https://github.com/flathub/org.qgis.qgis), I managed to create a runnable
+> Qt6 build of QGIS for Linux's (with flatpak available)
+> >>
+> >> My idea is that Linux users of distro's without the needed dependencies
+> can run QGIS and test/update their Python plugins with this build.
+> >> This flatpak build (master) is (thanks to Aleix!) having 3D and
+> PDAL/cloudpoint available too.
+> >>
+> >> Note that this is my first flatpak build, probably things go/are wrong,
+> and I'm not sure how to do further/future distribution...
+> >>
+> >> But for now: to run/try it:
+> >>
+> >> Download the single-bundle file from
+> >>
+> >> http://duif.net/qgis-qt6.flatpak
+> >>
+> >> If you do not have flatpak/flathub available, make sure you do by doing
+> the steps at
+> >>
+> >> https://flatpak.org/setup/ for your distro, to
+> >> 1) install flatpak and
+> >> 2) make the flathub repo available for needed runtimes and sdk's.
+> >>
+> >> Now go to the qgis-qt6.flatpak file and INSTALL it:
+> >>
+> >> flatpak install --runtime --include-sdk qgis-qt6.flatpak
+> >>
+> >> (this will install the KDE runtime and sdk and then finally the
+> qgis-qt6 system wide)
+> >>
+> >> Then to run it:
+> >>
+> >> flatpak run org.qgis.qgis
+> >>
+> >> I hope this is useful for anybody.
+> >>
+> >> Have to talk to Aleix for more finesses to maybe share this on flathub
+> or with his Qt5 build.
+> >>
+> >> If you want to build it yourself there is some info in:
+> https://github.com/flathub/org.qgis.qgis/issues/428
+> >>
+> >> Regards,
+> >>
+> >> Richard Duivenvoorde
+> >> _______________________________________________
+> >> QGIS-Developer mailing list
+> >> QGIS-Developer at lists.osgeo.org
+> >> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> >> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> >>
+>
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250616/117fad69/attachment.htm>
+
+From johannes.kroeger at wheregroup.com  Mon Jun 16 07:16:46 2025
+From: johannes.kroeger at wheregroup.com (=?UTF-8?Q?Johannes_Kr=C3=B6ger_=28WhereGroup=29?=)
+Date: Mon, 16 Jun 2025 16:16:46 +0200
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+ <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+ <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+Message-ID: <8248c94a-5f0a-47e6-b286-139d8eca1cdc@wheregroup.com>
+
+Oh, I meant not another Flatpak QGIS but really the system-wide QGIS 
+(/usr/bin/qgis). The system QGIS is still available via a terminal but 
+the Flatpak one has taken over "QGIS" in the GUI (in the "start" menus, 
+launchers, whatever those are called).
+
+Maybe that is just on my system(s) though?
+
+Cheers, Hannes
+
+On 6/16/25 15:57, Richard Duivenvoorde wrote:
+> I think this has to do with the fact that I did not change the id/name 
+> of the application.
+> It's still called "org.qgis.qgis"...
+> Maybe I should call it something like "org.qgis.qgis.next" or so? 
+> "org.qgis.qgis.qt6'?
+> Then I think it will not conflict with the normal flatpak qgis...
+>
+> Regards,
+>
+> Richard Duivenvoorde
+>
+> On 16-06-2025 15:08, Johannes Kr?ger (WhereGroup) wrote:
+>> Thank you, this is super useful!
+>>
+>> Is there a way to make it not mask my system QGIS? After I installed 
+>> this on Manjaro or Ubuntu, it took over "QGIS" in the launcher menu. 
+>> The only way I could still run my normal QGIS was via "qgis" in the 
+>> terminal.
+>>
+>> I expect this to be some configuration setting of flatpak itself, but 
+>> found literally nothing via Google. So maybe it is something flatpak 
+>> build specific or my Google fu has broken.
+>>
+>> Cheers, Hannes
+>>
+>> On 6/11/25 16:48, Richard Duivenvoorde via QGIS-Developer wrote:
+>>> Hi,
+>>>
+>>> Based on the excellent Flatpak work of Aleix Pol 
+>>> (https://github.com/flathub/org.qgis.qgis), I managed to create a 
+>>> runnable Qt6 build of QGIS for Linux's (with flatpak available)
+>>>
+>>> My idea is that Linux users of distro's without the needed 
+>>> dependencies can run QGIS and test/update their Python plugins with 
+>>> this build.
+>>> This flatpak build (master) is (thanks to Aleix!) having 3D and 
+>>> PDAL/cloudpoint available too.
+>>>
+>>> Note that this is my first flatpak build, probably things go/are 
+>>> wrong, and I'm not sure how to do further/future distribution...
+>>>
+>>> But for now: to run/try it:
+>>>
+>>> Download the single-bundle file from
+>>>
+>>> http://duif.net/qgis-qt6.flatpak
+>>>
+>>> If you do not have flatpak/flathub available, make sure you do by 
+>>> doing the steps at
+>>>
+>>> https://flatpak.org/setup/ for your distro, to
+>>> 1) install flatpak and
+>>> 2) make the flathub repo available for needed runtimes and sdk's.
+>>>
+>>> Now go to the qgis-qt6.flatpak file and INSTALL it:
+>>>
+>>> flatpak install --runtime --include-sdk qgis-qt6.flatpak
+>>>
+>>> (this will install the KDE runtime and sdk and then finally the 
+>>> qgis-qt6 system wide)
+>>>
+>>> Then to run it:
+>>>
+>>> flatpak run org.qgis.qgis
+>>>
+>>> I hope this is useful for anybody.
+>>>
+>>> Have to talk to Aleix for more finesses to maybe share this on 
+>>> flathub or with his Qt5 build.
+>>>
+>>> If you want to build it yourself there is some info in: 
+>>> https://github.com/flathub/org.qgis.qgis/issues/428
+>>>
+>>> Regards,
+>>>
+>>> Richard Duivenvoorde
+>>> _______________________________________________
+>>> QGIS-Developer mailing list
+>>> QGIS-Developer at lists.osgeo.org
+>>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>>
+>
+>
+-- 
+Johannes Kr?ger / GIS-Entwickler/-Berater
+
+-------------------------------
+Schon gewusst?
+In unserem Blog geben wir Tipps & Tricks zu Open-Source-GIS-Software
+und berichten aus unserem Experten-Alltag:
+https://wheregroup.com/blog/
+-------------------------------
+
+WhereGroup GmbH
+c/o KK03 GmbH
+Lange Reihe 29
+20099 Hamburg
+Germany
+
+Tel: +49 (0)228 / 90 90 38 - 36
+Fax: +49 (0)228 / 90 90 38 - 11
+
+johannes.kroeger at wheregroup.com
+www.wheregroup.com
+
+Gesch?ftsf?hrer:
+Olaf Knopp, Peter Stamm
+Amtsgericht Bonn, HRB 9885
+-------------------------------
+
+
+
+From ulisse.cavallini at faunalia.it  Mon Jun 16 07:39:50 2025
+From: ulisse.cavallini at faunalia.it (Ulisse Cavallini)
+Date: Mon, 16 Jun 2025 16:39:50 +0200
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <8248c94a-5f0a-47e6-b286-139d8eca1cdc@wheregroup.com>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+ <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+ <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+ <8248c94a-5f0a-47e6-b286-139d8eca1cdc@wheregroup.com>
+Message-ID: <c03ed591-6449-4330-afc5-93445e50766a@faunalia.it>
+
+Hi Hannes,
+
+
+this could be due to the fact that the flatpak .desktop file has the 
+same "Name". You could solve this by copying both the .desktop files 
+(flatpak and system-wide) in your user application directory, for 
+example (local paths may vary):
+
+/cp /usr/share/applications/org.qgis.qgis.desktop 
+~/.local/share/applications//
+
+/cp /var/lib/flatpak/exports/share/applications/org.qgis.qgis.desktop 
+~/.local/share/applications//
+
+and change the name of one of the two (Name attribute), for example 
+setting "QGIS Desktop Flatpak Qt6"
+
+Should be automatically picked up, otherwise you can run
+
+/update-desktop-database ~/.local/share/applications/
+
+See also 
+https://wiki.archlinux.org/title/Desktop_entries#Modify_desktop_files
+
+
+I hope this helps!
+
+Cheers,
+
+Ulisse
+
+
+On 6/16/25 4:16 PM, Johannes Kr?ger (WhereGroup) via QGIS-Developer wrote:
+> Oh, I meant not another Flatpak QGIS but really the system-wide QGIS 
+> (/usr/bin/qgis). The system QGIS is still available via a terminal but 
+> the Flatpak one has taken over "QGIS" in the GUI (in the "start" 
+> menus, launchers, whatever those are called).
+>
+> Maybe that is just on my system(s) though?
+>
+> Cheers, Hannes
+>
+> On 6/16/25 15:57, Richard Duivenvoorde wrote:
+>> I think this has to do with the fact that I did not change the 
+>> id/name of the application.
+>> It's still called "org.qgis.qgis"...
+>> Maybe I should call it something like "org.qgis.qgis.next" or so? 
+>> "org.qgis.qgis.qt6'?
+>> Then I think it will not conflict with the normal flatpak qgis...
+>>
+>> Regards,
+>>
+>> Richard Duivenvoorde
+>>
+>> On 16-06-2025 15:08, Johannes Kr?ger (WhereGroup) wrote:
+>>> Thank you, this is super useful!
+>>>
+>>> Is there a way to make it not mask my system QGIS? After I installed 
+>>> this on Manjaro or Ubuntu, it took over "QGIS" in the launcher menu. 
+>>> The only way I could still run my normal QGIS was via "qgis" in the 
+>>> terminal.
+>>>
+>>> I expect this to be some configuration setting of flatpak itself, 
+>>> but found literally nothing via Google. So maybe it is something 
+>>> flatpak build specific or my Google fu has broken.
+>>>
+>>> Cheers, Hannes
+>>>
+>>> On 6/11/25 16:48, Richard Duivenvoorde via QGIS-Developer wrote:
+>>>> Hi,
+>>>>
+>>>> Based on the excellent Flatpak work of Aleix Pol 
+>>>> (https://github.com/flathub/org.qgis.qgis), I managed to create a 
+>>>> runnable Qt6 build of QGIS for Linux's (with flatpak available)
+>>>>
+>>>> My idea is that Linux users of distro's without the needed 
+>>>> dependencies can run QGIS and test/update their Python plugins with 
+>>>> this build.
+>>>> This flatpak build (master) is (thanks to Aleix!) having 3D and 
+>>>> PDAL/cloudpoint available too.
+>>>>
+>>>> Note that this is my first flatpak build, probably things go/are 
+>>>> wrong, and I'm not sure how to do further/future distribution...
+>>>>
+>>>> But for now: to run/try it:
+>>>>
+>>>> Download the single-bundle file from
+>>>>
+>>>> http://duif.net/qgis-qt6.flatpak
+>>>>
+>>>> If you do not have flatpak/flathub available, make sure you do by 
+>>>> doing the steps at
+>>>>
+>>>> https://flatpak.org/setup/ for your distro, to
+>>>> 1) install flatpak and
+>>>> 2) make the flathub repo available for needed runtimes and sdk's.
+>>>>
+>>>> Now go to the qgis-qt6.flatpak file and INSTALL it:
+>>>>
+>>>> flatpak install --runtime --include-sdk qgis-qt6.flatpak
+>>>>
+>>>> (this will install the KDE runtime and sdk and then finally the 
+>>>> qgis-qt6 system wide)
+>>>>
+>>>> Then to run it:
+>>>>
+>>>> flatpak run org.qgis.qgis
+>>>>
+>>>> I hope this is useful for anybody.
+>>>>
+>>>> Have to talk to Aleix for more finesses to maybe share this on 
+>>>> flathub or with his Qt5 build.
+>>>>
+>>>> If you want to build it yourself there is some info in: 
+>>>> https://github.com/flathub/org.qgis.qgis/issues/428
+>>>>
+>>>> Regards,
+>>>>
+>>>> Richard Duivenvoorde
+>>>> _______________________________________________
+>>>> QGIS-Developer mailing list
+>>>> QGIS-Developer at lists.osgeo.org
+>>>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>>>
+>>
+>>
+-- 
+Ulisse Cavallini
+www.faunalia.eu
+Training, support, development on QGIS, PostGIS and more
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250616/f2c01ac7/attachment.htm>
+
+From johannes.kroeger at wheregroup.com  Tue Jun 17 00:13:49 2025
+From: johannes.kroeger at wheregroup.com (=?UTF-8?Q?Johannes_Kr=C3=B6ger_=28WhereGroup=29?=)
+Date: Tue, 17 Jun 2025 09:13:49 +0200
+Subject: [QGIS-Developer] Experimental Qt6 Flatpak build available for
+ Linux/Python devs (for updating plugins)
+In-Reply-To: <c03ed591-6449-4330-afc5-93445e50766a@faunalia.it>
+References: <9d335ac5-2e4e-4745-b7c3-c1806ee8acdb@duif.net>
+ <dc7ee0fc-9240-4d6b-be00-d0d2aaf7bbda@wheregroup.com>
+ <7eb9ed8c-2a58-4d3c-99dd-14a0ef369ad8@duif.net>
+ <8248c94a-5f0a-47e6-b286-139d8eca1cdc@wheregroup.com>
+ <c03ed591-6449-4330-afc5-93445e50766a@faunalia.it>
+Message-ID: <672747a9-5d2c-42ab-b3b8-abe7dc35cd03@wheregroup.com>
+
+Hi Ulisse,
+
+yes, that was it, thank you!
+
+For my case the solution is simply removing the desktop file of the 
+Flatpak QGIS:
+
+/sudo rm /var/lib/flatpak/exports/share/applications/org.qgis.qgis.desktop
+sudo update-desktop-database/
+
+Now my system QGIS is working as intended and I can use the Flatpak QGIS 
+for testing via
+
+/flatpak run org.qgis.qgis/
+
+Cheers, Hannes
+
+On 6/16/25 16:39, Ulisse Cavallini via QGIS-Developer wrote:
+>
+> Hi Hannes,
+>
+>
+> this could be due to the fact that the flatpak .desktop file has the 
+> same "Name". You could solve this by copying both the .desktop files 
+> (flatpak and system-wide) in your user application directory, for 
+> example (local paths may vary):
+>
+> /cp /usr/share/applications/org.qgis.qgis.desktop 
+> ~/.local/share/applications//
+>
+> /cp /var/lib/flatpak/exports/share/applications/org.qgis.qgis.desktop 
+> ~/.local/share/applications//
+>
+> and change the name of one of the two (Name attribute), for example 
+> setting "QGIS Desktop Flatpak Qt6"
+>
+> Should be automatically picked up, otherwise you can run
+>
+> /update-desktop-database ~/.local/share/applications/
+>
+> See also 
+> https://wiki.archlinux.org/title/Desktop_entries#Modify_desktop_files
+>
+>
+> I hope this helps!
+>
+> Cheers,
+>
+> Ulisse
+>
+>
+> On 6/16/25 4:16 PM, Johannes Kr?ger (WhereGroup) via QGIS-Developer wrote:
+>> Oh, I meant not another Flatpak QGIS but really the system-wide QGIS 
+>> (/usr/bin/qgis). The system QGIS is still available via a terminal 
+>> but the Flatpak one has taken over "QGIS" in the GUI (in the "start" 
+>> menus, launchers, whatever those are called).
+>>
+>> Maybe that is just on my system(s) though?
+>>
+>> Cheers, Hannes
+>>
+>> On 6/16/25 15:57, Richard Duivenvoorde wrote:
+>>> I think this has to do with the fact that I did not change the 
+>>> id/name of the application.
+>>> It's still called "org.qgis.qgis"...
+>>> Maybe I should call it something like "org.qgis.qgis.next" or so? 
+>>> "org.qgis.qgis.qt6'?
+>>> Then I think it will not conflict with the normal flatpak qgis...
+>>>
+>>> Regards,
+>>>
+>>> Richard Duivenvoorde
+>>>
+>>> On 16-06-2025 15:08, Johannes Kr?ger (WhereGroup) wrote:
+>>>> Thank you, this is super useful!
+>>>>
+>>>> Is there a way to make it not mask my system QGIS? After I 
+>>>> installed this on Manjaro or Ubuntu, it took over "QGIS" in the 
+>>>> launcher menu. The only way I could still run my normal QGIS was 
+>>>> via "qgis" in the terminal.
+>>>>
+>>>> I expect this to be some configuration setting of flatpak itself, 
+>>>> but found literally nothing via Google. So maybe it is something 
+>>>> flatpak build specific or my Google fu has broken.
+>>>>
+>>>> Cheers, Hannes
+>>>>
+>>>> On 6/11/25 16:48, Richard Duivenvoorde via QGIS-Developer wrote:
+>>>>> Hi,
+>>>>>
+>>>>> Based on the excellent Flatpak work of Aleix Pol 
+>>>>> (https://github.com/flathub/org.qgis.qgis), I managed to create a 
+>>>>> runnable Qt6 build of QGIS for Linux's (with flatpak available)
+>>>>>
+>>>>> My idea is that Linux users of distro's without the needed 
+>>>>> dependencies can run QGIS and test/update their Python plugins 
+>>>>> with this build.
+>>>>> This flatpak build (master) is (thanks to Aleix!) having 3D and 
+>>>>> PDAL/cloudpoint available too.
+>>>>>
+>>>>> Note that this is my first flatpak build, probably things go/are 
+>>>>> wrong, and I'm not sure how to do further/future distribution...
+>>>>>
+>>>>> But for now: to run/try it:
+>>>>>
+>>>>> Download the single-bundle file from
+>>>>>
+>>>>> http://duif.net/qgis-qt6.flatpak
+>>>>>
+>>>>> If you do not have flatpak/flathub available, make sure you do by 
+>>>>> doing the steps at
+>>>>>
+>>>>> https://flatpak.org/setup/ for your distro, to
+>>>>> 1) install flatpak and
+>>>>> 2) make the flathub repo available for needed runtimes and sdk's.
+>>>>>
+>>>>> Now go to the qgis-qt6.flatpak file and INSTALL it:
+>>>>>
+>>>>> flatpak install --runtime --include-sdk qgis-qt6.flatpak
+>>>>>
+>>>>> (this will install the KDE runtime and sdk and then finally the 
+>>>>> qgis-qt6 system wide)
+>>>>>
+>>>>> Then to run it:
+>>>>>
+>>>>> flatpak run org.qgis.qgis
+>>>>>
+>>>>> I hope this is useful for anybody.
+>>>>>
+>>>>> Have to talk to Aleix for more finesses to maybe share this on 
+>>>>> flathub or with his Qt5 build.
+>>>>>
+>>>>> If you want to build it yourself there is some info in: 
+>>>>> https://github.com/flathub/org.qgis.qgis/issues/428
+>>>>>
+>>>>> Regards,
+>>>>>
+>>>>> Richard Duivenvoorde
+>>>>> _______________________________________________
+>>>>> QGIS-Developer mailing list
+>>>>> QGIS-Developer at lists.osgeo.org
+>>>>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>>>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>>>>
+>>>
+>>>
+> -- 
+> Ulisse Cavallini
+> www.faunalia.eu
+> Training, support, development on QGIS, PostGIS and more
+>
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info:https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe:https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+-- 
+Johannes Kr?ger / GIS-Entwickler/-Berater
+
+-------------------------------
+Schon gewusst?
+In unserem Blog geben wir Tipps & Tricks zu Open-Source-GIS-Software
+und berichten aus unserem Experten-Alltag:
+https://wheregroup.com/blog/
+-------------------------------
+
+WhereGroup GmbH
+c/o KK03 GmbH
+Lange Reihe 29
+20099 Hamburg
+Germany
+
+Tel: +49 (0)228 / 90 90 38 - 36
+Fax: +49 (0)228 / 90 90 38 - 11
+
+johannes.kroeger at wheregroup.com
+www.wheregroup.com
+
+Gesch?ftsf?hrer:
+Olaf Knopp, Peter Stamm
+Amtsgericht Bonn, HRB 9885
+-------------------------------
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250617/bc0efebb/attachment.htm>
+
+From dieter at komendera.com  Tue Jun 17 12:15:46 2025
+From: dieter at komendera.com (Dieter Komendera)
+Date: Tue, 17 Jun 2025 21:15:46 +0200
+Subject: [QGIS-Developer] MacOS Qt6 builds / Notarization
+In-Reply-To: <CAC7zN95iZdBB4TWT6THxeS1625UBNogq8ydrQrt_Ee7O8FaFXQ@mail.gmail.com>
+References: <CAC7zN95iZdBB4TWT6THxeS1625UBNogq8ydrQrt_Ee7O8FaFXQ@mail.gmail.com>
+Message-ID: <67237170-33E4-439A-BB78-E8917397584E@komendera.com>
+
+Hi Matthias,
+
+thank you for the effort! I?ve been running the arm64 builds from the #60039 PR now for about half a year with very positive results. The biggest challenges were the lacking Qt6 plugin compatibility.
+
+I?m now running the notarized builds linked below and can confirm they work with no apparent problems on macOS 15.5 (24F74) with an M2 Pro.
+
+All the best
+Dieter
+
+> On 12.06.2025, at 16:33, Matthias Kuhn via QGIS-Developer <qgis-developer at lists.osgeo.org> wrote:
+> 
+> Dear all,
+> 
+> Over the last few months I've made good progress on the mac build front.
+> Since the beginning of the year, a pull request has been open that builds QGIS against recent, updated dependencies and Qt6 and creates a dmg installer for download.
+> These packages provide universal binaries that work natively on Intel x64 and ARM machines.
+> 
+> Overall, the feedback of testers has been encouraging and many things could already be ironed out.
+> 
+> Since last week it is now also possible to download notarized versions of these builds. The scripts are in https://github.com/opengisch/qgis-notarize/ and in the actions on this repository, the notarized packages can be downloaded and we also have encouraging feedback there.
+> Eventually I would like to only notarize releases (and not pull requests) and use an OSGEO certificate (not the current OPENGIS.ch one) and produce the packages on a repository under the qgis organization. I'll handle that in the upcoming weeks.
+> 
+> Since this is a complete refactoring and cleanup of the mac build chain, it would break the current Qt5 builds and was therefore not merged to not break releases on the QGIS 3 series.
+> 
+> With the last minor release QGIS 3 approaching, I would like to proceed with merging this right after 3.44 has been branched off. The pull request is rather large so it's good if this has a long cooldown period before it's released with QGIS 4 later this year. Whoever feels comfortable reviewing cmake code changes, please do so before Friday next week, June 20.
+> 
+> Thanks a lot and best wishes
+> Matthias
+> 
+> -- 
+>   Matthias Kuhn 
+> Mr. Noproblemo
+> CTO | Co-Founder
+> matthias at opengis.ch 
+> https://opengis.ch 
+>   _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+
+From rdmailings at duif.net  Tue Jun 17 23:10:38 2025
+From: rdmailings at duif.net (Richard Duivenvoorde)
+Date: Wed, 18 Jun 2025 08:10:38 +0200
+Subject: [QGIS-Developer] debugvs plugin maintenance
+In-Reply-To: <807b6002-8e2e-482c-895f-37287882793b@duif.net>
+References: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+ <CAMLC-sAVvgN0pvC7gLpZymK7e7uZ8Ph2xaGUsjJ=Soph37y=LA@mail.gmail.com>
+ <807b6002-8e2e-482c-895f-37287882793b@duif.net>
+Message-ID: <70223108-fd22-4c8b-935d-83576a1c165b@duif.net>
+
+Hi,
+
+Via via on Telegram, somebody told me Luiz said he is going to have a look this weekend.
+
+Regards,
+
+Richard Duivenvoorde
+
+
+On 16-06-2025 09:09, Richard Duivenvoorde via QGIS-Developer wrote:
+> FYI, I have been trying to contact him also.
+> 
+> Another option I'm trying is to contact the Brazilian user group, asking if they know if he is still active in the foss/qgis universe. They are active on channels I'm not :-) Maybe others can ask there?
+> 
+> Else: I'd second the idea of a debugvs2 plugin
+> 
+> Regards,
+> 
+> Richard Duivenvoorde
+> 
+> On 16-06-2025 07:58, Lova Andriarimalala via QGIS-Developer wrote:
+>> Hi everyone,
+>>
+>> I agree?with Nagase's suggestion. As a maintainer of the Plugins Repository, I would not advise transferring?ownership unless the current owner has confirmed it.
+>>
+>> Best regards,
+>>
+>> Lova Andriarimalala
+>> *QGIS Full Stack Developer
+>>
+>> *
+>> *T *:?+27(0) 87 809 2702 *E *:**lova at kartoza.com <mailto:lova at kartoza.com> *W*?: kartoza.com <http://kartoza.com>
+>>
+>>
+>>
+>> /This email and any attachments are confidential and intended solely for the use of the individual or entity to whom they are addressed. If you /
+>> /have received this email in error, please notify the sender immediately and delete it from your system. Unauthorised use, disclosure, or copying/
+>> /of the contents is prohibited./
+>>
+>>
+>> On Mon, 16 Jun 2025 at 03:43, Ko Nagase via QGIS-Developer <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>> wrote:
+>>
+>> ??? Hi ilan, Valentin and Plugin Repository Maintainers,
+>>
+>> ??? I am the author of the PR (https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>),
+>> ??? and I appreciate you raising this issue.
+>>
+>> ??? Personally, I suggest creating a new plugin - such as "debugvs2"
+>> ??? (https://plugins.qgis.org/plugins/debug_vs2/ <https://plugins.qgis.org/plugins/debug_vs2/>),
+>> ??? rather than transferring ownership of the plugin.
+>> ??? Because I feel changing the ownership of an existing plugin without
+>> ??? the current owner's confirmation is a bit risky as FOSS spirits.
+>>
+>> ??? But I want to confirm the Plugin Repository Maintainers' opinion.
+>>
+>> ??? Best regards,
+>> ??? Nagase
+>>
+>> ??? 2025?6?14?(?) 3:41 Valentin Buira <valentin.buira at gmail.com <mailto:valentin.buira at gmail.com>>:
+>> ???? >
+>> ???? > I don't have any rights over this, but that's a +1 for me as well.
+>> ???? >
+>> ???? > I would also like to highlight that the issue preventing Ilian and
+>> ???? > others from using the plugin affects Windows and MacOS users. And
+>> ???? > since QGIS on Windows accounts for the majority of users (and plugin
+>> ???? > users ! )? according to? QGIS's own metrics this makes targeting and
+>> ???? > debugging plugins for the most popular platform even more challenging.
+>> ???? >
+>> ???? > As Ilian said, a fix exists[1]. While I did not review the PR, the fix
+>> ???? > is working for me locally.? The author of the PR seems to be a member
+>> ???? > of OSGeo Japan and maybe he would like to be involved too ?
+>> ???? >
+>> ???? > Regards,
+>> ???? > Valentin
+>> ???? >
+>> ???? > [1] https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>
+>>
+>> ??? ---
+>>
+>> ??? 2025?6?5?(?) 23:17 Ilan REDON via QGIS-Developer
+>> ??? <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>>:
+>> ???? >
+>> ???? > Hi people,
+>> ???? >
+>> ???? > I, like some others I would assume seeing the 10k+ downloads, am using regularly the QGIS plugin "debugvs" https://github.com/lmotta/debug_vs_plugin <https://github.com/lmotta/debug_vs_plugin> .
+>> ???? > The last pull request, fixing an issue that prevented me and others from using the plugin, is now 2 years old and has not received any comment from the owner.
+>> ???? > So I contacted lmotta on the 28/04/2025 on his public email but received no answer, his github also showing no recent public activity.
+>> ???? > With of course all due respect to them I would like to keep a functioning state of this plugin published on the official repository.
+>> ???? > Could we transfer ownership of this plugin to me or any other volunteer, to at least review and merge contributions?
+>> ???? >
+>> ???? > Thanks,
+>> ???? > ilan/persephone
+>> ???? > lmotta/debug_vs_plugin: Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - GitHub
+>> ???? > Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - lmotta/debug_vs_plugin
+>> ???? > github.com <http://github.com>
+>>
+>> ??? -- ??? Ko Nagase (sanak)
+>> ??? mail: geosanak at gmail.com <mailto:geosanak at gmail.com>
+>> ??? _______________________________________________
+>> ??? QGIS-Developer mailing list
+>> ??? QGIS-Developer at lists.osgeo.org <mailto:QGIS-Developer at lists.osgeo.org>
+>> ??? List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+>> ??? Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+>>
+>>
+>> _______________________________________________
+>> QGIS-Developer mailing list
+>> QGIS-Developer at lists.osgeo.org
+>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> 
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+
+From rdmailings at duif.net  Tue Jun 17 23:12:27 2025
+From: rdmailings at duif.net (Richard Duivenvoorde)
+Date: Wed, 18 Jun 2025 08:12:27 +0200
+Subject: [QGIS-Developer] debugvs plugin maintenance
+In-Reply-To: <70223108-fd22-4c8b-935d-83576a1c165b@duif.net>
+References: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+ <CAMLC-sAVvgN0pvC7gLpZymK7e7uZ8Ph2xaGUsjJ=Soph37y=LA@mail.gmail.com>
+ <807b6002-8e2e-482c-895f-37287882793b@duif.net>
+ <70223108-fd22-4c8b-935d-83576a1c165b@duif.net>
+Message-ID: <d066af61-71b9-472e-b339-f8a48ff1583d@duif.net>
+
+So, probably it's best to try to communicate with him via the issue tracker?
+And discuss about taking over maintenance or forking?
+Regards,
+Richard Duivenvoorde
+
+On 18-06-2025 08:10, Richard Duivenvoorde via QGIS-Developer wrote:
+> Hi,
+> 
+> Via via on Telegram, somebody told me Luiz said he is going to have a look this weekend.
+> 
+> Regards,
+> 
+> Richard Duivenvoorde
+> 
+> 
+> On 16-06-2025 09:09, Richard Duivenvoorde via QGIS-Developer wrote:
+>> FYI, I have been trying to contact him also.
+>>
+>> Another option I'm trying is to contact the Brazilian user group, asking if they know if he is still active in the foss/qgis universe. They are active on channels I'm not :-) Maybe others can ask there?
+>>
+>> Else: I'd second the idea of a debugvs2 plugin
+>>
+>> Regards,
+>>
+>> Richard Duivenvoorde
+>>
+>> On 16-06-2025 07:58, Lova Andriarimalala via QGIS-Developer wrote:
+>>> Hi everyone,
+>>>
+>>> I agree?with Nagase's suggestion. As a maintainer of the Plugins Repository, I would not advise transferring?ownership unless the current owner has confirmed it.
+>>>
+>>> Best regards,
+>>>
+>>> Lova Andriarimalala
+>>> *QGIS Full Stack Developer
+>>>
+>>> *
+>>> *T *:?+27(0) 87 809 2702 *E *:**lova at kartoza.com <mailto:lova at kartoza.com> *W*?: kartoza.com <http://kartoza.com>
+>>>
+>>>
+>>>
+>>> /This email and any attachments are confidential and intended solely for the use of the individual or entity to whom they are addressed. If you /
+>>> /have received this email in error, please notify the sender immediately and delete it from your system. Unauthorised use, disclosure, or copying/
+>>> /of the contents is prohibited./
+>>>
+>>>
+>>> On Mon, 16 Jun 2025 at 03:43, Ko Nagase via QGIS-Developer <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>> wrote:
+>>>
+>>> ??? Hi ilan, Valentin and Plugin Repository Maintainers,
+>>>
+>>> ??? I am the author of the PR (https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>),
+>>> ??? and I appreciate you raising this issue.
+>>>
+>>> ??? Personally, I suggest creating a new plugin - such as "debugvs2"
+>>> ??? (https://plugins.qgis.org/plugins/debug_vs2/ <https://plugins.qgis.org/plugins/debug_vs2/>),
+>>> ??? rather than transferring ownership of the plugin.
+>>> ??? Because I feel changing the ownership of an existing plugin without
+>>> ??? the current owner's confirmation is a bit risky as FOSS spirits.
+>>>
+>>> ??? But I want to confirm the Plugin Repository Maintainers' opinion.
+>>>
+>>> ??? Best regards,
+>>> ??? Nagase
+>>>
+>>> ??? 2025?6?14?(?) 3:41 Valentin Buira <valentin.buira at gmail.com <mailto:valentin.buira at gmail.com>>:
+>>> ???? >
+>>> ???? > I don't have any rights over this, but that's a +1 for me as well.
+>>> ???? >
+>>> ???? > I would also like to highlight that the issue preventing Ilian and
+>>> ???? > others from using the plugin affects Windows and MacOS users. And
+>>> ???? > since QGIS on Windows accounts for the majority of users (and plugin
+>>> ???? > users ! )? according to? QGIS's own metrics this makes targeting and
+>>> ???? > debugging plugins for the most popular platform even more challenging.
+>>> ???? >
+>>> ???? > As Ilian said, a fix exists[1]. While I did not review the PR, the fix
+>>> ???? > is working for me locally.? The author of the PR seems to be a member
+>>> ???? > of OSGeo Japan and maybe he would like to be involved too ?
+>>> ???? >
+>>> ???? > Regards,
+>>> ???? > Valentin
+>>> ???? >
+>>> ???? > [1] https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>
+>>>
+>>> ??? ---
+>>>
+>>> ??? 2025?6?5?(?) 23:17 Ilan REDON via QGIS-Developer
+>>> ??? <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>>:
+>>> ???? >
+>>> ???? > Hi people,
+>>> ???? >
+>>> ???? > I, like some others I would assume seeing the 10k+ downloads, am using regularly the QGIS plugin "debugvs" https://github.com/lmotta/debug_vs_plugin <https://github.com/lmotta/debug_vs_plugin> .
+>>> ???? > The last pull request, fixing an issue that prevented me and others from using the plugin, is now 2 years old and has not received any comment from the owner.
+>>> ???? > So I contacted lmotta on the 28/04/2025 on his public email but received no answer, his github also showing no recent public activity.
+>>> ???? > With of course all due respect to them I would like to keep a functioning state of this plugin published on the official repository.
+>>> ???? > Could we transfer ownership of this plugin to me or any other volunteer, to at least review and merge contributions?
+>>> ???? >
+>>> ???? > Thanks,
+>>> ???? > ilan/persephone
+>>> ???? > lmotta/debug_vs_plugin: Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - GitHub
+>>> ???? > Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - lmotta/debug_vs_plugin
+>>> ???? > github.com <http://github.com>
+>>>
+>>> ??? -- ??? Ko Nagase (sanak)
+>>> ??? mail: geosanak at gmail.com <mailto:geosanak at gmail.com>
+>>> ??? _______________________________________________
+>>> ??? QGIS-Developer mailing list
+>>> ??? QGIS-Developer at lists.osgeo.org <mailto:QGIS-Developer at lists.osgeo.org>
+>>> ??? List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+>>> ??? Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+>>>
+>>>
+>>> _______________________________________________
+>>> QGIS-Developer mailing list
+>>> QGIS-Developer at lists.osgeo.org
+>>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>
+>> _______________________________________________
+>> QGIS-Developer mailing list
+>> QGIS-Developer at lists.osgeo.org
+>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> 
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+
+From denis.rouzaud at gmail.com  Wed Jun 18 01:48:09 2025
+From: denis.rouzaud at gmail.com (Denis Rouzaud)
+Date: Wed, 18 Jun 2025 10:48:09 +0200
+Subject: [QGIS-Developer] Pydantic Python packages on Windows
+In-Reply-To: <CAMtsY+aYN_2qx0=w9ZueoJ_tXS_6RaWqL1oAQJGTqYCP6khzbQ@mail.gmail.com>
+References: <CAMtsY+aYN_2qx0=w9ZueoJ_tXS_6RaWqL1oAQJGTqYCP6khzbQ@mail.gmail.com>
+Message-ID: <CAMtsY+aiG8VaYh1Q=LszecsobTZ-tgTpO3MPo2hkCEBsSydB_Q@mail.gmail.com>
+
+Hi J?rgen,
+
+Just wondering, is this something feasible?
+pydantic is quite spread nowadays, would be great to have it around by
+default.
+
+Kind regards and many thanks,
+Denis
+
+
+
+Le jeu. 12 juin 2025 ? 11:02, Denis Rouzaud <denis.rouzaud at gmail.com> a
+?crit :
+
+> Hi J?rgen, hi all,
+>
+> Would it also be possible to add pydantic to the list of installed
+> packages on the standalone installer and make it available on Osgeo4w too
+> (it's not there yet I think).
+>
+> Thanks a lot,
+> Denis
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250618/bfd1bb2e/attachment-0001.htm>
+
+From dmarteau at 3liz.com  Wed Jun 18 01:53:37 2025
+From: dmarteau at 3liz.com (David Marteau)
+Date: Wed, 18 Jun 2025 10:53:37 +0200
+Subject: [QGIS-Developer] Pydantic Python packages on Windows
+In-Reply-To: <CAMtsY+aiG8VaYh1Q=LszecsobTZ-tgTpO3MPo2hkCEBsSydB_Q@mail.gmail.com>
+References: <CAMtsY+aYN_2qx0=w9ZueoJ_tXS_6RaWqL1oAQJGTqYCP6khzbQ@mail.gmail.com>
+ <CAMtsY+aiG8VaYh1Q=LszecsobTZ-tgTpO3MPo2hkCEBsSydB_Q@mail.gmail.com>
+Message-ID: <e2f885dd-83d8-4d9a-b1b8-350b7db1d658@3liz.com>
+
++1 on this
+
+David
+
+ ?Le 18/06/2025 ? 10:48, Denis Rouzaud via QGIS-Developer a ?crit?:
+
+> Hi J?rgen,
+>
+> Just wondering, is this something feasible?
+> pydantic is quite spread nowadays, would be great to have it around by 
+> default.
+>
+> Kind regards and many thanks,
+> Denis
+>
+>
+>
+> Le?jeu. 12 juin 2025 ??11:02, Denis Rouzaud <denis.rouzaud at gmail.com> 
+> a ?crit?:
+>
+>     Hi J?rgen, hi all,
+>
+>     Would it also be possible to add pydantic?to the list of installed
+>     packages on the standalone installer and make it available on
+>     Osgeo4w too (it's not there yet I think).
+>
+>     Thanks a lot,
+>     Denis
+>
+>
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info:https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe:https://lists.osgeo.org/mailman/listinfo/qgis-developer
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250618/7fdf038c/attachment.htm>
+
+From geosanak at gmail.com  Wed Jun 18 07:06:44 2025
+From: geosanak at gmail.com (Ko Nagase)
+Date: Wed, 18 Jun 2025 23:06:44 +0900
+Subject: [QGIS-Developer] debugvs plugin maintenance
+In-Reply-To: <d066af61-71b9-472e-b339-f8a48ff1583d@duif.net>
+References: <CALeT7PCxK4p2tMNHzF7V8bZRpF9=C5hfdbigmzoM=HFTwQW7eQ@mail.gmail.com>
+ <CAMLC-sAVvgN0pvC7gLpZymK7e7uZ8Ph2xaGUsjJ=Soph37y=LA@mail.gmail.com>
+ <807b6002-8e2e-482c-895f-37287882793b@duif.net>
+ <70223108-fd22-4c8b-935d-83576a1c165b@duif.net>
+ <d066af61-71b9-472e-b339-f8a48ff1583d@duif.net>
+Message-ID: <CALeT7PC9XNj-qrRUdpx+GDknQJT_YKeKGwOzpNPuXztfbHa8iQ@mail.gmail.com>
+
+Hi Richard, Loba, ilan and Valentin,
+
+Okay, thanks for the information!
+
+At the moment, I'm busy with my new job,
+so taking over things is a bit difficult for me.
+However, I will do my best to stay updated on the communication and discussion.
+
+Best regards,
+Nagase
+
+2025?6?18?(?) 19:56 Richard Duivenvoorde via QGIS-Developer
+<qgis-developer at lists.osgeo.org>:
+
+
+>
+> So, probably it's best to try to communicate with him via the issue tracker?
+> And discuss about taking over maintenance or forking?
+> Regards,
+> Richard Duivenvoorde
+>
+> On 18-06-2025 08:10, Richard Duivenvoorde via QGIS-Developer wrote:
+> > Hi,
+> >
+> > Via via on Telegram, somebody told me Luiz said he is going to have a look this weekend.
+> >
+> > Regards,
+> >
+> > Richard Duivenvoorde
+> >
+> >
+> > On 16-06-2025 09:09, Richard Duivenvoorde via QGIS-Developer wrote:
+> >> FYI, I have been trying to contact him also.
+> >>
+> >> Another option I'm trying is to contact the Brazilian user group, asking if they know if he is still active in the foss/qgis universe. They are active on channels I'm not :-) Maybe others can ask there?
+> >>
+> >> Else: I'd second the idea of a debugvs2 plugin
+> >>
+> >> Regards,
+> >>
+> >> Richard Duivenvoorde
+> >>
+> >> On 16-06-2025 07:58, Lova Andriarimalala via QGIS-Developer wrote:
+> >>> Hi everyone,
+> >>>
+> >>> I agree with Nagase's suggestion. As a maintainer of the Plugins Repository, I would not advise transferring ownership unless the current owner has confirmed it.
+> >>>
+> >>> Best regards,
+> >>>
+> >>> Lova Andriarimalala
+> >>> *QGIS Full Stack Developer
+> >>>
+> >>> *
+> >>> *T *: +27(0) 87 809 2702 *E *:**lova at kartoza.com <mailto:lova at kartoza.com> *W* : kartoza.com <http://kartoza.com>
+> >>>
+> >>>
+> >>>
+> >>> /This email and any attachments are confidential and intended solely for the use of the individual or entity to whom they are addressed. If you /
+> >>> /have received this email in error, please notify the sender immediately and delete it from your system. Unauthorised use, disclosure, or copying/
+> >>> /of the contents is prohibited./
+> >>>
+> >>>
+> >>> On Mon, 16 Jun 2025 at 03:43, Ko Nagase via QGIS-Developer <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>> wrote:
+> >>>
+> >>>     Hi ilan, Valentin and Plugin Repository Maintainers,
+> >>>
+> >>>     I am the author of the PR (https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>),
+> >>>     and I appreciate you raising this issue.
+> >>>
+> >>>     Personally, I suggest creating a new plugin - such as "debugvs2"
+> >>>     (https://plugins.qgis.org/plugins/debug_vs2/ <https://plugins.qgis.org/plugins/debug_vs2/>),
+> >>>     rather than transferring ownership of the plugin.
+> >>>     Because I feel changing the ownership of an existing plugin without
+> >>>     the current owner's confirmation is a bit risky as FOSS spirits.
+> >>>
+> >>>     But I want to confirm the Plugin Repository Maintainers' opinion.
+> >>>
+> >>>     Best regards,
+> >>>     Nagase
+> >>>
+> >>>     2025?6?14?(?) 3:41 Valentin Buira <valentin.buira at gmail.com <mailto:valentin.buira at gmail.com>>:
+> >>>      >
+> >>>      > I don't have any rights over this, but that's a +1 for me as well.
+> >>>      >
+> >>>      > I would also like to highlight that the issue preventing Ilian and
+> >>>      > others from using the plugin affects Windows and MacOS users. And
+> >>>      > since QGIS on Windows accounts for the majority of users (and plugin
+> >>>      > users ! )  according to  QGIS's own metrics this makes targeting and
+> >>>      > debugging plugins for the most popular platform even more challenging.
+> >>>      >
+> >>>      > As Ilian said, a fix exists[1]. While I did not review the PR, the fix
+> >>>      > is working for me locally.  The author of the PR seems to be a member
+> >>>      > of OSGeo Japan and maybe he would like to be involved too ?
+> >>>      >
+> >>>      > Regards,
+> >>>      > Valentin
+> >>>      >
+> >>>      > [1] https://github.com/lmotta/debug_vs_plugin/pull/18 <https://github.com/lmotta/debug_vs_plugin/pull/18>
+> >>>
+> >>>     ---
+> >>>
+> >>>     2025?6?5?(?) 23:17 Ilan REDON via QGIS-Developer
+> >>>     <qgis-developer at lists.osgeo.org <mailto:qgis-developer at lists.osgeo.org>>:
+> >>>      >
+> >>>      > Hi people,
+> >>>      >
+> >>>      > I, like some others I would assume seeing the 10k+ downloads, am using regularly the QGIS plugin "debugvs" https://github.com/lmotta/debug_vs_plugin <https://github.com/lmotta/debug_vs_plugin> .
+> >>>      > The last pull request, fixing an issue that prevented me and others from using the plugin, is now 2 years old and has not received any comment from the owner.
+> >>>      > So I contacted lmotta on the 28/04/2025 on his public email but received no answer, his github also showing no recent public activity.
+> >>>      > With of course all due respect to them I would like to keep a functioning state of this plugin published on the official repository.
+> >>>      > Could we transfer ownership of this plugin to me or any other volunteer, to at least review and merge contributions?
+> >>>      >
+> >>>      > Thanks,
+> >>>      > ilan/persephone
+> >>>      > lmotta/debug_vs_plugin: Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - GitHub
+> >>>      > Plugin to Enable Debug for Visual Studio( tested in Visual Studio Code) - lmotta/debug_vs_plugin
+> >>>      > github.com <http://github.com>
+> >>>
+> >>>     --     Ko Nagase (sanak)
+> >>>     mail: geosanak at gmail.com <mailto:geosanak at gmail.com>
+> >>>     _______________________________________________
+> >>>     QGIS-Developer mailing list
+> >>>     QGIS-Developer at lists.osgeo.org <mailto:QGIS-Developer at lists.osgeo.org>
+> >>>     List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+> >>>     Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer <https://lists.osgeo.org/mailman/listinfo/qgis-developer>
+> >>>
+> >>>
+> >>> _______________________________________________
+> >>> QGIS-Developer mailing list
+> >>> QGIS-Developer at lists.osgeo.org
+> >>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> >>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> >>
+> >> _______________________________________________
+> >> QGIS-Developer mailing list
+> >> QGIS-Developer at lists.osgeo.org
+> >> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> >> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> >
+> > _______________________________________________
+> > QGIS-Developer mailing list
+> > QGIS-Developer at lists.osgeo.org
+> > List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> > Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+
+
+
+--
+Ko Nagase (sanak)
+mail: geosanak at gmail.com
+
+From delazj at gmail.com  Wed Jun 18 14:57:23 2025
+From: delazj at gmail.com (DelazJ)
+Date: Wed, 18 Jun 2025 23:57:23 +0200
+Subject: [QGIS-Developer] Labeling pull requests appropriately for docs and
+ changelog repositories
+Message-ID: <dce17139-65c1-43bc-a8e4-4fa4e044cf1b@gmail.com>
+
+Dear developers,
+
+Yesterday, I spent quite some time browsing pull requests in the code 
+repo to find new features that should be documented and were not labeled 
+appropriately. I stopped after I labeled 15, starting from last October, 
+ranging from simple features to complex/hidden ones [1].
+
+I know most of us already follow the process correctly so this email is 
+to remind those that ignore or forget it that labeling pull requests or 
+commits introducing new features, for documentation purpose, is part of 
+the global QGIS development process we agree on[2]. So please try to do 
+it and make sure your PR description is up to date. This very much makes 
+life easier for docs writers.
+I could extend this request to adding the "Changelog" label.
+
+[1] If you want to find more, check 
+https://github.com/qgis/QGIS/pulls?q=is%3Apr+is%3Aclosed+label%3AChangelogHarvested+-label%3A%22Needs+Documentation%22+
+[2] 
+https://docs.qgis.org/testing/en/docs/developers_guide/git.html#special-labels-to-notify-documentors
+
+Kind regards,
+Harrissou
+
+From uclaros at gmail.com  Thu Jun 19 01:59:32 2025
+From: uclaros at gmail.com (Stefanos Natsis)
+Date: Thu, 19 Jun 2025 11:59:32 +0300
+Subject: [QGIS-Developer] QGIS 3.44 projects compatibility with previous
+ versions
+In-Reply-To: <CAMtsY+aASfH6xXEsWJoBnLNDp=jWXN1q6UgPBZRJfpFZFQNEgg@mail.gmail.com>
+References: <CADBCwLaFnEX1Fe5YOeXC_+62waF441RaoiFZi-joS=c6vEx-qg@mail.gmail.com>
+ <CAMtsY+ZP3SwMxymyFYboPJz8dPr4dTSx7OeRj99JtJH7W3jvnQ@mail.gmail.com>
+ <CAMtsY+aASfH6xXEsWJoBnLNDp=jWXN1q6UgPBZRJfpFZFQNEgg@mail.gmail.com>
+Message-ID: <CADBCwLZfFTdKGit_qcDB9OzzvFwOwXOpDhTr5weh6oABi6t+xA@mail.gmail.com>
+
+I'm not sure I like the idea of adding the data there twice. It feels like
+pollution that we inevitably need to deal with at some point!
+
+I'd really rather defer the fix for ~3 months until QGIS 4.0, especially
+since the bug it fixes has come unnoticed for sooo long :)
+
+Best
+Stefanos
+
+
+
+On Thu, 12 Jun 2025 at 15:50, Denis Rouzaud <denis.rouzaud at gmail.com> wrote:
+
+> just thinking that it will probably give the same error message!
+> so maybe a v2 like:
+>
+> <properties>
+>   <foo>
+>     <bar type="QString">baz</bar>
+>   </foo>
+> </properties>
+> <properties-v2>
+>   <properties name="foo">
+>     <properties name="bar" type="QString">baz</properties>
+>   </properties>
+> </properties-v2>
+>
+> Le jeu. 12 juin 2025 ? 14:28, Denis Rouzaud <denis.rouzaud at gmail.com> a
+> ?crit :
+>
+>> Hi,
+>>
+>> I did something similar in the symbology area and I went for saving twice
+>> the data.
+>> We could probably leave the two at the same time in the same tag:
+>>
+>> <properties>
+>>   <foo>
+>>     <bar type="QString">baz</bar>
+>>   </foo>
+>>   <properties name="foo">
+>>     <properties name="bar" type="QString">baz</properties>
+>>   </properties>
+>> </properties>
+>>
+>> Old QGIS would only save the old, new QGIS would save both and use the
+>> new if it exists.
+>>
+>> Best of the 2 worlds?
+>>
+>> Cheers,
+>> Denis
+>>
+>>
+>>
+>> Le jeu. 12 juin 2025 ? 13:55, Stefanos Natsis via QGIS-Developer <
+>> qgis-developer at lists.osgeo.org> a ?crit :
+>>
+>>> Hi list
+>>>
+>>> During the last dev cycle, a change was introduced in the way that
+>>> properties are stored in the .qgs xml file
+>>> https://github.com/qgis/QGIS/pull/60855
+>>>
+>>> While this solved a real issue (data-driven properties could result in
+>>> an invalid property name with a leading digit) in an elegant way and is
+>>> technically backwards compatible (projects generated with older versions
+>>> can be opened without issues), it has the side effect that projects stored
+>>> with 3.44 will not properly load in older QGIS versions (stored properties
+>>> are ignored and also project CRS is undefined). Plugins could also
+>>> malfunction as they often use project properties for storing their
+>>> project-related configurations.
+>>>
+>>> One potential solution would be to backport this to LTR, however from my
+>>> experience a good percentage of the users use older QGIS versions and even
+>>> those on LTR do not always upgrade as soon as a new release is out, so
+>>> backporting could eventually make things worse!
+>>>
+>>> With QGIS 4.0 around the corner, imho, it would be better to defer this
+>>> change for a couple more months and only include this kind-of-breaking
+>>> change in QGIS 4.0
+>>>
+>>> I briefly chatted with Jurgen at the hackfest about this and while
+>>> acknowledging the issue, was not super happy to revert, so I'm interested
+>>> in gathering more opinions here.
+>>>
+>>> Best
+>>> Stefanos
+>>>
+>>> _______________________________________________
+>>> QGIS-Developer mailing list
+>>> QGIS-Developer at lists.osgeo.org
+>>> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>>>
+>>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250619/65f9834c/attachment.htm>
+
+From benoit.de.mezzo at oslandia.com  Thu Jun 19 02:48:12 2025
+From: benoit.de.mezzo at oslandia.com (Benoit D.-M.)
+Date: Thu, 19 Jun 2025 11:48:12 +0200
+Subject: [QGIS-Developer] New QEP: add 3D pedestrian view
+Message-ID: <5a851323-6be6-4361-bb26-1c14e2a11092@oslandia.com>
+
+Hi!
+
+we propose to add a new "street view"-like mode in the 3D view. See 
+https://github.com/qgis/QGIS-Enhancement-Proposals/pull/341
+
+Regards.
+
+
+From ennaftitayssir00 at gmail.com  Thu Jun 19 07:39:17 2025
+From: ennaftitayssir00 at gmail.com (tayssir ennafti)
+Date: Thu, 19 Jun 2025 16:39:17 +0200
+Subject: [QGIS-Developer] Unsubscription
+Message-ID: <CA+hLZ9CYumujNjuEO=r_7Ng_nkhryL6z1a-0JEbwM5suWKDtsQ@mail.gmail.com>
+
+Hello,
+I would like to unsubscribe from the mailing list since i receive a lots of
+daily emails.
+I actually forgot my password.
+Could you remove me from your mailing list please ?
+
+Thank you for kind support.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250619/cb51812c/attachment.htm>
+
+From lnicola at dend.ro  Thu Jun 19 07:40:49 2025
+From: lnicola at dend.ro (=?UTF-8?Q?Lauren=C8=9Biu_Nicola?=)
+Date: Thu, 19 Jun 2025 17:40:49 +0300
+Subject: [QGIS-Developer] Unsubscription
+In-Reply-To: <CA+hLZ9CYumujNjuEO=r_7Ng_nkhryL6z1a-0JEbwM5suWKDtsQ@mail.gmail.com>
+References: <CA+hLZ9CYumujNjuEO=r_7Ng_nkhryL6z1a-0JEbwM5suWKDtsQ@mail.gmail.com>
+Message-ID: <b7ecb2a3-3fdc-4e4e-a473-fecd73774345@betaapp.fastmail.com>
+
+Hi,
+
+Did you try https://lists.osgeo.org/mailman/options/qgis-developer?
+
+Laurentiu
+
+On Thu, Jun 19, 2025, at 17:39, tayssir ennafti via QGIS-Developer wrote:
+> Hello, 
+> I would like to unsubscribe from the mailing list since i receive a lots of daily emails.
+> I actually forgot my password.
+> Could you remove me from your mailing list please ? 
+> 
+> Thank you for kind support.
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> 
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250619/98b7a800/attachment.htm>
+
+From ennaftitayssir00 at gmail.com  Thu Jun 19 13:11:39 2025
+From: ennaftitayssir00 at gmail.com (tayssir ennafti)
+Date: Thu, 19 Jun 2025 22:11:39 +0200
+Subject: [QGIS-Developer] Unsubscription
+In-Reply-To: <b7ecb2a3-3fdc-4e4e-a473-fecd73774345@betaapp.fastmail.com>
+References: <CA+hLZ9CYumujNjuEO=r_7Ng_nkhryL6z1a-0JEbwM5suWKDtsQ@mail.gmail.com>
+ <b7ecb2a3-3fdc-4e4e-a473-fecd73774345@betaapp.fastmail.com>
+Message-ID: <CA+hLZ9C=FYYtmBrtzkLS2y6ppDQn=E=O7NTmbsEdwE8hyTgTSQ@mail.gmail.com>
+
+Yes , but it didn't work
+
+On Thu, 19 Jun 2025, 21:27 Lauren?iu Nicola via QGIS-Developer, <
+qgis-developer at lists.osgeo.org> wrote:
+
+> Hi,
+>
+> Did you try https://lists.osgeo.org/mailman/options/qgis-developer?
+>
+> Laurentiu
+>
+> On Thu, Jun 19, 2025, at 17:39, tayssir ennafti via QGIS-Developer wrote:
+>
+> Hello,
+> I would like to unsubscribe from the mailing list since i receive a lots
+> of daily emails.
+> I actually forgot my password.
+> Could you remove me from your mailing list please ?
+>
+> Thank you for kind support.
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>
+>
+> _______________________________________________
+> QGIS-Developer mailing list
+> QGIS-Developer at lists.osgeo.org
+> List info: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+> Unsubscribe: https://lists.osgeo.org/mailman/listinfo/qgis-developer
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250619/d81d6fc9/attachment.htm>
+
+From szymonsleczka7 at gmail.com  Sat Jun 21 01:42:56 2025
+From: szymonsleczka7 at gmail.com (=?UTF-8?B?U3p5bW9uIMWabMSZY3prYQ==?=)
+Date: Sat, 21 Jun 2025 10:42:56 +0200
+Subject: [QGIS-Developer] Trouble compiling QGIS in DEBUG mode on Windows
+Message-ID: <CAEvoHPeZUdny_E2v=FprFTCRm9gkJmTKnJPX7wzCNe6HnuFGTw@mail.gmail.com>
+
+Dear QGIS Developers,
+
+I'm reaching out for advice regarding an issue I'm encountering while
+trying to compile QGIS in DEBUG mode. My goal is to troubleshoot and
+potentially fix unexpected behavior related to QgsCheckableComboBox. To aid
+in the debugging process, I wanted to enable more detailed logging
+using QgsDebugMsgLevel, as described in
+https://github.com/qgis/QGIS/blob/master/INSTALL.md#8-debug-output-and-running-tests,
+section 8.
+
+However, compiling QGIS in Debug mode fails with errors, as shown here:
+https://cdash.orfeo-toolbox.org/build/32095
+
+The log was generated after configuring the build with:
+-D CMAKE_BUILD_TYPE=Debug
+The entire build was executed using the package.sh script from:
+https://github.com/jef-n/OSGeo4W/tree/master/src/qgis-rel-dev/osgeo4w
+
+I usually work with Microsoft Visual Studio 2022, and initially, I
+suspected some misconfiguration on my part. However, it?s now unclear to me
+whether compiling QGIS in DEBUG mode is even a standard or recommended
+approach in this context. Even when building in RelWithDebInfo and defining
+the QGISDEBUG macro, the debug messages from QgsDebugMsgLevel still don?t
+show up.
+
+A few questions I would appreciate clarification on:
+    ? Is DEBUG mode supported and used by QGIS developers for debugging?
+    ? Is QgsDebugMsgLevel still commonly used, and what is the proper setup
+to get it working?
+    ? Do I really need to rebuild all dependencies
+(e.g., libprotobuf-lite, draco, etc.) in DEBUG mode for QGIS to compile
+this way?
+
+Any guidance or confirmation from someone experienced in building QGIS in
+full DEBUG mode would be highly appreciated.
+
+Best
+Szymek
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/qgis-developer/attachments/20250621/05dca4ae/attachment.htm>
+
