@@ -4284,3 +4284,1903 @@ US Army Corps
 An HTML attachment was scrubbed...
 URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250720/1df38e52/attachment.htm>
 
+From even.rouault at spatialys.com  Mon Jul 21 07:13:36 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 21 Jul 2025 16:13:36 +0200
+Subject: [gdal-dev] Understanding parquet vs adbc performance and
+ SORT_BY_BBOX=YES
+In-Reply-To: <6B81054F-06B2-4FB7-B557-3410AEA6C1BC@gmail.com>
+References: <6B81054F-06B2-4FB7-B557-3410AEA6C1BC@gmail.com>
+Message-ID: <0dbcd858-6a46-4503-8d5f-c16c377f211e@spatialys.com>
+
+Le 20/07/2025 ? 13:27, Michael Smith via gdal-dev a ?crit?:
+>
+> Using GDAL 3.11.3:
+>
+> I have a dataset Geometry: Point Feature Count: 15546949 in parquet 
+> format (written using gdal from oracle source). When doing a spatial 
+> query using the geoparquet driver, I see it accessing almost all the 
+> row groups of the dataset (PARQUET: 155/156 row groups selected) with 
+> a spatial filter fetching 12000 of the 15M points and it takes 
+> 0m18.794s. When accessing via ADBC and libduckdb, it takes 0m7.102s 
+> (but it also uses 7x CPU and about 10x memory (from looking at top).
+>
+> I then rewrote the dataset using -lco SORT_BY_BBOX=YES. Then parquet 
+> driver accesses PARQUET: 9/238 row groups selected, and the time drops 
+> to 0m1.412s. Using ADBC and libduckdb, the performance doesn?t change.
+>
+> For proper performance with gdal, is SORT_BY_BBOX=YES always needed?
+>
+yes, unless your features are already spatially sorted. It is a bit 
+strange that you don't see improvements with the ADBC driver as it does 
+push the spatial filter bbox in the SQL request, so that's perhaps a 
+limitation on how duckdb itself deals with such filters
+>
+> -- 
+>
+> Michael Smith
+>
+> RSGIS Center ? ERDC CRREL NH
+>
+> US Army Corps
+>
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250721/0e8b626b/attachment.htm>
+
+From even.rouault at spatialys.com  Mon Jul 21 07:17:56 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 21 Jul 2025 16:17:56 +0200
+Subject: [gdal-dev] Errors while creating sozip zarr file
+In-Reply-To: <64BEA276-1F9D-4D25-9AF4-0B6B21FAAAC1@gmail.com>
+References: <64BEA276-1F9D-4D25-9AF4-0B6B21FAAAC1@gmail.com>
+Message-ID: <b053305c-ef5b-49c3-9ad3-d765171f157a@spatialys.com>
+
+Erik,
+
+I don't think it is really worth sozip'ing a zipped Zarr, given that 
+zarr is made of many relatively small files, and sozip shines with big 
+compressed files.? Generally, even when creating a zipped (sozip or not) 
+Zarr file, you need to make sure that your writing pattern matches 
+chunks boundaries, to avoid chunk files to be rewritten several times 
+and making the zip bigger than needed. Please file an issue about the 
+error not being transmitted up to the caller
+
+Even
+
+Le 19/07/2025 ? 17:44, Erik Schnetter via gdal-dev a ?crit?:
+> I am using GDAL to create a multidimensional zarr file that is sozip 
+> compressed. I see this error when creating the file:
+>
+> ERROR 1: dish_positions.00000000.zarr/zarr.json already exists in ZIP file
+> ERROR 8: Open file 
+> /vsizip/data/fengine_init_pathfinder/cx66_dish_positions.00000000.zarr.zip/dish_positions.00000000.zarr/zarr.json 
+> to write failed
+>
+> Everything is working fine when I do not use sozip compression. I 
+> enable sozip compression by adding a "/vsizip" prefix to the file 
+> name. Although there is an error reported on screen, I do not see an 
+> error code reported by the function creating or closing the 
+> multidimensional dataset. The resulting file ("*.zarr.zip") is created 
+> fine and looks almost correct, but all attributes seem to be missing.
+>
+> I wonder ? is it actually possible to create a zarr file that is sozip 
+> compressed, given that zarr probably writes to each of its file 
+> multiple times? If not, what is the preferred way to create a 
+> sozip-compressed zarr file efficiently?
+>
+> Some details:
+>
+> I create the dataset (i.e. the file) via
+>
+> ? ? ? ? ? ? ? ? const auto driver_manager = GetGDALDriverManager();
+> ? ? ? ? ? ? ? ? const auto driver = 
+> driver_manager->GetDriverByName("Zarr");
+> ? ? ? ? ? ? ? ? const auto dataset = 
+> std::unique_ptr<GDALDataset>(driver->CreateMultiDimensional(
+> ? ? ? ? ? ? ? ? ? ? full_path.c_str(), root_group_options_c.data(), 
+> options_c.data()));
+>
+> where "full_path" is 
+> "/vsizip/data/fengine_init_pathfinder/cx66_dish_positions.00000000.zarr.zip/dish_positions.00000000.zarr".
+>
+> I then create multiple attributes ("CreateAttribute") and then
+>
+> ? ? ? ? ? ? ? ? const auto mdarray = 
+> group->CreateMDArray(meta->get_name(), dimensions, datatype,
+> array_options_c.data());
+> ? ? ? ? ? ? ? ? ? ? const bool success = mdarray->Write(
+> ? ? ? ? ? ? ? ? ? ? ? ? arrayStart.data(), count.data(), nullptr, 
+> bufferStride.data(), datatype,
+> ? ? ? ? ? ? ? ? ? ? ? ? frame + datatypesize * meta->offset, frame, 
+> buffer->frame_size);
+>
+> and finish with
+>
+> ? ? ? ? ? ? ? ? const CPLErr err = dataset->Close();
+> ? ? ? ? ? ? ? ? assert(!err);
+>
+> The full code is available at 
+> <https://github.com/kotekan/kotekan/blob/eschnett/updates-2/lib/stages/gdalFileWrite.cpp>.
+>
+> -erik
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From michael.smith.erdc at gmail.com  Mon Jul 21 07:33:57 2025
+From: michael.smith.erdc at gmail.com (Michael Smith)
+Date: Mon, 21 Jul 2025 10:33:57 -0400
+Subject: [gdal-dev] Understanding parquet vs adbc performance and
+ SORT_BY_BBOX=YES
+In-Reply-To: <0dbcd858-6a46-4503-8d5f-c16c377f211e@spatialys.com>
+References: <6B81054F-06B2-4FB7-B557-3410AEA6C1BC@gmail.com>
+ <0dbcd858-6a46-4503-8d5f-c16c377f211e@spatialys.com>
+Message-ID: <462307AA-B561-4056-865E-7229D9669DEE@gmail.com>
+
+It was had to really test the ADBC connection as it would crash my cloud instance due to memory / cpu consumption. Doing two map queries at the same time would kill it.
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+ 
+
+From: Even Rouault <even.rouault at spatialys.com>
+Date: Monday, July 21, 2025 at 10:13?AM
+To: Michael Smith <michael.smith.erdc at gmail.com>, <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] Understanding parquet vs adbc performance and SORT_BY_BBOX=YES
+
+ 
+
+Le 20/07/2025 ? 13:27, Michael Smith via gdal-dev a ?crit :
+
+Using GDAL 3.11.3:
+
+ 
+
+I have a dataset Geometry: Point Feature Count: 15546949 in parquet format (written using gdal from oracle source). When doing a spatial query using the geoparquet driver, I see it accessing almost all the row groups of the dataset (PARQUET: 155/156 row groups selected) with a spatial filter fetching 12000 of the 15M points and it takes 0m18.794s. When accessing via ADBC and libduckdb, it takes 0m7.102s (but it also uses 7x CPU and about 10x memory (from looking at top). 
+
+ 
+
+I then rewrote the dataset using -lco SORT_BY_BBOX=YES. Then parquet driver accesses PARQUET: 9/238 row groups selected, and the time drops to 0m1.412s. Using ADBC and libduckdb, the performance doesn?t change. 
+
+ 
+
+For proper performance with gdal, is SORT_BY_BBOX=YES always needed?
+
+yes, unless your features are already spatially sorted. It is a bit strange that you don't see improvements with the ADBC driver as it does push the spatial filter bbox in the SQL request, so that's perhaps a limitation on how duckdb itself deals with such filters
+
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250721/ee70a16c/attachment.htm>
+
+From andrew at avenza.com  Mon Jul 21 09:32:37 2025
+From: andrew at avenza.com (Andrew Patterson)
+Date: Mon, 21 Jul 2025 12:32:37 -0400
+Subject: [gdal-dev] CMYK to RGB conversion
+Message-ID: <CAC8biO1+0tASmgqwHfnriC4QTgPpw6ViH4er-C_3XFs72=tdYQ@mail.gmail.com>
+
+Hello!
+
+This might be retreading some ground. I searched the archives and found a
+short discussion but it was 11 years ago so I'm not sure how much (if
+anything has changed). If nothing has, feel free to just tell me so!
+
+I've got code that reads TIFF/JPG/PNGs and carves them into tiles to feed
+to a viewer. It's been working fine for years, but I'm now being told that
+I need to handle CMYK (and maybe LAB, though that's a low priority). I've
+been using the GDALRasterBand::RasterIO to read in pixels by band and
+that's worked pretty well (I already handle greyscale since that's easy).
+
+I could do a CMYK transformation but from what I read in that archived
+thread, I'd probably need to switch to the GDALRasterDataset::RasterIO API
+instead (not necessarily a bad thing!) so I have enough information to do
+the rough mathematical conversion. I have zero idea how to use profiles,
+even if they're present though, so I'm not sure how good it would look.
+
+Before I dive into all that work, I figured it was worth asking if there
+was something already existing in the API. From searching, it looks like
+gdal_translate performs such a conversion so in theory the logic is
+somewhere already. If nothing else, maybe I can crib from it? Ideally
+there'd be a way for me to say "GDALRasterDataset, please convert to RGB"
+but that is probably too optimistic.
+
+Any suggestions or guidance would be greatly appreciated! (even if it's
+just "Yes, the old post is still correct, go do that").
+
+-- 
+
+[image: Avenza Systems Logo]
+Andrew Patterson
+Lead Software Architect
++1 (416) 487-5116 x401
+84 Merton St., Toronto, ON, M4S 1A1
+
+
+///supply.founders.outreach <https://www.avenza.com/about/contact/>
+<https://www.facebook.com/AvenzaSystems/>    <https://x.com/Avenza>
+<https://www.linkedin.com/company/avenza-systems-inc-/mycompany/>
+<https://www.instagram.com/avenzamaps/>    <https://x.com/AvenzaMaps>
+<https://www.facebook.com/AvenzaMaps/>
+[image: Avenza Events Banner] <https://www.avenza.com/resources/events/>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250721/b2c99237/attachment-0001.htm>
+
+From mdsumner at gmail.com  Mon Jul 21 20:04:00 2025
+From: mdsumner at gmail.com (Michael Sumner)
+Date: Tue, 22 Jul 2025 13:04:00 +1000
+Subject: [gdal-dev] dataset with no driver?
+Message-ID: <CAAcGz99U-ahb4oMUX2Cp0PYPVSRG_6drr8G_Tfstu0d1y7Fo2Q@mail.gmail.com>
+
+Hi, this is new to me -  casting from MDIM results in a dataset with a null
+driver:
+
+ds = gdal.Open("../gdrivers/data/small_world.tif")
+ds.GetRasterBand(1).AsMDArray().AsClassicDataset(0,1).GetDriver()
+
+(stupid question:   )
+It makes sense to me for GTiff which has no MDIM capability, but how then
+does the work get done?
+
+I noticed by going from truly MDIM netcdf to AsClassicDataset() - I'd
+expected that the NetCDF driver was still involved.
+
+Does this mean we just have to test for null driver and report <none> in
+that case generally?
+
+Thanks, Mike
+
+
+
+
+-- 
+Michael Sumner
+Ordinary Member,  Streets People Love Hobart Association
+Research Software Engineer
+Australian Antarctic Division
+Hobart, Australia
+0438489030
+e-mail: mdsumner at gmail.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250722/71c94f72/attachment.htm>
+
+From even.rouault at spatialys.com  Tue Jul 22 09:08:52 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 22 Jul 2025 18:08:52 +0200
+Subject: [gdal-dev] dataset with no driver?
+In-Reply-To: <CAAcGz99U-ahb4oMUX2Cp0PYPVSRG_6drr8G_Tfstu0d1y7Fo2Q@mail.gmail.com>
+References: <CAAcGz99U-ahb4oMUX2Cp0PYPVSRG_6drr8G_Tfstu0d1y7Fo2Q@mail.gmail.com>
+Message-ID: <61bb46a3-c307-40ed-a3b8-34b84ad6c841@spatialys.com>
+
+Mike,
+
+there are a number of situations where you can get a Dataset not linked 
+to a driver. Code expecting a Dataset as input should be robust to it 
+having a null driver.
+
+In your situation, given that small_world.tif is a multiband dataset, 
+but AsMDArray().AsClassicDataset() returning a single band one, having 
+GetDriver() report the GTiff driver would not match the expectation that 
+if Dataset.GetDriver() returns a non null pointer ,then 
+Dataset.GetDescription() can be passed to GDALOpen() and returns a 
+dataset that is identical to it.
+
+Even
+
+Le 22/07/2025 ? 05:04, Michael Sumner via gdal-dev a ?crit?:
+> Hi, this is new to me -? casting from MDIM results in a dataset with a 
+> null driver:
+>
+> ds = gdal.Open("../gdrivers/data/small_world.tif")
+> ds.GetRasterBand(1).AsMDArray().AsClassicDataset(0,1).GetDriver()
+>
+> (stupid question:? ?)
+> It makes sense to me for GTiff which has no MDIM capability, but how 
+> then does the work get done?
+>
+> I noticed by going from truly MDIM netcdf to AsClassicDataset() - I'd 
+> expected that the NetCDF driver was still involved.
+>
+> Does this mean we just have to test for null driver and report <none> 
+> in that case generally?
+>
+> Thanks, Mike
+>
+>
+>
+>
+> -- 
+> Michael Sumner
+> Ordinary Member,? Streets People Love Hobart Association
+> Research Software Engineer
+> Australian Antarctic Division
+> Hobart, Australia
+> 0438489030
+> e-mail: mdsumner at gmail.com
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250722/e7566ff0/attachment.htm>
+
+From fengting.chen at oracle.com  Tue Jul 22 11:15:51 2025
+From: fengting.chen at oracle.com (Fengting Chen)
+Date: Tue, 22 Jul 2025 18:15:51 +0000
+Subject: [gdal-dev] Error on building from master branch on linux
+Message-ID: <SJ5PPFCC3E08AE4824F5293DEB1DAC36E90935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+
+Hi,
+
+I got the following error while trying to build gdal using ?gcc (GCC) 8.5.0 20210514 (Red Hat 8.5.0-26.0.1)?:
+
+[  0%] Building CXX object frmts/pdf/CMakeFiles/gdal_PDF_core.dir/              pdfdrivercore.cpp.o
+In file included from /usr/include/c++/8/memory:80,
+                  from /scratch/gdal/gdal/port/cpl_error.h:372,
+                  from /scratch/gdal/gdal/gcore/gdal.h:30,
+                  from /scratch/gdal/gdal/gcore/gdal_priv.h:45,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.h:16,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.cpp:13:
+/usr/include/c++/8/bits/unique_ptr.h: In instantiation of ?~@~Xvoid std::       default_delete<_Tp>::operator()(_Tp*) const [with _Tp =                         GDALRasterAttributeTable]?~@~Y:
+/usr/include/c++/8/bits/unique_ptr.h:277:17:   required from ?~@~Xstd::         unique_ptr<_Tp, _Dp>::~unique_ptr() [with _Tp = GDALRasterAttributeTable; _Dp   = std::default_delete<GDALRasterAttributeTable>]?~@~Y
+/scratch/gdal/gdal/gcore/gdal_priv.h:3664:55:   required from here
+/usr/include/c++/8/bits/unique_ptr.h:79:16: error: invalid application of       ?~@~Xsizeof?~@~Y to incomplete type ?~@~XGDALRasterAttributeTable?~@~Y
+   static_assert(sizeof(_Tp)>0,
+                 ^~~~~~~~~~~
+gmake[2]: *** [frmts/pdf/CMakeFiles/gdal_PDF_core.dir/build.make:76: frmts/pdf/ CMakeFiles/gdal_PDF_core.dir/pdfdrivercore.cpp.o] Error 1
+gmake[1]: *** [CMakeFiles/Makefile2:6099: frmts/pdf/CMakeFiles/gdal_PDF_core.   dir/all] Error 2
+gmake: *** [Makefile:146: all] Error 2
+
+Any idea how to fix this?
+
+Thanks,
+-Fengting
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250722/eb552a36/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Tue Jul 22 12:33:34 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Tue, 22 Jul 2025 21:33:34 +0200
+Subject: [gdal-dev] Error on building from master branch on linux
+In-Reply-To: <SJ5PPFCC3E08AE4824F5293DEB1DAC36E90935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+References: <SJ5PPFCC3E08AE4824F5293DEB1DAC36E90935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+Message-ID: <cf83188b-920f-431a-a868-a509808f3e14@spatialys.com>
+
+Fengting,
+
+I guess you can workaround the issue by adding a #include "gdal_rat.h" 
+at top of gdal_priv.h (shouldn't be required as GDALExtendedDataType 
+declares a destructor, so I guess your compiler is more demanding than 
+strictly needed)
+
+Even
+
+Le 22/07/2025 ? 20:15, Fengting Chen via gdal-dev a ?crit?:
+>
+> Hi,
+>
+> I got the following error while trying to build gdal using ?gcc (GCC) 
+> 8.5.0 20210514 (Red Hat 8.5.0-26.0.1)?:
+>
+> [? 0%] Building CXX object frmts/pdf/CMakeFiles/gdal_PDF_core.dir/ 
+> pdfdrivercore.cpp.o
+>
+> In file included from /usr/include/c++/8/memory:80,
+>
+> from /scratch/gdal/gdal/port/cpl_error.h:372,
+>
+> from /scratch/gdal/gdal/gcore/gdal.h:30,
+>
+> from /scratch/gdal/gdal/gcore/gdal_priv.h:45,
+>
+> from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.h:16,
+>
+> from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.cpp:13:
+>
+> /usr/include/c++/8/bits/unique_ptr.h: In instantiation of ?~@~Xvoid 
+> std:: default_delete<_Tp>::operator()(_Tp*) const [with _Tp 
+> =???????????????????????? GDALRasterAttributeTable]?~@~Y:
+>
+> /usr/include/c++/8/bits/unique_ptr.h:277:17: required from 
+> ?~@~Xstd::???????? unique_ptr<_Tp, _Dp>::~unique_ptr() [with _Tp = 
+> GDALRasterAttributeTable; _Dp?? = 
+> std::default_delete<GDALRasterAttributeTable>]?~@~Y
+>
+> /scratch/gdal/gdal/gcore/gdal_priv.h:3664:55: required from here
+>
+> /usr/include/c++/8/bits/unique_ptr.h:79:16: error: invalid application 
+> of?????? ?~@~Xsizeof?~@~Y to incomplete type 
+> ?~@~XGDALRasterAttributeTable?~@~Y
+>
+> static_assert(sizeof(_Tp)>0,
+>
+> ^~~~~~~~~~~
+>
+> gmake[2]: *** [frmts/pdf/CMakeFiles/gdal_PDF_core.dir/build.make:76: 
+> frmts/pdf/ CMakeFiles/gdal_PDF_core.dir/pdfdrivercore.cpp.o] Error 1
+>
+> gmake[1]: *** [CMakeFiles/Makefile2:6099: 
+> frmts/pdf/CMakeFiles/gdal_PDF_core.?? dir/all] Error 2
+>
+> gmake: *** [Makefile:146: all] Error 2
+>
+> Any idea how to fix this?
+>
+> Thanks,
+>
+> -Fengting
+>
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250722/85bd01c5/attachment.htm>
+
+From fengting.chen at oracle.com  Tue Jul 22 13:07:42 2025
+From: fengting.chen at oracle.com (Fengting Chen)
+Date: Tue, 22 Jul 2025 20:07:42 +0000
+Subject: [gdal-dev] [External] : Re: Error on building from master
+ branch on linux
+In-Reply-To: <cf83188b-920f-431a-a868-a509808f3e14@spatialys.com>
+References: <SJ5PPFCC3E08AE4824F5293DEB1DAC36E90935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+ <cf83188b-920f-431a-a868-a509808f3e14@spatialys.com>
+Message-ID: <SJ5PPFCC3E08AE48EC0F0F5D8577B7DB407935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+
+It doesn?t work for me. I got error in gdal_rat.h for looking for type defined in gdal_priv.h.
+
+[  0%] Building CXX object frmts/pdf/CMakeFiles/gdal_PDF_core.dir/              pdfdrivercore.cpp.o
+In file included from /scratch/gdal/gdal/gcore/gdal_priv.h:47,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.h:16,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.cpp:13:
+/scratch/gdal/gdal/gcore/gdal_rat.h:272:51: error: ?~@~XGDALColorTable?~@~Y     does not name a type; did you mean ?~@~XGDALColorTableH?~@~Y?
+      virtual CPLErr InitializeFromColorTable(const GDALColorTable *);
+                                                    ^~~~~~~~~~~~~~
+                                                    GDALColorTableH
+
+-Fengting
+
+From: Even Rouault <even.rouault at spatialys.com>
+Date: Tuesday, July 22, 2025 at 3:33?PM
+To: Fengting Chen <fengting.chen at oracle.com>, gdal dev <gdal-dev at lists.osgeo.org>
+Subject: [External] : Re: [gdal-dev] Error on building from master branch on linux
+
+Fengting,
+
+I guess you can workaround the issue by adding a #include "gdal_rat.h" at top of gdal_priv.h (shouldn't be required as GDALExtendedDataType declares a destructor, so I guess your compiler is more demanding than strictly needed)
+
+Even
+Le 22/07/2025 ? 20:15, Fengting Chen via gdal-dev a ?crit :
+Hi,
+
+I got the following error while trying to build gdal using ?gcc (GCC) 8.5.0 20210514 (Red Hat 8.5.0-26.0.1)?:
+
+[  0%] Building CXX object frmts/pdf/CMakeFiles/gdal_PDF_core.dir/              pdfdrivercore.cpp.o
+In file included from /usr/include/c++/8/memory:80,
+                  from /scratch/gdal/gdal/port/cpl_error.h:372,
+                  from /scratch/gdal/gdal/gcore/gdal.h:30,
+                  from /scratch/gdal/gdal/gcore/gdal_priv.h:45,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.h:16,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.cpp:13:
+/usr/include/c++/8/bits/unique_ptr.h: In instantiation of ?~@~Xvoid std::       default_delete<_Tp>::operator()(_Tp*) const [with _Tp =                         GDALRasterAttributeTable]?~@~Y:
+/usr/include/c++/8/bits/unique_ptr.h:277:17:   required from ?~@~Xstd::         unique_ptr<_Tp, _Dp>::~unique_ptr() [with _Tp = GDALRasterAttributeTable; _Dp   = std::default_delete<GDALRasterAttributeTable>]?~@~Y
+/scratch/gdal/gdal/gcore/gdal_priv.h:3664:55:   required from here
+/usr/include/c++/8/bits/unique_ptr.h:79:16: error: invalid application of       ?~@~Xsizeof?~@~Y to incomplete type ?~@~XGDALRasterAttributeTable?~@~Y
+   static_assert(sizeof(_Tp)>0,
+                 ^~~~~~~~~~~
+gmake[2]: *** [frmts/pdf/CMakeFiles/gdal_PDF_core.dir/build.make:76: frmts/pdf/ CMakeFiles/gdal_PDF_core.dir/pdfdrivercore.cpp.o] Error 1
+gmake[1]: *** [CMakeFiles/Makefile2:6099: frmts/pdf/CMakeFiles/gdal_PDF_core.   dir/all] Error 2
+gmake: *** [Makefile:146: all] Error 2
+
+Any idea how to fix this?
+
+Thanks,
+-Fengting
+
+
+
+_______________________________________________
+
+gdal-dev mailing list
+
+gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>
+
+https://lists.osgeo.org/mailman/listinfo/gdal-dev<https://urldefense.com/v3/__https:/lists.osgeo.org/mailman/listinfo/gdal-dev__;!!ACWV5N9M2RV99hQ!JGfpKPUg6eOXwOKEAFWSuQs31iI5ndeQvAfKRvXm2e_wb77Lm3oMBqWdlfsZNQMRfTQWdNVVdo8sfD6qXQVa22yZjcRH$>
+
+--
+
+http://www.spatialys.com<https://urldefense.com/v3/__http:/www.spatialys.com__;!!ACWV5N9M2RV99hQ!JGfpKPUg6eOXwOKEAFWSuQs31iI5ndeQvAfKRvXm2e_wb77Lm3oMBqWdlfsZNQMRfTQWdNVVdo8sfD6qXQVa28qPEEP7$>
+
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250722/3dc2fa9d/attachment-0001.htm>
+
+From ej at emjames.com  Tue Jul 22 13:11:25 2025
+From: ej at emjames.com (Emanuel Jaimes)
+Date: Tue, 22 Jul 2025 16:11:25 -0400
+Subject: [gdal-dev] Assertion json_type_object failed on gdb
+Message-ID: <19833c32a3d.6ab5a8e552949.3294289133163441073@emjames.com>
+
+Hi there,
+
+
+
+I was hoping to get some guidance on where I need to look/read or what other options I could use to extract a JSON from a GDB.
+
+
+
+Here's the issue:?
+
+For some reason, when I unzip an archive that has a GDB, `ogrinfo` doesn't produce the JSON with metadata (what columns, types, layers and spatial columns it has).?When I run ogrinfo I get:?ogrinfo: ./json_object.c:640: json_object_object_del: Assertion `json_object_get_type(jso) == json_type_object' failed.?
+
+
+
+Here's what I've done:
+
+
+"manually" unzip and open [1,2] with QGIS and try ogrinfo-> Doesn't work
+
+Use Python to unzip and open with QGIS and try ogrinfo -> Doesn't work
+
+Use the zipped file and open with QGIS -> Works
+
+Use a similar data set [5], unzip and open with QGIS (works) then run ogrinfo on it (doesn't work, same error)
+
+Open with Fiona, works (but I would prefer to stick with ogrinfo)
+
+
+
+
+More details:
+
+I thought it could be an ogrinfo version thing so I tried a different data set [3, 4] (NYS tax parcel data) and it worked as expected (I'm able to get a JSON).
+
+
+When I tried to open the unzipped file with QGIS I get:?Invalid Data Source: SAM_Master_Statewide_Database.gdb is not a valid or recognized data source. ?.
+
+
+When I use ogrinfo against it, it?mostly?works:
+
+
+$ ogrinfo ../Data/SAM-Address/SAM_Master_Statewide_Database.gdb -so
+INFO: Open of `../Data/SAM-Address/SAM_Master_Statewide_Database.gdb'
+      using driver `OpenFileGDB' successful.
+Layer: AddressPoints_SAM (Point)
+
+
+But when I try to get a JSON from it (the issue):
+
+$  ogrinfo ../Data/SAM-Address/SAM_Master_Statewide_Database.gdb -so -json
+ogrinfo: ./json_object.c:640: json_object_object_del: Assertion `json_object_get_type(jso) == json_type_object' failed.
+[1]    240230 IOT instruction (core dumped)  ogrinfo ../Data/SAM-Address/SAM_Master_Statewide_Database.gdb -so -json
+
+
+
+
+Version stuff:
+
+I'm on WSL:
+
+$  cat /etc/os-release 
+
+PRETTY_NAME="Ubuntu 24.04.2 LTS"
+
+...
+
+$ ogrinfo --version 
+
+GDAL 3.8.4, released 2024/02/08
+
+
+
+
+I have to stick to 24.04 so I can't install the latest gdal
+
+
+
+
+
+Does anyone have thoughts on how I should proceed? What could I try? I went through the manual but nothing really pops, perhaps using the summary but without -json is an option but that just adds more code paths to my project.
+
+
+
+I would be happy to contribute but I don't know where to look nor how to make a smaller test to reproduce the issue. Any pointers are appreciated.
+
+
+Thank you for your time!
+
+
+
+Best,
+
+EJ
+
+
+
+
+
+
+[1]? https://gis.ny.gov/streets-addresses 
+
+[2]? https://gisdata.ny.gov/GISData/State/Address_Points/SAM_Master_Statewide_Database.gdb.zip 
+
+[3]? https://gis.ny.gov/parcels 
+
+[4]? https://gisdata.ny.gov/GISData/State/Parcels/NYS-Tax-Parcels.zip ?
+
+[5]? https://data.gis.ny.gov/datasets/dfa176b4cf284539812c05478dc028d2/about
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250722/5762e784/attachment.htm>
+
+From craig.destigter at koordinates.com  Tue Jul 22 15:04:08 2025
+From: craig.destigter at koordinates.com (Craig de Stigter)
+Date: Wed, 23 Jul 2025 10:04:08 +1200
+Subject: [gdal-dev] Esri REST PBF support
+Message-ID: <CAF1M8pe+y0+bsZ74o1inkH3cggm3px3EN+wee+fH0GW+sv_E6A@mail.gmail.com>
+
+Hi folks
+
+OGR has support for ESRI FeatureService endpoints via the ESRI JSON
+<https://gdal.org/en/stable/drivers/vector/esrijson.html> driver.
+I am wondering if there would be interest in adding PBF support to that
+driver, so that we could ingest the more efficient PBF versions of those
+endpoints.
+
+As far as I can tell, this is *different* and unrelated to the OSM PBF
+format that GDAL already supports.
+
+Feature servers we have come across that support PBF seem to return query
+results much faster and more reliably in PBF rather than JSON.
+
+We have some Python code internally (not using GDAL) that handles the PBF,
+but it performs poorly due to being computation code in Python. I am
+investigating ways to speed it up using other languages. As part of this I
+may be in a position to convert it to C++ and contribute it to GDAL, if
+there is interest. I am no C++ developer but am becoming proficient with
+Claude Code :)
+
+I would lean towards implementing the PBF support as a by-default
+optimisation on the existing ESRIJSON driver, if the server advertises
+support for PBF - with a config option to force use of JSON if necessary. A
+separate driver would be an alternative but seems unnecessary since the PBF
+structure is quite similar to the JSON structure (the main difference is
+that geometries are encoded more efficiently)
+
+I haven't given much time towards investigating how to do this in GDAL, but
+would appreciate any tips or discussion.
+
+-- 
+Regards,
+Craig
+
+Platform Engineer
+Koordinates
+koordinates.com / @koordinates <https://twitter.com/koordinates>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250723/3c7fc219/attachment.htm>
+
+From nyall.dawson at gmail.com  Tue Jul 22 16:59:15 2025
+From: nyall.dawson at gmail.com (Nyall Dawson)
+Date: Wed, 23 Jul 2025 09:59:15 +1000
+Subject: [gdal-dev] Esri REST PBF support
+In-Reply-To: <CAF1M8pe+y0+bsZ74o1inkH3cggm3px3EN+wee+fH0GW+sv_E6A@mail.gmail.com>
+References: <CAF1M8pe+y0+bsZ74o1inkH3cggm3px3EN+wee+fH0GW+sv_E6A@mail.gmail.com>
+Message-ID: <CAB28AsgLR7AGWzQQY-o1wTpvrMhPJGoDqoUX7iuJwHhe-Sw6ig@mail.gmail.com>
+
+On Wed, 23 Jul 2025 at 08:04, Craig de Stigter via gdal-dev <
+gdal-dev at lists.osgeo.org> wrote:
+>
+> Hi folks
+>
+> OGR has support for ESRI FeatureService endpoints via the ESRI JSON
+driver.
+> I am wondering if there would be interest in adding PBF support to that
+driver, so that we could ingest the more efficient PBF versions of those
+endpoints.
+>
+> As far as I can tell, this is *different* and unrelated to the OSM PBF
+format that GDAL already supports.
+>
+> Feature servers we have come across that support PBF seem to return query
+results much faster and more reliably in PBF rather than JSON.
+>
+> We have some Python code internally (not using GDAL) that handles the
+PBF, but it performs poorly due to being computation code in Python. I am
+investigating ways to speed it up using other languages. As part of this I
+may be in a position to convert it to C++ and contribute it to GDAL, if
+there is interest. I am no C++ developer but am becoming proficient with
+Claude Code :)
+
+I'm hoping this wasn't your intention, but to paraphrase your request:
+
+"I'm happy to rely on systems which steal from the work of GDAL developers.
+But those systems aren't good enough yet, so I'd like some unpaid help from
+the GDAL developers to finish my work."
+
+?
+
+Nyall
+
+
+
+
+
+>
+> I would lean towards implementing the PBF support as a by-default
+optimisation on the existing ESRIJSON driver, if the server advertises
+support for PBF - with a config option to force use of JSON if necessary. A
+separate driver would be an alternative but seems unnecessary since the PBF
+structure is quite similar to the JSON structure (the main difference is
+that geometries are encoded more efficiently)
+>
+> I haven't given much time towards investigating how to do this in GDAL,
+but would appreciate any tips or discussion.
+>
+> --
+> Regards,
+> Craig
+>
+> Platform Engineer
+> Koordinates
+> koordinates.com / @koordinates
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250723/4f546b39/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Wed Jul 23 04:04:04 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 23 Jul 2025 13:04:04 +0200
+Subject: [gdal-dev] Esri REST PBF support
+In-Reply-To: <CAF1M8pe+y0+bsZ74o1inkH3cggm3px3EN+wee+fH0GW+sv_E6A@mail.gmail.com>
+References: <CAF1M8pe+y0+bsZ74o1inkH3cggm3px3EN+wee+fH0GW+sv_E6A@mail.gmail.com>
+Message-ID: <0f2cab6e-2e10-441b-9eaf-7923eba070d6@spatialys.com>
+
+Craig,
+
+What would you be your idea: decode the PBF into JSON ? otherwise 
+re-using the existing code of the ESRI JSON driver is going to be 
+difficult as it assumes JSON everywhere.
+
+For PBF reading, we have ogr/ogrsf_frmts/gpb.h used both by the OSM PBF 
+driver and the MVT driver. This is probably a bit tedious to use than 
+code generated by the protobuf compiler, but at least this saves an 
+extra dependency.
+
+I'm a bit skeptical about the ability of a LLM to generate code that 
+will insert nicely into GDAL, but let's see...
+
+Even
+
+Le 23/07/2025 ? 00:04, Craig de Stigter via gdal-dev a ?crit?:
+> Hi folks
+>
+> OGR has support for ESRI FeatureService endpoints via the ESRI JSON 
+> <https://gdal.org/en/stable/drivers/vector/esrijson.html> driver.
+> I am wondering if there would be interest in adding PBF support to 
+> that driver, so that we could ingest the more efficient PBF versions 
+> of those endpoints.
+>
+> As far as I can tell, this is *different* and unrelated to the OSM PBF 
+> format that GDAL already supports.
+>
+> Feature servers we have come across that support PBF seem to return 
+> query results much faster and more reliably in PBF rather than JSON.
+>
+> We have some Python code internally (not using GDAL) that handles 
+> the?PBF, but it performs poorly due to being computation code in 
+> Python. I am investigating ways to speed it up using other languages. 
+> As part of this I may be in a position to convert it to C++ and 
+> contribute it to GDAL, if there is interest. I am no C++ developer but 
+> am becoming proficient with Claude Code :)
+>
+> I would lean towards implementing the PBF support as a by-default 
+> optimisation on the existing ESRIJSON driver, if the server advertises 
+> support for PBF - with a config option to force use of JSON if 
+> necessary. A separate driver would be an alternative but seems 
+> unnecessary since the PBF structure is quite similar to the JSON 
+> structure (the main difference is that geometries are encoded more 
+> efficiently)
+>
+> I haven't given much time towards investigating how to do this in 
+> GDAL, but would appreciate any tips or discussion.
+>
+> -- 
+> Regards,
+> Craig
+>
+> Platform Engineer
+> Koordinates
+> koordinates.com <http://koordinates.com/>?/ @koordinates 
+> <https://twitter.com/koordinates>
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250723/57f87c47/attachment.htm>
+
+From fengting.chen at oracle.com  Wed Jul 23 13:51:46 2025
+From: fengting.chen at oracle.com (Fengting Chen)
+Date: Wed, 23 Jul 2025 20:51:46 +0000
+Subject: [gdal-dev] [External] : Re: Error on building from master
+ branch on linux
+In-Reply-To: <cf83188b-920f-431a-a868-a509808f3e14@spatialys.com>
+References: <SJ5PPFCC3E08AE4824F5293DEB1DAC36E90935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+ <cf83188b-920f-431a-a868-a509808f3e14@spatialys.com>
+Message-ID: <IA4PR10MB86364A591B2B5DFE5180DB83935FA@IA4PR10MB8636.namprd10.prod.outlook.com>
+
+Hi Even,
+
+After resolving error on ?GDALRasterAttributeTable? by adding ?gdal_rat.h? to gdal_priv.h, the compilation failed again.
+
+The compiler on my machine was working fine with GDAL on the master branch this early May.  Could there be anything changed in the GDAL master that caused the compilation failure?
+
+[  3%] Building CXX object frmts/gtiff/CMakeFiles/gdal_GTIFF.dir/gt_jpeg_copy.  cpp.o
+In file included from /usr/include/c++/8/memory:80,
+                  from /scratch/gdal/gdal/port/cpl_error.h:372,
+                  from /scratch/gdal/gdal/frmts/gtiff/gt_jpeg_copy.h:16,
+                  from /scratch/gdal/gdal/frmts/gtiff/gt_jpeg_copy.cpp:15:
+/usr/include/c++/8/bits/unique_ptr.h: In instantiation of ?~@~Xvoid std::       default_delete<_Tp>::operator()(_Tp*) const [with _Tp =                         GDALPansharpenOperation]?~@~Y:
+/usr/include/c++/8/bits/unique_ptr.h:277:17:   required from ?~@~Xstd::         unique_ptr<_Tp, _Dp>::~unique_ptr() [with _Tp = GDALPansharpenOperation; _Dp =  std::default_delete<GDALPansharpenOperation>]?~@~Y
+/scratch/gdal/gdal/frmts/vrt/vrtdataset.h:549:63:   required from here
+/usr/include/c++/8/bits/unique_ptr.h:79:16: error: invalid application of       ?~@~Xsizeof?~@~Y to incomplete type ?~@~XGDALPansharpenOperation?~@~Y
+   static_assert(sizeof(_Tp)>0,
+                 ^~~~~~~~~~~
+gmake[2]: *** [frmts/gtiff/CMakeFiles/gdal_GTIFF.dir/build.make:272: frmts/     gtiff/CMakeFiles/gdal_GTIFF.dir/gt_jpeg_copy.cpp.o] Error 1
+
+-Fengting
+
+From: Even Rouault <even.rouault at spatialys.com>
+Date: Tuesday, July 22, 2025 at 3:33?PM
+To: Fengting Chen <fengting.chen at oracle.com>, gdal dev <gdal-dev at lists.osgeo.org>
+Subject: [External] : Re: [gdal-dev] Error on building from master branch on linux
+
+Fengting,
+
+I guess you can workaround the issue by adding a #include "gdal_rat.h" at top of gdal_priv.h (shouldn't be required as GDALExtendedDataType declares a destructor, so I guess your compiler is more demanding than strictly needed)
+
+Even
+Le 22/07/2025 ? 20:15, Fengting Chen via gdal-dev a ?crit :
+Hi,
+
+I got the following error while trying to build gdal using ?gcc (GCC) 8.5.0 20210514 (Red Hat 8.5.0-26.0.1)?:
+
+[  0%] Building CXX object frmts/pdf/CMakeFiles/gdal_PDF_core.dir/              pdfdrivercore.cpp.o
+In file included from /usr/include/c++/8/memory:80,
+                  from /scratch/gdal/gdal/port/cpl_error.h:372,
+                  from /scratch/gdal/gdal/gcore/gdal.h:30,
+                  from /scratch/gdal/gdal/gcore/gdal_priv.h:45,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.h:16,
+                  from /scratch/gdal/gdal/frmts/pdf/pdfdrivercore.cpp:13:
+/usr/include/c++/8/bits/unique_ptr.h: In instantiation of ?~@~Xvoid std::       default_delete<_Tp>::operator()(_Tp*) const [with _Tp =                         GDALRasterAttributeTable]?~@~Y:
+/usr/include/c++/8/bits/unique_ptr.h:277:17:   required from ?~@~Xstd::         unique_ptr<_Tp, _Dp>::~unique_ptr() [with _Tp = GDALRasterAttributeTable; _Dp   = std::default_delete<GDALRasterAttributeTable>]?~@~Y
+/scratch/gdal/gdal/gcore/gdal_priv.h:3664:55:   required from here
+/usr/include/c++/8/bits/unique_ptr.h:79:16: error: invalid application of       ?~@~Xsizeof?~@~Y to incomplete type ?~@~XGDALRasterAttributeTable?~@~Y
+   static_assert(sizeof(_Tp)>0,
+                 ^~~~~~~~~~~
+gmake[2]: *** [frmts/pdf/CMakeFiles/gdal_PDF_core.dir/build.make:76: frmts/pdf/ CMakeFiles/gdal_PDF_core.dir/pdfdrivercore.cpp.o] Error 1
+gmake[1]: *** [CMakeFiles/Makefile2:6099: frmts/pdf/CMakeFiles/gdal_PDF_core.   dir/all] Error 2
+gmake: *** [Makefile:146: all] Error 2
+
+Any idea how to fix this?
+
+Thanks,
+-Fengting
+
+
+
+_______________________________________________
+
+gdal-dev mailing list
+
+gdal-dev at lists.osgeo.org<mailto:gdal-dev at lists.osgeo.org>
+
+https://lists.osgeo.org/mailman/listinfo/gdal-dev<https://urldefense.com/v3/__https:/lists.osgeo.org/mailman/listinfo/gdal-dev__;!!ACWV5N9M2RV99hQ!JGfpKPUg6eOXwOKEAFWSuQs31iI5ndeQvAfKRvXm2e_wb77Lm3oMBqWdlfsZNQMRfTQWdNVVdo8sfD6qXQVa22yZjcRH$>
+
+--
+
+http://www.spatialys.com<https://urldefense.com/v3/__http:/www.spatialys.com__;!!ACWV5N9M2RV99hQ!JGfpKPUg6eOXwOKEAFWSuQs31iI5ndeQvAfKRvXm2e_wb77Lm3oMBqWdlfsZNQMRfTQWdNVVdo8sfD6qXQVa28qPEEP7$>
+
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250723/256057aa/attachment-0001.htm>
+
+From even.rouault at spatialys.com  Wed Jul 23 13:58:50 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Wed, 23 Jul 2025 22:58:50 +0200
+Subject: [gdal-dev] [External] : Re: Error on building from master
+ branch on linux
+In-Reply-To: <IA4PR10MB86364A591B2B5DFE5180DB83935FA@IA4PR10MB8636.namprd10.prod.outlook.com>
+References: <SJ5PPFCC3E08AE4824F5293DEB1DAC36E90935CA@SJ5PPFCC3E08AE4.namprd10.prod.outlook.com>
+ <cf83188b-920f-431a-a868-a509808f3e14@spatialys.com>
+ <IA4PR10MB86364A591B2B5DFE5180DB83935FA@IA4PR10MB8636.namprd10.prod.outlook.com>
+Message-ID: <2ec84d8c-8c35-4d1a-ad51-17bfe1d67c12@spatialys.com>
+
+
+Le 23/07/2025 ? 22:51, Fengting Chen a ?crit?:
+>
+> Hi Even,
+>
+> After resolving error on ?GDALRasterAttributeTable? by adding 
+> ?gdal_rat.h? to gdal_priv.h, the compilation failed again.
+>
+> The compiler on my machine was working fine with GDAL on the master 
+> branch this early May. ?Could there be anything changed in the GDAL 
+> master that caused the compilation failure?
+>
+yes, the addition of std::unique_ptr<GDALRasterAttributeTable> 
+m_poRAT{}; at line 3664 of gdal_priv.h
+
+You should try to update to a more recent compiler.
+
+Even
+
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250723/53f88321/attachment.htm>
+
+From craig.destigter at koordinates.com  Wed Jul 23 17:52:35 2025
+From: craig.destigter at koordinates.com (Craig de Stigter)
+Date: Thu, 24 Jul 2025 12:52:35 +1200
+Subject: [gdal-dev] Esri REST PBF support
+In-Reply-To: <0f2cab6e-2e10-441b-9eaf-7923eba070d6@spatialys.com>
+References: <CAF1M8pe+y0+bsZ74o1inkH3cggm3px3EN+wee+fH0GW+sv_E6A@mail.gmail.com>
+ <0f2cab6e-2e10-441b-9eaf-7923eba070d6@spatialys.com>
+Message-ID: <CAF1M8pdqdWiO6wj1Wp6bABmtr8YXzXn3TZeEcGGAVW8ERRFGBQ@mail.gmail.com>
+
+Thanks Even
+
+I've spent this morning looking at the source code - you're definitely
+right that even though the PBF format is a similar *structure* to the JSON
+format, the code won't be easily adapted to support both without becoming
+extremely messy. So a separate driver is likely better.
+
+The definitions in gpb.h look useful for this.
+
+I will have to think harder at some point about how the two drivers will
+interact - it would be best if the new driver could fallback to ESRIJSON if
+the URL it has been given doesn't actually have PBF support. And of course
+the service and layer definition endpoints don't support PBF at all, only
+the query endpoints do - so the new driver will definitely need to re-use
+some of the code from ESRIJSON to do all that.
+
+I won't be building this this week, but I'll keep you informed when I get
+to it.
+
+Thanks
+Craig
+
+
+On Wed, 23 Jul 2025 at 23:04, Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Craig,
+>
+> What would you be your idea: decode the PBF into JSON ? otherwise re-using
+> the existing code of the ESRI JSON driver is going to be difficult as it
+> assumes JSON everywhere.
+>
+> For PBF reading, we have ogr/ogrsf_frmts/gpb.h used both by the OSM PBF
+> driver and the MVT driver. This is probably a bit tedious to use than code
+> generated by the protobuf compiler, but at least this saves an extra
+> dependency.
+>
+> I'm a bit skeptical about the ability of a LLM to generate code that will
+> insert nicely into GDAL, but let's see...
+>
+> Even
+> Le 23/07/2025 ? 00:04, Craig de Stigter via gdal-dev a ?crit :
+>
+> Hi folks
+>
+> OGR has support for ESRI FeatureService endpoints via the ESRI JSON
+> <https://gdal.org/en/stable/drivers/vector/esrijson.html> driver.
+> I am wondering if there would be interest in adding PBF support to that
+> driver, so that we could ingest the more efficient PBF versions of those
+> endpoints.
+>
+> As far as I can tell, this is *different* and unrelated to the OSM PBF
+> format that GDAL already supports.
+>
+> Feature servers we have come across that support PBF seem to return query
+> results much faster and more reliably in PBF rather than JSON.
+>
+> We have some Python code internally (not using GDAL) that handles the PBF,
+> but it performs poorly due to being computation code in Python. I am
+> investigating ways to speed it up using other languages. As part of this I
+> may be in a position to convert it to C++ and contribute it to GDAL, if
+> there is interest. I am no C++ developer but am becoming proficient with
+> Claude Code :)
+>
+> I would lean towards implementing the PBF support as a by-default
+> optimisation on the existing ESRIJSON driver, if the server advertises
+> support for PBF - with a config option to force use of JSON if necessary. A
+> separate driver would be an alternative but seems unnecessary since the PBF
+> structure is quite similar to the JSON structure (the main difference is
+> that geometries are encoded more efficiently)
+>
+> I haven't given much time towards investigating how to do this in GDAL,
+> but would appreciate any tips or discussion.
+>
+> --
+> Regards,
+> Craig
+>
+> Platform Engineer
+> Koordinates
+> koordinates.com / @koordinates <https://twitter.com/koordinates>
+>
+> _______________________________________________
+> gdal-dev mailing listgdal-dev at lists.osgeo.orghttps://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+> -- http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+
+-- 
+Regards,
+Craig
+
+Platform Engineer
+Koordinates
+koordinates.com / @koordinates <https://twitter.com/koordinates>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250724/7d7c02b0/attachment.htm>
+
+From schnetter at gmail.com  Thu Jul 24 07:20:39 2025
+From: schnetter at gmail.com (Erik Schnetter)
+Date: Thu, 24 Jul 2025 10:20:39 -0400
+Subject: [gdal-dev] Errors while creating sozip zarr file
+In-Reply-To: <b053305c-ef5b-49c3-9ad3-d765171f157a@spatialys.com>
+References: <64BEA276-1F9D-4D25-9AF4-0B6B21FAAAC1@gmail.com>
+ <b053305c-ef5b-49c3-9ad3-d765171f157a@spatialys.com>
+Message-ID: <9CBBD9D3-7D78-4255-A459-AA7A05AAC51F@gmail.com>
+
+Thanks for the pointer. I opened an issue.
+
+-erik
+
+> On Jul 21, 2025, at 10:17, Even Rouault <even.rouault at spatialys.com> wrote:
+> 
+> Erik,
+> 
+> I don't think it is really worth sozip'ing a zipped Zarr, given that zarr is made of many relatively small files, and sozip shines with big compressed files.  Generally, even when creating a zipped (sozip or not) Zarr file, you need to make sure that your writing pattern matches chunks boundaries, to avoid chunk files to be rewritten several times and making the zip bigger than needed. Please file an issue about the error not being transmitted up to the caller
+> 
+> Even
+> 
+> Le 19/07/2025 ? 17:44, Erik Schnetter via gdal-dev a ?crit :
+>> I am using GDAL to create a multidimensional zarr file that is sozip compressed. I see this error when creating the file:
+>> 
+>> ERROR 1: dish_positions.00000000.zarr/zarr.json already exists in ZIP file
+>> ERROR 8: Open file /vsizip/data/fengine_init_pathfinder/cx66_dish_positions.00000000.zarr.zip/dish_positions.00000000.zarr/zarr.json to write failed
+>> 
+>> Everything is working fine when I do not use sozip compression. I enable sozip compression by adding a "/vsizip" prefix to the file name. Although there is an error reported on screen, I do not see an error code reported by the function creating or closing the multidimensional dataset. The resulting file ("*.zarr.zip") is created fine and looks almost correct, but all attributes seem to be missing.
+>> 
+>> I wonder ? is it actually possible to create a zarr file that is sozip compressed, given that zarr probably writes to each of its file multiple times? If not, what is the preferred way to create a sozip-compressed zarr file efficiently?
+>> 
+>> Some details:
+>> 
+>> I create the dataset (i.e. the file) via
+>> 
+>>                 const auto driver_manager = GetGDALDriverManager();
+>>                 const auto driver = driver_manager->GetDriverByName("Zarr");
+>>                 const auto dataset = std::unique_ptr<GDALDataset>(driver->CreateMultiDimensional(
+>>                     full_path.c_str(), root_group_options_c.data(), options_c.data()));
+>> 
+>> where "full_path" is "/vsizip/data/fengine_init_pathfinder/cx66_dish_positions.00000000.zarr.zip/dish_positions.00000000.zarr".
+>> 
+>> I then create multiple attributes ("CreateAttribute") and then
+>> 
+>>                 const auto mdarray = group->CreateMDArray(meta->get_name(), dimensions, datatype,
+>> array_options_c.data());
+>>                     const bool success = mdarray->Write(
+>>                         arrayStart.data(), count.data(), nullptr, bufferStride.data(), datatype,
+>>                         frame + datatypesize * meta->offset, frame, buffer->frame_size);
+>> 
+>> and finish with
+>> 
+>>                 const CPLErr err = dataset->Close();
+>>                 assert(!err);
+>> 
+>> The full code is available at <https://github.com/kotekan/kotekan/blob/eschnett/updates-2/lib/stages/gdalFileWrite.cpp>.
+>> 
+>> -erik
+>> 
+>> _______________________________________________
+>> gdal-dev mailing list
+>> gdal-dev at lists.osgeo.org
+>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+> 
+> -- 
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+> 
+
+
+From ni_hao88 at hotmail.com  Fri Jul 25 12:27:08 2025
+From: ni_hao88 at hotmail.com (ni hao)
+Date: Fri, 25 Jul 2025 19:27:08 +0000
+Subject: [gdal-dev] pip install error
+Message-ID: <DM5PR02MB3862308F7780B90CF5E24E23F159A@DM5PR02MB3862.namprd02.prod.outlook.com>
+
+Hi list,
+
+when I run "pip install gdal", I got:
+
+Collecting gdal
+  Using cached gdal-3.11.3.tar.gz (878 kB)
+  Installing build dependencies ... done
+  Getting requirements to build wheel ... done
+  Preparing metadata (pyproject.toml) ... done
+Building wheels for collected packages: gdal
+  Building wheel for gdal (pyproject.toml) ... error
+  error: subprocess-exited-with-error
+
+  ? Building wheel for gdal (pyproject.toml) did not run successfully.
+  ? exit code: 1
+  ??> [149 lines of output]
+      C:\Users\sgong\AppData\Local\Temp\pip-build-env-o0cgxn7k\overlay\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsWarning: `license` overwritten by `pyproject.toml`
+        corresp(dist, value, root_dir)
+      C:\Users\sgong\AppData\Local\Temp\pip-build-env-o0cgxn7k\overlay\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsWarning: `extras_require` overwritten in `pyproject.toml` (optional-dependencies)
+        corresp(dist, value, root_dir)
+      Using numpy 2.3.2
+
+... ...
+      gnm_wrap.cpp
+      osr_wrap.cpp
+extensions/gdal_array_wrap.cpp(3381): fatal error C1083: Cannot open include file: 'gdal.h': No such file or directory
+      extensions/gnm_wrap.cpp(3378): fatal error C1083: Cannot open include file: 'gdal.h': No such file or directory
+      extensions/osr_wrap.cpp(3436): fatal error C1083: Cannot open include file: 'cpl_string.h': No such file or directory
+      error: command 'C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX86\\x64\\cl.exe' failed with exit code 2
+      [end of output]
+
+  note: This error originates from a subprocess, and is likely not a problem with pip.
+  ERROR: Failed building wheel for gdal
+Failed to build gdal
+ERROR: Failed to build installable wheels for some pyproject.toml based projects (gdal)
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250725/84f59003/attachment.htm>
+
+From michael.smith.erdc at gmail.com  Sat Jul 26 11:56:12 2025
+From: michael.smith.erdc at gmail.com (Michael Smith)
+Date: Sat, 26 Jul 2025 14:56:12 -0400
+Subject: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with
+ sqlite dialect
+Message-ID: <2BF8CE04-F9CE-4525-B5A9-18C31B26EDB7@gmail.com>
+
+I have a collection of parquet files all with the same schema, different stac collections written using geopandas to parquet. 
+
+ 
+
+When I query at the cli or in python for a directory of parquert files using sql I get timestamp casting errors
+
+
+gdal vector info -i PARQUET:s3://mybucket/stac/mds/rasters/ --sql "select * from 'rasters' where st_intersects(geometry, st_geomfromtext('POLYGON ((-68.00948853933728 17.7602787370086, -64.99052950907739 17.7602787370086, -64.99052950907739 18.6509945435268, -68.00948853933728 18.6509945435268, -68.00948853933728 17.7602787370086))'))" --dialect sqlite -f text
+
+INFO: Open of `PARQUET:s3://grid-dev-publiclidar/stac/mds/rasters/'
+
+????? using driver `Parquet' successful.
+
+ 
+
+Layer name: SELECT
+
+Geometry: Polygon
+
+ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to timestamp[ns, tz=UTC] would result in out of bounds timestamp: 237718454400000000
+
+Feature Count: 34
+
+ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to timestamp[ns, tz=UTC] would result in out of bounds timestamp: 237718454400000000
+
+Extent: (-180.000000, -90.000000) - (180.000000, 83.999167)
+
+ 
+
+If I do it file by file for all the parquet in a directory, I don?t get an error. 
+
+ 
+
+Is this a bug or a problem with sqlite dialect and parquet?
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250726/bab392da/attachment.htm>
+
+From even.rouault at spatialys.com  Sat Jul 26 12:42:45 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Sat, 26 Jul 2025 21:42:45 +0200
+Subject: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with
+ sqlite dialect
+In-Reply-To: <2BF8CE04-F9CE-4525-B5A9-18C31B26EDB7@gmail.com>
+References: <2BF8CE04-F9CE-4525-B5A9-18C31B26EDB7@gmail.com>
+Message-ID: <05549e02-c553-4d9a-bbe5-0c626541c2e2@spatialys.com>
+
+Michael,
+
+are you sure this is the *same* schema ? From the error messages (which 
+comes from libarrow-compute itself), it would seem there's a mix of 
+timestamp in microsecond and timestamp in nanosecond, and that the 
+algorithm in libarrow tries to homogenize things and an overflow occur. 
+If 237718454400000000 is a timestamp in microseconds, that corresponds 
+to January 1st 9503...?? I doubt the SQLite dialect plays any role in that.
+
+Even
+
+Le 26/07/2025 ? 20:56, Michael Smith via gdal-dev a ?crit?:
+>
+> I have a collection of parquet files all with the same schema, 
+> different stac collections written using geopandas to parquet.
+>
+> When I query at the cli or in python for a directory of parquert files 
+> using sql I get timestamp casting errors
+>
+> gdal vector info -i PARQUET:s3://mybucket/stac/mds/rasters/ --sql 
+> "select * from 'rasters' where st_intersects(geometry, 
+> st_geomfromtext('POLYGON ((-68.00948853933728 17.7602787370086, 
+> -64.99052950907739 17.7602787370086, -64.99052950907739 
+> 18.6509945435268, -68.00948853933728 18.6509945435268, 
+> -68.00948853933728 17.7602787370086))'))" --dialect sqlite -f text
+>
+> INFO: Open of `PARQUET:s3://grid-dev-publiclidar/stac/mds/rasters/'
+>
+> ????? using driver `Parquet' successful.
+>
+> Layer name: SELECT
+>
+> Geometry: Polygon
+>
+> ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to 
+> timestamp[ns, tz=UTC] would result in out of bounds timestamp: 
+> 237718454400000000
+>
+> Feature Count: 34
+>
+> ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to 
+> timestamp[ns, tz=UTC] would result in out of bounds timestamp: 
+> 237718454400000000
+>
+> Extent: (-180.000000, -90.000000) - (180.000000, 83.999167)
+>
+> If I do it file by file for all the parquet in a directory, I don?t 
+> get an error.
+>
+> Is this a bug or a problem with sqlite dialect and parquet?
+>
+> -- 
+>
+> Michael Smith
+>
+> RSGIS Center ? ERDC CRREL NH
+>
+> US Army Corps
+>
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250726/0da4f728/attachment.htm>
+
+From michael.smith.erdc at gmail.com  Sat Jul 26 12:53:37 2025
+From: michael.smith.erdc at gmail.com (Michael Smith)
+Date: Sat, 26 Jul 2025 15:53:37 -0400
+Subject: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with
+ sqlite dialect
+In-Reply-To: <05549e02-c553-4d9a-bbe5-0c626541c2e2@spatialys.com>
+References: <2BF8CE04-F9CE-4525-B5A9-18C31B26EDB7@gmail.com>
+ <05549e02-c553-4d9a-bbe5-0c626541c2e2@spatialys.com>
+Message-ID: <9F99113F-95CC-4C01-829B-307D6443E384@gmail.com>
+
+It is the same schema but writing the different files with must be optimizing the timestamps and adjusting the scale. I guess I need to force it to write it all with the same resolution. 
+
+ 
+
+Yeah, not a sqlite thing but when using OGR Sql I don?t get the same error. But I can replicate the error just reading with pyarrow and geopandas.
+
+ 
+
+Mike
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+ 
+
+From: Even Rouault <even.rouault at spatialys.com>
+Date: Saturday, July 26, 2025 at 3:42?PM
+To: Michael Smith <michael.smith.erdc at gmail.com>, <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with sqlite dialect
+
+ 
+
+Michael,
+
+are you sure this is the *same* schema ? From the error messages (which comes from libarrow-compute itself), it would seem there's a mix of timestamp in microsecond and timestamp in nanosecond, and that the algorithm in libarrow tries to homogenize things and an overflow occur. If 237718454400000000 is a timestamp in microseconds, that corresponds to January 1st 9503...   I doubt the SQLite dialect plays any role in that.
+
+Even
+
+Le 26/07/2025 ? 20:56, Michael Smith via gdal-dev a ?crit :
+
+I have a collection of parquet files all with the same schema, different stac collections written using geopandas to parquet. 
+
+ 
+
+When I query at the cli or in python for a directory of parquert files using sql I get timestamp casting errors
+
+
+
+gdal vector info -i PARQUET:s3://mybucket/stac/mds/rasters/ --sql "select * from 'rasters' where st_intersects(geometry, st_geomfromtext('POLYGON ((-68.00948853933728 17.7602787370086, -64.99052950907739 17.7602787370086, -64.99052950907739 18.6509945435268, -68.00948853933728 18.6509945435268, -68.00948853933728 17.7602787370086))'))" --dialect sqlite -f text
+
+INFO: Open of `PARQUET:s3://grid-dev-publiclidar/stac/mds/rasters/'
+
+      using driver `Parquet' successful.
+
+ 
+
+Layer name: SELECT
+
+Geometry: Polygon
+
+ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to timestamp[ns, tz=UTC] would result in out of bounds timestamp: 237718454400000000
+
+Feature Count: 34
+
+ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to timestamp[ns, tz=UTC] would result in out of bounds timestamp: 237718454400000000
+
+Extent: (-180.000000, -90.000000) - (180.000000, 83.999167)
+
+ 
+
+If I do it file by file for all the parquet in a directory, I don?t get an error. 
+
+ 
+
+Is this a bug or a problem with sqlite dialect and parquet?
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+
+
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250726/6018e56f/attachment.htm>
+
+From michael.smith.erdc at gmail.com  Sat Jul 26 13:00:19 2025
+From: michael.smith.erdc at gmail.com (Michael Smith)
+Date: Sat, 26 Jul 2025 16:00:19 -0400
+Subject: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with
+ sqlite dialect
+In-Reply-To: <339A91CB-0B8C-4235-9790-17A7F12348B9@gmail.com>
+References: <2BF8CE04-F9CE-4525-B5A9-18C31B26EDB7@gmail.com>
+ <05549e02-c553-4d9a-bbe5-0c626541c2e2@spatialys.com>
+ <339A91CB-0B8C-4235-9790-17A7F12348B9@gmail.com>
+Message-ID: <71C8F08D-5A2D-492A-B8A2-B6A154508354@gmail.com>
+
+Turns out I need to use coerce_timestamps="ms", allow_truncated_timestamps=True in the pyarrow kwargs
+
+ 
+
+https://arrow.apache.org/docs/python/generated/pyarrow.parquet.write_table.html#pyarrow.parquet.write_table
+
+ 
+
+Mike
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+ 
+
+ 
+
+From: Michael Smith <michael.smith.erdc at gmail.com>
+Date: Saturday, July 26, 2025 at 3:53?PM
+To: Even Rouault <even.rouault at spatialys.com>, <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with sqlite dialect
+
+ 
+
+It is the same schema but writing the different files with must be optimizing the timestamps and adjusting the scale. I guess I need to force it to write it all with the same resolution. 
+
+ 
+
+Yeah, not a sqlite thing but when using OGR Sql I don?t get the same error. But I can replicate the error just reading with pyarrow and geopandas.
+
+ 
+
+Mike
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+ 
+
+From: Even Rouault <even.rouault at spatialys.com>
+Date: Saturday, July 26, 2025 at 3:42?PM
+To: Michael Smith <michael.smith.erdc at gmail.com>, <gdal-dev at lists.osgeo.org>
+Subject: Re: [gdal-dev] Timestamp cast error in GDAL Parquet Directory with sqlite dialect
+
+ 
+
+Michael,
+
+are you sure this is the *same* schema ? From the error messages (which comes from libarrow-compute itself), it would seem there's a mix of timestamp in microsecond and timestamp in nanosecond, and that the algorithm in libarrow tries to homogenize things and an overflow occur. If 237718454400000000 is a timestamp in microseconds, that corresponds to January 1st 9503...   I doubt the SQLite dialect plays any role in that.
+
+Even
+
+Le 26/07/2025 ? 20:56, Michael Smith via gdal-dev a ?crit :
+
+I have a collection of parquet files all with the same schema, different stac collections written using geopandas to parquet. 
+
+ 
+
+When I query at the cli or in python for a directory of parquert files using sql I get timestamp casting errors
+
+
+gdal vector info -i PARQUET:s3://mybucket/stac/mds/rasters/ --sql "select * from 'rasters' where st_intersects(geometry, st_geomfromtext('POLYGON ((-68.00948853933728 17.7602787370086, -64.99052950907739 17.7602787370086, -64.99052950907739 18.6509945435268, -68.00948853933728 18.6509945435268, -68.00948853933728 17.7602787370086))'))" --dialect sqlite -f text
+
+INFO: Open of `PARQUET:s3://grid-dev-publiclidar/stac/mds/rasters/'
+
+      using driver `Parquet' successful.
+
+ 
+
+Layer name: SELECT
+
+Geometry: Polygon
+
+ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to timestamp[ns, tz=UTC] would result in out of bounds timestamp: 237718454400000000
+
+Feature Count: 34
+
+ERROR 1: ReadNext() failed: Casting from timestamp[us, tz=UTC] to timestamp[ns, tz=UTC] would result in out of bounds timestamp: 237718454400000000
+
+Extent: (-180.000000, -90.000000) - (180.000000, 83.999167)
+
+ 
+
+If I do it file by file for all the parquet in a directory, I don?t get an error. 
+
+ 
+
+Is this a bug or a problem with sqlite dialect and parquet?
+
+ 
+
+ 
+
+-- 
+
+Michael Smith
+
+RSGIS Center ? ERDC CRREL NH
+
+US Army Corps
+
+ 
+
+ 
+_______________________________________________
+gdal-dev mailing list
+gdal-dev at lists.osgeo.org
+https://lists.osgeo.org/mailman/listinfo/gdal-dev
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250726/76813318/attachment-0001.htm>
+
+From geo25 at pab-opto.de  Sun Jul 27 01:25:02 2025
+From: geo25 at pab-opto.de (Peter Bennewitz)
+Date: Sun, 27 Jul 2025 10:25:02 +0200
+Subject: [gdal-dev] converting from EPSG:3857 to EPSG:25832 ,
+ gdaltransform works, gdalwarp not ?
+Message-ID: <633eb264-0edb-4597-86b4-e3b1792f9d05@pab-opto.de>
+
+Dear all,
+
+Overall, I'm trying to convert ESRI SHAPE data, given in "Web Mercator" 
+EPSG:3857 , to a TIF in?? ETRS89 / UTM Zone 32U , EPSG:25832 .
+
+The GDAL Version is the one included in current stable Debian, 
+https://packages.debian.org/bookworm/gdal-bin ,? gdal-bin (3.6.2+dfsg-1 and others)
+
+The first step, rasterization, works flawless:
+ ??? gdal_rasterize -a_srs EPSG:3857 -tr 10 10 -burn 1 q.shp q.tif
+
+gdalinfo lists the file as: (full text attached)
+
+    ....
+    Coordinate System is:
+    PROJCRS["WGS 84 / Pseudo-Mercator",
+     ??? BASEGEOGCRS["WGS 84",
+     ??????? ENSEMBLE["World Geodetic System 1984 ensemble",
+     ??????????? MEMBER["World Geodetic System 1984 (Transit)"],
+    ..
+    Corner Coordinates:
+    Upper Left? (? 836370.121, 6080896.490) (? 7d30'47.67"E, 47d50'37.43"N)
+    Lower Left? (? 836370.121, 6045996.490) (? 7d30'47.67"E, 47d37'58.40"N)
+    Upper Right (? 887980.121, 6080896.490) (? 7d58'36.70"E, 47d50'37.43"N)
+    Lower Right (? 887980.121, 6045996.490) (? 7d58'36.70"E, 47d37'58.40"N)
+    Center????? (? 862175.121, 6063446.490) (? 7d44'42.18"E, 47d44'18.30"N)
+    Band 1 Block=5161x1 Type=Float64, ColorInterp=Gray
+
+Running the lower left corner through gdaltransform gives plausible ETRS89 
+coordinates :
+
+    echo? 836375.120800 6045997.312000 | gdaltransform -s_srs EPSG:3857 -t_srs
+    EPSG:25832
+    388314.422838145 5276569.91979615 0
+
+However, running the TIF through gdalwarp, and checking the result with 
+gdalinfo, does not show a plausible bounding box:
+
+    gdalwarp? -s_srs EPSG:3857 -t_srs EPSG:25832 q.tif w.tif
+    gdalinfo w.tif
+    ...
+    Corner Coordinates:
+    Upper Left? (? 836370.121, 6080896.490) (Invalid angle,Invalid angle)
+    Lower Left? (? 836370.121, 6045996.490) (Invalid angle,Invalid angle)
+    Upper Right (? 887980.121, 6080896.490) (Invalid angle,Invalid angle)
+    Lower Right (? 887980.121, 6045996.490) (Invalid angle,Invalid angle)
+    Center????? (? 862175.121, 6063446.490) (Invalid angle,Invalid angle)
+
+Looks like it passes gdalwarp unchanged.
+
+Apparently, I'm overlooking something obvious.
+Any pointers much appreciated,
+thanks, best regards, have a nice Sunday and thanks for GDAL !
+Peter
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250727/e599bdc0/attachment.htm>
+-------------- next part --------------
+Driver: GTiff/GeoTIFF
+Files: q.tif
+Size is 5161, 3490
+Coordinate System is:
+PROJCRS["WGS 84 / Pseudo-Mercator",
+    BASEGEOGCRS["WGS 84",
+        ENSEMBLE["World Geodetic System 1984 ensemble",
+            MEMBER["World Geodetic System 1984 (Transit)"],
+            MEMBER["World Geodetic System 1984 (G730)"],
+            MEMBER["World Geodetic System 1984 (G873)"],
+            MEMBER["World Geodetic System 1984 (G1150)"],
+            MEMBER["World Geodetic System 1984 (G1674)"],
+            MEMBER["World Geodetic System 1984 (G1762)"],
+            MEMBER["World Geodetic System 1984 (G2139)"],
+            ELLIPSOID["WGS 84",6378137,298.257223563,
+                LENGTHUNIT["metre",1]],
+            ENSEMBLEACCURACY[2.0]],
+        PRIMEM["Greenwich",0,
+            ANGLEUNIT["degree",0.0174532925199433]],
+        ID["EPSG",4326]],
+    CONVERSION["Popular Visualisation Pseudo-Mercator",
+        METHOD["Popular Visualisation Pseudo Mercator",
+            ID["EPSG",1024]],
+        PARAMETER["Latitude of natural origin",0,
+            ANGLEUNIT["degree",0.0174532925199433],
+            ID["EPSG",8801]],
+        PARAMETER["Longitude of natural origin",0,
+            ANGLEUNIT["degree",0.0174532925199433],
+            ID["EPSG",8802]],
+        PARAMETER["False easting",0,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8806]],
+        PARAMETER["False northing",0,
+            LENGTHUNIT["metre",1],
+            ID["EPSG",8807]]],
+    CS[Cartesian,2],
+        AXIS["easting (X)",east,
+            ORDER[1],
+            LENGTHUNIT["metre",1]],
+        AXIS["northing (Y)",north,
+            ORDER[2],
+            LENGTHUNIT["metre",1]],
+    USAGE[
+        SCOPE["Web mapping and visualisation."],
+        AREA["World between 85.06?S and 85.06?N."],
+        BBOX[-85.06,-180,85.06,180]],
+    ID["EPSG",3857]]
+Data axis to CRS axis mapping: 1,2
+Origin = (836370.120799999684095,6080896.489900000393391)
+Pixel Size = (10.000000000000000,-10.000000000000000)
+Metadata:
+  AREA_OR_POINT=Area
+Image Structure Metadata:
+  INTERLEAVE=BAND
+Corner Coordinates:
+Upper Left  (  836370.121, 6080896.490) (  7d30'47.67"E, 47d50'37.43"N)
+Lower Left  (  836370.121, 6045996.490) (  7d30'47.67"E, 47d37'58.40"N)
+Upper Right (  887980.121, 6080896.490) (  7d58'36.70"E, 47d50'37.43"N)
+Lower Right (  887980.121, 6045996.490) (  7d58'36.70"E, 47d37'58.40"N)
+Center      (  862175.121, 6063446.490) (  7d44'42.18"E, 47d44'18.30"N)
+Band 1 Block=5161x1 Type=Float64, ColorInterp=Gray
+-------------- next part --------------
+Driver: GTiff/GeoTIFF
+Files: w.tif
+Size is 5161, 3490
+Coordinate System is:
+GEOGCRS["WGS 84",
+    ENSEMBLE["World Geodetic System 1984 ensemble",
+        MEMBER["World Geodetic System 1984 (Transit)"],
+        MEMBER["World Geodetic System 1984 (G730)"],
+        MEMBER["World Geodetic System 1984 (G873)"],
+        MEMBER["World Geodetic System 1984 (G1150)"],
+        MEMBER["World Geodetic System 1984 (G1674)"],
+        MEMBER["World Geodetic System 1984 (G1762)"],
+        MEMBER["World Geodetic System 1984 (G2139)"],
+        ELLIPSOID["WGS 84",6378137,298.257223563,
+            LENGTHUNIT["metre",1]],
+        ENSEMBLEACCURACY[2.0]],
+    PRIMEM["Greenwich",0,
+        ANGLEUNIT["degree",0.0174532925199433]],
+    CS[ellipsoidal,2],
+        AXIS["geodetic latitude (Lat)",north,
+            ORDER[1],
+            ANGLEUNIT["degree",0.0174532925199433]],
+        AXIS["geodetic longitude (Lon)",east,
+            ORDER[2],
+            ANGLEUNIT["degree",0.0174532925199433]],
+    USAGE[
+        SCOPE["Horizontal component of 3D system."],
+        AREA["World."],
+        BBOX[-90,-180,90,180]],
+    ID["EPSG",4326]]
+Data axis to CRS axis mapping: 2,1
+Origin = (836370.120799999684095,6080896.489900000393391)
+Pixel Size = (10.000000000000000,-10.000000000000000)
+Metadata:
+  AREA_OR_POINT=Area
+Image Structure Metadata:
+  INTERLEAVE=BAND
+Corner Coordinates:
+Upper Left  (  836370.121, 6080896.490) (Invalid angle,Invalid angle)
+Lower Left  (  836370.121, 6045996.490) (Invalid angle,Invalid angle)
+Upper Right (  887980.121, 6080896.490) (Invalid angle,Invalid angle)
+Lower Right (  887980.121, 6045996.490) (Invalid angle,Invalid angle)
+Center      (  862175.121, 6063446.490) (Invalid angle,Invalid angle)
+Band 1 Block=5161x1 Type=Float64, ColorInterp=Gray
+
+From j1 at jimenezshaw.com  Sun Jul 27 02:09:25 2025
+From: j1 at jimenezshaw.com (Javier Jimenez Shaw)
+Date: Sun, 27 Jul 2025 11:09:25 +0200
+Subject: [gdal-dev] converting from EPSG:3857 to EPSG:25832 ,
+ gdaltransform works, gdalwarp not ?
+In-Reply-To: <633eb264-0edb-4597-86b4-e3b1792f9d05@pab-opto.de>
+References: <633eb264-0edb-4597-86b4-e3b1792f9d05@pab-opto.de>
+Message-ID: <CADRrdKvU-cM2aA_3xo172+d==ZnEY9AE_Swh53HYAX8UmcgKvw@mail.gmail.com>
+
+w_info.txt says epsg:4326, not epsg:25832. Coordinates are wrong anyhow.
+
+On Sun, 27 Jul 2025, 10:57 Peter Bennewitz via gdal-dev, <
+gdal-dev at lists.osgeo.org> wrote:
+
+> Dear all,
+>
+> Overall, I'm trying to convert ESRI SHAPE data, given in "Web Mercator"
+> EPSG:3857 , to a TIF in   ETRS89 / UTM Zone 32U , EPSG:25832 .
+>
+> The GDAL Version is the one included in current stable Debian,
+> https://packages.debian.org/bookworm/gdal-bin ,  gdal-bin (3.6.2+dfsg-1
+> and others)
+>
+> The first step, rasterization, works flawless:
+>     gdal_rasterize -a_srs EPSG:3857 -tr 10 10 -burn 1 q.shp q.tif
+>
+> gdalinfo lists the file as: (full text attached)
+>
+> ....
+> Coordinate System is:
+> PROJCRS["WGS 84 / Pseudo-Mercator",
+>     BASEGEOGCRS["WGS 84",
+>         ENSEMBLE["World Geodetic System 1984 ensemble",
+>             MEMBER["World Geodetic System 1984 (Transit)"],
+> ..
+> Corner Coordinates:
+> Upper Left  (  836370.121, 6080896.490) (  7d30'47.67"E, 47d50'37.43"N)
+> Lower Left  (  836370.121, 6045996.490) (  7d30'47.67"E, 47d37'58.40"N)
+> Upper Right (  887980.121, 6080896.490) (  7d58'36.70"E, 47d50'37.43"N)
+> Lower Right (  887980.121, 6045996.490) (  7d58'36.70"E, 47d37'58.40"N)
+> Center      (  862175.121, 6063446.490) (  7d44'42.18"E, 47d44'18.30"N)
+> Band 1 Block=5161x1 Type=Float64, ColorInterp=Gray
+>
+> Running the lower left corner through gdaltransform gives plausible ETRS89
+> coordinates :
+>
+> echo  836375.120800 6045997.312000 | gdaltransform -s_srs EPSG:3857 -t_srs
+> EPSG:25832
+> 388314.422838145 5276569.91979615 0
+>
+> However, running the TIF through gdalwarp, and checking the result with
+> gdalinfo, does not show a plausible bounding box:
+>
+> gdalwarp  -s_srs EPSG:3857 -t_srs EPSG:25832 q.tif w.tif
+> gdalinfo w.tif
+> ...
+> Corner Coordinates:
+> Upper Left  (  836370.121, 6080896.490) (Invalid angle,Invalid angle)
+> Lower Left  (  836370.121, 6045996.490) (Invalid angle,Invalid angle)
+> Upper Right (  887980.121, 6080896.490) (Invalid angle,Invalid angle)
+> Lower Right (  887980.121, 6045996.490) (Invalid angle,Invalid angle)
+> Center      (  862175.121, 6063446.490) (Invalid angle,Invalid angle)
+>
+> Looks like it passes gdalwarp unchanged.
+>
+> Apparently, I'm overlooking something obvious.
+> Any pointers much appreciated,
+> thanks, best regards, have a nice Sunday and thanks for GDAL !
+> Peter
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250727/ef550419/attachment.htm>
+
