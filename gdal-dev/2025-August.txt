@@ -1,0 +1,438 @@
+From waskd6 at missouri.edu  Sat Aug  2 15:38:17 2025
+From: waskd6 at missouri.edu (Starms, William)
+Date: Sat, 2 Aug 2025 22:38:17 +0000
+Subject: [gdal-dev] Masked histogram calculation
+Message-ID: <CO1PR01MB7243EABB8747CF081C5A3324F921A@CO1PR01MB7243.prod.exchangelabs.com>
+
+Hi everyone, I?ve been using GetHistogram but I need to support rasters with alpha channels and those run through nearblack. I don?t see masked histogramming mentioned in the docs. I do see the masked read functions, but it looks like numpy?s masked array histogram function is one of many ma functions that don't work correctly(?) (https://github.com/numpy/numpy/issues/10019)
+
+Does anyone have any creative ideas to share?
+
+For masked data, the simplest seems to be iteratively histogramming manually masked blocks.
+
+It looks like nearblack can handle >4 bands, but I need multibyte dtypes. I was thinking of rasterizing a VRT that uses the new equations system to compute  A | (A >> 8) or maybe a two step equivalent of bool(A) -> sum(A) and running that through nearblack to make an alpha channel for the above method.
+
+
+Appreciate everyone?s thoughts.
+
+Will
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250802/c841c8fb/attachment.htm>
+
+From jctoney at gmail.com  Sun Aug  3 18:46:04 2025
+From: jctoney at gmail.com (Chris Toney)
+Date: Sun, 3 Aug 2025 19:46:04 -0600
+Subject: [gdal-dev] argument default value in the C API to GDALAlgorithmArg
+Message-ID: <CALRbqORzdGH0-_RDX9ehRZz9NV0nStZ10Bkz+dZmuYGM7ZH5-A@mail.gmail.com>
+
+Hi,
+In the C API there is GDALAlgorithmArgHasDefaultValue(), but no
+interface to the GetDefault() class method to access the value itself
+when there is one (nor in the Python bindings, AFAICS).
+
+I don't believe there is a fromHandle() method on GDALAlgorithmArg to
+get to the C++ object.
+
+Is there possibly a workaround for that when working through the C API?
+
+Chris
+
+From even.rouault at spatialys.com  Mon Aug  4 01:42:41 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 4 Aug 2025 10:42:41 +0200
+Subject: [gdal-dev] argument default value in the C API to
+ GDALAlgorithmArg
+In-Reply-To: <CALRbqORzdGH0-_RDX9ehRZz9NV0nStZ10Bkz+dZmuYGM7ZH5-A@mail.gmail.com>
+References: <CALRbqORzdGH0-_RDX9ehRZz9NV0nStZ10Bkz+dZmuYGM7ZH5-A@mail.gmail.com>
+Message-ID: <f0384ff4-3c76-474b-a1b7-253ea58725f7@spatialys.com>
+
+Hi Chris,
+
+This was indeed missing in the C API. Queued for 3.12 in 
+https://github.com/OSGeo/gdal/pull/12853
+
+If you need this in 3.11, you can define the following implementation 
+detail in your code
+
+struct GDALAlgorithmArgHS
+{
+ ??? GDALAlgorithmArg *ptr = nullptr;
+
+ ??? explicit GDALAlgorithmArgHS(GDALAlgorithmArg *arg) : ptr(arg)
+ ??? {
+ ??? }
+};
+
+but better conditionalize it to 3.11 only, so that to avoid issues in 
+later version if we would change the definition of struct GDALAlgorithmArgHS
+
+and then do things like
+
+GDALAlgorithmArgH hArg;
+
+hArg->ptr->GetDefault<std::string>();
+
+Even
+
+
+Le 04/08/2025 ? 03:46, Chris Toney via gdal-dev a ?crit?:
+> Hi,
+> In the C API there is GDALAlgorithmArgHasDefaultValue(), but no
+> interface to the GetDefault() class method to access the value itself
+> when there is one (nor in the Python bindings, AFAICS).
+>
+> I don't believe there is a fromHandle() method on GDALAlgorithmArg to
+> get to the C++ object.
+>
+> Is there possibly a workaround for that when working through the C API?
+>
+> Chris
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
+From robin at rtwilson.com  Mon Aug  4 04:19:12 2025
+From: robin at rtwilson.com (Robin Wilson)
+Date: Mon, 4 Aug 2025 12:19:12 +0100
+Subject: [gdal-dev] gdal vector concat fails with `Too many open files` but
+ ogrmerge works fine
+Message-ID: <etPan.68909730.264f62fe.23f5@rtwilson.com>
+
+Hi,
+
+I?ve just started experimenting with the new gdal command line tools.
+
+I?ve tried the following command to merge a few thousand GeoJSON files into one GeoPackage:
+
+gdal vector concat --mode=single gb-postcodes-v5/units/*.geojson all_unit_postcodes.gpkg
+
+I get thousands of errors like:
+
+ERROR 4: gb-postcodes-v5/units/KY4.geojson: Too many open files
+
+Switching back to ogrmerge, I find that this command works fine:
+
+ogrmerge -single -progress -o all_unit_postcodes_v2.gpkg gb-postcodes-v5/units/*.geojson
+
+Has there been a change which means that gdal vector concat tries to open all the files in parallel, and then runs out of spare file handles? Is there any way around this for the new gdal vector concat command?
+
+Best regards,
+
+Robin
+
+Dr Robin Wilson
+www.rtwilson.com
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250804/68917f07/attachment.htm>
+
+From even.rouault at spatialys.com  Mon Aug  4 06:06:02 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Mon, 4 Aug 2025 15:06:02 +0200
+Subject: [gdal-dev] gdal vector concat fails with `Too many open files`
+ but ogrmerge works fine
+In-Reply-To: <etPan.68909730.264f62fe.23f5@rtwilson.com>
+References: <etPan.68909730.264f62fe.23f5@rtwilson.com>
+Message-ID: <08b3066c-28d2-4638-bc53-126800304901@spatialys.com>
+
+Robin,
+
+this was an oversight of the implementation of gdal vector concat. Fixed 
+per https://github.com/OSGeo/gdal/pull/12856
+
+Apart from using ogrmerge, a workaround is to increate the limit of open 
+files with "ulimit -n some_number"
+
+Even
+
+Le 04/08/2025 ? 13:19, Robin Wilson via gdal-dev a ?crit?:
+> Hi,
+>
+> I?ve just started experimenting with the new gdal command line tools.
+>
+> I?ve tried the following command to merge a few thousand GeoJSON files 
+> into one GeoPackage:
+>
+> gdal vector concat --mode=single gb-postcodes-v5/units/*.geojson 
+> all_unit_postcodes.gpkg
+>
+> I get thousands of errors like:
+>
+> ERROR 4: gb-postcodes-v5/units/KY4.geojson: Too many open files
+>
+> Switching back to ogrmerge, I find that this command works fine:
+>
+> ogrmerge -single -progress -o all_unit_postcodes_v2.gpkg 
+> gb-postcodes-v5/units/*.geojson
+>
+> Has there been a change which means that gdal vector concat tries to 
+> open all the files in parallel, and then runs out of spare file 
+> handles? Is there any way around this for the new gdal vector concat 
+> command?
+>
+> Best regards,
+>
+> Robin
+>
+> Dr Robin Wilson
+> www.rtwilson.com
+>
+> _______________________________________________
+> gdal-dev mailing list
+> gdal-dev at lists.osgeo.org
+> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250804/3565c982/attachment.htm>
+
+From jctoney at gmail.com  Mon Aug  4 14:43:31 2025
+From: jctoney at gmail.com (Chris Toney)
+Date: Mon, 4 Aug 2025 15:43:31 -0600
+Subject: [gdal-dev] argument default value in the C API to
+ GDALAlgorithmArg
+In-Reply-To: <f0384ff4-3c76-474b-a1b7-253ea58725f7@spatialys.com>
+References: <CALRbqORzdGH0-_RDX9ehRZz9NV0nStZ10Bkz+dZmuYGM7ZH5-A@mail.gmail.com>
+ <f0384ff4-3c76-474b-a1b7-253ea58725f7@spatialys.com>
+Message-ID: <CALRbqOS8B0fmD6DyxpVZ0Qs-RnpAATm=Jvo93OA4YdDMSfVw-A@mail.gmail.com>
+
+Hi Even,
+Much appreciated! That workaround solved for 3.11.
+
+Chris
+
+
+On Mon, Aug 4, 2025, 2:42 AM Even Rouault <even.rouault at spatialys.com>
+wrote:
+
+> Hi Chris,
+>
+> This was indeed missing in the C API. Queued for 3.12 in
+> https://github.com/OSGeo/gdal/pull/12853
+>
+> If you need this in 3.11, you can define the following implementation
+> detail in your code
+>
+> struct GDALAlgorithmArgHS
+> {
+>      GDALAlgorithmArg *ptr = nullptr;
+>
+>      explicit GDALAlgorithmArgHS(GDALAlgorithmArg *arg) : ptr(arg)
+>      {
+>      }
+> };
+>
+> but better conditionalize it to 3.11 only, so that to avoid issues in
+> later version if we would change the definition of struct
+> GDALAlgorithmArgHS
+>
+> and then do things like
+>
+> GDALAlgorithmArgH hArg;
+>
+> hArg->ptr->GetDefault<std::string>();
+>
+> Even
+>
+>
+> Le 04/08/2025 ? 03:46, Chris Toney via gdal-dev a ?crit :
+> > Hi,
+> > In the C API there is GDALAlgorithmArgHasDefaultValue(), but no
+> > interface to the GetDefault() class method to access the value itself
+> > when there is one (nor in the Python bindings, AFAICS).
+> >
+> > I don't believe there is a fromHandle() method on GDALAlgorithmArg to
+> > get to the C++ object.
+> >
+> > Is there possibly a workaround for that when working through the C API?
+> >
+> > Chris
+> > _______________________________________________
+> > gdal-dev mailing list
+> > gdal-dev at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+>
+-------------- next part --------------
+An HTML attachment was scrubbed...
+URL: <http://lists.osgeo.org/pipermail/gdal-dev/attachments/20250804/074b7d76/attachment.htm>
+
+From jctoney at gmail.com  Wed Aug  6 21:44:16 2025
+From: jctoney at gmail.com (Chris Toney)
+Date: Wed, 6 Aug 2025 22:44:16 -0600
+Subject: [gdal-dev] argument default value in the C API to
+ GDALAlgorithmArg
+In-Reply-To: <f0384ff4-3c76-474b-a1b7-253ea58725f7@spatialys.com>
+References: <CALRbqORzdGH0-_RDX9ehRZz9NV0nStZ10Bkz+dZmuYGM7ZH5-A@mail.gmail.com>
+ <f0384ff4-3c76-474b-a1b7-253ea58725f7@spatialys.com>
+Message-ID: <CALRbqOQopaT0Hz0nw2pRNHhjT1yT1CiYvF1FvoAe4VEu-ggsog@mail.gmail.com>
+
+Hi Even,
+> If you need this in 3.11, you can define the following implementation
+> detail in your code
+>
+> struct GDALAlgorithmArgHS
+
+Could GDALAlgorithmArgHS be defined in gdalalgorithm.h (as struct
+GDALAlgorithmHS is)?
+
+Chris
+
+
+On Mon, Aug 4, 2025 at 2:42?AM Even Rouault <even.rouault at spatialys.com> wrote:
+>
+> Hi Chris,
+>
+> This was indeed missing in the C API. Queued for 3.12 in
+> https://github.com/OSGeo/gdal/pull/12853
+>
+> If you need this in 3.11, you can define the following implementation
+> detail in your code
+>
+> struct GDALAlgorithmArgHS
+> {
+>      GDALAlgorithmArg *ptr = nullptr;
+>
+>      explicit GDALAlgorithmArgHS(GDALAlgorithmArg *arg) : ptr(arg)
+>      {
+>      }
+> };
+>
+> but better conditionalize it to 3.11 only, so that to avoid issues in
+> later version if we would change the definition of struct GDALAlgorithmArgHS
+>
+> and then do things like
+>
+> GDALAlgorithmArgH hArg;
+>
+> hArg->ptr->GetDefault<std::string>();
+>
+> Even
+>
+>
+> Le 04/08/2025 ? 03:46, Chris Toney via gdal-dev a ?crit :
+> > Hi,
+> > In the C API there is GDALAlgorithmArgHasDefaultValue(), but no
+> > interface to the GetDefault() class method to access the value itself
+> > when there is one (nor in the Python bindings, AFAICS).
+> >
+> > I don't believe there is a fromHandle() method on GDALAlgorithmArg to
+> > get to the C++ object.
+> >
+> > Is there possibly a workaround for that when working through the C API?
+> >
+> > Chris
+> > _______________________________________________
+> > gdal-dev mailing list
+> > gdal-dev at lists.osgeo.org
+> > https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>
+> --
+> http://www.spatialys.com
+> My software is free, but my time generally not.
+>
+
+From even.rouault at spatialys.com  Thu Aug  7 01:56:26 2025
+From: even.rouault at spatialys.com (Even Rouault)
+Date: Thu, 7 Aug 2025 10:56:26 +0200
+Subject: [gdal-dev] argument default value in the C API to
+ GDALAlgorithmArg
+In-Reply-To: <CALRbqOQopaT0Hz0nw2pRNHhjT1yT1CiYvF1FvoAe4VEu-ggsog@mail.gmail.com>
+References: <CALRbqORzdGH0-_RDX9ehRZz9NV0nStZ10Bkz+dZmuYGM7ZH5-A@mail.gmail.com>
+ <f0384ff4-3c76-474b-a1b7-253ea58725f7@spatialys.com>
+ <CALRbqOQopaT0Hz0nw2pRNHhjT1yT1CiYvF1FvoAe4VEu-ggsog@mail.gmail.com>
+Message-ID: <cb7736cf-d0be-415b-a08e-4035eab5d422@spatialys.com>
+
+Chris,
+
+why would you need it to be exposed ? If it is to workaround missing C 
+API entry points, we should add them
+
+Regarding struct GDALAlgorithmHS being exposed in gdalalgorithm.h, this 
+is because another GDAL .cpp file needed it, but I think I should create 
+instead a gdalalgorithm_priv.h header to move those struct definitions. 
+Please don't rely on the internals of struct GDALAlgorithmHS
+
+Even
+
+Le 07/08/2025 ? 06:44, Chris Toney a ?crit?:
+> Hi Even,
+>> If you need this in 3.11, you can define the following implementation
+>> detail in your code
+>>
+>> struct GDALAlgorithmArgHS
+> Could GDALAlgorithmArgHS be defined in gdalalgorithm.h (as struct
+> GDALAlgorithmHS is)?
+>
+> Chris
+>
+>
+> On Mon, Aug 4, 2025 at 2:42?AM Even Rouault <even.rouault at spatialys.com> wrote:
+>> Hi Chris,
+>>
+>> This was indeed missing in the C API. Queued for 3.12 in
+>> https://github.com/OSGeo/gdal/pull/12853
+>>
+>> If you need this in 3.11, you can define the following implementation
+>> detail in your code
+>>
+>> struct GDALAlgorithmArgHS
+>> {
+>>       GDALAlgorithmArg *ptr = nullptr;
+>>
+>>       explicit GDALAlgorithmArgHS(GDALAlgorithmArg *arg) : ptr(arg)
+>>       {
+>>       }
+>> };
+>>
+>> but better conditionalize it to 3.11 only, so that to avoid issues in
+>> later version if we would change the definition of struct GDALAlgorithmArgHS
+>>
+>> and then do things like
+>>
+>> GDALAlgorithmArgH hArg;
+>>
+>> hArg->ptr->GetDefault<std::string>();
+>>
+>> Even
+>>
+>>
+>> Le 04/08/2025 ? 03:46, Chris Toney via gdal-dev a ?crit :
+>>> Hi,
+>>> In the C API there is GDALAlgorithmArgHasDefaultValue(), but no
+>>> interface to the GetDefault() class method to access the value itself
+>>> when there is one (nor in the Python bindings, AFAICS).
+>>>
+>>> I don't believe there is a fromHandle() method on GDALAlgorithmArg to
+>>> get to the C++ object.
+>>>
+>>> Is there possibly a workaround for that when working through the C API?
+>>>
+>>> Chris
+>>> _______________________________________________
+>>> gdal-dev mailing list
+>>> gdal-dev at lists.osgeo.org
+>>> https://lists.osgeo.org/mailman/listinfo/gdal-dev
+>> --
+>> http://www.spatialys.com
+>> My software is free, but my time generally not.
+>>
+-- 
+http://www.spatialys.com
+My software is free, but my time generally not.
+
+
